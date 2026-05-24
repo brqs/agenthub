@@ -1,0 +1,89 @@
+"""Message schemas — ContentBlock union + Message DTOs."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Annotated, Literal
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.common import CursorPagination
+
+
+# ─── ContentBlock 联合类型 ───────────────────────────────────────
+class TextBlock(BaseModel):
+    type: Literal["text"] = "text"
+    text: str
+
+
+class CodeBlock(BaseModel):
+    type: Literal["code"] = "code"
+    language: str
+    code: str
+
+
+class DiffBlock(BaseModel):
+    type: Literal["diff"] = "diff"
+    filename: str
+    before: str
+    after: str
+
+
+class WebPreviewBlock(BaseModel):
+    type: Literal["web_preview"] = "web_preview"
+    url: str
+    title: str | None = None
+    description: str | None = None
+    thumbnail_url: str | None = None
+
+
+class FileBlock(BaseModel):
+    type: Literal["file"] = "file"
+    filename: str
+    url: str
+    size: int
+    mime_type: str
+
+
+ContentBlock = Annotated[
+    TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock,
+    Field(discriminator="type"),
+]
+
+
+# ─── Message DTOs ────────────────────────────────────────────────
+MessageRole = Literal["user", "agent", "system"]
+MessageStatus = Literal["pending", "streaming", "done", "error"]
+
+
+class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID
+    role: MessageRole
+    agent_id: str | None = None
+    content: list[ContentBlock] = Field(default_factory=list)
+    reply_to_id: UUID | None = None
+    status: MessageStatus = "done"
+    is_pinned: bool = False
+    created_at: datetime
+
+
+class SendMessageRequest(BaseModel):
+    content: list[ContentBlock] = Field(..., min_length=1)
+    target_agent_id: str | None = None
+
+
+class SendMessageResponse(BaseModel):
+    user_message: MessageOut
+    agent_message: MessageOut
+
+
+class UpdateMessageRequest(BaseModel):
+    is_pinned: bool | None = None
+
+
+class MessageList(CursorPagination[MessageOut]):
+    pass
