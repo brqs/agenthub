@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # ─── Server ───
     environment: str = Field(default="development")
-    host: str = Field(default="0.0.0.0")
+    host: str = Field(default="0.0.0.0")  # noqa: S104 - needed for Docker binding.
     port: int = Field(default=8000)
     log_level: str = Field(default="INFO")
 
@@ -39,8 +39,10 @@ class Settings(BaseSettings):
 
     # ─── AI Providers ───
     anthropic_api_key: str = Field(default="")
+    deepseek_api_key: str = Field(default="")
     openai_api_key: str = Field(default="")
     anthropic_base_url: str = Field(default="")
+    deepseek_base_url: str = Field(default="https://api.deepseek.com")
     openai_base_url: str = Field(default="")
 
     # ─── CORS ───

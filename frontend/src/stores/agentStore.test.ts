@@ -64,4 +64,20 @@ describe('agentStore', () => {
     useAgentStore.getState().setSelectedAgentId(null);
     expect(useAgentStore.getState().selectedAgentId).toBeNull();
   });
+
+  it('creates a deepseek agent', () => {
+    const created = useAgentStore.getState().createAgent({
+      name: 'DeepSeek Reviewer',
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      capabilities: ['分析'],
+      systemPrompt: '',
+    });
+
+    expect(created).toMatchObject({
+      id: 'deepseek-reviewer',
+      provider: 'deepseek',
+      config: { model: 'deepseek-v4-flash', temperature: 0.4 },
+    });
+  });
 });

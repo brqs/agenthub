@@ -85,6 +85,17 @@ export const mockAgents: Agent[] = [
     created_at: minutesAgo(500),
   },
   {
+    id: 'deepseek-assistant',
+    name: 'DeepSeek Assistant',
+    provider: 'deepseek',
+    avatar_url: '',
+    capabilities: ['通用问答', '代码辅助', '分析'],
+    system_prompt: null,
+    config: { model: 'deepseek-v4-flash', temperature: 0.7 },
+    is_builtin: true,
+    created_at: minutesAgo(500),
+  },
+  {
     id: 'web-designer',
     name: 'Web Designer',
     provider: 'custom',

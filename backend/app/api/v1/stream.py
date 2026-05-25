@@ -66,6 +66,8 @@ async def _event_generator(
     accumulator = _ContentAccumulator()
     try:
         if not message.agent_id:
+            message.status = "error"
+            await db.commit()
             yield StreamChunk(
                 event_type="error",
                 error_code="missing_agent",
@@ -80,15 +82,22 @@ async def _event_generator(
         message.status = "streaming"
         await db.commit()
 
+        disconnected = False
         async for chunk in adapter.stream(history):
             if await request.is_disconnected():
+                disconnected = True
                 break
             accumulator.feed(chunk)
             yield chunk.to_sse()
+            if chunk.event_type == "error":
+                message.content = accumulator.to_list()
+                message.status = "error"
+                await db.commit()
+                return
 
         # Persist
         message.content = accumulator.to_list()
-        message.status = "done"
+        message.status = "error" if disconnected else "done"
         await db.commit()
     except AgentNotFoundError as e:
         message.status = "error"
@@ -97,6 +106,7 @@ async def _event_generator(
             event_type="error", error_code="agent_not_found", error=str(e)
         ).to_sse()
     except Exception as e:  # noqa: BLE001
+        message.content = accumulator.to_list()
         message.status = "error"
         await db.commit()
         yield StreamChunk(
@@ -114,7 +124,10 @@ async def stream_message(
     """SSE stream for an agent message."""
     message = await db.get(Message, msg_id)
     if not message:
-        raise HTTPException(404, detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}},
+        )
 
     # Ownership check via parent conversation
     await _get_owned_conversation(db, user.id, message.conversation_id)
@@ -122,7 +135,12 @@ async def stream_message(
     if message.role != "agent":
         raise HTTPException(
             400,
-            detail={"error": {"code": "NOT_AGENT_MESSAGE", "message": "Only agent messages can be streamed"}},
+            detail={
+                "error": {
+                    "code": "NOT_AGENT_MESSAGE",
+                    "message": "Only agent messages can be streamed",
+                }
+            },
         )
 
     return EventSourceResponse(_event_generator(db, request, message))

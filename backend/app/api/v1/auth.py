@@ -17,11 +17,18 @@ router = APIRouter()
 
 @router.post("/register", response_model=AuthResponse, status_code=201)
 async def register(payload: RegisterRequest, db: DbSession) -> AuthResponse:
-    existing = (await db.execute(select(User).where(User.username == payload.username))).scalar_one_or_none()
+    existing = (
+        await db.execute(select(User).where(User.username == payload.username))
+    ).scalar_one_or_none()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={"error": {"code": "USERNAME_TAKEN", "message": "Username already exists"}},
+            detail={
+                "error": {
+                    "code": "USERNAME_TAKEN",
+                    "message": "Username already exists",
+                }
+            },
         )
 
     user = User(username=payload.username, password_hash=hash_password(payload.password))
