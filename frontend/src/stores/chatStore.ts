@@ -10,7 +10,7 @@ import {
   type TaskCardBlock,
   type TaskStatus,
 } from '@/lib/mockData';
-import type { StreamEvent } from '@/lib/types';
+import type { Conversation, Message, StreamEvent } from '@/lib/types';
 
 interface ChatState {
   conversations: DemoConversation[];
@@ -27,6 +27,18 @@ interface ChatState {
   createPendingExchange: (conversationId: string, text: string) => { agentMessageId: string } | null;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
   resetMessageForRetry: (messageId: string) => void;
+  /** Prepend a freshly created conversation (returned by POST /conversations). */
+  addConversation: (conversation: Conversation) => void;
+  /** Replace the conversation list (used to mirror server state in API mode). */
+  hydrateConversations: (conversations: Conversation[]) => void;
+  /** Replace messages for a single conversation (used on initial fetch in API mode). */
+  hydrateMessages: (conversationId: string, messages: Message[]) => void;
+  /** Append the {user_message, agent_message} pair returned by POST /messages. */
+  appendRemoteExchange: (
+    conversationId: string,
+    userMessage: Message,
+    agentMessage: Message,
+  ) => void;
 }
 
 function createUserMessage(conversationId: string, text: string): DemoMessage {
@@ -296,6 +308,60 @@ export const useChatStore = create<ChatState>((set, get) => ({
               : message,
           ),
         ]),
+      ),
+    }));
+  },
+  addConversation: (conversation) => {
+    set((state) => ({
+      conversations: [conversation as DemoConversation, ...state.conversations],
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [conversation.id]: state.messagesByConversation[conversation.id] ?? [],
+      },
+      selectedConversationId: conversation.id,
+    }));
+  },
+  hydrateConversations: (conversations) => {
+    set((state) => {
+      const remoteIds = new Set(conversations.map((c) => c.id));
+      const selected = state.selectedConversationId;
+      const nextSelected =
+        selected && remoteIds.has(selected) ? selected : conversations[0]?.id ?? '';
+      return {
+        conversations: conversations as DemoConversation[],
+        selectedConversationId: nextSelected,
+      };
+    });
+  },
+  hydrateMessages: (conversationId, messages) => {
+    set((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [conversationId]: messages as DemoMessage[],
+      },
+    }));
+  },
+  appendRemoteExchange: (conversationId, userMessage, agentMessage) => {
+    set((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [conversationId]: [
+          ...(state.messagesByConversation[conversationId] ?? []),
+          userMessage as DemoMessage,
+          agentMessage as DemoMessage,
+        ],
+      },
+      conversations: state.conversations.map((item) =>
+        item.id === conversationId
+          ? {
+              ...item,
+              last_message_at: userMessage.created_at,
+              last_message_preview:
+                (userMessage.content?.[0] as { text?: string } | undefined)?.text ??
+                item.last_message_preview ??
+                null,
+            }
+          : item,
       ),
     }));
   },
