@@ -10,7 +10,7 @@ import type { ContentBlock, StreamEvent } from '@/lib/types';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error';
 
-interface StreamingBlock extends Partial<ContentBlock> {
+interface StreamingBlock {
   type: ContentBlock['type'];
   text?: string;
   code?: string;

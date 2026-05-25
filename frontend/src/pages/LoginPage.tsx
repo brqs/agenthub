@@ -13,6 +13,16 @@ export function LoginPage() {
   const setAuth = useAuthStore((s) => s.setAuth);
   const navigate = useNavigate();
 
+  function enterDemo() {
+    setAuth('mock-demo-token', {
+      id: '00000000-0000-4000-8000-000000000001',
+      username: 'frontend-demo',
+      avatar_url: null,
+      created_at: new Date().toISOString(),
+    });
+    navigate('/chat');
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -70,6 +80,13 @@ export function LoginPage() {
             className="w-full py-2 bg-brand hover:bg-brand-hover text-white rounded-md font-medium transition disabled:opacity-50"
           >
             {loading ? '...' : mode === 'login' ? '登 录' : '注 册'}
+          </button>
+          <button
+            type="button"
+            onClick={enterDemo}
+            className="w-full rounded-md border border-slate-300 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            进入前端 Demo
           </button>
         </form>
 
