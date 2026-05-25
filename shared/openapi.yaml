@@ -267,7 +267,7 @@ components:
     # ─── Agent ───
     AgentProvider:
       type: string
-      enum: [claude, openai, custom]
+      enum: [claude, deepseek, openai, custom]
 
     AgentConfig:
       type: object
@@ -277,6 +277,10 @@ components:
         temperature: { type: number, minimum: 0, maximum: 2 }
         max_tokens: { type: integer, minimum: 1, maximum: 16384 }
         top_p: { type: number, minimum: 0, maximum: 1 }
+        upstream_provider:
+          type: string
+          enum: [claude, deepseek, openai]
+          description: 'Upstream provider for custom agents. Only used when provider is custom.'
 
     Agent:
       type: object
@@ -304,6 +308,7 @@ components:
         capabilities:
           type: array
           items: { type: string }
+          maxItems: 10
           default: []
         system_prompt: { type: string, nullable: true, maxLength: 8192 }
         config: { $ref: '#/components/schemas/AgentConfig' }
@@ -311,12 +316,13 @@ components:
     UpdateAgentRequest:
       type: object
       properties:
-        name: { type: string }
+        name: { type: string, minLength: 1, maxLength: 64 }
         avatar_url: { type: string }
         capabilities:
           type: array
           items: { type: string }
-        system_prompt: { type: string, nullable: true }
+          maxItems: 10
+        system_prompt: { type: string, nullable: true, maxLength: 8192 }
         config: { $ref: '#/components/schemas/AgentConfig' }
 
     AgentList:

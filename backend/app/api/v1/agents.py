@@ -1,15 +1,17 @@
-"""Agent routes — Owner: B2 (with B1 assist for routing wiring).
-
-TODO(B2): full implementation.
-"""
+"""Agent routes — Owner: B2 (with B1 assist for routing wiring)."""
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select
 
+from app.agents.config_validation import (
+    AgentConfigValidationError,
+    merge_agent_config,
+    validate_agent_config,
+)
 from app.core.deps import DbSession, get_current_user
 from app.models.agent import Agent
 from app.models.user import User
@@ -22,6 +24,16 @@ from app.schemas.agent import (
 )
 
 router = APIRouter()
+
+
+def _format_validation_error(exc: AgentConfigValidationError) -> dict[str, Any]:
+    return {
+        "error": {
+            "code": exc.code,
+            "message": exc.message,
+            "details": exc.details,
+        }
+    }
 
 
 @router.get("", response_model=AgentList)
@@ -60,7 +72,15 @@ async def create_agent(
     db: DbSession,
     user: Annotated[User, Depends(get_current_user)],
 ) -> AgentOut:
-    # TODO(B2): validate provider + model
+    try:
+        normalized_config = validate_agent_config(
+            provider=payload.provider,
+            config=payload.config,
+            system_prompt=payload.system_prompt,
+        )
+    except AgentConfigValidationError as exc:
+        raise HTTPException(status_code=422, detail=_format_validation_error(exc)) from exc
+
     agent = Agent(
         id=Agent.new_id(),
         user_id=user.id,
@@ -69,7 +89,7 @@ async def create_agent(
         avatar_url=payload.avatar_url,
         capabilities=payload.capabilities,
         system_prompt=payload.system_prompt,
-        config=payload.config,
+        config=normalized_config,
         is_builtin=False,
     )
     db.add(agent)
@@ -85,7 +105,10 @@ async def get_agent(
 ) -> AgentOut:
     agent = await db.get(Agent, agent_id)
     if not agent:
-        raise HTTPException(404, detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}},
+        )
     if not agent.is_builtin and agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
     return AgentOut.model_validate(agent)
@@ -100,16 +123,53 @@ async def update_agent(
 ) -> AgentOut:
     agent = await db.get(Agent, agent_id)
     if not agent:
-        raise HTTPException(404, detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}},
+        )
     if agent.is_builtin:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            detail={"error": {"code": "CANNOT_MODIFY_BUILTIN", "message": "Built-in agents are read-only"}},
+            detail={
+                "error": {
+                    "code": "CANNOT_MODIFY_BUILTIN",
+                    "message": "Built-in agents are read-only",
+                }
+            },
         )
     if agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
 
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+
+    # Re-validate whenever config or system_prompt is being updated
+    if "config" in updates or "system_prompt" in updates:
+        patch_config = updates.get("config")
+        if patch_config is None and "config" in updates:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": {
+                        "code": "INVALID_AGENT_CONFIG",
+                        "message": "config cannot be null",
+                    }
+                },
+            )
+        merged_config = merge_agent_config(
+            agent.config, patch_config if patch_config is not None else {}
+        )
+        effective_system_prompt = updates.get("system_prompt", agent.system_prompt)
+        try:
+            normalized_config = validate_agent_config(
+                provider=agent.provider,
+                config=merged_config,
+                system_prompt=effective_system_prompt,
+            )
+        except AgentConfigValidationError as exc:
+            raise HTTPException(status_code=422, detail=_format_validation_error(exc)) from exc
+        updates["config"] = normalized_config
+
+    for field, value in updates.items():
         setattr(agent, field, value)
     await db.flush()
     return AgentOut.model_validate(agent)
@@ -123,11 +183,19 @@ async def delete_agent(
 ) -> None:
     agent = await db.get(Agent, agent_id)
     if not agent:
-        raise HTTPException(404, detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}},
+        )
     if agent.is_builtin:
         raise HTTPException(
             403,
-            detail={"error": {"code": "CANNOT_DELETE_BUILTIN", "message": "Built-in agents are read-only"}},
+            detail={
+                "error": {
+                    "code": "CANNOT_DELETE_BUILTIN",
+                    "message": "Built-in agents are read-only",
+                }
+            },
         )
     if agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})

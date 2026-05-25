@@ -8,13 +8,15 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from sqlalchemy import select
 
+from app.agents.config_validation import validate_agent_config
 from app.core.database import SessionFactory
 from app.models.agent import Agent
 
-BUILTIN_AGENTS: list[dict] = [
+BUILTIN_AGENTS: list[dict[str, Any]] = [
     {
         "id": "claude-code",
         "name": "Claude Code",
@@ -34,6 +36,19 @@ BUILTIN_AGENTS: list[dict] = [
         "config": {"model": "gpt-4o", "temperature": 0.7, "max_tokens": 4096},
     },
     {
+        "id": "deepseek-assistant",
+        "name": "DeepSeek Assistant",
+        "provider": "deepseek",
+        "avatar_url": "/avatars/deepseek.png",
+        "capabilities": ["chat", "analysis", "coding"],
+        "system_prompt": None,
+        "config": {
+            "model": "deepseek-v4-flash",
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        },
+    },
+    {
         "id": "orchestrator",
         "name": "Orchestrator",
         "provider": "custom",
@@ -44,7 +59,12 @@ BUILTIN_AGENTS: list[dict] = [
             "into sub-tasks and dispatch each to the most suitable specialist agent. "
             "Return a structured task plan."
         ),
-        "config": {"model": "claude-sonnet-4-6", "upstream_provider": "claude"},
+        "config": {
+            "model": "claude-sonnet-4-6",
+            "upstream_provider": "claude",
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        },
     },
     {
         "id": "writer",
@@ -53,9 +73,15 @@ BUILTIN_AGENTS: list[dict] = [
         "avatar_url": "/avatars/writer.png",
         "capabilities": ["writing", "copywriting", "editing"],
         "system_prompt": (
-            "You are a professional writer. Help users craft clear, engaging, and well-structured prose."
+            "You are a professional writer. Help users craft clear, engaging, "
+            "and well-structured prose."
         ),
-        "config": {"model": "claude-sonnet-4-6", "upstream_provider": "claude", "temperature": 0.8},
+        "config": {
+            "model": "claude-sonnet-4-6",
+            "upstream_provider": "claude",
+            "temperature": 0.8,
+            "max_tokens": 4096,
+        },
     },
     {
         "id": "web-designer",
@@ -67,15 +93,30 @@ BUILTIN_AGENTS: list[dict] = [
             "You are a senior web designer. Generate clean, modern HTML/CSS, suggest layouts, "
             "and explain design rationale."
         ),
-        "config": {"model": "claude-sonnet-4-6", "upstream_provider": "claude"},
+        "config": {
+            "model": "claude-sonnet-4-6",
+            "upstream_provider": "claude",
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        },
     },
 ]
 
 
 async def seed() -> None:
+    # Validate all built-in agents before touching the database
+    for a in BUILTIN_AGENTS:
+        validate_agent_config(
+            provider=a["provider"],
+            config=a["config"],
+            system_prompt=a["system_prompt"],
+        )
+
     async with SessionFactory() as db:
         for a in BUILTIN_AGENTS:
-            exists = (await db.execute(select(Agent).where(Agent.id == a["id"]))).scalar_one_or_none()
+            exists = (
+                await db.execute(select(Agent).where(Agent.id == a["id"]))
+            ).scalar_one_or_none()
             if exists:
                 print(f"  → skip {a['id']} (already exists)")
                 continue

@@ -15,7 +15,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 
-from app.api.v1.conversations import _get_owned_conversation
+from app.api.v1.conversations import _get_owned_conversation, _validate_visible_agent_ids
 from app.core.deps import DbSession, get_current_user
 from app.models.message import Message
 from app.models.user import User
@@ -89,6 +89,17 @@ async def send_message(
                     }
                 },
             )
+    if target_agent_id not in conv.agent_ids:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "AGENT_NOT_FOUND",
+                    "message": "target_agent_id is not part of this conversation",
+                }
+            },
+        )
+    await _validate_visible_agent_ids(db, user.id, [target_agent_id])
 
     # Create user message
     user_msg = Message(
@@ -131,7 +142,10 @@ async def update_message(
 ) -> MessageOut:
     msg = await db.get(Message, msg_id)
     if not msg:
-        raise HTTPException(404, detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}},
+        )
     await _get_owned_conversation(db, user.id, msg.conversation_id)
 
     if payload.is_pinned is not None:
@@ -149,7 +163,10 @@ async def delete_message(
 ) -> None:
     msg = await db.get(Message, msg_id)
     if not msg:
-        raise HTTPException(404, detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}},
+        )
     await _get_owned_conversation(db, user.id, msg.conversation_id)
     await db.delete(msg)
 
@@ -161,5 +178,50 @@ async def regenerate_message(
     db: DbSession,
     user: Annotated[User, Depends(get_current_user)],
 ) -> MessageOut:
-    # TODO(B1): implement
-    raise HTTPException(501, detail={"error": {"code": "NOT_IMPLEMENTED", "message": "TODO"}})
+    msg = await db.get(Message, msg_id)
+    if not msg:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}},
+        )
+    conv = await _get_owned_conversation(db, user.id, msg.conversation_id)
+    if msg.role != "agent":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "NOT_AGENT_MESSAGE",
+                    "message": "Only agent messages can be regenerated",
+                }
+            },
+        )
+    if msg.agent_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "code": "MISSING_TARGET_AGENT",
+                    "message": "Missing agent_id",
+                }
+            },
+        )
+    if msg.agent_id not in conv.agent_ids:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Agent not found"}},
+        )
+    await _validate_visible_agent_ids(db, user.id, [msg.agent_id])
+
+    new_msg = Message(
+        conversation_id=msg.conversation_id,
+        role="agent",
+        agent_id=msg.agent_id,
+        content=[],
+        reply_to_id=msg.reply_to_id,
+        status="pending",
+    )
+    await db.delete(msg)
+    db.add(new_msg)
+    conv.last_message_at = datetime.now(UTC)
+    await db.flush()
+    return MessageOut.model_validate(new_msg)

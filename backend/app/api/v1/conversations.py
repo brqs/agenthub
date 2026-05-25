@@ -9,9 +9,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import DbSession, get_current_user
+from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.schemas.conversation import (
@@ -22,6 +24,57 @@ from app.schemas.conversation import (
 )
 
 router = APIRouter()
+
+
+def _raise_agent_count_error(message: str) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"error": {"code": "INVALID_AGENT_COUNT", "message": message}},
+    )
+
+
+async def _validate_visible_agent_ids(
+    db: AsyncSession,
+    user_id: UUID,
+    agent_ids: list[str],
+) -> None:
+    requested = set(agent_ids)
+    if not requested:
+        _raise_agent_count_error("agent_ids must not be empty")
+
+    stmt = select(Agent.id).where(
+        Agent.id.in_(requested),
+        or_(Agent.is_builtin.is_(True), Agent.user_id == user_id),
+    )
+    found = set((await db.execute(stmt)).scalars().all())
+    missing = sorted(requested - found)
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": {
+                    "code": "AGENT_NOT_FOUND",
+                    "message": "One or more agents were not found",
+                    "details": {"agent_ids": missing},
+                }
+            },
+        )
+
+
+async def _validate_conversation_agents(
+    db: AsyncSession,
+    user_id: UUID,
+    mode: str,
+    agent_ids: list[str],
+) -> None:
+    unique_agent_count = len(set(agent_ids))
+    if len(agent_ids) != unique_agent_count:
+        _raise_agent_count_error("agent_ids must be unique")
+    if mode == "single" and unique_agent_count != 1:
+        _raise_agent_count_error("single conversations require exactly one agent")
+    if mode == "group" and unique_agent_count < 2:
+        _raise_agent_count_error("group conversations require at least two agents")
+    await _validate_visible_agent_ids(db, user_id, agent_ids)
 
 
 @router.get("", response_model=ConversationList)
@@ -64,7 +117,7 @@ async def create_conversation(
     db: DbSession,
     user: Annotated[User, Depends(get_current_user)],
 ) -> ConversationOut:
-    # TODO(B1): validate agent_ids exist
+    await _validate_conversation_agents(db, user.id, payload.mode, payload.agent_ids)
     conv = Conversation(
         user_id=user.id,
         title=payload.title,
@@ -76,7 +129,11 @@ async def create_conversation(
     return ConversationOut.model_validate(conv)
 
 
-async def _get_owned_conversation(db, user_id: UUID, conv_id: UUID) -> Conversation:
+async def _get_owned_conversation(
+    db: AsyncSession,
+    user_id: UUID,
+    conv_id: UUID,
+) -> Conversation:
     conv = await db.get(Conversation, conv_id)
     if not conv:
         raise HTTPException(
