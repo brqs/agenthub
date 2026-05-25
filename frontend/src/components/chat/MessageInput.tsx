@@ -1,6 +1,9 @@
 import { AtSign, Paperclip, Send } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { AgentMentionPicker } from './AgentMentionPicker';
 import type { DemoConversation } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 
 export function MessageInput({
   conversation,
@@ -10,6 +13,12 @@ export function MessageInput({
   onSend: (text: string) => void;
 }) {
   const [text, setText] = useState('');
+  const mentionQuery = useMemo(() => {
+    if (conversation.mode !== 'group') return null;
+    const match = text.match(/@([\w-]*)$/);
+    return match?.[1] ?? null;
+  }, [conversation.mode, text]);
+  const availableAgents = mockAgents.filter((agent) => conversation.agent_ids.includes(agent.id));
 
   function submit() {
     const value = text.trim();
@@ -25,6 +34,10 @@ export function MessageInput({
     }
   }
 
+  function pickAgent(agent: Agent) {
+    setText((current) => current.replace(/@[\w-]*$/, `@${agent.id} `));
+  }
+
   return (
     <footer className="shrink-0 border-t border-slate-800 bg-slate-950 px-5 py-4">
       {conversation.mode === 'group' && (
@@ -32,6 +45,9 @@ export function MessageInput({
           <AtSign className="h-3.5 w-3.5" />
           输入 @ 可指定 Agent，默认由 Orchestrator 协调
         </div>
+      )}
+      {mentionQuery !== null && (
+        <AgentMentionPicker agents={availableAgents} query={mentionQuery} onPick={pickAgent} />
       )}
       <div className="flex items-end gap-3 rounded-md border border-slate-800 bg-slate-900 p-3 focus-within:border-brand">
         <button type="button" className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white">
@@ -57,4 +73,3 @@ export function MessageInput({
     </footer>
   );
 }
-

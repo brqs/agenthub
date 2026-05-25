@@ -8,12 +8,14 @@ export function ConversationSidebar({
   search,
   onSearch,
   onSelect,
+  onNewConversation,
 }: {
   conversations: DemoConversation[];
   selectedConversationId: string;
   search: string;
   onSearch: (value: string) => void;
   onSelect: (conversationId: string) => void;
+  onNewConversation: () => void;
 }) {
   const normalized = search.trim().toLowerCase();
   const filtered = conversations.filter((conversation) =>
@@ -32,6 +34,7 @@ export function ConversationSidebar({
           </div>
           <button
             type="button"
+            onClick={onNewConversation}
             className="flex h-9 w-9 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover"
             title="新建会话"
           >
@@ -87,4 +90,3 @@ export function ConversationSidebar({
     </aside>
   );
 }
-
