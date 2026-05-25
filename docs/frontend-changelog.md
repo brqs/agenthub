@@ -313,3 +313,38 @@
 
 ### 后续事项
 - 真实后端支持产物文件后，可将预览内容替换为文件读取 API 或 artifact preview API。
+
+---
+
+## 2026-05-25 — 补齐第一批前端测试
+
+### 改动范围
+- `frontend/src/stores/chatStore.test.ts`
+- `frontend/src/stores/agentStore.test.ts`
+- `frontend/src/components/blocks/ContentRenderer.test.tsx`
+- `frontend/src/components/blocks/FileBlock.test.tsx`
+- `frontend/src/components/blocks/WebPreviewBlock.test.tsx`
+- `frontend/src/components/chat/MessageInput.test.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+
+### 更新内容
+- 新增 `chatStore` 测试，覆盖会话创建、消息发送、SSE 事件应用、Agent 路由和重试重置。
+- 新增 `agentStore` 测试，覆盖 Mock Agent 创建、重名 id 处理和选中态更新。
+- 新增 `ContentRenderer` 测试，覆盖核心 block 分发和 unknown fallback。
+- 新增 `MessageInput` 测试，覆盖发送、空文本、Enter / Shift+Enter、发送中禁用和 Agent mention。
+- 新增 `FileBlock` 与 `WebPreviewBlock` 测试，覆盖内联预览弹层和安全外链。
+- 为 `MessageInput` 的图标按钮补充 `aria-label` / `title`，提升测试稳定性和可访问性。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+
+### 验证方式
+- `npm test -- --run`
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+
+### 后续事项
+- 继续补 `CodeBlock`、`AgentCreateDialog`、`AgentsPage`、`ChatPage` 页面级测试。
+- 真实 API 接入后补 API hooks 与 fetch mock / MSW 相关测试。

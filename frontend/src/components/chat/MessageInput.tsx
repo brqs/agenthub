@@ -52,7 +52,12 @@ export function MessageInput({
         <AgentMentionPicker agents={availableAgents} query={mentionQuery} onPick={pickAgent} />
       )}
       <div className="flex items-end gap-3 rounded-md border border-slate-800 bg-slate-900 p-3 focus-within:border-brand">
-        <button type="button" className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white">
+        <button
+          type="button"
+          className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
+          title="添加附件"
+          aria-label="添加附件"
+        >
           <Paperclip className="h-4 w-4" />
         </button>
         <textarea
@@ -69,6 +74,8 @@ export function MessageInput({
           onClick={submit}
           disabled={!text.trim() || isSending}
           className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
+          title="发送"
+          aria-label="发送"
         >
           <Send className="h-4 w-4" />
         </button>
