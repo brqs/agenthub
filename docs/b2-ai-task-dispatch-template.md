@@ -12,6 +12,8 @@
 
 每个交给 Claude Code 的子任务必须完整、明确、可验证。任务描述不能只写一句“实现某功能”，必须说明背景、边界、禁止事项、测试和交付要求。
 
+拆解新任务前，先参考 `docs/b2-task-dispatch/B2-roadmap.md` 确认任务编号、优先级、依赖关系和 PR 边界；再为当前任务生成独立的详细执行文档。
+
 ## 环境约定
 
 B2 本地开发默认使用 Anaconda 环境 `LLMAgent`。分发 Python 子任务时，验证命令应优先使用该环境，例如：
@@ -33,7 +35,8 @@ conda run -n LLMAgent python -m pytest <test-path>
 
 请先阅读：
 1. AGENTS.md
-2. <相关文档或代码文件>
+2. docs/b2-task-dispatch/B2-roadmap.md
+3. <当前任务文档或相关代码文件>
 
 文件范围：
 允许修改：
