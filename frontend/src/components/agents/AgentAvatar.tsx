@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 
 const PROVIDER_STYLES: Record<Agent['provider'], string> = {
   claude: 'bg-agent-claude text-white',
+  deepseek: 'bg-agent-deepseek text-white',
   openai: 'bg-agent-openai text-white',
   custom: 'bg-agent-orchestrator text-white',
 };

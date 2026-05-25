@@ -60,7 +60,7 @@ export interface Message {
 export interface Agent {
   id: string;
   name: string;
-  provider: 'claude' | 'openai' | 'custom';
+  provider: 'claude' | 'deepseek' | 'openai' | 'custom';
   avatar_url: string;
   capabilities: string[];
   system_prompt: string | null;

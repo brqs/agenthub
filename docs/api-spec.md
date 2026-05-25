@@ -793,6 +793,8 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
 | `builtin` | bool | - | 仅内置 / 仅自建 / 都返回 |
 | `provider` | string | - | 按 Provider 过滤 |
 
+Provider values: `claude` / `deepseek` / `openai` / `custom`.
+
 **响应 200**：
 ```json
 {
@@ -820,6 +822,17 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
       "created_at": "2026-05-22T00:00:00Z"
     },
     {
+      "id": "deepseek-assistant",
+      "name": "DeepSeek Assistant",
+      "provider": "deepseek",
+      "avatar_url": "/avatars/deepseek.png",
+      "capabilities": ["chat", "analysis", "coding"],
+      "system_prompt": null,
+      "config": {"model": "deepseek-v4-flash"},
+      "is_builtin": true,
+      "created_at": "2026-05-22T00:00:00Z"
+    },
+    {
       "id": "orchestrator",
       "name": "Orchestrator",
       "provider": "custom",
@@ -831,7 +844,7 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
       "created_at": "2026-05-22T00:00:00Z"
     }
   ],
-  "total": 3
+  "total": 4
 }
 ```
 
@@ -862,19 +875,19 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
 | 字段 | 约束 |
 |------|------|
 | `name` | 1-64 字符 |
-| `provider` | `claude` / `openai` / `custom` |
+| `provider` | `claude` / `deepseek` / `openai` / `custom` |
 | `capabilities` | 字符串数组，最多 10 项 |
 | `system_prompt` | 最长 8KB |
 | `config.model` | 必须是 Provider 支持的模型 |
 | `config.temperature` | 0.0 - 2.0 |
 | `config.max_tokens` | 1 - 16384 |
-| `config.upstream_provider` | 仅 `custom` agent 必填，取值 `claude` / `openai` |
+| `config.upstream_provider` | 仅 `custom` agent 必填，取值 `claude` / `deepseek` / `openai` |
 
 **Custom Agent 额外规则**：
 - `provider` 为 `custom` 时，`system_prompt` 必须为非空字符串。
-- `provider` 为 `custom` 时，`config.upstream_provider` 必填，且只能是 `claude` 或 `openai`。
-- `config.model` 必须属于 `upstream_provider` 支持的模型（例如 `upstream_provider=openai` 时只能用 `gpt-4o`）。
-- `provider` 为 `claude` / `openai` 时，不允许携带 `config.upstream_provider`。
+- `provider` 为 `custom` 时，`config.upstream_provider` 必填，且只能是 `claude`、`deepseek` 或 `openai`。
+- `config.model` 必须属于 `upstream_provider` 支持的模型（例如 `upstream_provider=deepseek` 时只能用 `deepseek-v4-flash` / `deepseek-v4-pro`）。
+- `provider` 为 `claude` / `deepseek` / `openai` 时，不允许携带 `config.upstream_provider`。
 
 **响应 201**：（同 6.1 列表项）
 
@@ -1035,7 +1048,7 @@ interface FileBlock {
 interface Agent {
   id: string;
   name: string;
-  provider: "claude" | "openai" | "custom";
+  provider: "claude" | "deepseek" | "openai" | "custom";
   avatar_url: string;
   capabilities: string[];
   system_prompt: string | null;
