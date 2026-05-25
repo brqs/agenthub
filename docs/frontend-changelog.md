@@ -134,3 +134,38 @@
 ### 后续事项
 - 后端完成后，将 hooks 内部数据源从 Mock store 替换为 TanStack Query + `api.ts`。
 - `lib/sse.ts` 已保留真实 `fetchEventSource` 分支，后端 SSE 可用后将 `VITE_USE_MOCK_API=false` 进行联调。
+
+---
+
+## 2026-05-25 — 补齐 Mock 新建会话与 Agent Mention 体验
+
+### 改动范围
+- `frontend/src/components/conversation/NewConversationDialog.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.tsx`
+- `frontend/src/components/chat/AgentMentionPicker.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/hooks/useCreateConversation.ts`
+- `frontend/src/pages/ChatPage.tsx`
+- `frontend/src/stores/chatStore.ts`
+
+### 更新内容
+- 新增 Mock 新建会话弹窗，支持单聊 / 群聊模式。
+- 支持在新建会话时选择一个或多个 Agent，群聊默认补入 Orchestrator。
+- 会话栏的新建按钮已接入弹窗，创建后自动跳转到新会话。
+- 新增 `useCreateConversation`，模拟真实创建会话 mutation 的调用形态。
+- 群聊输入框支持输入 `@` 触发 Agent Mention Picker。
+- 选择 Agent 后会插入 `@agent-id`，Mock 发送逻辑会优先把回复路由给被提及的 Agent。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+- 目前新建会话和 mention 仍为前端 Mock 行为，后续可替换为 `POST /api/v1/conversations` 和消息发送中的 `target_agent_id`。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+
+### 后续事项
+- 将 `AgentMentionPicker` 从本地 Mock Agent 数据改为通过 props / hook 注入，减少组件对 Mock 数据的直接依赖。
+- 接入真实后端时，需要把 `@agent-id` 解析结果转换为 `target_agent_id`。

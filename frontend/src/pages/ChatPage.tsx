@@ -4,7 +4,10 @@ import { RightAgentPanel } from '@/components/agents/RightAgentPanel';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { MessageInput } from '@/components/chat/MessageInput';
 import { MessageList } from '@/components/chat/MessageList';
+import { NewConversationDialog } from '@/components/conversation/NewConversationDialog';
 import { ConversationSidebar } from '@/components/conversation/ConversationSidebar';
+import { useAgents } from '@/hooks/useAgents';
+import { useCreateConversation } from '@/hooks/useCreateConversation';
 import { useConversations } from '@/hooks/useConversations';
 import { useMessages } from '@/hooks/useMessages';
 import { useSendMessage } from '@/hooks/useSendMessage';
@@ -15,7 +18,10 @@ export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [newConversationOpen, setNewConversationOpen] = useState(false);
   const { data: conversations } = useConversations();
+  const { data: agents } = useAgents();
+  const createConversation = useCreateConversation();
   const selectedConversationId = useChatStore((state) => state.selectedConversationId);
   const search = useChatStore((state) => state.search);
   const setSearch = useChatStore((state) => state.setSearch);
@@ -62,6 +68,7 @@ export function ChatPage() {
         search={search}
         onSearch={setSearch}
         onSelect={selectConversation}
+        onNewConversation={() => setNewConversationOpen(true)}
       />
       <section className="flex min-w-0 flex-1 flex-col">
         <ChatHeader conversation={conversation} />
@@ -75,6 +82,17 @@ export function ChatPage() {
         />
       </section>
       <RightAgentPanel conversation={conversation} messages={messages} />
+      <NewConversationDialog
+        open={newConversationOpen}
+        agents={agents}
+        isPending={createConversation.isPending}
+        onClose={() => setNewConversationOpen(false)}
+        onCreate={async (value) => {
+          const created = await createConversation.mutateAsync(value);
+          setNewConversationOpen(false);
+          selectConversation(created.id);
+        }}
+      />
     </div>
   );
 }

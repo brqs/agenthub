@@ -14,6 +14,11 @@ interface ChatState {
   messagesByConversation: Record<string, DemoMessage[]>;
   selectedConversationId: string;
   search: string;
+  createConversation: (input: {
+    title: string;
+    mode: DemoConversation['mode'];
+    agentIds: string[];
+  }) => DemoConversation;
   setSelectedConversationId: (conversationId: string) => void;
   setSearch: (search: string) => void;
   createPendingExchange: (conversationId: string, text: string) => { agentMessageId: string } | null;
@@ -34,8 +39,14 @@ function createUserMessage(conversationId: string, text: string): DemoMessage {
   };
 }
 
-function getTargetAgent(conversation: DemoConversation): string {
+function getTargetAgent(conversation: DemoConversation, text: string): string {
   if (conversation.mode === 'group') {
+    const mentionedAgent = conversation.agent_ids.find((agentId) => {
+      const normalized = text.toLowerCase();
+      return normalized.includes(`@${agentId.toLowerCase()}`);
+    });
+    if (mentionedAgent) return mentionedAgent;
+
     return conversation.agent_ids.includes('orchestrator')
       ? 'orchestrator'
       : conversation.agent_ids[0];
@@ -88,6 +99,31 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messagesByConversation: mockMessages,
   selectedConversationId: mockConversations[0]?.id ?? '',
   search: '',
+  createConversation: (input) => {
+    const createdAt = new Date().toISOString();
+    const conversation: DemoConversation = {
+      id: `conv-${Date.now()}`,
+      title: input.title,
+      mode: input.mode,
+      agent_ids: input.agentIds,
+      is_pinned: false,
+      is_archived: false,
+      last_message_at: createdAt,
+      last_message_preview: '新会话已创建，发送第一条消息开始协作。',
+      created_at: createdAt,
+    };
+
+    set((state) => ({
+      conversations: [conversation, ...state.conversations],
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [conversation.id]: [],
+      },
+      selectedConversationId: conversation.id,
+    }));
+
+    return conversation;
+  },
   setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId }),
   setSearch: (search) => set({ search }),
   createPendingExchange: (conversationId, text) => {
@@ -95,7 +131,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!conversation) return null;
 
     const userMessage = createUserMessage(conversationId, text);
-    const agentId = getTargetAgent(conversation);
+    const agentId = getTargetAgent(conversation, text);
     const reply = createMockReply(conversationId, agentId);
 
     set((state) => ({
