@@ -11,6 +11,7 @@
  */
 
 import { fetchEventSource, type EventSourceMessage } from '@microsoft/fetch-event-source';
+import { env } from '@/lib/env';
 import { useAuthStore } from '@/stores/authStore';
 import type { StreamEvent } from './types';
 
@@ -19,9 +20,6 @@ export interface StreamSubscriber {
   onError?: (err: unknown) => void;
   onClose?: () => void;
 }
-
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
-const USE_MOCK_API = import.meta.env.VITE_USE_MOCK_API !== 'false';
 
 class FatalError extends Error {}
 
@@ -155,14 +153,16 @@ export function subscribeMessageStream(
   messageId: string,
   sub: StreamSubscriber,
 ): AbortController {
-  if (USE_MOCK_API || messageId.startsWith('msg-')) {
+  // Mock SSE for: explicit mock mode, OR mock-shaped IDs (msg-*) emitted by
+  // chatStore.createPendingExchange. Real backend uses UUIDs.
+  if (env.useMockSse || messageId.startsWith('msg-')) {
     return subscribeMockMessageStream(messageId, sub);
   }
 
   const ctrl = new AbortController();
   const token = useAuthStore.getState().token;
 
-  fetchEventSource(`${BASE_URL}/api/v1/messages/${messageId}/stream`, {
+  fetchEventSource(`${env.apiBaseUrl}/api/v1/messages/${messageId}/stream`, {
     method: 'GET',
     signal: ctrl.signal,
     headers: {

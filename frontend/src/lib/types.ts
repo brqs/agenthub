@@ -1,79 +1,85 @@
 /**
- * ⚠️ This file is normally auto-generated from `shared/openapi.yaml` via:
+ * Friendly aliases over the auto-generated OpenAPI types in `types.gen.ts`.
  *
- *   pnpm gen:types
+ * Regenerate via:
+ *   pnpm gen:types   (pulls from the live backend /openapi.json)
  *
- * The hand-written types below are placeholders so the project compiles
- * before the first generation. Once generated, this file will be overwritten.
+ * Hand-written here: SSE `StreamEvent` (OpenAPI does not describe the
+ * text/event-stream payloads) and a couple of convenience unions.
  */
 
-// ─── Domain types (placeholder; will be replaced by generated `components.schemas`) ───
+import type { components } from './types.gen';
 
-export interface User {
-  id: string;
-  username: string;
-  avatar_url: string | null;
-  created_at: string;
-}
+type Schemas = components['schemas'];
 
-export interface AuthResponse {
-  access_token: string;
-  token_type: 'bearer';
-  expires_in: number;
-  user: User;
-}
+/**
+ * Replace properties from `T` with the (typically narrower) `R`.
+ * Used to mark fields the backend always populates (via column defaults)
+ * but did not flag as `required` in OpenAPI.
+ *
+ * TODO(B1): tighten ConversationOut/AgentOut/MessageOut `required` lists so
+ * we can drop these overrides.
+ */
+type Override<T, R> = Omit<T, keyof R> & R;
 
-export interface Conversation {
-  id: string;
-  title: string;
-  mode: 'single' | 'group';
-  agent_ids: string[];
-  is_pinned: boolean;
-  is_archived: boolean;
-  last_message_at: string;
-  last_message_preview?: string | null;
-  created_at: string;
-}
+// ─── Auth ───
+export type User = Schemas['UserOut'];
+export type AuthResponse = Schemas['AuthResponse'];
+export type LoginRequest = Schemas['LoginRequest'];
+export type RegisterRequest = Schemas['RegisterRequest'];
 
-export type ContentBlock =
-  | { type: 'text'; text: string }
-  | { type: 'code'; language: string; code: string }
-  | { type: 'diff'; filename: string; before: string; after: string }
-  | { type: 'web_preview'; url: string; title?: string | null; description?: string | null }
-  | { type: 'file'; filename: string; url: string; size: number; mime_type: string };
+// ─── Conversations ───
+export type Conversation = Override<
+  Schemas['ConversationOut'],
+  { agent_ids: string[]; is_pinned: boolean; is_archived: boolean }
+>;
+export type ConversationList = Override<
+  Schemas['ConversationList'],
+  { items: Conversation[] }
+>;
+export type CreateConversationRequest = Schemas['CreateConversationRequest'];
+export type UpdateConversationRequest = Schemas['UpdateConversationRequest'];
 
-export type MessageRole = 'user' | 'agent' | 'system';
+// ─── Content blocks ───
+export type TextBlock = Schemas['TextBlock'];
+export type CodeBlock = Schemas['CodeBlock'];
+export type DiffBlock = Schemas['DiffBlock'];
+export type WebPreviewBlock = Schemas['WebPreviewBlock'];
+export type FileBlock = Schemas['FileBlock'];
+export type ContentBlock = TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock;
+
+// ─── Messages ───
+export type Message = Override<
+  Schemas['MessageOut'],
+  { content: ContentBlock[]; status: MessageStatus; is_pinned: boolean }
+>;
+export type MessageList = Override<Schemas['MessageList'], { items: Message[] }>;
+export type SendMessageRequest = Schemas['SendMessageRequest'];
+export type SendMessageResponse = Override<
+  Schemas['SendMessageResponse'],
+  { user_message: Message; agent_message: Message }
+>;
+export type UpdateMessageRequest = Schemas['UpdateMessageRequest'];
+
+export type MessageRole = Message['role'];
 export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error';
 
-export interface Message {
-  id: string;
-  conversation_id: string;
-  role: MessageRole;
-  agent_id: string | null;
-  content: ContentBlock[];
-  reply_to_id: string | null;
-  status: MessageStatus;
-  is_pinned: boolean;
-  created_at: string;
-}
+// ─── Agents ───
+export type Agent = Override<
+  Schemas['AgentOut'],
+  { capabilities: string[]; config: Record<string, unknown>; is_builtin: boolean; avatar_url: string }
+>;
+export type AgentList = Override<Schemas['AgentList'], { items: Agent[] }>;
+export type CreateAgentRequest = Schemas['CreateAgentRequest'];
+export type UpdateAgentRequest = Schemas['UpdateAgentRequest'];
 
-export interface Agent {
-  id: string;
-  name: string;
-  provider: 'claude' | 'openai' | 'custom';
-  avatar_url: string;
-  capabilities: string[];
-  system_prompt: string | null;
-  config: Record<string, unknown>;
-  is_builtin: boolean;
-  created_at: string;
-}
-
-// ─── SSE events ───
-
+// ─── SSE events (hand-written; not in OpenAPI) ───
 export type StreamEvent =
   | { event: 'start'; data: { message_id?: string; agent_id?: string } }
-  | { event: 'block_start'; data: { block_index: number; block_type: string; metadata?: Record<string, unknown> } }
+  | {
+      event: 'block_start';
+      data: { block_index: number; block_type: string; metadata?: Record<string, unknown> };
+    }
   | { event: 'delta'; data: { block_index: number; text_delta?: string; code_delta?: string } }
   | { event: 'block_end'; data: { block_index: number } }
   | { event: 'done'; data: { message_id?: string; total_blocks?: number } }
