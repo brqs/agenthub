@@ -51,7 +51,9 @@ conda run -n LLMAgent python -m pytest tests/test_artifact_parser.py
 | B2-07 | ArtifactParser v2 富媒体识别增强 | 已完成 | [B2-07-artifact-parser-v2.md](B2-07-artifact-parser-v2.md) |
 | B2-08 | Orchestrator Spec 与任务拆解 Prompt | 已完成 | [B2-08-orchestrator-spec.md](B2-08-orchestrator-spec.md) |
 | B2-09 | Orchestrator 子 Agent 顺序调度与 block_index 重映射 | 已完成 | [B2-09-orchestrator-dispatch.md](B2-09-orchestrator-dispatch.md) |
-| B2-10 | Orchestrator 失败降级与部分成功输出 | 已拆解，待执行 | [B2-10-orchestrator-fallback.md](B2-10-orchestrator-fallback.md) |
+| B2-10 | Orchestrator 失败降级与部分成功输出 | 已完成 | [B2-10-orchestrator-fallback.md](B2-10-orchestrator-fallback.md) |
+| B2-11 | Provider retry / timeout / rate-limit 策略 | 已完成，Codex 审阅通过 | [B2-11-provider-resilience.md](B2-11-provider-resilience.md) |
+| B2-12 | Adapter E2E smoke tests 与可选真实 API slow tests | 已实现，待 Codex 复审 | [B2-12-adapter-smoke-tests.md](B2-12-adapter-smoke-tests.md) |
 
 ## 模板
 
