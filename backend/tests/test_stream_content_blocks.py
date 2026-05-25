@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
 from app.agents.types import StreamChunk
 from app.core.database import Base, SessionFactory, engine
@@ -24,6 +25,9 @@ async def ensure_tables() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
+    async with SessionFactory() as db:
+        await db.execute(text("DELETE FROM agents WHERE id LIKE 'test-agent-%'"))
+        await db.commit()
     await engine.dispose()
 
 
