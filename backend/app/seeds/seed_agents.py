@@ -118,10 +118,18 @@ async def seed() -> None:
                 await db.execute(select(Agent).where(Agent.id == a["id"]))
             ).scalar_one_or_none()
             if exists:
-                print(f"  → skip {a['id']} (already exists)")
+                exists.user_id = None
+                exists.name = a["name"]
+                exists.provider = a["provider"]
+                exists.avatar_url = a["avatar_url"]
+                exists.capabilities = a["capabilities"]
+                exists.system_prompt = a["system_prompt"]
+                exists.config = a["config"]
+                exists.is_builtin = True
+                print(f"  updated {a['id']}")
                 continue
             db.add(Agent(is_builtin=True, **a))
-            print(f"  ✓ inserted {a['id']}")
+            print(f"  inserted {a['id']}")
         await db.commit()
     print("Done.")
 

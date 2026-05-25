@@ -267,6 +267,10 @@ components:
     # ─── Agent ───
     AgentProvider:
       type: string
+      enum: [claude, deepseek, openai, custom, mock]
+
+    CreatableAgentProvider:
+      type: string
       enum: [claude, deepseek, openai, custom]
 
     AgentConfig:
@@ -303,7 +307,7 @@ components:
       required: [name, provider, config]
       properties:
         name: { type: string, minLength: 1, maxLength: 64 }
-        provider: { $ref: '#/components/schemas/AgentProvider' }
+        provider: { $ref: '#/components/schemas/CreatableAgentProvider' }
         avatar_url: { type: string, default: '' }
         capabilities:
           type: array

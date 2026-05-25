@@ -5,6 +5,19 @@ import { env } from '@/lib/env';
 import type { Agent } from '@/lib/types';
 import { useAgentStore, type CreateAgentInput } from '@/stores/agentStore';
 
+const DEFAULT_MODELS: Record<CreateAgentInput['provider'], string> = {
+  claude: 'claude-sonnet-4-6',
+  openai: 'gpt-4o',
+  deepseek: 'deepseek-v4-flash',
+  custom: 'claude-sonnet-4-6',
+};
+
+function inferUpstreamProvider(model: string): 'claude' | 'openai' | 'deepseek' {
+  if (model.startsWith('gpt-')) return 'openai';
+  if (model.startsWith('deepseek-')) return 'deepseek';
+  return 'claude';
+}
+
 export function useCreateAgent() {
   const queryClient = useQueryClient();
   const createMockAgent = useAgentStore((state) => state.createAgent);
@@ -19,7 +32,17 @@ export function useCreateAgent() {
         avatar_url: '',
         capabilities: input.capabilities,
         system_prompt: input.systemPrompt.trim() || null,
-        config: { model: input.model.trim() || 'custom-demo-model', temperature: 0.4 },
+        config: {
+          model: input.model.trim() || DEFAULT_MODELS[input.provider],
+          temperature: 0.4,
+          ...(input.provider === 'custom'
+            ? {
+                upstream_provider: inferUpstreamProvider(
+                  input.model.trim() || DEFAULT_MODELS.custom,
+                ),
+              }
+            : {}),
+        },
       }),
     onSuccess: (created) => {
       addAgent(created);
