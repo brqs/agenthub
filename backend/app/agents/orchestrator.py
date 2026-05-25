@@ -64,7 +64,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
         merged_config = self.merged_config(config)
         next_block_index = 0
         try:
-            tasks = _parse_tasks(merged_config)
+            tasks = _parse_tasks(merged_config, messages)
         except ValueError as exc:
             if _has_fallback(merged_config):
                 async for chunk, updated_block_index in _run_fallback(
@@ -164,8 +164,10 @@ def _priority(raw: Mapping[str, Any]) -> int:
     return value
 
 
-def _parse_tasks(config: Mapping[str, Any]) -> list[SubTask]:
+def _parse_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
     raw_tasks = config.get("tasks")
+    if raw_tasks is None:
+        return _derive_tasks(config, messages)
     if not isinstance(raw_tasks, list) or not raw_tasks:
         raise ValueError("missing_task_plan: config.tasks must be a non-empty list")
 
@@ -176,6 +178,69 @@ def _parse_tasks(config: Mapping[str, Any]) -> list[SubTask]:
         tasks.append(SubTask.from_mapping(cast(Mapping[str, Any], raw_task)))
     _ensure_unique_task_ids(tasks)
     return sorted(tasks, key=lambda task: task.priority)
+
+
+def _derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
+    agent_ids = _agent_id_list(
+        config.get("managed_agent_ids", config.get("default_sub_agents"))
+    )
+    if not agent_ids:
+        raise ValueError(
+            "missing_task_plan: config.tasks or config.managed_agent_ids is required"
+        )
+
+    user_request = _latest_user_request(messages)
+    titles = (
+        "Analyze request",
+        "Produce solution",
+        "Review and refine",
+    )
+    instructions = (
+        "Analyze the user's request and propose the implementation approach."
+        f"\n\nRequest:\n{user_request}",
+        "Implement or draft the requested result. Include concrete artifacts when useful."
+        f"\n\nRequest:\n{user_request}",
+        "Review the result for gaps, risks, and next steps. Keep the answer concise."
+        f"\n\nRequest:\n{user_request}",
+    )
+
+    tasks: list[SubTask] = []
+    for index, agent_id in enumerate(agent_ids[:3]):
+        title = titles[index] if index < len(titles) else f"Subtask {index + 1}"
+        instruction = instructions[index] if index < len(instructions) else user_request
+        tasks.append(
+            SubTask(
+                task_id=f"auto-{index + 1}",
+                agent_id=agent_id,
+                title=title,
+                instruction=instruction,
+                priority=index,
+            )
+        )
+    return tasks
+
+
+def _agent_id_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        agent_id = item.strip()
+        if not agent_id or agent_id == "orchestrator" or agent_id in seen:
+            continue
+        seen.add(agent_id)
+        result.append(agent_id)
+    return result
+
+
+def _latest_user_request(messages: list[ChatMessage]) -> str:
+    for message in reversed(messages):
+        if message.role == "user" and message.content.strip():
+            return message.content.strip()
+    return "Handle the user's request."
 
 
 def _ensure_unique_task_ids(tasks: list[SubTask]) -> None:
