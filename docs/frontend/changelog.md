@@ -70,6 +70,151 @@
 
 ---
 
+## 2026-05-25 — 启动 Demo 二轮打磨第一批
+
+### 改动范围
+- `frontend/src/components/chat/ChatHeader.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/components/chat/DemoPromptBar.tsx`
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/components/agents/OrchestratorStatusCard.tsx`
+- `frontend/src/components/agents/orchestratorStatus.ts`
+- `frontend/src/lib/mockData.ts`
+- `frontend/src/lib/types.ts`
+- `frontend/src/lib/types.gen.ts`
+- `docs/frontend/demo-polish-v2-plan.md`
+
+### 更新内容
+- 按二轮打磨计划第一批，开始重构聊天主界面的 Demo 信息层级。
+- `ChatHeader` 增加会话模式标签和群聊协作摘要，突出 Orchestrated 群聊。
+- `MessageInput` 增加一键 Demo Prompt，减少现场演示输入成本。
+- 右侧栏新增 `OrchestratorStatusCard`，从 Mock `task_card` / `agent_switch` 推导阶段、接力 Agent 和任务进度。
+- 强化 `conv-demo-flow` 为“AgentHub 比赛演示”标准会话，包含任务拆解、Agent 接力、Diff、WebPreview、File 产物。
+- 从本地 `shared/openapi.yaml` 重新生成 `types.gen.ts`，同步 main 中的 `deepseek` provider。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 本阶段仍以 Mock Demo 为验收目标，不要求真实后端联调。
+- `pnpm gen:types` 改回读取本地 `../shared/openapi.yaml`，避免远端后端状态影响前端开发。
+
+### 验证方式
+- `npm test -- --run` ✅ 24/24
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+
+### 后续事项
+- 继续第一批剩余收口：根据浏览器截图微调首屏密度、右侧栏间距和标准 Demo 会话讲述节奏。
+- 下一批再做 Pin / Archive / 会话操作菜单。
+
+---
+
+## 2026-05-25 — 推进 Demo 二轮打磨第二批
+
+### 改动范围
+- `frontend/src/stores/chatStore.ts`
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/components/chat/MessageList.tsx`
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/components/conversation/ConversationItem.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.tsx`
+- `frontend/src/components/layout/ModuleRail.tsx`
+- `frontend/src/pages/ArchivePage.tsx`
+- `frontend/src/pages/ChatPage.tsx`
+- `frontend/src/styles/globals.css`
+
+### 更新内容
+- 新增消息 Pin / Unpin Mock 交互，消息头可直接切换 Pin 状态。
+- 右侧 Pin 消息列表支持点击后高亮聊天流中的对应消息。
+- 新增会话归档 Mock 交互，聊天列表 item 可归档 / 取消归档。
+- 模块栏归档入口改为正式 `/archive` 路由。
+- 新增 `ArchivePage`，支持归档空态、归档会话列表、点击返回会话。
+- 全局滚动条改为深色 slate 风格，避免系统默认白色滚动条破坏界面一致性。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 本批功能仍为 Mock UI 交互，不要求真实后端支持 `PATCH /messages` 或 `PATCH /conversations`。
+
+### 验证方式
+- `npm test -- --run` ✅ 28/28
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 浏览器验证：Pin 列表更新、归档后进入 `/archive` 可看到归档会话、滚动条为深色系统风格。
+
+### 后续事项
+- 第二批还可继续补会话 Rename / Delete 的 Mock 菜单。
+- 第三批进入 UserMenu / SettingsDialog / Theme toggle。
+
+---
+
+## 2026-05-25 — 推进 Demo 二轮打磨第三批
+
+### 改动范围
+- `frontend/src/stores/uiStore.ts`
+- `frontend/src/components/layout/ModuleRail.tsx`
+- `frontend/src/components/layout/AppLayout.tsx`
+- `frontend/src/components/layout/UserMenu.tsx`
+- `frontend/src/components/layout/SettingsDialog.tsx`
+
+### 更新内容
+- 新增 `uiStore`，管理 `theme / settingsOpen / userMenuOpen / rightPanelOpen`。
+- 模块栏底部拆成用户菜单、主题切换、Settings 三个明确入口。
+- 新增 UserMenu，展示当前用户、Mock/Real 模式，并提供退出登录。
+- 新增 SettingsDialog，展示 API 模式、SSE 模式、Base URL、Demo 数据和构建标识。
+- 主题切换已能更新 `html.dark` 与 `color-scheme`，状态持久化到 `agenthub-ui`。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- Settings 只展示当前运行模式，不提供真实后端配置编辑。
+
+### 验证方式
+- `npm test -- --run` ✅ 32/32
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 浏览器验证：用户菜单可打开、Settings 可打开、主题按钮可切换 `html.dark`。
+
+### 后续事项
+- Light theme 当前为基础态，后续如需精修应单独处理主要布局背景与文本 token。
+- 下一批进入 Agent switch 动效、TaskCard 状态动效、StreamingStatusBar 和响应式收口。
+
+---
+
+## 2026-05-25 — 推进 Demo 二轮打磨第四批
+
+### 改动范围
+- `frontend/src/components/chat/StreamingStatusBar.tsx`
+- `frontend/src/components/chat/streamingStatus.ts`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+- `frontend/src/components/blocks/TaskCardBlock.tsx`
+- `frontend/src/styles/globals.css`
+- `frontend/src/pages/ChatPage.tsx`
+
+### 更新内容
+- 新增 `StreamingStatusBar`，在流式回复时展示当前 Agent 和输出类型。
+- `StreamingStatusBar` 支持 `role=status` / `aria-live=polite`，减少流式状态不可感知的问题。
+- `agent_switch` block 增加轻微 fade/slide 动效，并用 brand tint 强化接力状态。
+- `TaskCardBlock` 增加 running pulse、done 背景提示和进入动效。
+- 所有新增动效支持 `prefers-reduced-motion: reduce`，降低可访问性风险。
+- 修复主题切换“状态变了但视觉仍然深色”的问题，为浅色主题补基础 token 映射。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 仍使用 Mock SSE 事件验证流式状态，不依赖真实后端。
+
+### 验证方式
+- `npm test -- --run` ✅ 35/35
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 浏览器验证：发送 Demo Prompt 后出现 StreamingStatusBar，TaskCard running 状态和 Agent switch 动效 class 生效，无横向溢出。
+
+### 后续事项
+- 可继续做 1280x720 / 1440x900 / wide desktop 的截图走查。
+- 生产包仍有大 chunk warning，后续可用路由懒加载或 manualChunks 单独优化。
+
+---
+
 ## 2026-05-25 — 创建前端开发计划与更新记录
 
 ### 改动范围

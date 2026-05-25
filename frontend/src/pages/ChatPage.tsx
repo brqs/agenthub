@@ -5,6 +5,7 @@ import { RightAgentPanel } from '@/components/agents/RightAgentPanel';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { MessageInput } from '@/components/chat/MessageInput';
 import { MessageList } from '@/components/chat/MessageList';
+import { StreamingStatusBar } from '@/components/chat/StreamingStatusBar';
 import { NewConversationDialog } from '@/components/conversation/NewConversationDialog';
 import { ConversationSidebar } from '@/components/conversation/ConversationSidebar';
 import { useAgents } from '@/hooks/useAgents';
@@ -27,13 +28,18 @@ export function ChatPage() {
   const search = useChatStore((state) => state.search);
   const setSearch = useChatStore((state) => state.setSearch);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
+  const highlightedMessageId = useChatStore((state) => state.highlightedMessageId);
   const applyStreamEvent = useChatStore((state) => state.applyStreamEvent);
   const resetMessageForRetry = useChatStore((state) => state.resetMessageForRetry);
+  const setHighlightedMessageId = useChatStore((state) => state.setHighlightedMessageId);
+  const toggleMessagePin = useChatStore((state) => state.toggleMessagePin);
+  const toggleConversationArchive = useChatStore((state) => state.toggleConversationArchive);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
 
+  const visibleConversations = conversations.filter((item) => !item.is_archived);
   const activeConversationId = conversationId ?? selectedConversationId;
   const conversation =
-    conversations.find((item) => item.id === activeConversationId) ?? conversations[0];
+    conversations.find((item) => item.id === activeConversationId) ?? visibleConversations[0];
   const { data: messages, isLoading: messagesLoading } = useMessages(conversation?.id);
 
   useStream(streamingMessageId, {
@@ -50,6 +56,12 @@ export function ChatPage() {
     }
   }, [conversationId, conversation?.id, navigate]);
 
+  useEffect(() => {
+    if (!highlightedMessageId) return undefined;
+    const timer = window.setTimeout(() => setHighlightedMessageId(null), 1200);
+    return () => window.clearTimeout(timer);
+  }, [highlightedMessageId, setHighlightedMessageId]);
+
   function selectConversation(nextConversationId: string) {
     setSelectedConversationId(nextConversationId);
     navigate(`/chat/${nextConversationId}`);
@@ -58,20 +70,24 @@ export function ChatPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950">
       <ConversationSidebar
-        conversations={conversations}
+        conversations={visibleConversations}
         selectedConversationId={conversation?.id ?? ''}
         search={search}
         onSearch={setSearch}
         onSelect={selectConversation}
         onNewConversation={() => setNewConversationOpen(true)}
+        onToggleArchive={toggleConversationArchive}
       />
       <section className="flex min-w-0 flex-1 flex-col">
         {conversation ? (
           <>
             <ChatHeader conversation={conversation} />
+            <StreamingStatusBar messages={messages} />
             <MessageList
               messages={messages}
+              highlightedMessageId={highlightedMessageId}
               isLoading={messagesLoading}
+              onTogglePin={toggleMessagePin}
               onRetry={(messageId) => {
                 resetMessageForRetry(messageId);
                 setStreamingMessageId(messageId);
@@ -90,7 +106,13 @@ export function ChatPage() {
           <EmptyChatPlaceholder onNew={() => setNewConversationOpen(true)} />
         )}
       </section>
-      {conversation && <RightAgentPanel conversation={conversation} messages={messages} />}
+      {conversation && (
+        <RightAgentPanel
+          conversation={conversation}
+          messages={messages}
+          onSelectPinnedMessage={setHighlightedMessageId}
+        />
+      )}
       <NewConversationDialog
         open={newConversationOpen}
         agents={agents}

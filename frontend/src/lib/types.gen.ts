@@ -11,8 +11,30 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
-        get: operations["health_health_get"];
+        /** Health check */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @example ok */
+                            status?: string;
+                        };
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
         delete?: never;
@@ -30,8 +52,33 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register */
-        post: operations["register_api_v1_auth_register_post"];
+        /** Register a new user */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RegisterRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AuthResponse"];
+                    };
+                };
+                409: components["responses"]["Conflict"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -48,7 +95,31 @@ export interface paths {
         get?: never;
         put?: never;
         /** Login */
-        post: operations["login_api_v1_auth_login_post"];
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["LoginRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AuthResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -62,8 +133,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Me */
-        get: operations["me_api_v1_auth_me_get"];
+        /** Get current user */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["User"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+            };
+        };
         put?: never;
         post?: never;
         delete?: never;
@@ -79,101 +170,364 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Conversations */
-        get: operations["list_conversations_api_v1_conversations_get"];
+        /** List conversations */
+        get: {
+            parameters: {
+                query?: {
+                    archived?: boolean;
+                    pinned_only?: boolean;
+                    search?: string;
+                    page?: number;
+                    page_size?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConversationList"];
+                    };
+                };
+            };
+        };
         put?: never;
-        /** Create Conversation */
-        post: operations["create_conversation_api_v1_conversations_post"];
+        /** Create conversation */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateConversationRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Conversation"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/conversations/{conv_id}": {
+    "/api/v1/conversations/{id}": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
-        /** Get Conversation */
-        get: operations["get_conversation_api_v1_conversations__conv_id__get"];
+        /** Get conversation */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Conversation"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
         put?: never;
         post?: never;
-        /** Delete Conversation */
-        delete: operations["delete_conversation_api_v1_conversations__conv_id__delete"];
+        /** Delete conversation */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
-        /** Update Conversation */
-        patch: operations["update_conversation_api_v1_conversations__conv_id__patch"];
+        /** Update conversation */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateConversationRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Conversation"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
-    "/api/v1/conversations/{conv_id}/messages": {
+    "/api/v1/conversations/{id}/messages": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
-        /** List Messages */
-        get: operations["list_messages_api_v1_conversations__conv_id__messages_get"];
+        /** List messages in conversation */
+        get: {
+            parameters: {
+                query?: {
+                    cursor?: string;
+                    limit?: number;
+                    direction?: "before" | "after";
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MessageList"];
+                    };
+                };
+            };
+        };
         put?: never;
-        /** Send Message */
-        post: operations["send_message_api_v1_conversations__conv_id__messages_post"];
+        /** Send message */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SendMessageRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SendMessageResponse"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/messages/{msg_id}": {
+    "/api/v1/messages/{id}": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         get?: never;
         put?: never;
         post?: never;
-        /** Delete Message */
-        delete: operations["delete_message_api_v1_messages__msg_id__delete"];
+        /** Delete message */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
-        /** Update Message */
-        patch: operations["update_message_api_v1_messages__msg_id__patch"];
+        /** Update message (Pin / Unpin) */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateMessageRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Message"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
-    "/api/v1/messages/{msg_id}/regenerate": {
+    "/api/v1/messages/{id}/regenerate": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         get?: never;
         put?: never;
-        /** Regenerate Message */
-        post: operations["regenerate_message_api_v1_messages__msg_id__regenerate_post"];
+        /** Regenerate agent message */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Message"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/messages/{msg_id}/stream": {
+    "/api/v1/messages/{id}/stream": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
         /**
-         * Stream Message
-         * @description SSE stream for an agent message.
+         * SSE stream for agent response
+         * @description 服务端推送事件流。事件类型见 docs/api-spec.md § 5。
+         *     客户端应使用 fetch-event-source 库（支持自定义 Header）。
          */
-        get: operations["stream_message_api_v1_messages__msg_id__stream_get"];
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description SSE stream */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/event-stream": string;
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
         delete?: never;
@@ -189,1030 +543,421 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Agents */
-        get: operations["list_agents_api_v1_agents_get"];
+        /** List agents */
+        get: {
+            parameters: {
+                query?: {
+                    builtin?: boolean;
+                    provider?: components["schemas"]["AgentProvider"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentList"];
+                    };
+                };
+            };
+        };
         put?: never;
-        /** Create Agent */
-        post: operations["create_agent_api_v1_agents_post"];
+        /** Create custom agent */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateAgentRequest"];
+                };
+            };
+            responses: {
+                /** @description Created */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Agent"];
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/agents/{agent_id}": {
+    "/api/v1/agents/{id}": {
         parameters: {
             query?: never;
             header?: never;
-            path?: never;
+            path: {
+                id: string;
+            };
             cookie?: never;
         };
-        /** Get Agent */
-        get: operations["get_agent_api_v1_agents__agent_id__get"];
+        /** Get agent */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Agent"];
+                    };
+                };
+            };
+        };
         put?: never;
         post?: never;
-        /** Delete Agent */
-        delete: operations["delete_agent_api_v1_agents__agent_id__delete"];
+        /** Delete agent */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
-        /** Update Agent */
-        patch: operations["update_agent_api_v1_agents__agent_id__patch"];
+        /** Update agent */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateAgentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Agent"];
+                    };
+                };
+            };
+        };
         trace?: never;
     };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** AgentList */
-        AgentList: {
-            /** Items */
-            items: components["schemas"]["AgentOut"][];
-            /** Total */
-            total: number;
-            /** Page */
-            page: number;
-            /** Page Size */
-            page_size: number;
-        };
-        /** AgentOut */
-        AgentOut: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /**
-             * Provider
-             * @enum {string}
-             */
-            provider: "claude" | "openai" | "custom";
-            /**
-             * Avatar Url
-             * @default
-             */
-            avatar_url: string;
-            /** Capabilities */
-            capabilities?: string[];
-            /** System Prompt */
-            system_prompt?: string | null;
-            /** Config */
-            config?: {
-                [key: string]: unknown;
-            };
-            /**
-             * Is Builtin
-             * @default false
-             */
-            is_builtin: boolean;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** AuthResponse */
-        AuthResponse: {
-            /** Access Token */
-            access_token: string;
-            /**
-             * Token Type
-             * @default bearer
-             */
-            token_type: string;
-            /** Expires In */
-            expires_in: number;
-            user: components["schemas"]["UserOut"];
-        };
-        /** CodeBlock */
-        CodeBlock: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "code";
-            /** Language */
-            language: string;
-            /** Code */
-            code: string;
-        };
-        /** ConversationList */
-        ConversationList: {
-            /** Items */
-            items: components["schemas"]["ConversationOut"][];
-            /** Total */
-            total: number;
-            /** Page */
-            page: number;
-            /** Page Size */
-            page_size: number;
-        };
-        /** ConversationOut */
-        ConversationOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Title */
-            title: string;
-            /**
-             * Mode
-             * @enum {string}
-             */
-            mode: "single" | "group";
-            /** Agent Ids */
-            agent_ids?: string[];
-            /**
-             * Is Pinned
-             * @default false
-             */
-            is_pinned: boolean;
-            /**
-             * Is Archived
-             * @default false
-             */
-            is_archived: boolean;
-            /**
-             * Last Message At
-             * Format: date-time
-             */
-            last_message_at: string;
-            /** Last Message Preview */
-            last_message_preview?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** CreateAgentRequest */
-        CreateAgentRequest: {
-            /** Name */
-            name: string;
-            /**
-             * Provider
-             * @enum {string}
-             */
-            provider: "claude" | "openai" | "custom";
-            /**
-             * Avatar Url
-             * @default
-             */
-            avatar_url: string;
-            /** Capabilities */
-            capabilities?: string[];
-            /** System Prompt */
-            system_prompt?: string | null;
-            /** Config */
-            config?: {
-                [key: string]: unknown;
+        Error: {
+            error: {
+                /** @example RESOURCE_NOT_FOUND */
+                code: string;
+                message: string;
+                details?: {
+                    [key: string]: unknown;
+                };
             };
         };
-        /** CreateConversationRequest */
-        CreateConversationRequest: {
-            /** Title */
-            title: string;
-            /**
-             * Mode
-             * @enum {string}
-             */
-            mode: "single" | "group";
-            /** Agent Ids */
-            agent_ids: string[];
+        OffsetPagination: {
+            items: unknown[];
+            total: number;
+            page: number;
+            page_size: number;
         };
-        /** DiffBlock */
-        DiffBlock: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "diff";
-            /** Filename */
-            filename: string;
-            /** Before */
-            before: string;
-            /** After */
-            after: string;
-        };
-        /** FileBlock */
-        FileBlock: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            type: "file";
-            /** Filename */
-            filename: string;
-            /** Url */
-            url: string;
-            /** Size */
-            size: number;
-            /** Mime Type */
-            mime_type: string;
-        };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
-        /** LoginRequest */
-        LoginRequest: {
-            /** Username */
-            username: string;
-            /** Password */
-            password: string;
-        };
-        /** MessageList */
-        MessageList: {
-            /** Items */
-            items: components["schemas"]["MessageOut"][];
-            /** Next Cursor */
+        CursorPagination: {
+            items: unknown[];
             next_cursor?: string | null;
-            /**
-             * Has More
-             * @default false
-             */
             has_more: boolean;
         };
-        /** MessageOut */
-        MessageOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Conversation Id
-             * Format: uuid
-             */
-            conversation_id: string;
-            /**
-             * Role
-             * @enum {string}
-             */
-            role: "user" | "agent" | "system";
-            /** Agent Id */
-            agent_id?: string | null;
-            /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"])[];
-            /** Reply To Id */
-            reply_to_id?: string | null;
-            /**
-             * Status
-             * @default done
-             * @enum {string}
-             */
-            status: "pending" | "streaming" | "done" | "error";
-            /**
-             * Is Pinned
-             * @default false
-             */
-            is_pinned: boolean;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-        };
-        /** RegisterRequest */
-        RegisterRequest: {
-            /** Username */
-            username: string;
-            /** Password */
-            password: string;
-        };
-        /** SendMessageRequest */
-        SendMessageRequest: {
-            /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"])[];
-            /** Target Agent Id */
-            target_agent_id?: string | null;
-        };
-        /** SendMessageResponse */
-        SendMessageResponse: {
-            user_message: components["schemas"]["MessageOut"];
-            agent_message: components["schemas"]["MessageOut"];
-        };
-        /** TextBlock */
         TextBlock: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "text";
-            /** Text */
             text: string;
         };
-        /** UpdateAgentRequest */
-        UpdateAgentRequest: {
-            /** Name */
-            name?: string | null;
-            /** Avatar Url */
-            avatar_url?: string | null;
-            /** Capabilities */
-            capabilities?: string[] | null;
-            /** System Prompt */
-            system_prompt?: string | null;
-            /** Config */
-            config?: {
-                [key: string]: unknown;
-            } | null;
-        };
-        /** UpdateConversationRequest */
-        UpdateConversationRequest: {
-            /** Title */
-            title?: string | null;
-            /** Is Pinned */
-            is_pinned?: boolean | null;
-            /** Is Archived */
-            is_archived?: boolean | null;
-        };
-        /** UpdateMessageRequest */
-        UpdateMessageRequest: {
-            /** Is Pinned */
-            is_pinned?: boolean | null;
-        };
-        /** UserOut */
-        UserOut: {
+        CodeBlock: {
             /**
-             * Id
-             * Format: uuid
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
-            id: string;
-            /** Username */
-            username: string;
-            /** Avatar Url */
-            avatar_url?: string | null;
+            type: "code";
+            language: string;
+            code: string;
+        };
+        DiffBlock: {
             /**
-             * Created At
-             * Format: date-time
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
              */
-            created_at: string;
+            type: "diff";
+            filename: string;
+            before: string;
+            after: string;
         };
-        /** ValidationError */
-        ValidationError: {
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
-        };
-        /** WebPreviewBlock */
         WebPreviewBlock: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "web_preview";
-            /** Url */
+            /** Format: uri */
             url: string;
-            /** Title */
             title?: string | null;
-            /** Description */
             description?: string | null;
-            /** Thumbnail Url */
             thumbnail_url?: string | null;
         };
+        FileBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "file";
+            filename: string;
+            /** Format: uri */
+            url: string;
+            size: number;
+            mime_type: string;
+        };
+        ContentBlock: components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"];
+        User: {
+            /** Format: uuid */
+            id: string;
+            username: string;
+            avatar_url?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        RegisterRequest: {
+            username: string;
+            password: string;
+        };
+        LoginRequest: {
+            username: string;
+            password: string;
+        };
+        AuthResponse: {
+            access_token: string;
+            /** @enum {string} */
+            token_type: "bearer";
+            /** @description seconds */
+            expires_in: number;
+            user: components["schemas"]["User"];
+        };
+        /** @enum {string} */
+        ConversationMode: "single" | "group";
+        Conversation: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            mode: components["schemas"]["ConversationMode"];
+            agent_ids: string[];
+            is_pinned: boolean;
+            is_archived: boolean;
+            /** Format: date-time */
+            last_message_at: string;
+            last_message_preview?: string | null;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreateConversationRequest: {
+            title: string;
+            mode: components["schemas"]["ConversationMode"];
+            agent_ids: string[];
+        };
+        UpdateConversationRequest: {
+            title?: string;
+            is_pinned?: boolean;
+            is_archived?: boolean;
+        };
+        ConversationList: components["schemas"]["OffsetPagination"] & {
+            items?: components["schemas"]["Conversation"][];
+        };
+        /** @enum {string} */
+        MessageRole: "user" | "agent" | "system";
+        /** @enum {string} */
+        MessageStatus: "pending" | "streaming" | "done" | "error";
+        Message: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversation_id: string;
+            role: components["schemas"]["MessageRole"];
+            agent_id?: string | null;
+            content: components["schemas"]["ContentBlock"][];
+            /** Format: uuid */
+            reply_to_id?: string | null;
+            status: components["schemas"]["MessageStatus"];
+            /** @default false */
+            is_pinned: boolean;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SendMessageRequest: {
+            content: components["schemas"]["ContentBlock"][];
+            /** @description 群聊时指定目标 Agent；单聊可省略 */
+            target_agent_id?: string | null;
+        };
+        SendMessageResponse: {
+            user_message: components["schemas"]["Message"];
+            agent_message: components["schemas"]["Message"];
+        };
+        UpdateMessageRequest: {
+            is_pinned?: boolean;
+        };
+        MessageList: components["schemas"]["CursorPagination"] & {
+            items?: components["schemas"]["Message"][];
+        };
+        /** @enum {string} */
+        AgentProvider: "claude" | "deepseek" | "openai" | "custom";
+        AgentConfig: {
+            model?: string;
+            temperature?: number;
+            max_tokens?: number;
+            top_p?: number;
+            /**
+             * @description Upstream provider for custom agents. Only used when provider is custom.
+             * @enum {string}
+             */
+            upstream_provider?: "claude" | "deepseek" | "openai";
+        } & {
+            [key: string]: unknown;
+        };
+        Agent: {
+            id: string;
+            name: string;
+            provider: components["schemas"]["AgentProvider"];
+            avatar_url: string;
+            capabilities: string[];
+            system_prompt?: string | null;
+            config: components["schemas"]["AgentConfig"];
+            is_builtin: boolean;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CreateAgentRequest: {
+            name: string;
+            provider: components["schemas"]["AgentProvider"];
+            /** @default  */
+            avatar_url: string;
+            /** @default [] */
+            capabilities: string[];
+            system_prompt?: string | null;
+            config: components["schemas"]["AgentConfig"];
+        };
+        UpdateAgentRequest: {
+            name?: string;
+            avatar_url?: string;
+            capabilities?: string[];
+            system_prompt?: string | null;
+            config?: components["schemas"]["AgentConfig"];
+        };
+        AgentList: components["schemas"]["OffsetPagination"] & {
+            items?: components["schemas"]["Agent"][];
+        };
     };
-    responses: never;
+    responses: {
+        /** @description Bad request */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Unauthorized */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Forbidden */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Resource not found */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Conflict */
+        Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Validation error */
+        ValidationError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+    };
     parameters: never;
     requestBodies: never;
     headers: never;
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export interface operations {
-    health_health_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
-                };
-            };
-        };
-    };
-    register_api_v1_auth_register_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RegisterRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    login_api_v1_auth_login_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LoginRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AuthResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    me_api_v1_auth_me_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserOut"];
-                };
-            };
-        };
-    };
-    list_conversations_api_v1_conversations_get: {
-        parameters: {
-            query?: {
-                archived?: boolean;
-                pinned_only?: boolean;
-                search?: string | null;
-                page?: number;
-                page_size?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationList"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_conversation_api_v1_conversations_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateConversationRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_conversation_api_v1_conversations__conv_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conv_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_conversation_api_v1_conversations__conv_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conv_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_conversation_api_v1_conversations__conv_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conv_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateConversationRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ConversationOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_messages_api_v1_conversations__conv_id__messages_get: {
-        parameters: {
-            query?: {
-                cursor?: string | null;
-                limit?: number;
-                direction?: string;
-            };
-            header?: never;
-            path: {
-                conv_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageList"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    send_message_api_v1_conversations__conv_id__messages_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                conv_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SendMessageRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SendMessageResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_message_api_v1_messages__msg_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                msg_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_message_api_v1_messages__msg_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                msg_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateMessageRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    regenerate_message_api_v1_messages__msg_id__regenerate_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                msg_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    stream_message_api_v1_messages__msg_id__stream_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                msg_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_agents_api_v1_agents_get: {
-        parameters: {
-            query?: {
-                builtin?: boolean | null;
-                provider?: ("claude" | "openai" | "custom") | null;
-                page?: number;
-                page_size?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentList"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_agent_api_v1_agents_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateAgentRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_agent_api_v1_agents__agent_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_agent_api_v1_agents__agent_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_agent_api_v1_agents__agent_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateAgentRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-}
+export type operations = Record<string, never>;

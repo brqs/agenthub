@@ -5,11 +5,15 @@ import type { DemoMessage } from '@/lib/mockData';
 
 export function MessageList({
   messages,
+  highlightedMessageId,
   isLoading = false,
+  onTogglePin,
   onRetry,
 }: {
   messages: DemoMessage[];
+  highlightedMessageId?: string | null;
   isLoading?: boolean;
+  onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -53,7 +57,13 @@ export function MessageList({
     <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 scrollbar-thin">
       <div className="mx-auto flex max-w-5xl flex-col gap-5">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} onRetry={onRetry} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            highlighted={message.id === highlightedMessageId}
+            onTogglePin={onTogglePin}
+            onRetry={onRetry}
+          />
         ))}
         <div ref={endRef} />
       </div>
