@@ -155,3 +155,22 @@ B2-03 明确只允许修改 `backend/app/agents/adapters/openai.py` 和 `backend
 
 ### 经验
 OpenAIAdapter 应复用 B2-02 的 Adapter 模式：Provider client 创建、消息转换、delta 解析、StreamingArtifactParser 接入和错误映射保持一致；差异只应集中在 OpenAI SDK 的流式事件读取方式。
+
+## 2026-05-25 — B2 拆解 B2-04 CustomAdapter 委托任务
+
+### 任务
+在 B2-02 ClaudeAdapter 和 B2-03 OpenAIAdapter 完成后，启动 B2-04：实现 CustomAdapter 根据配置委托上游 Provider。
+
+### 关键 Prompt
+> 好的，那就开始b2-04
+
+### AI 输出摘要
+先将本地 `main` 快进同步到最新 `origin/main`，再创建 `feat/B2-custom-agent-adapter` 分支。基于当前 `custom.py` stub、已完成的 `ClaudeAdapter` / `OpenAIAdapter`、registry 和 seed custom agent 配置，新增 `docs/b2-task-dispatch/B2-04-custom-adapter-delegation.md`。
+
+同步更新 `docs/b2-task-dispatch/README.md`，将 B2-03 标记为已完成并加入 B2-04；更新 `docs/b2-task-dispatch/B2-roadmap.md`，将 B2-04 标记为“已拆解，待执行”，并调整近期执行顺序。
+
+### 人工调整
+B2-04 明确只允许修改 `backend/app/agents/adapters/custom.py` 和 `backend/tests/test_custom_adapter.py`。任务要求 CustomAdapter 不访问数据库、不调用 registry、不重复实现 Claude/OpenAI 流式逻辑，只负责选择上游 Adapter、注入 system prompt、过滤 `upstream_provider` 并转发 StreamChunk。
+
+### 经验
+CustomAdapter 应保持为轻量委托层：Provider 细节继续由 ClaudeAdapter/OpenAIAdapter 处理，CustomAdapter 只处理 custom agent 的配置解释和 system prompt 注入，避免形成第三套流式解析逻辑。
