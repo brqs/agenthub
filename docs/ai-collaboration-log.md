@@ -191,3 +191,22 @@ B2-05 明确允许修改 `backend/app/api/v1/agents.py`、`backend/app/schemas/a
 
 ### 经验
 当 B2 任务从 Adapter 内部实现扩展到 Agent CRUD 和 OpenAPI 配置字段时，应先写 Spec 和任务文档，明确共享文件边界，再交给 Claude Code 执行，避免把配置校验、路由更新和契约文档拆散到多个不一致的 PR 中。
+
+## 2026-05-25 — B2 拆解 B2-06 SSE error 状态持久化任务
+
+### 任务
+在 B2-05 合并后，启动 B2-06：补齐 SSE 层消费 Adapter error chunk 和 Adapter 异常时的消息状态持久化规则与回归测试。
+
+### 关键 Prompt
+> 现在开始b2-06
+
+### AI 输出摘要
+确认当前 `main` 已包含 B2-05 合并结果，工作区干净。读取 `backend/app/api/v1/stream.py` 后发现当前 SSE 层已有部分 error chunk 处理逻辑，因此 B2-06 被拆解为“补齐测试并修复未覆盖异常路径”，而不是重新实现 SSE。
+
+新增 `docs/spec/stream-error-status.spec.md` 和 `docs/b2-task-dispatch/B2-06-stream-error-status.md`，同步更新 B2 任务索引与路线图，将 B2-05 标记为已完成，将 B2-06 标记为已拆解、待执行。
+
+### 人工调整
+B2-06 明确允许修改 `backend/app/api/v1/stream.py` 与 `backend/tests/test_b1_quality.py`；由于 `stream.py` 是 B1-owned 文件，任务文档标注为 B1/B2 协同任务。任务不允许修改 Adapter、BaseAgentAdapter、StreamChunk schema、OpenAPI 或 ContentBlock。
+
+### 经验
+跨边界任务启动前应先读现有实现和测试，避免把“已有部分修复”误判为“完全未实现”。B2-06 的关键不是大改 SSE，而是用回归测试锁住 error chunk、异常路径和 partial content 持久化行为。
