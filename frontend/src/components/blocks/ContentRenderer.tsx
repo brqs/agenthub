@@ -59,6 +59,8 @@ export function ContentRenderer({
               url={block.url}
               title={block.title}
               description={block.description}
+              previewTitle={'preview_title' in block ? block.preview_title : undefined}
+              previewBody={'preview_body' in block ? block.preview_body : undefined}
             />
           );
         }
@@ -70,6 +72,7 @@ export function ContentRenderer({
               url={block.url}
               size={block.size}
               mimeType={block.mime_type}
+              previewText={'preview_text' in block ? block.preview_text : undefined}
             />
           );
         }

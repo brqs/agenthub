@@ -20,7 +20,21 @@ export interface AgentSwitchBlock {
   task: string;
 }
 
-export type DemoContentBlock = ContentBlock | TaskCardBlock | AgentSwitchBlock;
+export type DemoFileBlock = Extract<ContentBlock, { type: 'file' }> & {
+  preview_text?: string;
+};
+
+export type DemoWebPreviewBlock = Extract<ContentBlock, { type: 'web_preview' }> & {
+  preview_title?: string;
+  preview_body?: string;
+};
+
+export type DemoContentBlock =
+  | Exclude<ContentBlock, { type: 'file' | 'web_preview' }>
+  | DemoFileBlock
+  | DemoWebPreviewBlock
+  | TaskCardBlock
+  | AgentSwitchBlock;
 
 export interface DemoMessage extends Omit<Message, 'content'> {
   content: DemoContentBlock[];
@@ -299,6 +313,9 @@ export function TodoPanel() {
           url: 'https://github.com/brqs/agenthub/pull/1',
           title: 'AgentHub frontend demo pull request',
           description: 'Mock 桌面聊天、Agent 协作流和富媒体消息块的阶段性前端更新。',
+          preview_title: 'AgentHub Frontend Demo',
+          preview_body:
+            '这个预览模拟构建后的桌面 Demo 页面：左侧是 Discord 式导航，中间是多 Agent 聊天流，右侧展示 Agent 上下文。评审可以直接看到任务卡、Agent 切换、代码块、Diff 和文件产物。',
         },
         {
           type: 'file',
@@ -306,6 +323,22 @@ export function TodoPanel() {
           url: 'https://github.com/brqs/agenthub',
           size: 18432,
           mime_type: 'text/markdown',
+          preview_text: `# AgentHub Demo Notes
+
+## 演示路径
+
+1. 进入聊天页，展示 Discord 式四栏布局。
+2. 新建一个群聊会话，默认加入 Orchestrator。
+3. 发送 \`@orchestrator 做一次群聊多 Agent 协作演示\`。
+4. 展示任务拆解、Agent 切换、代码输出和富媒体产物。
+
+## 当前状态
+
+- Mock API hooks 已就绪。
+- Mock SSE 已按真实事件形态实现。
+- 富媒体消息块支持 Code、Diff、WebPreview、File。
+- 真实 API / SSE 可在 Hook 层替换。
+`,
         },
       ],
       reply_to_id: null,
