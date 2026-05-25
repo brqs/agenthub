@@ -826,7 +826,7 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
       "avatar_url": "/avatars/orchestrator.png",
       "capabilities": ["task_decomposition", "coordination"],
       "system_prompt": "你是任务协调专家...",
-      "config": {"model": "claude-sonnet-4-6"},
+      "config": {"model": "claude-sonnet-4-6", "upstream_provider": "claude"},
       "is_builtin": true,
       "created_at": "2026-05-22T00:00:00Z"
     }
@@ -852,7 +852,8 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
   "config": {
     "model": "claude-sonnet-4-6",
     "temperature": 0.7,
-    "max_tokens": 4096
+    "max_tokens": 4096,
+    "upstream_provider": "claude"
   }
 }
 ```
@@ -861,18 +862,28 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
 | 字段 | 约束 |
 |------|------|
 | `name` | 1-64 字符 |
-| `provider` | `claude` / `openai` / `custom`（custom 必须配 system_prompt） |
+| `provider` | `claude` / `openai` / `custom` |
 | `capabilities` | 字符串数组，最多 10 项 |
 | `system_prompt` | 最长 8KB |
 | `config.model` | 必须是 Provider 支持的模型 |
 | `config.temperature` | 0.0 - 2.0 |
 | `config.max_tokens` | 1 - 16384 |
+| `config.upstream_provider` | 仅 `custom` agent 必填，取值 `claude` / `openai` |
+
+**Custom Agent 额外规则**：
+- `provider` 为 `custom` 时，`system_prompt` 必须为非空字符串。
+- `provider` 为 `custom` 时，`config.upstream_provider` 必填，且只能是 `claude` 或 `openai`。
+- `config.model` 必须属于 `upstream_provider` 支持的模型（例如 `upstream_provider=openai` 时只能用 `gpt-4o`）。
+- `provider` 为 `claude` / `openai` 时，不允许携带 `config.upstream_provider`。
 
 **响应 201**：（同 6.1 列表项）
 
 **错误**：
 - `422 INVALID_PROVIDER`
 - `422 INVALID_MODEL`
+- `422 INVALID_AGENT_CONFIG`
+- `422 INVALID_UPSTREAM_PROVIDER`
+- `422 MISSING_SYSTEM_PROMPT`
 - `422 SYSTEM_PROMPT_TOO_LARGE`
 
 ---
@@ -900,10 +911,19 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
 }
 ```
 
+**Config 局部合并**：
+`PATCH` 中的 `config` 会与现有配置做浅合并，不是整体替换。例如：
+```json
+{"config": {"temperature": 0.5}}
+```
+会保留已有 `model` 和 `upstream_provider`，仅更新 `temperature`。
+
 **响应 200**：（同 6.3）
 
 **错误**：
 - `403 CANNOT_MODIFY_BUILTIN` —— 内置 Agent 不可修改
+- `422 INVALID_AGENT_CONFIG` —— 合并后的配置校验失败
+- `422 MISSING_SYSTEM_PROMPT` —— custom agent 的 system_prompt 被清空或置空
 
 ---
 
@@ -1126,6 +1146,9 @@ interface ErrorResponse {
 | `CONTENT_TOO_LARGE` | 422 | 消息内容超过上限 |
 | `INVALID_PROVIDER` | 422 | provider 非法 |
 | `INVALID_MODEL` | 422 | model 非法 |
+| `INVALID_AGENT_CONFIG` | 422 | Agent 配置非法（如数值越界、携带了不该有的字段） |
+| `INVALID_UPSTREAM_PROVIDER` | 422 | upstream_provider 非法或缺失 |
+| `MISSING_SYSTEM_PROMPT` | 422 | custom agent 缺少 system_prompt |
 | `SYSTEM_PROMPT_TOO_LARGE` | 422 | System Prompt 超长 |
 | `CANNOT_MODIFY_BUILTIN` | 403 | 内置资源不可改 |
 | `CANNOT_DELETE_BUILTIN` | 403 | 内置资源不可删 |
