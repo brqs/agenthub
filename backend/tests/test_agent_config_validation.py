@@ -37,6 +37,17 @@ class TestValidConfigs:
         assert result["temperature"] == 0.7
         assert result["max_tokens"] == 4096
 
+    def test_valid_deepseek_config(self) -> None:
+        config = {"model": "deepseek-v4-flash", "temperature": 0.7, "max_tokens": 4096}
+        result = validate_agent_config(
+            provider="deepseek",
+            config=config,
+            system_prompt=None,
+        )
+        assert result["model"] == "deepseek-v4-flash"
+        assert result["temperature"] == 0.7
+        assert result["max_tokens"] == 4096
+
 
 class TestCustomAgentRules:
     def test_custom_config_requires_system_prompt_none(self) -> None:
@@ -95,6 +106,16 @@ class TestCustomAgentRules:
         assert result["upstream_provider"] == "openai"
         assert result["model"] == "gpt-4o"
 
+    def test_custom_config_accepts_deepseek_upstream(self) -> None:
+        config = {"model": "deepseek-v4-pro", "upstream_provider": "deepseek"}
+        result = validate_agent_config(
+            provider="custom",
+            config=config,
+            system_prompt="You are a test agent.",
+        )
+        assert result["upstream_provider"] == "deepseek"
+        assert result["model"] == "deepseek-v4-pro"
+
     def test_custom_model_validated_against_upstream(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
@@ -133,6 +154,18 @@ class TestDirectProviderRules:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
+    def test_direct_provider_rejects_upstream_provider_deepseek(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="deepseek",
+                config={
+                    "model": "deepseek-v4-flash",
+                    "upstream_provider": "openai",
+                },
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+
 
 class TestModelValidation:
     def test_missing_model_rejected_none(self) -> None:
@@ -149,6 +182,15 @@ class TestModelValidation:
             validate_agent_config(
                 provider="claude",
                 config={"model": ""},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_MODEL"
+
+    def test_deepseek_unsupported_model_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="deepseek",
+                config={"model": "deepseek-chat"},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_MODEL"

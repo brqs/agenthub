@@ -23,12 +23,22 @@ class OpenAIAdapter(BaseAgentAdapter):
     """Adapter for OpenAI ChatGPT / Codex models."""
 
     provider = "openai"
+    default_model = "gpt-4o"
+    api_key_setting = "openai_api_key"
+    base_url_setting = "openai_base_url"
+    display_name = "OpenAI"
+
+    def _api_key(self) -> str:
+        return str(getattr(settings, self.api_key_setting))
+
+    def _base_url(self) -> str:
+        return str(getattr(settings, self.base_url_setting))
 
     def _create_client(self) -> openai.AsyncOpenAI:
-        """Build an async OpenAI client from settings."""
-        kwargs: dict[str, Any] = {"api_key": settings.openai_api_key}
-        if settings.openai_base_url:
-            kwargs["base_url"] = settings.openai_base_url
+        """Build an async OpenAI-compatible client from settings."""
+        kwargs: dict[str, Any] = {"api_key": self._api_key()}
+        if self._base_url():
+            kwargs["base_url"] = self._base_url()
         return openai.AsyncOpenAI(**kwargs)
 
     async def stream(
@@ -38,7 +48,7 @@ class OpenAIAdapter(BaseAgentAdapter):
         config: dict[str, Any] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         merged = self.merged_config(config)
-        model = merged.get("model") or "gpt-4o"
+        model = merged.get("model") or self.default_model
         temperature = merged.get("temperature")
         if temperature is None:
             temperature = 0.7
@@ -64,12 +74,12 @@ class OpenAIAdapter(BaseAgentAdapter):
 
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
 
-        if not settings.openai_api_key:
+        if not self._api_key():
             yield StreamChunk(
                 event_type="error",
                 agent_id=self.agent_id,
                 error_code="missing_api_key",
-                error="OpenAI API key is not configured",
+                error=f"{self.display_name} API key is not configured",
             )
             return
 

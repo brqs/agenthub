@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.adapters.claude import ClaudeAdapter
 from app.agents.adapters.custom import CustomAdapter
+from app.agents.adapters.deepseek import DeepSeekAdapter
 from app.agents.adapters.mock import MockAdapter
 from app.agents.adapters.openai import OpenAIAdapter
 from app.agents.base import BaseAgentAdapter
@@ -20,6 +21,7 @@ from app.models.agent import Agent
 PROVIDER_MAP: dict[str, type[BaseAgentAdapter]] = {
     "mock": MockAdapter,
     "claude": ClaudeAdapter,
+    "deepseek": DeepSeekAdapter,
     "openai": OpenAIAdapter,
     "custom": CustomAdapter,
 }

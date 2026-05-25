@@ -120,3 +120,10 @@ API 层应将配置校验错误映射为：
 - OpenAPI 和 `docs/api-spec.md` 显式记录 `config.upstream_provider`。
 - 不修改 `BaseAgentAdapter.stream()` 签名。
 - 不修改数据库模型或 migration。
+
+## DeepSeek Provider Extension
+
+- `provider` additionally supports `deepseek`.
+- `config.upstream_provider` additionally supports `deepseek` for custom agents.
+- Supported DeepSeek models are `deepseek-v4-flash` and `deepseek-v4-pro`.
+- Direct `provider=deepseek` must not carry `config.upstream_provider`.

@@ -267,7 +267,7 @@ components:
     # ─── Agent ───
     AgentProvider:
       type: string
-      enum: [claude, openai, custom]
+      enum: [claude, deepseek, openai, custom]
 
     AgentConfig:
       type: object
@@ -279,7 +279,7 @@ components:
         top_p: { type: number, minimum: 0, maximum: 1 }
         upstream_provider:
           type: string
-          enum: [claude, openai]
+          enum: [claude, deepseek, openai]
           description: 'Upstream provider for custom agents. Only used when provider is custom.'
 
     Agent:
