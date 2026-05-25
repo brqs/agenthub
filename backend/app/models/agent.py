@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.dialects.postgresql import UUID as PgUUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -22,7 +22,7 @@ class Agent(Base):
     # 这里用 String 主键以同时支持两种场景
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[UUID | None] = mapped_column(
-        PgUUID(as_uuid=True),
+        PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,  # null = 内置 Agent
     )

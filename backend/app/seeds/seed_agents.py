@@ -53,9 +53,14 @@ BUILTIN_AGENTS: list[dict] = [
         "avatar_url": "/avatars/writer.png",
         "capabilities": ["writing", "copywriting", "editing"],
         "system_prompt": (
-            "You are a professional writer. Help users craft clear, engaging, and well-structured prose."
+            "You are a professional writer. Help users craft clear, engaging, "
+            "and well-structured prose."
         ),
-        "config": {"model": "claude-sonnet-4-6", "upstream_provider": "claude", "temperature": 0.8},
+        "config": {
+            "model": "claude-sonnet-4-6",
+            "upstream_provider": "claude",
+            "temperature": 0.8,
+        },
     },
     {
         "id": "web-designer",
@@ -75,7 +80,9 @@ BUILTIN_AGENTS: list[dict] = [
 async def seed() -> None:
     async with SessionFactory() as db:
         for a in BUILTIN_AGENTS:
-            exists = (await db.execute(select(Agent).where(Agent.id == a["id"]))).scalar_one_or_none()
+            exists = (
+                await db.execute(select(Agent).where(Agent.id == a["id"]))
+            ).scalar_one_or_none()
             if exists:
                 print(f"  → skip {a['id']} (already exists)")
                 continue
