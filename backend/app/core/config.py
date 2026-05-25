@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # ─── Server ───
     environment: str = Field(default="development")
-    host: str = Field(default="0.0.0.0")
+    host: str = Field(default="0.0.0.0")  # noqa: S104 - needed for Docker binding.
     port: int = Field(default=8000)
     log_level: str = Field(default="INFO")
 
