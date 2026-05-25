@@ -7,7 +7,9 @@ from typing import Any
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.registry import get_adapter
 from app.agents.types import ChatMessage, StreamChunk
+from app.models.agent import Agent
 
 
 async def _collect(
@@ -252,6 +254,54 @@ async def test_orchestrator_does_not_require_database() -> None:
     ]
     assert adapter_a.received_system_prompt is None
     assert adapter_a.received_config is None
+
+
+async def test_orchestrator_derives_tasks_from_managed_agents() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("analysis done"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("implementation done"))
+    messages = [ChatMessage(role="user", content="Build a calendar app")]
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=messages,
+        config={
+            "managed_agent_ids": ["orchestrator", "agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert adapter_a.received_messages[-1].content.startswith("Analyze the user's request")
+    assert "Build a calendar app" in adapter_b.received_messages[-1].content
+
+
+async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() -> None:
+    class FakeDb:
+        async def get(self, model: object, key: str) -> Agent | None:
+            assert model is Agent
+            if key != "orchestrator":
+                return None
+            return Agent(
+                id="orchestrator",
+                user_id=None,
+                name="Orchestrator",
+                provider="custom",
+                avatar_url="/avatars/orchestrator.png",
+                capabilities=["task_decomposition", "coordination"],
+                system_prompt="Coordinate sub agents.",
+                config={"model": "claude-sonnet-4-6"},
+                is_builtin=True,
+            )
+
+    adapter = await get_adapter("orchestrator", FakeDb())  # type: ignore[arg-type]
+
+    assert isinstance(adapter, OrchestratorAdapter)
+    assert callable(adapter.default_config["adapter_factory"])
+    assert adapter.default_config["managed_agent_ids"]
 
 
 async def test_orchestrator_requires_task_plan_or_emits_clear_error() -> None:

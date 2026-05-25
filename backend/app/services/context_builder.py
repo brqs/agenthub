@@ -62,9 +62,8 @@ async def build_context(
         if total + len(text) > max_chars and result:
             break
         role = "assistant" if m.role == "agent" else m.role
-        # Type-cast role to chat message accepted values
         if role not in ("user", "assistant", "system"):
             continue
-        result.insert(0, ChatMessage(role=role, content=text))  # type: ignore[arg-type]
+        result.insert(0, ChatMessage(role=role, content=text))
         total += len(text)
     return result
