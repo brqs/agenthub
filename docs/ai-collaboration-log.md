@@ -174,3 +174,20 @@ B2-04 明确只允许修改 `backend/app/agents/adapters/custom.py` 和 `backend
 
 ### 经验
 CustomAdapter 应保持为轻量委托层：Provider 细节继续由 ClaudeAdapter/OpenAIAdapter 处理，CustomAdapter 只处理 custom agent 的配置解释和 system prompt 注入，避免形成第三套流式解析逻辑。
+
+## 2026-05-25 — B2 拆解 B2-05 Agent 配置校验任务
+
+### 任务
+在 B2-04 CustomAdapter 合并后，启动 B2-05：补齐 Agent 创建/更新时的 provider、model、system_prompt、upstream_provider 和 numeric config 校验，并让内置 Agent seed 与运行时规则保持一致。
+
+### 关键 Prompt
+> 检查更新文档，现在开始b2-05
+
+### AI 输出摘要
+确认当前 `main` 已包含 B2-04 合并提交，新增 `docs/spec/agent-config-validation.spec.md` 和 `docs/b2-task-dispatch/B2-05-agent-config-validation.md`。同步更新 B2 任务索引与路线图，将 B2-04 标记为已完成，将 B2-05 标记为已拆解、待执行。
+
+### 人工调整
+B2-05 明确允许修改 `backend/app/api/v1/agents.py`、`backend/app/schemas/agent.py`、`backend/app/seeds/seed_agents.py`、`shared/openapi.yaml` 和 `docs/api-spec.md`；由于涉及 AgentConfig 契约说明，要求 PR 描述中标注契约变更，并说明不涉及 BaseAgentAdapter 或 ContentBlock。
+
+### 经验
+当 B2 任务从 Adapter 内部实现扩展到 Agent CRUD 和 OpenAPI 配置字段时，应先写 Spec 和任务文档，明确共享文件边界，再交给 Claude Code 执行，避免把配置校验、路由更新和契约文档拆散到多个不一致的 PR 中。
