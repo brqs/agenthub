@@ -4,6 +4,7 @@ import { AgentCard } from '@/components/agents/AgentCard';
 import { AgentCreateDialog } from '@/components/agents/AgentCreateDialog';
 import { AgentDetailPanel } from '@/components/agents/AgentDetailPanel';
 import { useAgents } from '@/hooks/useAgents';
+import { useCreateAgent } from '@/hooks/useCreateAgent';
 import { useAgentStore } from '@/stores/agentStore';
 
 export function AgentsPage() {
@@ -12,7 +13,7 @@ export function AgentsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
   const setSelectedAgentId = useAgentStore((state) => state.setSelectedAgentId);
-  const createAgent = useAgentStore((state) => state.createAgent);
+  const createAgent = useCreateAgent();
 
   const filteredAgents = useMemo(() => {
     const normalized = search.trim().toLowerCase();
@@ -110,8 +111,8 @@ export function AgentsPage() {
       <AgentCreateDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        onCreate={(input) => {
-          createAgent(input);
+        onCreate={async (input) => {
+          await createAgent.mutateAsync(input);
           setCreateOpen(false);
         }}
       />

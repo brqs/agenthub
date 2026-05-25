@@ -15,8 +15,10 @@ export function AgentCreateDialog({
   onCreate: (input: CreateAgentInput) => void;
 }) {
   const [name, setName] = useState('Frontend Reviewer');
-  const [provider, setProvider] = useState<Agent['provider']>('custom');
-  const [model, setModel] = useState('agenthub-demo-v1');
+  // Default to `claude` (real backend rejects `custom` without `upstream_provider`,
+  // which is currently not in the OpenAPI). Mock mode accepts either.
+  const [provider, setProvider] = useState<Agent['provider']>('claude');
+  const [model, setModel] = useState('claude-sonnet-4-6');
   const [capabilities, setCapabilities] = useState(DEFAULT_CAPABILITIES.join(', '));
   const [systemPrompt, setSystemPrompt] = useState('你负责审查前端交互、视觉一致性和可演示性。');
 

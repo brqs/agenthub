@@ -14,6 +14,10 @@ interface AgentState {
   agents: Agent[];
   selectedAgentId: string | null;
   createAgent: (input: CreateAgentInput) => Agent;
+  /** Insert an Agent returned from the backend (POST /agents). Prepends + selects. */
+  addAgent: (agent: Agent) => void;
+  /** Replace the agent list (used to mirror server state in API mode). */
+  hydrateAgents: (agents: Agent[]) => void;
   setSelectedAgentId: (agentId: string | null) => void;
 }
 
@@ -57,5 +61,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     return agent;
   },
+  addAgent: (agent) =>
+    set((state) => ({
+      agents: [agent, ...state.agents.filter((existing) => existing.id !== agent.id)],
+      selectedAgentId: agent.id,
+    })),
+  hydrateAgents: (agents) =>
+    set((state) => {
+      const remoteIds = new Set(agents.map((a) => a.id));
+      const selected = state.selectedAgentId;
+      const nextSelected =
+        selected && remoteIds.has(selected) ? selected : agents[0]?.id ?? null;
+      return { agents, selectedAgentId: nextSelected };
+    }),
   setSelectedAgentId: (agentId) => set({ selectedAgentId: agentId }),
 }));
