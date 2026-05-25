@@ -7,6 +7,7 @@ import {
   type DemoConversation,
   type DemoMessage,
 } from '@/lib/mockData';
+import type { StreamEvent } from '@/lib/types';
 
 interface ChatState {
   conversations: DemoConversation[];
@@ -15,11 +16,9 @@ interface ChatState {
   search: string;
   setSelectedConversationId: (conversationId: string) => void;
   setSearch: (search: string) => void;
-  sendMockMessage: (conversationId: string, text: string) => void;
+  createPendingExchange: (conversationId: string, text: string) => { agentMessageId: string } | null;
+  applyStreamEvent: (messageId: string, event: StreamEvent) => void;
 }
-
-const STREAM_REPLY =
-  '收到。我会先用 Mock 数据把桌面端体验跑顺：四栏布局、Agent 右侧栏、消息气泡和流式回复都会保留真实 API 的接入位置。';
 
 function createUserMessage(conversationId: string, text: string): DemoMessage {
   return {
@@ -54,6 +53,36 @@ function appendText(blocks: DemoContentBlock[], text: string): DemoContentBlock[
   return [{ ...firstBlock, text: `${firstBlock.text}${text}` }, ...rest];
 }
 
+function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContentBlock[] {
+  if (event.event === 'block_start') {
+    const next = [...blocks];
+    if (event.data.block_type === 'code') {
+      next[event.data.block_index] = {
+        type: 'code',
+        language: (event.data.metadata?.language as string) || 'text',
+        code: '',
+      };
+    } else {
+      next[event.data.block_index] = { type: 'text', text: '' };
+    }
+    return next;
+  }
+
+  if (event.event !== 'delta') return blocks;
+
+  const next = [...blocks];
+  const block = next[event.data.block_index];
+  if (!block) return next;
+
+  if (block.type === 'text' && event.data.text_delta) {
+    next[event.data.block_index] = { ...block, text: `${block.text}${event.data.text_delta}` };
+  }
+  if (block.type === 'code' && event.data.code_delta) {
+    next[event.data.block_index] = { ...block, code: `${block.code}${event.data.code_delta}` };
+  }
+  return next;
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: mockConversations,
   messagesByConversation: mockMessages,
@@ -61,9 +90,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   search: '',
   setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId }),
   setSearch: (search) => set({ search }),
-  sendMockMessage: (conversationId, text) => {
+  createPendingExchange: (conversationId, text) => {
     const conversation = get().conversations.find((item) => item.id === conversationId);
-    if (!conversation) return;
+    if (!conversation) return null;
 
     const userMessage = createUserMessage(conversationId, text);
     const agentId = getTargetAgent(conversation);
@@ -89,33 +118,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ),
     }));
 
-    let cursor = 0;
-    const timer = window.setInterval(() => {
-      const next = STREAM_REPLY.slice(cursor, cursor + 2);
-      cursor += 2;
+    return { agentMessageId: reply.id };
+  },
+  applyStreamEvent: (messageId, event) => {
+    set((state) => {
+      let touchedConversationId: string | null = null;
+      const nextMessagesByConversation = Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => {
+          const nextMessages = messages.map((message) => {
+            if (message.id !== messageId) return message;
+            touchedConversationId = conversationId;
+            if (event.event === 'start') {
+              return { ...message, status: 'streaming' as const };
+            }
+            if (event.event === 'done') {
+              return { ...message, status: 'done' as const };
+            }
+            if (event.event === 'error') {
+              return {
+                ...message,
+                status: 'error' as const,
+                content: appendText(
+                  message.content,
+                  `\n\n调用失败：${event.data.error ?? event.data.error_code ?? 'unknown error'}`,
+                ),
+              };
+            }
+            return {
+              ...message,
+              content: applyDelta(message.content, event),
+            };
+          });
+          return [conversationId, nextMessages];
+        }),
+      );
 
-      set((state) => {
-        const messages = state.messagesByConversation[conversationId] ?? [];
-        return {
-          messagesByConversation: {
-            ...state.messagesByConversation,
-            [conversationId]: messages.map((message) =>
-              message.id === reply.id
-                ? {
-                    ...message,
-                    status: cursor >= STREAM_REPLY.length ? 'done' : 'streaming',
-                    content: appendText(message.content, next),
-                  }
-                : message,
-            ),
-          },
-        };
-      });
+      const nextConversations = touchedConversationId
+        ? state.conversations.map((conversation) =>
+            conversation.id === touchedConversationId
+              ? {
+                  ...conversation,
+                  last_message_at: new Date().toISOString(),
+                  last_message_preview: 'Agent 正在流式回复...',
+                }
+              : conversation,
+          )
+        : state.conversations;
 
-      if (cursor >= STREAM_REPLY.length) {
-        window.clearInterval(timer);
-      }
-    }, 35);
+      return {
+        messagesByConversation: nextMessagesByConversation,
+        conversations: nextConversations,
+      };
+    });
   },
 }));
-
