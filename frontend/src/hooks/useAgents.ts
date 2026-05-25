@@ -1,14 +1,15 @@
 import { useMemo } from 'react';
-import { mockAgents } from '@/lib/mockData';
+import { useAgentStore } from '@/stores/agentStore';
 
 export function useAgents() {
+  const agents = useAgentStore((state) => state.agents);
+
   return useMemo(
     () => ({
-      data: mockAgents,
+      data: agents,
       isLoading: false,
       error: null,
     }),
-    [],
+    [agents],
   );
 }
-

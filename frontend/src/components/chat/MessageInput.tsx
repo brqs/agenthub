@@ -8,9 +8,11 @@ import type { Agent } from '@/lib/types';
 export function MessageInput({
   conversation,
   onSend,
+  isSending = false,
 }: {
   conversation: DemoConversation;
   onSend: (text: string) => void;
+  isSending?: boolean;
 }) {
   const [text, setText] = useState('');
   const mentionQuery = useMemo(() => {
@@ -22,7 +24,7 @@ export function MessageInput({
 
   function submit() {
     const value = text.trim();
-    if (!value) return;
+    if (!value || isSending) return;
     onSend(value);
     setText('');
   }
@@ -58,13 +60,14 @@ export function MessageInput({
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
+          disabled={isSending}
           placeholder={`发消息到 ${conversation.title}`}
-          className="max-h-32 min-h-10 flex-1 resize-none bg-transparent py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600"
+          className="max-h-32 min-h-10 flex-1 resize-none bg-transparent py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
         />
         <button
           type="button"
           onClick={submit}
-          disabled={!text.trim()}
+          disabled={!text.trim() || isSending}
           className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Send className="h-4 w-4" />
