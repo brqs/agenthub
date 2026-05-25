@@ -22,6 +22,8 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 async def ensure_tables() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    yield
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture
