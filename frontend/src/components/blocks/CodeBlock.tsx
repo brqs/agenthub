@@ -82,7 +82,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
   }
 
   return (
-    <div className="my-3 overflow-hidden rounded-md border border-slate-700 bg-slate-950">
+    <div className="my-3 min-w-0 overflow-hidden rounded-md border border-slate-700 bg-slate-950">
       <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
         <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
           {language || 'text'}
@@ -90,6 +90,8 @@ export function CodeBlock({ language, code }: { language: string; code: string }
         <button
           type="button"
           onClick={copyCode}
+          title={copied ? '代码已复制' : '复制代码'}
+          aria-label={copied ? '代码已复制' : '复制代码'}
           className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-white"
         >
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -98,11 +100,11 @@ export function CodeBlock({ language, code }: { language: string; code: string }
       </div>
       {highlighted ? (
         <div
-          className="scrollbar-hidden max-h-96 overflow-auto text-sm leading-6 [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-4"
+          className="scrollbar-hidden max-h-80 overflow-auto text-sm leading-6 [&_code]:break-normal [&_pre]:!m-0 [&_pre]:!min-w-max [&_pre]:!bg-transparent [&_pre]:!p-4"
           dangerouslySetInnerHTML={{ __html: highlighted }}
         />
       ) : (
-        <pre className="scrollbar-hidden max-h-96 overflow-auto p-4 text-sm leading-6 text-slate-200">
+        <pre className="scrollbar-hidden max-h-80 min-w-0 overflow-auto p-4 text-sm leading-6 text-slate-200">
           <code className="font-mono">{code}</code>
         </pre>
       )}

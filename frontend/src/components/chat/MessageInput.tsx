@@ -42,11 +42,11 @@ export function MessageInput({
   }
 
   return (
-    <footer className="shrink-0 border-t border-slate-800 bg-slate-950 px-5 py-4">
+    <footer className="shrink-0 border-t border-slate-800 bg-slate-950 px-5 py-3 max-[800px]:py-2 [@media(max-height:800px)]:py-2">
       {conversation.mode === 'group' && (
         <>
           <DemoPromptBar onSelect={setText} />
-          <div className="mb-2 flex items-center gap-2 text-xs text-slate-500">
+          <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 max-[800px]:hidden [@media(max-height:800px)]:hidden">
             <AtSign className="h-3.5 w-3.5" />
             输入 @ 可指定 Agent，默认由 Orchestrator 协调
           </div>
@@ -55,7 +55,7 @@ export function MessageInput({
       {mentionQuery !== null && (
         <AgentMentionPicker agents={availableAgents} query={mentionQuery} onPick={pickAgent} />
       )}
-      <div className="flex items-end gap-3 rounded-md border border-slate-800 bg-slate-900 p-3 focus-within:border-brand">
+      <div className="flex items-end gap-3 rounded-md border border-slate-800 bg-slate-900 p-2.5 focus-within:border-brand [@media(max-height:800px)]:p-2">
         <button
           type="button"
           className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
@@ -71,7 +71,7 @@ export function MessageInput({
           rows={1}
           disabled={isSending}
           placeholder={`发消息到 ${conversation.title}`}
-          className="max-h-32 min-h-10 flex-1 resize-none bg-transparent py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
+          className="max-h-28 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed disabled:opacity-60 [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
         />
         <button
           type="button"

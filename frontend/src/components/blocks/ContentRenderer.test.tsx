@@ -51,7 +51,8 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('Demo Preview')).toBeInTheDocument();
     expect(screen.getByText('demo.md')).toBeInTheDocument();
     expect(screen.getByText('任务卡')).toBeInTheDocument();
-    expect(screen.getByText('Orchestrator → Codex Helper')).toBeInTheDocument();
+    expect(screen.getByText('Orchestrator')).toBeInTheDocument();
+    expect(screen.getByText('Codex Helper')).toBeInTheDocument();
   });
 
   it('renders fallback UI for unknown block types', () => {
