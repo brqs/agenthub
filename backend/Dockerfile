@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # 安装 Python 依赖
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install -e ".[dev]"
+RUN pip install --upgrade pip && pip install -e ".[dev]" \
+    && pip install 'bcrypt>=4.0.0,<5.0.0'
 
 # 复制源代码
 COPY . .
