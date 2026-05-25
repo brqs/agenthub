@@ -58,6 +58,7 @@ dmypy.json
 .pyre/
 .pytype/
 .ruff_cache/
+*.tsbuildinfo
 
 # ─── Node / Frontend ───
 node_modules/
@@ -66,6 +67,9 @@ dist/
 .vite/
 *.local
 .turbo/
+frontend/vite.config.js
+frontend/vite.config.d.ts
+frontend/pnpm-workspace.yaml
 
 # Logs
 npm-debug.log*
