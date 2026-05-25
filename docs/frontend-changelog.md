@@ -202,3 +202,84 @@
 ### 后续事项
 - 继续打磨 `CodeBlock`、`DiffBlock`、`WebPreviewBlock`、`FileBlock`。
 - 接入真实后端时，需要把 `agent_switch` 与 `task_card` 正式纳入 ContentBlock / SSE 契约。
+
+---
+
+## 2026-05-25 — 打磨富媒体消息块展示
+
+### 改动范围
+- `docs/spec/frontend-content-blocks.spec.md`
+- `frontend/src/components/blocks/CodeBlock.tsx`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+- `frontend/src/components/blocks/DiffBlock.tsx`
+- `frontend/src/components/blocks/WebPreviewBlock.tsx`
+- `frontend/src/components/blocks/FileBlock.tsx`
+- `frontend/src/components/blocks/UnknownBlock.tsx`
+- `frontend/src/lib/mockData.ts`
+
+### 更新内容
+- 新增富媒体消息块 Spec，明确 code、diff、web preview、file 与未知 block 的验收标准。
+- `CodeBlock` 新增 Shiki 异步代码高亮，保留纯文本回退，并优化复制按钮状态。
+- 新增 `DiffBlock`，使用 unified 风格展示新增、删除和上下文行。
+- 新增 `WebPreviewBlock`，展示站点、标题、描述、URL 和外链入口。
+- 新增 `FileBlock`，展示文件类型图标、文件名、大小和打开入口。
+- 新增 `UnknownBlock`，用于未知消息块的安全降级展示。
+- `conv-demo-flow` 补充 diff、web_preview 和 file Mock 示例，方便 Demo 直接检查。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+- 本次仅消费已有 `ContentBlock` placeholder 类型，并继续保留前端 Demo 扩展块。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+
+### 后续事项
+- 可继续为 `ContentRenderer`、`CodeBlock` 复制行为和 `DiffBlock` 行渲染补组件测试。
+- 真实契约稳定后，用 `pnpm gen:types` 替换当前 placeholder 类型。
+
+---
+
+## 2026-05-25 — 完成 Agent 管理页与 Demo 打磨
+
+### 改动范围
+- `docs/spec/frontend-agent-management.spec.md`
+- `docs/spec/frontend-demo-polish.spec.md`
+- `frontend/src/pages/AgentsPage.tsx`
+- `frontend/src/components/agents/AgentCard.tsx`
+- `frontend/src/components/agents/AgentCreateDialog.tsx`
+- `frontend/src/components/agents/AgentDetailPanel.tsx`
+- `frontend/src/stores/agentStore.ts`
+- `frontend/src/hooks/useAgents.ts`
+- `frontend/src/components/chat/MessageList.tsx`
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.tsx`
+- `frontend/src/stores/chatStore.ts`
+
+### 更新内容
+- 新增 Agent 管理页 Spec 与 Demo 打磨 Spec。
+- Agent 管理页新增“我的 Agent / 内置 Agent”分组、搜索、统计卡和右侧详情栏。
+- 新增 Mock 创建 Agent 表单，创建后写入 `agentStore` 并自动进入详情态。
+- `useAgents` 改为从 `agentStore` 读取，为后续真实 API 替换保留 Hook 边界。
+- 消息列表新增 loading 状态和新会话空态。
+- 消息错误状态新增重试按钮，重试会重置当前消息并重新订阅 Mock SSE。
+- 消息输入在发送中进入 disabled 状态，避免重复提交。
+- 会话搜索无结果时展示空状态。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+- Agent 创建仍为前端 Mock 行为，后续可替换为真实 Agent CRUD API。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+- 浏览器手动验证：进入 Agent 管理页，创建 `Frontend Reviewer`，确认“我的 Agent”、右侧详情与聊天入口正常。
+
+### 后续事项
+- 可继续补 AgentsPage、AgentCreateDialog、MessageList 的组件测试。
+- 后端 Agent API 稳定后，将 `agentStore` 创建行为替换为 mutation + query invalidation。

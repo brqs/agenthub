@@ -27,11 +27,12 @@ export function ChatPage() {
   const setSearch = useChatStore((state) => state.setSearch);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
   const applyStreamEvent = useChatStore((state) => state.applyStreamEvent);
-  const { sendMessage } = useSendMessage();
+  const resetMessageForRetry = useChatStore((state) => state.resetMessageForRetry);
+  const { sendMessage, isPending: sendingMessage } = useSendMessage();
 
   const activeConversationId = conversationId ?? selectedConversationId;
   const conversation = conversations.find((item) => item.id === activeConversationId) ?? conversations[0];
-  const { data: messages } = useMessages(conversation?.id);
+  const { data: messages, isLoading: messagesLoading } = useMessages(conversation?.id);
 
   useStream(streamingMessageId, {
     onEvent: (event) => {
@@ -72,9 +73,17 @@ export function ChatPage() {
       />
       <section className="flex min-w-0 flex-1 flex-col">
         <ChatHeader conversation={conversation} />
-        <MessageList messages={messages} />
+        <MessageList
+          messages={messages}
+          isLoading={messagesLoading}
+          onRetry={(messageId) => {
+            resetMessageForRetry(messageId);
+            setStreamingMessageId(messageId);
+          }}
+        />
         <MessageInput
           conversation={conversation}
+          isSending={sendingMessage}
           onSend={async (text) => {
             const result = await sendMessage(conversation.id, text);
             if (result?.agentMessageId) setStreamingMessageId(result.agentMessageId);

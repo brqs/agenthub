@@ -26,6 +26,7 @@ interface ChatState {
   setSearch: (search: string) => void;
   createPendingExchange: (conversationId: string, text: string) => { agentMessageId: string } | null;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
+  resetMessageForRetry: (messageId: string) => void;
 }
 
 function createUserMessage(conversationId: string, text: string): DemoMessage {
@@ -279,5 +280,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversations: nextConversations,
       };
     });
+  },
+  resetMessageForRetry: (messageId) => {
+    set((state) => ({
+      messagesByConversation: Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => [
+          conversationId,
+          messages.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  status: 'streaming' as const,
+                  content: [{ type: 'text', text: '' }],
+                }
+              : message,
+          ),
+        ]),
+      ),
+    }));
   },
 }));
