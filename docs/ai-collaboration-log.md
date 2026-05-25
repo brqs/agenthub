@@ -330,3 +330,31 @@ B2-09 允许提前准备任务文档，但实现必须等待 `docs/spec/orchestr
 - Orchestrator Spec 应先于代码实现，因为涉及多个子 Agent 的流式聚合、block_index 重映射和失败降级，需要在前端 SSE 消费层、后端 SSE 持久化层和 Adapter 层之间对齐语义。
 - `agent_switch` 和 `from_agent`/`to_agent`/`task` 字段在 `types.py` 中已预先定义，Spec 无需新增 schema 字段，只需明确语义即可。
 - 将 B2-08/B2-09/B2-10 拆成三个独立 PR（spec → 调度 → 降级），可避免一个 PR 同时改动文档和核心编排逻辑，降低审阅复杂度。
+
+## 2026-05-25 — B2 执行 B2-09 Orchestrator 顺序调度
+
+### 任务
+实现 B2-09：在不修改共享契约和生产 registry 接线的前提下，让 Orchestrator 通过 config 注入的任务计划和子 Adapter 顺序调度子 Agent，并重映射 `block_index`。
+
+### 关键 Prompt
+> 请执行 B2-09。先阅读 AGENTS.md，然后阅读 docs/spec/orchestrator.spec.md 和 docs/b2-task-dispatch/B2-09-orchestrator-dispatch.md。严格按文档实现：只做注入式顺序调度；通过 config 注入的 tasks 和 sub_adapters / adapter_factory 获取子 Agent；不做真实 LLM 任务拆解；不做 registry DB 生产接线；不修改 OpenAPI / BaseAgentAdapter / StreamChunk / ContentBlock；不修改 frontend；不 commit，不 push，不创建 PR。完成后运行文档要求的 pytest / ruff / mypy，并把结果交给 Codex 审阅。
+
+### AI 输出摘要
+1. 更新 `backend/app/agents/orchestrator.py`：
+   - 从 `config` / `default_config` 读取 `tasks`。
+   - 支持通过注入的 `sub_adapters` 或 `adapter_factory` 获取子 Agent Adapter。
+   - 按 `priority` 升序串行调度任务，并在每个子 Agent 前发出 `agent_switch`。
+   - 子 Agent `start` / `done` 不外发，`block_start` / `delta` / `block_end` 通过本地映射表重写 `block_index`。
+   - 子 Agent `error` chunk 被转换为普通 text 失败说明块，不直接外发 `error`。
+   - 输出 planning text block、每个 Agent 的 header text block、summary text block 和最终 `done`。
+2. 新增 `backend/tests/test_orchestrator.py`：
+   - 覆盖单/多任务顺序、`agent_switch`、`block_index` 无冲突、metadata/delta 保留、`adapter_factory` 注入、缺少任务计划或 Adapter 注入时的 clear error、子 Agent error chunk 拦截。
+3. 未修改 `BaseAgentAdapter`、`StreamChunk`、`ContentBlock`、OpenAPI、registry、backend API、frontend 或生产 seed。
+
+### 人工调整
+首轮 ruff 指出 import 排序、`StrEnum` 和循环变量命名问题；后续为保持小函数约束抽出 `_run_task`，并按 mypy 结果修正返回类型注解。未做 commit、push 或 PR。
+
+### 经验
+- B2-09 的核心边界是“注入式可测调度”，不要为了演示提前接生产 registry 或真实 LLM 任务拆解。
+- block index 重映射使用“原始 index → 全局 index”的 per-subtask 映射表，比固定 offset 更稳，可处理子 Agent 原始 index 不连续的情况。
+- 子 Agent 的 `error` chunk 不能透传，否则上层 SSE 可能把整个 Orchestrator message 标记为 error；当前仅做 error chunk 拦截，Adapter 抛异常、复杂失败降级和部分成功策略留给 B2-10。
