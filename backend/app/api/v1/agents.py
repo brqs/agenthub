@@ -85,7 +85,10 @@ async def get_agent(
 ) -> AgentOut:
     agent = await db.get(Agent, agent_id)
     if not agent:
-        raise HTTPException(404, detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}},
+        )
     if not agent.is_builtin and agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
     return AgentOut.model_validate(agent)
@@ -100,11 +103,19 @@ async def update_agent(
 ) -> AgentOut:
     agent = await db.get(Agent, agent_id)
     if not agent:
-        raise HTTPException(404, detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}},
+        )
     if agent.is_builtin:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            detail={"error": {"code": "CANNOT_MODIFY_BUILTIN", "message": "Built-in agents are read-only"}},
+            detail={
+                "error": {
+                    "code": "CANNOT_MODIFY_BUILTIN",
+                    "message": "Built-in agents are read-only",
+                }
+            },
         )
     if agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
@@ -123,11 +134,19 @@ async def delete_agent(
 ) -> None:
     agent = await db.get(Agent, agent_id)
     if not agent:
-        raise HTTPException(404, detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}})
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}},
+        )
     if agent.is_builtin:
         raise HTTPException(
             403,
-            detail={"error": {"code": "CANNOT_DELETE_BUILTIN", "message": "Built-in agents are read-only"}},
+            detail={
+                "error": {
+                    "code": "CANNOT_DELETE_BUILTIN",
+                    "message": "Built-in agents are read-only",
+                }
+            },
         )
     if agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
