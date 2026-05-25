@@ -1,51 +1,65 @@
-/**
- * ChatPage — main chat experience.
- *
- * TODO(F):
- *  - 左侧：ConversationList（含新建、置顶、搜索、归档）
- *  - 中间：ChatWindow（消息列表 + 输入框）
- *  - 流式渲染：useStream Hook
- *  - 富媒体块：components/blocks/*
- */
-
-import { useParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { RightAgentPanel } from '@/components/agents/RightAgentPanel';
+import { ChatHeader } from '@/components/chat/ChatHeader';
+import { MessageInput } from '@/components/chat/MessageInput';
+import { MessageList } from '@/components/chat/MessageList';
+import { ConversationSidebar } from '@/components/conversation/ConversationSidebar';
+import { useChatStore } from '@/stores/chatStore';
 
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
+  const navigate = useNavigate();
+  const conversations = useChatStore((state) => state.conversations);
+  const messagesByConversation = useChatStore((state) => state.messagesByConversation);
+  const selectedConversationId = useChatStore((state) => state.selectedConversationId);
+  const search = useChatStore((state) => state.search);
+  const setSearch = useChatStore((state) => state.setSearch);
+  const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
+  const sendMockMessage = useChatStore((state) => state.sendMockMessage);
+
+  const activeConversationId = conversationId ?? selectedConversationId;
+  const conversation = conversations.find((item) => item.id === activeConversationId) ?? conversations[0];
+  const messages = conversation ? messagesByConversation[conversation.id] ?? [] : [];
+
+  useEffect(() => {
+    if (!conversationId && selectedConversationId) {
+      navigate(`/chat/${selectedConversationId}`, { replace: true });
+    }
+  }, [conversationId, navigate, selectedConversationId]);
+
+  if (!conversation) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-950 text-slate-500">
+        还没有会话
+      </div>
+    );
+  }
+
+  function selectConversation(nextConversationId: string) {
+    setSelectedConversationId(nextConversationId);
+    navigate(`/chat/${nextConversationId}`);
+  }
 
   return (
-    <div className="flex h-full">
-      {/* 侧边栏（占位）*/}
-      <aside className="w-72 border-r border-gray-200 dark:border-slate-700 p-4 overflow-y-auto scrollbar-thin">
-        <h2 className="text-sm font-semibold text-gray-500 mb-3">会话</h2>
-        <div className="text-sm text-gray-400">
-          TODO(F): ConversationList
-        </div>
-      </aside>
-
-      {/* 主聊天区 */}
-      <section className="flex-1 flex flex-col">
-        {!conversationId ? (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
-            <div className="text-center">
-              <div className="text-6xl mb-4">💬</div>
-              <p className="text-lg">选择或新建一个会话开始</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            <header className="border-b border-gray-200 dark:border-slate-700 p-4">
-              <h2 className="font-semibold">Conversation {conversationId}</h2>
-            </header>
-            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-              <div className="text-sm text-gray-400">TODO(F): MessageList</div>
-            </div>
-            <footer className="border-t border-gray-200 dark:border-slate-700 p-4">
-              <div className="text-sm text-gray-400">TODO(F): MessageInput</div>
-            </footer>
-          </>
-        )}
+    <div className="flex h-screen overflow-hidden bg-slate-950">
+      <ConversationSidebar
+        conversations={conversations}
+        selectedConversationId={conversation.id}
+        search={search}
+        onSearch={setSearch}
+        onSelect={selectConversation}
+      />
+      <section className="flex min-w-0 flex-1 flex-col">
+        <ChatHeader conversation={conversation} />
+        <MessageList messages={messages} />
+        <MessageInput
+          conversation={conversation}
+          onSend={(text) => sendMockMessage(conversation.id, text)}
+        />
       </section>
+      <RightAgentPanel conversation={conversation} messages={messages} />
     </div>
   );
 }
+
