@@ -1,9 +1,10 @@
 import { Plus, Search } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
-import { mockAgents } from '@/lib/mockData';
+import { useAgents } from '@/hooks/useAgents';
 
 export function AgentsPage() {
-  const builtin = mockAgents.filter((agent) => agent.is_builtin);
+  const { data: agents } = useAgents();
+  const builtin = agents.filter((agent) => agent.is_builtin);
 
   return (
     <div className="h-screen overflow-y-auto bg-slate-950 p-8 scrollbar-thin">
@@ -70,4 +71,3 @@ export function AgentsPage() {
     </div>
   );
 }
-
