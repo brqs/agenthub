@@ -274,6 +274,45 @@ export function TodoPanel() {
       is_pinned: true,
       created_at: minutesAgo(130),
     },
+    {
+      id: 'msg-demo-2',
+      conversation_id: 'conv-demo-flow',
+      role: 'agent',
+      agent_id: 'codex-helper',
+      content: [
+        {
+          type: 'diff',
+          filename: 'frontend/src/components/chat/MessageInput.tsx',
+          before: `function submit() {
+  if (!text) return;
+  onSend(text);
+}`,
+          after: `function submit() {
+  const value = text.trim();
+  if (!value) return;
+  onSend(value);
+  setText('');
+}`,
+        },
+        {
+          type: 'web_preview',
+          url: 'https://github.com/brqs/agenthub/pull/1',
+          title: 'AgentHub frontend demo pull request',
+          description: 'Mock 桌面聊天、Agent 协作流和富媒体消息块的阶段性前端更新。',
+        },
+        {
+          type: 'file',
+          filename: 'agenthub-demo-notes.md',
+          url: 'https://github.com/brqs/agenthub',
+          size: 18432,
+          mime_type: 'text/markdown',
+        },
+      ],
+      reply_to_id: null,
+      status: 'done',
+      is_pinned: false,
+      created_at: minutesAgo(118),
+    },
   ],
 };
 
