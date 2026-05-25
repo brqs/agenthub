@@ -210,3 +210,22 @@ B2-06 明确允许修改 `backend/app/api/v1/stream.py` 与 `backend/tests/test_
 
 ### 经验
 跨边界任务启动前应先读现有实现和测试，避免把“已有部分修复”误判为“完全未实现”。B2-06 的关键不是大改 SSE，而是用回归测试锁住 error chunk、异常路径和 partial content 持久化行为。
+
+## 2026-05-25 — B2 拆解 B2-07 ArtifactParser v2 富媒体识别增强任务
+
+### 任务
+在 B2-06 合并后，启动 B2-07：增强 `StreamingArtifactParser` 对 diff fence 和独立 URL 的识别，并让 SSE 持久化层保存既有 `diff` / `web_preview` ContentBlock。
+
+### 关键 Prompt
+> 现在开始进行b2-07的开发
+
+### AI 输出摘要
+确认 `ContentBlock` 和 `StreamChunk.block_type` 已经包含 `diff` 与 `web_preview`，因此 B2-07 不需要新增 schema 类型或修改 OpenAPI。新增 `docs/spec/artifact-parser-v2.spec.md` 和 `docs/b2-task-dispatch/B2-07-artifact-parser-v2.md`，将任务限定为 parser 增强、`_ContentAccumulator` 最小扩展和后端测试覆盖。
+
+同步更新 `docs/b2-task-dispatch/README.md` 与 `docs/b2-task-dispatch/B2-roadmap.md`，将 B2-06 标记为已完成，将 B2-07 标记为已拆解、待执行，并增加建议分支 `feat/B2-artifact-parser-v2`。
+
+### 人工调整
+B2-07 明确不抓取网页标题、不做网络 I/O、不新增第三方依赖；独立 URL 只生成带 url 的 `web_preview` block。由于 `stream.py` 属于 B1-owned 文件，任务文档把 `_ContentAccumulator` 扩展标记为 B1/B2 协同边界，只允许做持久化所需的最小改动。
+
+### 经验
+当已有 schema 已覆盖目标 block 类型时，应优先复用现有契约，而不是为了 parser v2 新增字段。富媒体识别不仅要看 parser 输出，还必须检查 SSE 持久化层和前端流式消费能力，否则容易出现“流里有 block，但落库或渲染丢失”的断层。
