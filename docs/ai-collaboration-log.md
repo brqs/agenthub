@@ -385,3 +385,90 @@ B2-09 允许提前准备任务文档，但实现必须等待 `docs/spec/orchestr
 ### 经验
 - Orchestrator 的失败降级要区分“任务级失败”和“编排器 fatal error”：前者应转成普通文本并继续，后者才 yield `error`。
 - B2-10 仍不应该接真实 registry 或 LLM task decomposition；fallback adapter 先通过 config 注入形成可测闭环。
+
+## 2026-05-25 — B2 拆解 B2-11 Provider resilience 任务
+
+### 任务
+启动 B2-11：为 Claude / OpenAI / DeepSeek / Custom Adapter 统一 retry、timeout、rate-limit 和上游错误映射策略。
+
+### 关键 Prompt
+> 请执行 B2-11。先阅读 AGENTS.md，然后阅读 docs/spec/provider-resilience.spec.md 和 docs/b2-task-dispatch/B2-11-provider-resilience.md。严格按文档实现：只修改 Provider Adapter 及其测试；setup 阶段 transient error 可配置重试；rate limit 默认不重试；timeout / connection / upstream error 输出标准 StreamChunk(error)；内容已经开始输出后不得重试，必须先 flush parser 再输出 error；DeepSeek 继承 OpenAI resilience；Custom 不做二次 retry，只转发上游 chunk。不要修改 BaseAgentAdapter / StreamChunk / OpenAPI / registry / API / frontend / .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
+
+### AI 输出摘要
+1. 新增 `docs/spec/provider-resilience.spec.md`：
+   - 定义 retry 只发生在内容输出前。
+   - 定义 `missing_api_key`、`rate_limit`、`timeout`、`connection_error`、`upstream_error` 五类标准错误码。
+   - 定义 `max_retries`、`retry_backoff_seconds`、`request_timeout_seconds`、`retry_on_rate_limit` 配置。
+   - 明确 DeepSeek 继承 OpenAI 行为，Custom 不做二次 retry。
+2. 新增 `docs/b2-task-dispatch/B2-11-provider-resilience.md`：
+   - 给出允许 / 禁止修改文件范围。
+   - 建议新增 `backend/app/agents/adapters/resilience.py` 作为共享 helper。
+   - 明确 Claude / OpenAI / DeepSeek / Custom 的具体实现要求。
+   - 给出 10 类必须覆盖的测试和验证命令。
+3. 更新 `docs/b2-task-dispatch/README.md` 与 `docs/b2-task-dispatch/B2-roadmap.md`：
+   - 将 B2-11 标记为“已拆解，待执行”。
+
+### 人工调整
+当前工作区从 `feat/B2-orchestrator-fallback` 切出 `feat/B2-provider-resilience`，避免 B2-11 与 B2-10 混在同一分支。
+
+### 经验
+- Provider retry 必须以“是否已经输出内容”为边界，否则会造成重复 token、重复 block 或持久化污染。
+- rate limit 默认不重试更安全；需要重试时必须显式配置，避免对上游造成进一步压力。
+
+## 2026-05-25 — B2 拆解 B2-12 Adapter smoke tests 任务
+
+### 任务
+并行准备 B2-12：为 Claude / OpenAI / DeepSeek / Custom Adapter 增加默认 fake smoke tests 和可选真实 API slow tests。
+
+### 关键 Prompt
+> 请执行 B2-12。先阅读 AGENTS.md，然后阅读 docs/spec/adapter-smoke-tests.spec.md 和 docs/b2-task-dispatch/B2-12-adapter-smoke-tests.md。严格按文档实现：默认 smoke tests 必须使用 fake/mock upstream，不访问真实网络；验证 Adapter stream chunk 序列、to_sse()、block_start/block_end 成对、done.total_blocks 和 B1 _ContentAccumulator 消费；新增可选真实 API slow tests 时必须默认 skip，仅在 AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1 且对应 API key 存在时运行；注册 pytest slow marker；不要修改 Adapter 生产代码、BaseAgentAdapter、StreamChunk、OpenAPI、registry、API、frontend 或 .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
+
+### AI 输出摘要
+1. 新增 `docs/spec/adapter-smoke-tests.spec.md`：
+   - 定义默认 fake smoke tests 与可选真实 API slow tests 的边界。
+   - 明确默认测试不得访问真实 Provider。
+   - 明确 `slow` marker、`AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1` 和 provider API key 检查。
+   - 定义 stream contract、SSE 序列化和 `_ContentAccumulator` 消费断言。
+2. 新增 `docs/b2-task-dispatch/B2-12-adapter-smoke-tests.md`：
+   - 指定允许修改测试文件和 `backend/pyproject.toml` 的 marker 配置。
+   - 禁止修改 Adapter 生产代码和共享契约。
+   - 给出 Claude / OpenAI / DeepSeek / Custom 默认 smoke 场景和 live smoke 场景。
+   - 给出验证命令和完成后汇报要求。
+3. 更新 `docs/b2-task-dispatch/README.md` 与 `docs/b2-task-dispatch/B2-roadmap.md`：
+   - 将 B2-12 标记为“已拆解，待执行”。
+
+### 人工调整
+当前工作区仍在 `feat/B2-provider-resilience`，且已有 B2-11 文档改动。B2-12 先作为并行任务文档沉淀；Git/PR 时需要确保 B2-11 与 B2-12 的提交边界清晰。
+
+### 经验
+- 真实 API smoke tests 必须默认 skip，否则会让 CI 和本地默认测试依赖外部网络、费用和 API key。
+- Adapter smoke tests 的核心不是断言模型回复内容，而是断言标准事件协议能被 SSE 和持久化层稳定消费。
+
+## 2026-05-25 — B2 完成 B2-10 Orchestrator 失败降级回修
+
+### 任务
+完成 B2-10 实现后的审阅回修：收窄 fallback 触发范围、补充 fallback 说明文本块、校验 `task_id` 唯一性，并同步 Orchestrator 线完成状态。
+
+### 关键 Prompt
+> B2-10 当前仍有 3 个非阻塞问题尚未回修：orchestrator.py fallback 触发范围仍偏宽、fallback 缺少“正在 fallback”的说明 text block、仍未校验 task_id 唯一性。请你进行回修。
+
+### AI 输出摘要
+1. `backend/app/agents/orchestrator.py`：
+   - fallback 仅在任务计划缺失或格式非法时触发。
+   - 合法任务但缺少 `sub_adapters` / `adapter_factory` 时保持 `missing_sub_adapters` fatal error。
+   - fallback 流程先输出 `Task plan unavailable; falling back to @<agent>.` 文本块。
+   - 重复 `task_id` 被拒绝为 `invalid_task_plan`。
+2. `backend/tests/test_orchestrator.py`：
+   - 补充合法任务缺少 adapter source 不 fallback 的回归测试。
+   - 补充重复 `task_id` 回归测试。
+   - 保留 fallback 输出、异常降级、依赖跳过、全部失败仍 `done` 等覆盖。
+3. `docs/b2-task-dispatch/README.md` 和 `docs/b2-task-dispatch/B2-roadmap.md`：
+   - 将 B2-10 状态同步为“已完成”。
+   - 将下一步推进到 B2-11 / B2-12 / B2-13。
+
+### 人工调整
+Codex 审阅时未发现阻塞性代码问题，只指出 B2-10 文档状态和协作日志未同步。本次仅补齐文档状态与日志，不修改共享契约、不改 frontend、不接 registry/seed。
+
+### 经验
+- Orchestrator fallback 应只代表“任务计划不可用”的降级路径，不能掩盖合法计划下的 adapter 注入缺失。
+- B2 文档状态要随实现与审阅同步更新，否则任务索引会误导后续调度。
