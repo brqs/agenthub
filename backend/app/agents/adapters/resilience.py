@@ -139,7 +139,7 @@ def _read_int(config: dict[str, Any], key: str, default: int) -> int:
     value = config.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int):
         return default
-    return value
+    return int(value)
 
 
 def _read_float(config: dict[str, Any], key: str, default: float) -> float:

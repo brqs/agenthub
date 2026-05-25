@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { mockAgents } from '@/lib/mockData';
-import type { Agent } from '@/lib/types';
+import type { Agent, CreatableAgentProvider } from '@/lib/types';
 
 export interface CreateAgentInput {
   name: string;
-  provider: Agent['provider'];
+  provider: CreatableAgentProvider;
   model: string;
   capabilities: string[];
   systemPrompt: string;
@@ -49,7 +49,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       avatar_url: '',
       capabilities: input.capabilities,
       system_prompt: input.systemPrompt.trim() || null,
-      config: { model: input.model.trim() || 'custom-demo-model', temperature: 0.4 },
+      config: {
+        model: input.model.trim() || 'claude-sonnet-4-6',
+        temperature: 0.4,
+        ...(input.provider === 'custom' ? { upstream_provider: 'claude' } : {}),
+      },
       is_builtin: false,
       created_at: new Date().toISOString(),
     };

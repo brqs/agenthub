@@ -71,6 +71,7 @@ export type Agent = Override<
 >;
 export type AgentList = Override<Schemas['AgentList'], { items: Agent[] }>;
 export type CreateAgentRequest = Schemas['CreateAgentRequest'];
+export type CreatableAgentProvider = CreateAgentRequest['provider'];
 export type UpdateAgentRequest = Schemas['UpdateAgentRequest'];
 
 // ─── SSE events (hand-written; not in OpenAPI) ───
