@@ -1,13 +1,84 @@
 import { Check, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { createHighlighterCore, createJavaScriptRegexEngine } from 'shiki/core';
+import css from 'shiki/langs/css.mjs';
+import html from 'shiki/langs/html.mjs';
+import javascript from 'shiki/langs/javascript.mjs';
+import json from 'shiki/langs/json.mjs';
+import markdown from 'shiki/langs/markdown.mjs';
+import tsx from 'shiki/langs/tsx.mjs';
+import typescript from 'shiki/langs/typescript.mjs';
+import yaml from 'shiki/langs/yaml.mjs';
+import githubDark from 'shiki/themes/github-dark.mjs';
+
+type SupportedLanguage = 'css' | 'html' | 'javascript' | 'json' | 'markdown' | 'tsx' | 'typescript' | 'yaml';
+
+const SUPPORTED_LANGUAGES = new Set<string>([
+  'css',
+  'html',
+  'javascript',
+  'js',
+  'json',
+  'markdown',
+  'md',
+  'tsx',
+  'typescript',
+  'ts',
+  'yaml',
+  'yml',
+]);
+
+const highlighterPromise = createHighlighterCore({
+  themes: [githubDark],
+  langs: [css, html, javascript, json, markdown, tsx, typescript, yaml],
+  engine: createJavaScriptRegexEngine(),
+});
+
+function normalizeLanguage(language: string): SupportedLanguage {
+  const normalized = language.toLowerCase();
+  if (!SUPPORTED_LANGUAGES.has(normalized)) return 'markdown';
+  if (normalized === 'js') return 'javascript';
+  if (normalized === 'ts') return 'typescript';
+  if (normalized === 'md') return 'markdown';
+  if (normalized === 'yml') return 'yaml';
+  return normalized as SupportedLanguage;
+}
 
 export function CodeBlock({ language, code }: { language: string; code: string }) {
   const [copied, setCopied] = useState(false);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function highlight() {
+      try {
+        const highlighter = await highlighterPromise;
+        const html = highlighter.codeToHtml(code, {
+          lang: normalizeLanguage(language || 'markdown'),
+          theme: 'github-dark',
+        });
+        if (!cancelled) setHighlighted(html);
+      } catch {
+        if (!cancelled) setHighlighted(null);
+      }
+    }
+
+    void highlight();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [code, language]);
 
   async function copyCode() {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
   }
 
   return (
@@ -25,10 +96,16 @@ export function CodeBlock({ language, code }: { language: string; code: string }
           {copied ? '已复制' : '复制'}
         </button>
       </div>
-      <pre className="max-h-96 overflow-auto p-4 text-sm leading-6 text-slate-200 scrollbar-thin">
-        <code className="font-mono">{code}</code>
-      </pre>
+      {highlighted ? (
+        <div
+          className="max-h-96 overflow-auto text-sm leading-6 scrollbar-thin [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-4"
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
+      ) : (
+        <pre className="max-h-96 overflow-auto p-4 text-sm leading-6 text-slate-200 scrollbar-thin">
+          <code className="font-mono">{code}</code>
+        </pre>
+      )}
     </div>
   );
 }
-

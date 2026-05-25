@@ -1,6 +1,10 @@
 import { CodeBlock } from './CodeBlock';
+import { DiffBlock } from './DiffBlock';
+import { FileBlock } from './FileBlock';
 import { TaskCardBlock } from './TaskCardBlock';
 import { TextBlock } from './TextBlock';
+import { UnknownBlock } from './UnknownBlock';
+import { WebPreviewBlock } from './WebPreviewBlock';
 import type { DemoContentBlock } from '@/lib/mockData';
 import { getAgent } from '@/lib/mockData';
 
@@ -46,30 +50,32 @@ export function ContentRenderer({
           );
         }
         if (block.type === 'diff') {
-          return (
-            <div key={`${block.type}-${index}`} className="rounded-md border border-slate-700 bg-slate-950 p-3 text-sm">
-              <div className="mb-2 text-xs text-slate-500">{block.filename}</div>
-              <pre className="overflow-auto whitespace-pre-wrap font-mono text-slate-300">{block.after}</pre>
-            </div>
-          );
+          return <DiffBlock key={`${block.type}-${index}`} filename={block.filename} before={block.before} after={block.after} />;
         }
         if (block.type === 'web_preview') {
           return (
-            <a
+            <WebPreviewBlock
               key={`${block.type}-${index}`}
-              href={block.url}
-              target="_blank"
-              rel="noreferrer"
-              className="block rounded-md border border-slate-700 bg-slate-950 p-3 text-sm text-brand-light hover:border-brand"
-            >
-              {block.title ?? block.url}
-            </a>
+              url={block.url}
+              title={block.title}
+              description={block.description}
+            />
           );
         }
+        if (block.type === 'file') {
+          return (
+            <FileBlock
+              key={`${block.type}-${index}`}
+              filename={block.filename}
+              url={block.url}
+              size={block.size}
+              mimeType={block.mime_type}
+            />
+          );
+        }
+        const unknownBlock = block as { type?: string };
         return (
-          <div key={`${block.type}-${index}`} className="rounded-md border border-slate-700 bg-slate-950 p-3 text-sm text-slate-400">
-            {block.filename}
-          </div>
+          <UnknownBlock key={`${unknownBlock.type ?? 'unknown'}-${index}`} type={unknownBlock.type ?? 'unknown'} />
         );
       })}
     </div>
