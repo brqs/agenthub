@@ -106,6 +106,7 @@ async def _event_generator(
             event_type="error", error_code="agent_not_found", error=str(e)
         ).to_sse()
     except Exception as e:  # noqa: BLE001
+        message.content = accumulator.to_list()
         message.status = "error"
         await db.commit()
         yield StreamChunk(
