@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import {
   createMockReply,
+  getAgent,
   mockConversations,
   mockMessages,
   type DemoContentBlock,
   type DemoConversation,
   type DemoMessage,
+  type TaskCardBlock,
+  type TaskStatus,
 } from '@/lib/mockData';
 import type { StreamEvent } from '@/lib/types';
 
@@ -64,10 +67,69 @@ function appendText(blocks: DemoContentBlock[], text: string): DemoContentBlock[
   return [{ ...firstBlock, text: `${firstBlock.text}${text}` }, ...rest];
 }
 
+function isTaskCardMetadata(value: unknown): value is Omit<TaskCardBlock, 'type'> {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { title?: unknown; tasks?: unknown };
+  return typeof candidate.title === 'string' && Array.isArray(candidate.tasks);
+}
+
+function createTaskCard(metadata: Record<string, unknown> | undefined): TaskCardBlock {
+  const fallback: Omit<TaskCardBlock, 'type'> = {
+    title: '群聊协作任务流',
+    tasks: [],
+  };
+  const value = isTaskCardMetadata(metadata) ? metadata : fallback;
+  return {
+    type: 'task_card',
+    title: value.title,
+    tasks: value.tasks.map((task) => ({
+      id: String(task.id),
+      agent_id: String(task.agent_id),
+      title: String(task.title),
+      status: task.status as TaskStatus,
+    })),
+  };
+}
+
+function updateTaskStatuses(
+  blocks: DemoContentBlock[],
+  event: Extract<StreamEvent, { event: 'agent_switch' }>,
+): DemoContentBlock[] {
+  return blocks.map((block) => {
+    if (block.type !== 'task_card') return block;
+    return {
+      ...block,
+      tasks: block.tasks.map((task) => {
+        if (task.agent_id === event.data.from_agent && task.status === 'running') {
+          return { ...task, status: 'done' as const };
+        }
+        if (task.agent_id === event.data.to_agent) {
+          return { ...task, status: 'running' as const };
+        }
+        return task;
+      }),
+    };
+  });
+}
+
+function completeRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
+  return blocks.map((block) => {
+    if (block.type !== 'task_card') return block;
+    return {
+      ...block,
+      tasks: block.tasks.map((task) =>
+        task.status === 'running' ? { ...task, status: 'done' as const } : task,
+      ),
+    };
+  });
+}
+
 function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContentBlock[] {
   if (event.event === 'block_start') {
     const next = [...blocks];
-    if (event.data.block_type === 'code') {
+    if (event.data.block_type === 'task_card') {
+      next[event.data.block_index] = createTaskCard(event.data.metadata);
+    } else if (event.data.block_type === 'code') {
       next[event.data.block_index] = {
         type: 'code',
         language: (event.data.metadata?.language as string) || 'text',
@@ -76,6 +138,17 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
     } else {
       next[event.data.block_index] = { type: 'text', text: '' };
     }
+    return next;
+  }
+
+  if (event.event === 'agent_switch') {
+    const next = updateTaskStatuses(blocks, event);
+    next.push({
+      type: 'agent_switch',
+      from_agent: event.data.from_agent,
+      to_agent: event.data.to_agent,
+      task: event.data.task ?? `${getAgent(event.data.to_agent)?.name ?? event.data.to_agent} 接手任务`,
+    });
     return next;
   }
 
@@ -168,7 +241,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               return { ...message, status: 'streaming' as const };
             }
             if (event.event === 'done') {
-              return { ...message, status: 'done' as const };
+              return { ...message, status: 'done' as const, content: completeRunningTasks(message.content) };
             }
             if (event.event === 'error') {
               return {
