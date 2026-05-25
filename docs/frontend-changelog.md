@@ -169,3 +169,36 @@
 ### 后续事项
 - 将 `AgentMentionPicker` 从本地 Mock Agent 数据改为通过 props / hook 注入，减少组件对 Mock 数据的直接依赖。
 - 接入真实后端时，需要把 `@agent-id` 解析结果转换为 `target_agent_id`。
+
+---
+
+## 2026-05-25 — 完成 Mock 多 Agent 协作演示闭环
+
+### 改动范围
+- `docs/spec/frontend-chat-demo.spec.md`
+- `frontend/src/lib/sse.ts`
+- `frontend/src/lib/mockData.ts`
+- `frontend/src/stores/chatStore.ts`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+
+### 更新内容
+- 新增前端聊天 Demo Spec，明确 Mock 多 Agent 协作流的目标、边界和验收标准。
+- Mock SSE 新增 Orchestrator 场景事件序列，包含任务卡、文本回复、Agent 切换和代码块输出。
+- 新增前端 Demo 专用 `agent_switch` 内容块，用于在消息流中展示 Agent 接力分隔。
+- `TaskCardBlock` 支持跟随 `agent_switch` 事件推进任务状态，流式完成后自动收尾 running 任务。
+- 普通单聊仍保留基础 Mock 流式文本回复。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+- `task_card` 与 `agent_switch` 当前为前端 Demo 扩展块，真实契约落地前需要与 B1 / B2 同步。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+- 浏览器手动验证：进入群聊后发送 `@orchestrator 做一次群聊多 Agent 协作演示`，确认任务卡、Agent 切换分隔和代码块正常出现。
+
+### 后续事项
+- 继续打磨 `CodeBlock`、`DiffBlock`、`WebPreviewBlock`、`FileBlock`。
+- 接入真实后端时，需要把 `agent_switch` 与 `task_card` 正式纳入 ContentBlock / SSE 契约。

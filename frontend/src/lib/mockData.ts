@@ -13,7 +13,14 @@ export interface TaskCardBlock {
   }>;
 }
 
-export type DemoContentBlock = ContentBlock | TaskCardBlock;
+export interface AgentSwitchBlock {
+  type: 'agent_switch';
+  from_agent: string;
+  to_agent: string;
+  task: string;
+}
+
+export type DemoContentBlock = ContentBlock | TaskCardBlock | AgentSwitchBlock;
 
 export interface DemoMessage extends Omit<Message, 'content'> {
   content: DemoContentBlock[];
@@ -277,7 +284,7 @@ export function getAgent(agentId: string | null | undefined): Agent | undefined 
 
 export function createMockReply(conversationId: string, agentId: string): DemoMessage {
   return {
-    id: `msg-${Date.now()}`,
+    id: `msg-${agentId}-${Date.now()}`,
     conversation_id: conversationId,
     role: 'agent',
     agent_id: agentId,
@@ -288,4 +295,3 @@ export function createMockReply(conversationId: string, agentId: string): DemoMe
     created_at: new Date().toISOString(),
   };
 }
-
