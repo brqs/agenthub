@@ -136,3 +136,22 @@ B2-01 产物解析器完成后，应先接入一个真实 Provider Adapter，验
 
 ### 经验
 在连续拆分子任务前，应先建立中长期路线图，避免后续 PR 之间目标重叠，也方便判断哪些任务需要 B1/F 协同、哪些可以由 B2 独立推进。
+
+## 2026-05-25 — B2 拆解 B2-03 OpenAIAdapter 流式接入任务
+
+### 任务
+在 B2-02 ClaudeAdapter 合并后，启动 B2-03：实现 OpenAIAdapter 真实 OpenAI 流式接入。
+
+### 关键 Prompt
+> 接下来开始b2-03
+
+### AI 输出摘要
+确认当前分支为 `feat/B2-openai-adapter-streaming`，`origin/main` 已包含 B2-02 合并提交。检查本地 `openai` SDK 为 `2.31.0`，并基于当前 `openai.py` stub、`settings.openai_api_key/openai_base_url` 和 seed 默认模型 `gpt-4o` 创建 `docs/b2-task-dispatch/B2-03-openai-adapter-streaming.md`。
+
+同步更新 `docs/b2-task-dispatch/README.md` 任务索引，将 B2-03 标记为待执行；更新 `docs/b2-task-dispatch/B2-roadmap.md`，将 B2-03 状态调整为“已拆解，待执行”。
+
+### 人工调整
+B2-03 明确只允许修改 `backend/app/agents/adapters/openai.py` 和 `backend/tests/test_openai_adapter.py`，禁止修改 OpenAPI、BaseAgentAdapter、ContentBlock schema、ClaudeAdapter、CustomAdapter 和 Orchestrator。
+
+### 经验
+OpenAIAdapter 应复用 B2-02 的 Adapter 模式：Provider client 创建、消息转换、delta 解析、StreamingArtifactParser 接入和错误映射保持一致；差异只应集中在 OpenAI SDK 的流式事件读取方式。
