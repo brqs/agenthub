@@ -45,6 +45,7 @@ services:
     volumes:
       # 开发模式：挂载代码以便热重载
       - ./backend/app:/app/app
+      - ./backend/tests:/app/tests
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
     depends_on:
