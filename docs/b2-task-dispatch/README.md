@@ -11,6 +11,8 @@
 
 Git/PR 操作规范见 [../git-pr-ops/README.md](../git-pr-ops/README.md)。
 
+B2 总体目标框架和后续任务路线图见 [B2-roadmap.md](B2-roadmap.md)。
+
 ## 本地 Python 环境
 
 B2 本地开发使用 Anaconda 环境 `LLMAgent`。Claude Code 执行 Python 任务前应优先复用该环境，不要重复创建或安装新的 Python 环境。
@@ -41,6 +43,7 @@ conda run -n LLMAgent python -m pytest tests/test_artifact_parser.py
 | 编号 | 任务 | 状态 | 文档 |
 |------|------|------|------|
 | B2-01 | 实现 StreamingArtifactParser 流式产物解析器 | 已完成 | [B2-01-streaming-artifact-parser.md](B2-01-streaming-artifact-parser.md) |
+| B2-02 | 实现 ClaudeAdapter 真实 Anthropic 流式接入 | 已审阅，待 Git/PR | [B2-02-claude-adapter-streaming.md](B2-02-claude-adapter-streaming.md) |
 
 ## 模板
 

@@ -382,6 +382,8 @@ backend/
 
 ## 5. B2（Agent 集成）详细任务清单
 
+> B2 当前更细的执行路线图和任务编号以 [docs/b2-task-dispatch/B2-roadmap.md](b2-task-dispatch/B2-roadmap.md) 为准；本节保留团队级分工视角。
+
 ### 5.1 职责范围
 
 - 设计并实现 `BaseAgentAdapter` 抽象接口
