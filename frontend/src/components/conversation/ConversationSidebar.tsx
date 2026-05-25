@@ -9,6 +9,7 @@ export function ConversationSidebar({
   onSearch,
   onSelect,
   onNewConversation,
+  onTogglePin,
   onToggleArchive,
 }: {
   conversations: DemoConversation[];
@@ -17,6 +18,7 @@ export function ConversationSidebar({
   onSearch: (value: string) => void;
   onSelect: (conversationId: string) => void;
   onNewConversation: () => void;
+  onTogglePin?: (conversationId: string) => void;
   onToggleArchive?: (conversationId: string) => void;
 }) {
   const normalized = search.trim().toLowerCase();
@@ -39,6 +41,7 @@ export function ConversationSidebar({
             onClick={onNewConversation}
             className="flex h-9 w-9 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover"
             title="新建会话"
+            aria-label="新建会话"
           >
             <Plus className="h-4 w-4" />
           </button>
@@ -67,6 +70,7 @@ export function ConversationSidebar({
                   conversation={conversation}
                   active={conversation.id === selectedConversationId}
                   onSelect={() => onSelect(conversation.id)}
+                  onTogglePin={() => onTogglePin?.(conversation.id)}
                   onToggleArchive={() => onToggleArchive?.(conversation.id)}
                 />
               ))}
@@ -86,6 +90,7 @@ export function ConversationSidebar({
                   conversation={conversation}
                   active={conversation.id === selectedConversationId}
                   onSelect={() => onSelect(conversation.id)}
+                  onTogglePin={() => onTogglePin?.(conversation.id)}
                   onToggleArchive={() => onToggleArchive?.(conversation.id)}
                 />
               ))

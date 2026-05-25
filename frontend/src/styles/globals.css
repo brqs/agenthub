@@ -112,6 +112,22 @@
   .scrollbar-hidden::-webkit-scrollbar {
     display: none;
   }
+
+  /*
+   * Markdown styling lives on each rendered element via TextBlock's
+   * ReactMarkdown `components` prop (see frontend/src/components/blocks/TextBlock.tsx).
+   * Do NOT add `.markdown-text descendant` rules here — earlier attempts to
+   * style markdown via a wrapper class accidentally clobbered KaTeX's
+   * internal `vlist` / `inline-table` layout, breaking sub/superscripts.
+   *
+   * The only global tweak we need is letting long display-math formulas
+   * scroll horizontally inside the chat bubble instead of overflowing.
+   */
+  .katex-display {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
 }
 
 @layer utilities {
@@ -121,6 +137,10 @@
 
   html:not(.dark) .bg-slate-950\/70 {
     @apply bg-slate-100/80;
+  }
+
+  html:not(.dark) .bg-slate-950\/80 {
+    @apply bg-white/90;
   }
 
   html:not(.dark) .bg-slate-950\/60 {
@@ -163,6 +183,18 @@
     @apply bg-amber-100/80;
   }
 
+  html:not(.dark) .bg-emerald-400\/5 {
+    @apply bg-emerald-50;
+  }
+
+  html:not(.dark) .bg-emerald-400\/10 {
+    @apply bg-emerald-50;
+  }
+
+  html:not(.dark) .bg-red-950\/20 {
+    @apply bg-red-50;
+  }
+
   html:not(.dark) .border-slate-800 {
     @apply border-slate-300;
   }
@@ -197,6 +229,17 @@
 
   html:not(.dark) .text-amber-400 {
     color: #d97706;
+  }
+
+  html:not(.dark) .text-emerald-100,
+  html:not(.dark) .text-emerald-300,
+  html:not(.dark) .text-emerald-400 {
+    color: #047857;
+  }
+
+  html:not(.dark) .text-red-100,
+  html:not(.dark) .text-red-400 {
+    color: #b91c1c;
   }
 
   html:not(.dark) .placeholder\:text-slate-600::placeholder {

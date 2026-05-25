@@ -16,7 +16,7 @@ export function ContentRenderer({
   streaming?: boolean;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-2">
       {blocks.map((block, index) => {
         if (block.type === 'text') {
           return (
@@ -40,12 +40,14 @@ export function ContentRenderer({
             <div key={`${block.type}-${index}`} className="agent-switch-enter py-2">
               <div className="flex items-center gap-3 text-xs text-slate-500">
                 <span className="h-px flex-1 bg-slate-800" />
-                <span className="rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-slate-300">
-                  {fromAgent?.name ?? block.from_agent} → {toAgent?.name ?? block.to_agent}
+                <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-3 py-1 text-slate-300">
+                  <span className="truncate">{fromAgent?.name ?? block.from_agent}</span>
+                  <span className="text-brand-light">→</span>
+                  <span className="truncate">{toAgent?.name ?? block.to_agent}</span>
                 </span>
                 <span className="h-px flex-1 bg-slate-800" />
               </div>
-              <div className="mt-2 text-center text-xs text-slate-500">{block.task}</div>
+              <div className="mx-auto mt-2 max-w-xl text-center text-xs leading-5 text-slate-500">{block.task}</div>
             </div>
           );
         }

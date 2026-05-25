@@ -4,6 +4,7 @@ import { getAgent } from '@/lib/mockData';
 export interface OrchestratorSnapshot {
   modeLabel: string;
   stage: 'Single Agent' | 'Planning' | 'Generating' | 'Done';
+  currentAgentId: string;
   currentAgentName: string;
   switchLabel: string | null;
   totalTasks: number;
@@ -11,7 +12,7 @@ export interface OrchestratorSnapshot {
   runningTaskTitle: string | null;
 }
 
-function findLatestTaskCard(messages: DemoMessage[]): TaskCardBlock | null {
+export function findLatestTaskCard(messages: DemoMessage[]): TaskCardBlock | null {
   for (const message of [...messages].reverse()) {
     const taskCard = [...message.content].reverse().find((block) => block.type === 'task_card');
     if (taskCard?.type === 'task_card') return taskCard;
@@ -36,6 +37,7 @@ export function getOrchestratorSnapshot(
     return {
       modeLabel: '单 Agent 模式',
       stage: 'Single Agent',
+      currentAgentId: agent?.id ?? 'agent',
       currentAgentName: agent?.name ?? 'Agent',
       switchLabel: null,
       totalTasks: 0,
@@ -57,6 +59,7 @@ export function getOrchestratorSnapshot(
   return {
     modeLabel: 'Orchestrated 群聊',
     stage: allDone ? 'Done' : runningTask ? 'Generating' : 'Planning',
+    currentAgentId: activeAgentId,
     currentAgentName: getAgent(activeAgentId)?.name ?? activeAgentId,
     switchLabel: agentSwitch
       ? `${fromAgent?.name ?? agentSwitch.from_agent} -> ${toAgent?.name ?? agentSwitch.to_agent}`
