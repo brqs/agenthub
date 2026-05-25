@@ -70,6 +70,291 @@
 
 ---
 
+## 2026-05-25 — 重写 TextBlock 走 Claude.ai 风格 components 映射，彻底修复 KaTeX 下标错位
+
+### 改动范围
+- `frontend/src/components/blocks/TextBlock.tsx`
+- `frontend/src/styles/globals.css`
+
+### 更新内容
+- 不再用 `.markdown-text` 父类 + 后代选择器给 Markdown 元素打样式。改为给 `<ReactMarkdown>` 传 `components` map，对 `h1/h2/h3/h4/p/ul/ol/li/hr/blockquote/table/thead/th/td/pre/code/a/strong` 每个节点显式挂 Tailwind class。这对应 Claude.ai 网页端的做法：每一类 Markdown 节点由组件本身渲染，不依赖任何 wrapper class 通过 CSS 后代选择器去"扫"。
+- 删除 `globals.css` 中全部 `.markdown-text *` 后代规则（含浅色主题映射）。这些规则原本依赖 react-markdown v9 早已移除的 `className` prop；前两次修复期间它们一旦真正生效，反而干扰 KaTeX 自带的 `inline-table / table-row / table-cell` 布局，导致行内公式下标飘到下一行、`\begin{cases}` 散架。
+- 仅保留 **一条无作用域的** `.katex-display { max-width: 100%; overflow-x: auto; overflow-y: hidden }`，让长块级公式横向滚动而不撑破气泡，其它 KaTeX 内部布局完全交回 `katex/dist/katex.min.css`。
+- 顺带：CSS 体积从 71.86 KB 降到 67.52 KB（移除冗余 markdown-text 规则）。
+- 已通过 grep dist/assets/*.css 验证 `.katex { font:...; line-height:1.2; position:relative }`、`.katex .vlist>span { display:block; height:0; position:relative }`、`.katex-display>.katex { display:block; text-align:center; white-space:nowrap }` 等关键 KaTeX 规则全部完整保留在 bundle 内。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `npm test -- --run` ✅ 43/43
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 浏览器手动验证：`/markdown-test` 与含 Markdown 内容的 `/chat/conv-markdown-test`，行内公式 `\(m_1, m_2, \dots, m_k\)` 下标紧贴基线字符；`\begin{cases}` 多行联立方程正常对齐；长公式 `\mathcal{L}(\theta) = -\sum ...` 在气泡内横向滚动而不撑破布局；表格、引用、代码块、列表样式仍然生效。
+
+### 后续事项
+- 若想给 Markdown 中的 fenced code 也启用 Shiki 高亮 / 复制按钮，可以在 components.code 里委托给现有 `CodeBlock`。
+- 浅色主题下的细节（表格 hover、blockquote 文字色）此版未单独适配，等需要时再针对每个 components 节点加 `dark:` / 利用 globals.css 中已有的 `html:not(.dark) .border-slate-800` 等通用映射。
+
+---
+
+## 2026-05-25 — 修复 Markdown 渲染（className 不生效 / 代码围栏被反斜杠破坏 / KaTeX 子结构被覆写）
+
+### 改动范围
+- `frontend/src/components/blocks/TextBlock.tsx`
+- `frontend/src/lib/mockData.ts`
+- `frontend/src/styles/globals.css`
+
+### 更新内容
+- 修复 `react-markdown` v9 下 `<ReactMarkdown className="markdown-text ...">` 不再生效的问题：把 `markdown-text` 与流式光标 class 移到外层包裹 `<div>` 上，确保 `globals.css` 中针对 `.markdown-text h1/h2/p/li/table/pre/code/blockquote/katex-display` 等选择器真正命中渲染输出。
+- 顺带在外层包裹加 `min-w-0`，让 `.katex-display` 在长块级公式时正确触发横向滚动而不撑破气泡。
+- 移除原本对 ReactMarkdown 传 `prose prose-invert ...` 的尝试（v9 中等同于无效，且当前项目未安装 `@tailwindcss/typography`）。
+- 修复 `markdownQaMessages` 中 `String.raw` 模板下的代码围栏被解析为转义反引号的问题：把对应代码块从 ```` ``` ```` 换成 `~~~`，避免在 `String.raw` 字面量中写 `` \\\` ``。现在 Markdown QA 测试页能正确呈现语法高亮的 TypeScript 代码块。
+- **修复行内 / 块级公式下标错位**：移除 `.markdown-text .katex { line-height }` 和 `.markdown-text .katex-display > .katex { inline-block; min-w-max; line-height }` 这几条**覆写 KaTeX 内部**的规则。之前这些规则因为 className 没真正挂到 DOM 上而长期"看似无害"；这次让 `.markdown-text` 真正生效后，它们开始干扰 KaTeX 自带的 strut / vlist 表格化布局，导致 `\begin{cases}`、`\sum_{i=1}`、`gcd(m_i,m_j)`、`\pmod{3}` 等结构的下标 / 上标全部错位到新行。现在只保留 `.markdown-text .katex-display { max-w-full; overflow-x-auto; overflow-y-hidden }` 一条"溢出保护"规则，长公式横向滚动；其余 KaTeX 内部布局完全交回给 `katex/dist/katex.min.css`。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `npm test -- --run` ✅ 43/43
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 浏览器手动验证 `/markdown-test` 与含 Markdown 内容的会话，长公式横向滚动而不撑破气泡、代码块渲染为高亮代码而非段落正文、表格与引用样式生效。
+
+### 后续事项
+- 若后续 Mock 内容再嵌入代码围栏，统一用 `~~~` 或 `\`\`\``+ 非 `String.raw` 模板字面量，避免重蹈覆辙。
+- 可以考虑把 Markdown 中的 fenced code 路由到 `CodeBlock` 组件以复用 Shiki 高亮和复制按钮。
+
+---
+
+## 2026-05-25 — 新增 Markdown 对话渲染测试页
+
+### 改动范围
+- `frontend/src/pages/MarkdownTestPage.tsx`
+- `frontend/src/App.tsx`
+
+### 更新内容
+- 新增 `/markdown-test` 前端测试页，用真实聊天消息流形式检查 Markdown / Formula 长内容渲染效果。
+- 新增 `conv-markdown-test` Mock 会话，左侧会话列表可直接进入“Markdown 公式长回复”对话。
+- 复用 `MessageBubble` 与 `ContentRenderer`，覆盖用户气泡、Agent 气泡、头像、Pin 状态、streaming 状态和多轮对话间距。
+- 测试内容覆盖标题、列表、引用、链接、表格、行内公式、块级公式、长公式、代码围栏和长段落。
+- 页面运行在现有 `AppLayout` 下，方便同时观察深色侧栏与对话消息流的真实组合效果。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b` ✅
+- 局部 eslint ✅
+- `./node_modules/.bin/vite build` ✅
+
+### 后续事项
+- 可将 `/markdown-test` 作为前端样式 QA 临时入口；正式发布前如不需要，可从路由中移除。
+
+---
+
+## 2026-05-25 — 支持 Markdown 与公式消息渲染
+
+### 改动范围
+- `frontend/src/components/blocks/TextBlock.tsx`
+- `frontend/src/components/blocks/TextBlock.test.tsx`
+- `frontend/src/styles/globals.css`
+- `frontend/src/main.tsx`
+- `frontend/package.json`
+- `frontend/pnpm-lock.yaml`
+
+### 更新内容
+- `TextBlock` 从基础 Markdown 渲染升级为 Markdown + GFM + 数学公式渲染。
+- 新增 `remark-math`、`rehype-katex`、`katex`，支持 `$...$`、`$$...$$`、`\(...\)`、`\[...\]`。
+- KaTeX 配置 `throwOnError: false`，避免流式未闭合公式导致页面崩溃。
+- 补充 Markdown 标题、列表、表格、引用、分割线、行内代码、长公式横向滚动的深浅主题样式。
+- 新增 `TextBlock` 测试覆盖 Markdown、行内公式、块级公式和流式半截公式。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+- 仍复用现有 `text` ContentBlock，不新增消息块类型。
+
+### 验证方式
+- `npm test -- --run TextBlock ContentRenderer` ✅ 5/5
+- `./node_modules/.bin/tsc -b` ✅
+- 局部 eslint ✅
+- `npm test -- --run` ✅ 43/43
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+
+### 后续事项
+- KaTeX 会引入字体资源并增加构建体积；后续可结合路由懒加载或手动分包优化。
+- 如果后续需要代码围栏高亮，可考虑把 Markdown fenced code 也路由到现有 `CodeBlock` 样式。
+
+---
+
+## 2026-05-25 — 移除右栏 Collaboration 状态卡
+
+### 改动范围
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/components/agents/OrchestratorStatusCard.tsx`
+- `frontend/src/components/agents/OrchestratorStatusCard.test.tsx`
+
+### 更新内容
+- 移除右侧栏顶部 `Collaboration` 状态卡，减少与 Agent 列表、消息流任务卡的重复信息。
+- 右侧栏现在直接从 Agent 列表开始展示，保留 Active / Done / Idle 状态作为主要协作状态表达。
+- 保留 `orchestratorStatus.ts` 的推导逻辑，继续支持 Agent 列表状态计算。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+- 只影响前端展示层。
+
+### 验证方式
+- 待本批 UI 调整完成后统一运行前端测试、类型检查、lint 和 build。
+
+### 后续事项
+- 多 Agent 协作解释主要由消息流里的任务卡、Agent switch 和右侧 Agent 列表承担。
+
+---
+
+## 2026-05-25 — Demo 二轮布局与富媒体收口
+
+### 改动范围
+- `frontend/src/components/chat/ChatHeader.tsx`
+- `frontend/src/components/chat/MessageList.tsx`
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/components/chat/DemoPromptBar.tsx`
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/components/agents/orchestratorStatus.ts`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+- `frontend/src/components/blocks/CodeBlock.tsx`
+- `frontend/src/components/blocks/DiffBlock.tsx`
+- `frontend/src/components/blocks/TaskCardBlock.tsx`
+- `frontend/src/components/conversation/ConversationItem.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.tsx`
+- `frontend/src/styles/globals.css`
+
+### 更新内容
+- 收紧聊天主区首屏密度，降低 Header、Demo Prompt、输入区在 1280x720 下的占高。
+- 优化消息气泡宽度、阴影和富媒体容器溢出策略，长代码、长 Diff 保持内部滚动，不撑破聊天区。
+- Agent switch 分隔改为可截断的分段展示，任务卡 Agent 标签增加截断保护。
+- 右侧栏 Agent 状态从 Active / Idle 升级为 Active / Done / Idle，并从最新任务卡推导。
+- Pin 消息预览限制高度，避免长文本破坏右侧栏节奏。
+- 补充浅色主题下成功/错误状态、hover、选中态和滚动相关 token。
+- 为 `CodeBlock` 复制按钮补充 `title` / `aria-label`。
+- 新增 `RightAgentPanel` 状态推导测试，并更新相关断言。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+- 仍使用 Mock 数据和 Mock SSE 作为 Demo 主路径。
+
+### 验证方式
+- `npm test -- --run` ✅ 36/36
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 浏览器验证：`/chat/conv-demo-flow`、`/archive`、`/agents` 在 1280x720 / 1440x900 下无页面级横向溢出；深色 / 浅色主题切换可用；控制台无 error。
+
+### 后续事项
+- 可继续基于真实投屏设备做一次色彩/字号微调。
+- 生产包仍有大 chunk warning，后续可考虑路由懒加载或 manualChunks。
+
+---
+
+## 2026-05-25 — Agent 头像切换为 Provider Logo
+
+### 改动范围
+- `frontend/src/components/agents/AgentAvatar.tsx`
+- `frontend/src/components/agents/AgentAvatar.test.tsx`
+- `frontend/src/assets/agent-logos/**`
+- `frontend/src/vite-env.d.ts`
+
+### 更新内容
+- 新增本地 Agent provider logo 素材目录，包含 OpenAI、Anthropic、DeepSeek SVG。
+- `AgentAvatar` 优先使用 provider logo，`custom` Agent 继续使用现有字母头像。
+- logo 加载失败时自动回退到 Agent 名称首字母，避免素材异常导致头像空白。
+- 深色模式下 logo 头像改为深色底、细描边和轻微 ring，OpenAI / Claude 单色 logo 自动反白，避免白底圆片抢占注意力。
+- 新增 SVG import 类型声明。
+- 补充头像 logo、加载失败回退、自建 Agent 回退测试。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+- 只影响前端展示层。
+
+### 验证方式
+- `npm test -- --run` ✅ 39/39
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 浏览器验证：`/chat/conv-demo-flow` 与 `/agents` 可看到 OpenAI、Anthropic、DeepSeek logo，页面无横向溢出，控制台无 error。
+
+### 后续事项
+- 如团队有官方品牌资产包，可直接替换 `frontend/src/assets/agent-logos/` 下同名文件。
+
+---
+
+## 2026-05-25 — 补齐本地 Agent SVG 头像
+
+### 改动范围
+- `frontend/src/assets/agent-logos/README.md`
+- `frontend/src/components/agents/AgentAvatar.tsx`
+- `frontend/src/components/agents/AgentAvatar.test.tsx`
+
+### 更新内容
+- 将 Orchestrator / Web Designer 从自绘 SVG 改为 `lucide-react` 角色图标，分别使用 `Workflow` / `PanelsTopLeft`。
+- `AgentAvatar` 改为本地角色 Agent 使用 Lucide 图标，公司 Agent 使用 provider logo。
+- 未知 custom Agent 继续回退首字母头像，保持自建 Agent 扩展稳定。
+- 移除不再使用的本地自绘 SVG 文件，避免后续维护两套图标资源。
+- 补充 Orchestrator / Web Designer / 未知 custom Agent 头像测试。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+- 只影响前端展示层。
+
+### 验证方式
+- `npm test -- --run` ✅ 41/41
+- `./node_modules/.bin/tsc -b` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vite build` ✅
+- 无渐变版追加验证：`npm test -- --run AgentAvatar` ✅ 5/5；`./node_modules/.bin/tsc -b` ✅；局部 eslint ✅
+
+### 后续事项
+- 如果后续新增更多本地 Agent，可继续在 `AGENT_ICONS` 里按 `agent.id` 注册 Lucide 图标。
+
+---
+
+## 2026-05-25 — 优化会话列表操作区层级
+
+### 改动范围
+- `frontend/src/components/conversation/ConversationItem.tsx`
+
+### 更新内容
+- 会话项不再为归档按钮固定预留大块右侧空白，标题和预览默认占满可用宽度。
+- Pin 作为低调 inline 按钮保留在标题行末尾，支持点击切换置顶。
+- Archive 操作改为右上角浮层，只在 hover / focus 时出现，保持列表默认状态更清爽。
+- 浮层按钮不触发文本重新排版，减少 hover 时布局跳动。
+- 会话主点击区改为 `role=button`，避免嵌套 button，同时保留 Enter / Space 键盘打开会话。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b` ✅
+- 局部 eslint ✅
+- `npm test -- --run chatStore ArchivePage` ✅ 10/10
+
+### 后续事项
+- 如果后续加入 Rename / Delete 菜单，可复用这个右侧操作区，不要再挤占标题行。
+
+---
+
 ## 2026-05-25 — 启动 Demo 二轮打磨第一批
 
 ### 改动范围

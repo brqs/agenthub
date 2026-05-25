@@ -74,7 +74,7 @@ export function DiffBlock({
   const diff = buildUnifiedDiff(before, after);
 
   return (
-    <div className="my-3 overflow-hidden rounded-md border border-slate-700 bg-slate-950">
+    <div className="my-3 min-w-0 overflow-hidden rounded-md border border-slate-700 bg-slate-950">
       <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <GitCompareArrows className="h-4 w-4 shrink-0 text-brand-light" />
@@ -84,11 +84,11 @@ export function DiffBlock({
           {diff.filter((line) => line.type === 'add').length} added / {diff.filter((line) => line.type === 'remove').length} removed
         </span>
       </div>
-      <div className="max-h-96 overflow-auto text-sm scrollbar-thin">
+      <div className="max-h-80 overflow-auto text-sm scrollbar-thin">
         {diff.map((line, index) => (
           <div
             key={`${line.type}-${index}-${line.text}`}
-            className={`grid grid-cols-[48px_48px_24px_1fr] border-b border-slate-900/80 font-mono leading-6 ${LINE_CLASS[line.type]}`}
+            className={`grid min-w-max grid-cols-[48px_48px_24px_minmax(28rem,1fr)] border-b border-slate-900/80 font-mono leading-6 ${LINE_CLASS[line.type]}`}
           >
             <span className="select-none border-r border-slate-800 px-2 text-right text-xs text-slate-600">
               {line.beforeLine ?? ''}
