@@ -76,14 +76,20 @@ export function ConversationSidebar({
             最近
           </h2>
           <div className="space-y-1">
-            {recent.map((conversation) => (
-              <ConversationItem
-                key={conversation.id}
-                conversation={conversation}
-                active={conversation.id === selectedConversationId}
-                onSelect={() => onSelect(conversation.id)}
-              />
-            ))}
+            {recent.length ? (
+              recent.map((conversation) => (
+                <ConversationItem
+                  key={conversation.id}
+                  conversation={conversation}
+                  active={conversation.id === selectedConversationId}
+                  onSelect={() => onSelect(conversation.id)}
+                />
+              ))
+            ) : (
+              <div className="rounded-md border border-dashed border-slate-800 px-3 py-6 text-center text-sm text-slate-500">
+                {normalized ? '没有匹配的会话' : '暂无最近会话'}
+              </div>
+            )}
           </div>
         </section>
       </div>

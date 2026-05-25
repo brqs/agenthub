@@ -239,3 +239,47 @@
 ### 后续事项
 - 可继续为 `ContentRenderer`、`CodeBlock` 复制行为和 `DiffBlock` 行渲染补组件测试。
 - 真实契约稳定后，用 `pnpm gen:types` 替换当前 placeholder 类型。
+
+---
+
+## 2026-05-25 — 完成 Agent 管理页与 Demo 打磨
+
+### 改动范围
+- `docs/spec/frontend-agent-management.spec.md`
+- `docs/spec/frontend-demo-polish.spec.md`
+- `frontend/src/pages/AgentsPage.tsx`
+- `frontend/src/components/agents/AgentCard.tsx`
+- `frontend/src/components/agents/AgentCreateDialog.tsx`
+- `frontend/src/components/agents/AgentDetailPanel.tsx`
+- `frontend/src/stores/agentStore.ts`
+- `frontend/src/hooks/useAgents.ts`
+- `frontend/src/components/chat/MessageList.tsx`
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.tsx`
+- `frontend/src/stores/chatStore.ts`
+
+### 更新内容
+- 新增 Agent 管理页 Spec 与 Demo 打磨 Spec。
+- Agent 管理页新增“我的 Agent / 内置 Agent”分组、搜索、统计卡和右侧详情栏。
+- 新增 Mock 创建 Agent 表单，创建后写入 `agentStore` 并自动进入详情态。
+- `useAgents` 改为从 `agentStore` 读取，为后续真实 API 替换保留 Hook 边界。
+- 消息列表新增 loading 状态和新会话空态。
+- 消息错误状态新增重试按钮，重试会重置当前消息并重新订阅 Mock SSE。
+- 消息输入在发送中进入 disabled 状态，避免重复提交。
+- 会话搜索无结果时展示空状态。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+- Agent 创建仍为前端 Mock 行为，后续可替换为真实 Agent CRUD API。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+- 浏览器手动验证：进入 Agent 管理页，创建 `Frontend Reviewer`，确认“我的 Agent”、右侧详情与聊天入口正常。
+
+### 后续事项
+- 可继续补 AgentsPage、AgentCreateDialog、MessageList 的组件测试。
+- 后端 Agent API 稳定后，将 `agentStore` 创建行为替换为 mutation + query invalidation。
