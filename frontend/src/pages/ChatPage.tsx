@@ -1,26 +1,39 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RightAgentPanel } from '@/components/agents/RightAgentPanel';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { MessageInput } from '@/components/chat/MessageInput';
 import { MessageList } from '@/components/chat/MessageList';
 import { ConversationSidebar } from '@/components/conversation/ConversationSidebar';
+import { useConversations } from '@/hooks/useConversations';
+import { useMessages } from '@/hooks/useMessages';
+import { useSendMessage } from '@/hooks/useSendMessage';
+import { useStream } from '@/hooks/useStream';
 import { useChatStore } from '@/stores/chatStore';
 
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
-  const conversations = useChatStore((state) => state.conversations);
-  const messagesByConversation = useChatStore((state) => state.messagesByConversation);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const { data: conversations } = useConversations();
   const selectedConversationId = useChatStore((state) => state.selectedConversationId);
   const search = useChatStore((state) => state.search);
   const setSearch = useChatStore((state) => state.setSearch);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
-  const sendMockMessage = useChatStore((state) => state.sendMockMessage);
+  const applyStreamEvent = useChatStore((state) => state.applyStreamEvent);
+  const { sendMessage } = useSendMessage();
 
   const activeConversationId = conversationId ?? selectedConversationId;
   const conversation = conversations.find((item) => item.id === activeConversationId) ?? conversations[0];
-  const messages = conversation ? messagesByConversation[conversation.id] ?? [] : [];
+  const { data: messages } = useMessages(conversation?.id);
+
+  useStream(streamingMessageId, {
+    onEvent: (event) => {
+      if (streamingMessageId) applyStreamEvent(streamingMessageId, event);
+    },
+    onDone: () => setStreamingMessageId(null),
+    onError: () => setStreamingMessageId(null),
+  });
 
   useEffect(() => {
     if (!conversationId && selectedConversationId) {
@@ -55,11 +68,13 @@ export function ChatPage() {
         <MessageList messages={messages} />
         <MessageInput
           conversation={conversation}
-          onSend={(text) => sendMockMessage(conversation.id, text)}
+          onSend={async (text) => {
+            const result = await sendMessage(conversation.id, text);
+            if (result?.agentMessageId) setStreamingMessageId(result.agentMessageId);
+          }}
         />
       </section>
       <RightAgentPanel conversation={conversation} messages={messages} />
     </div>
   );
 }
-

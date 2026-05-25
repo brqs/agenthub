@@ -18,11 +18,20 @@ interface StreamingBlock {
   [k: string]: unknown;
 }
 
-export function useStream(messageId: string | null) {
+export function useStream(
+  messageId: string | null,
+  options?: {
+    onEvent?: (event: StreamEvent) => void;
+    onDone?: () => void;
+    onError?: (error: string) => void;
+  },
+) {
   const [blocks, setBlocks] = useState<StreamingBlock[]>([]);
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   useEffect(() => {
     if (!messageId) return;
@@ -32,6 +41,7 @@ export function useStream(messageId: string | null) {
 
     const ctrl = subscribeMessageStream(messageId, {
       onEvent: (ev: StreamEvent) => {
+        optionsRef.current?.onEvent?.(ev);
         switch (ev.event) {
           case 'start':
             setStatus('streaming');
@@ -72,11 +82,13 @@ export function useStream(messageId: string | null) {
             break;
           case 'done':
             setStatus('done');
+            optionsRef.current?.onDone?.();
             ctrl.abort();
             break;
           case 'error':
             setStatus('error');
             setError(ev.data.error || 'unknown error');
+            optionsRef.current?.onError?.(ev.data.error || 'unknown error');
             ctrl.abort();
             break;
         }
@@ -84,6 +96,7 @@ export function useStream(messageId: string | null) {
       onError: (err) => {
         setStatus('error');
         setError(String(err));
+        optionsRef.current?.onError?.(String(err));
       },
     });
     ctrlRef.current = ctrl;
