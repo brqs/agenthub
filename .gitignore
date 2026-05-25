@@ -100,3 +100,6 @@ backend/alembic/versions/*.pyc
 
 # Plan files
 *.plan.md
+
+# Local AI tool settings
+.claude/
