@@ -1,9 +1,15 @@
 import { X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { CreateAgentInput } from '@/stores/agentStore';
-import type { Agent } from '@/lib/types';
+import type { CreatableAgentProvider } from '@/lib/types';
 
 const DEFAULT_CAPABILITIES = ['需求分析', '代码生成', '测试补齐'];
+const DEFAULT_MODELS: Record<CreatableAgentProvider, string> = {
+  claude: 'claude-sonnet-4-6',
+  openai: 'gpt-4o',
+  deepseek: 'deepseek-v4-flash',
+  custom: 'claude-sonnet-4-6',
+};
 
 export function AgentCreateDialog({
   open,
@@ -15,10 +21,8 @@ export function AgentCreateDialog({
   onCreate: (input: CreateAgentInput) => void;
 }) {
   const [name, setName] = useState('Frontend Reviewer');
-  // Default to `claude` (real backend rejects `custom` without `upstream_provider`,
-  // which is currently not in the OpenAPI). Mock mode accepts either.
-  const [provider, setProvider] = useState<Agent['provider']>('claude');
-  const [model, setModel] = useState('claude-sonnet-4-6');
+  const [provider, setProvider] = useState<CreatableAgentProvider>('claude');
+  const [model, setModel] = useState(DEFAULT_MODELS.claude);
   const [capabilities, setCapabilities] = useState(DEFAULT_CAPABILITIES.join(', '));
   const [systemPrompt, setSystemPrompt] = useState('你负责审查前端交互、视觉一致性和可演示性。');
 
@@ -54,7 +58,7 @@ export function AgentCreateDialog({
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-white">创建 Agent</h2>
-            <p className="mt-1 text-xs text-slate-500">Mock 创建，后续会接入真实 Agent API。</p>
+            <p className="mt-1 text-xs text-slate-500">填写名称、Provider、模型和提示词。</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white">
             <X className="h-4 w-4" />
@@ -76,13 +80,17 @@ export function AgentCreateDialog({
               <span className="text-xs font-medium text-slate-400">Provider</span>
               <select
                 value={provider}
-                onChange={(event) => setProvider(event.target.value as Agent['provider'])}
+                onChange={(event) => {
+                  const nextProvider = event.target.value as CreatableAgentProvider;
+                  setProvider(nextProvider);
+                  setModel(DEFAULT_MODELS[nextProvider]);
+                }}
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
               >
-                <option value="custom">custom</option>
-                <option value="deepseek">deepseek</option>
-                <option value="openai">openai</option>
                 <option value="claude">claude</option>
+                <option value="openai">openai</option>
+                <option value="deepseek">deepseek</option>
+                <option value="custom">custom</option>
               </select>
             </label>
             <label className="block">

@@ -8,7 +8,7 @@ import type {
 
 export interface ListAgentsParams {
   builtin?: boolean;
-  provider?: 'claude' | 'openai' | 'custom';
+  provider?: Agent['provider'];
   page?: number;
   pageSize?: number;
 }

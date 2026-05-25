@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from pydantic import ValidationError
 
@@ -10,7 +12,7 @@ from app.agents.config_validation import (
     merge_agent_config,
     validate_agent_config,
 )
-from app.schemas.agent import CreateAgentRequest
+from app.schemas.agent import AgentOut, CreateAgentRequest
 from app.seeds.seed_agents import BUILTIN_AGENTS
 
 
@@ -356,6 +358,34 @@ class TestCreateAgentRequestSchema:
                     "config": {"model": "claude-sonnet-4-6"},
                 }
             )
+
+    def test_create_request_rejects_mock_provider(self) -> None:
+        with pytest.raises(ValidationError):
+            CreateAgentRequest.model_validate(
+                {
+                    "name": "agent",
+                    "provider": "mock",
+                    "capabilities": ["testing"],
+                    "config": {},
+                }
+            )
+
+    def test_agent_out_accepts_mock_provider(self) -> None:
+        agent = AgentOut.model_validate(
+            {
+                "id": "mock-agent",
+                "name": "Mock Agent",
+                "provider": "mock",
+                "avatar_url": "",
+                "capabilities": ["testing"],
+                "system_prompt": None,
+                "config": {},
+                "is_builtin": True,
+                "created_at": datetime.now(UTC),
+            }
+        )
+
+        assert agent.provider == "mock"
 
 
 class TestErrorStructure:
