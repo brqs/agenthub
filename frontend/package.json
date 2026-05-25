@@ -10,7 +10,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\"",
     "test": "vitest",
-    "gen:types": "openapi-typescript http://111.229.151.159:8000/openapi.json -o src/lib/types.gen.ts"
+    "gen:types": "openapi-typescript ../shared/openapi.yaml -o src/lib/types.gen.ts"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",

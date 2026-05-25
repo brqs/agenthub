@@ -17,6 +17,7 @@ interface ChatState {
   messagesByConversation: Record<string, DemoMessage[]>;
   selectedConversationId: string;
   search: string;
+  highlightedMessageId: string | null;
   createConversation: (input: {
     title: string;
     mode: DemoConversation['mode'];
@@ -24,6 +25,9 @@ interface ChatState {
   }) => DemoConversation;
   setSelectedConversationId: (conversationId: string) => void;
   setSearch: (search: string) => void;
+  setHighlightedMessageId: (messageId: string | null) => void;
+  toggleMessagePin: (messageId: string) => void;
+  toggleConversationArchive: (conversationId: string) => void;
   createPendingExchange: (conversationId: string, text: string) => { agentMessageId: string } | null;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
   resetMessageForRetry: (messageId: string) => void;
@@ -185,6 +189,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messagesByConversation: mockMessages,
   selectedConversationId: mockConversations[0]?.id ?? '',
   search: '',
+  highlightedMessageId: null,
   createConversation: (input) => {
     const createdAt = new Date().toISOString();
     const conversation: DemoConversation = {
@@ -212,6 +217,39 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
   setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId }),
   setSearch: (search) => set({ search }),
+  setHighlightedMessageId: (messageId) => set({ highlightedMessageId: messageId }),
+  toggleMessagePin: (messageId) => {
+    set((state) => ({
+      messagesByConversation: Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => [
+          conversationId,
+          messages.map((message) =>
+            message.id === messageId ? { ...message, is_pinned: !message.is_pinned } : message,
+          ),
+        ]),
+      ),
+    }));
+  },
+  toggleConversationArchive: (conversationId) => {
+    set((state) => {
+      const target = state.conversations.find((conversation) => conversation.id === conversationId);
+      const willArchive = !target?.is_archived;
+      const nextVisible = state.conversations.find(
+        (conversation) => conversation.id !== conversationId && !conversation.is_archived,
+      );
+      return {
+        conversations: state.conversations.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, is_archived: !conversation.is_archived }
+            : conversation,
+        ),
+        selectedConversationId:
+          willArchive && state.selectedConversationId === conversationId
+            ? nextVisible?.id ?? ''
+            : state.selectedConversationId,
+      };
+    });
+  },
   createPendingExchange: (conversationId, text) => {
     const conversation = get().conversations.find((item) => item.id === conversationId);
     if (!conversation) return null;

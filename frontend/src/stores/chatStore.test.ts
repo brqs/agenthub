@@ -7,6 +7,7 @@ function resetChatStore() {
     messagesByConversation: structuredClone(mockMessages),
     selectedConversationId: mockConversations[0]?.id ?? '',
     search: '',
+    highlightedMessageId: null,
   });
 }
 
@@ -143,5 +144,31 @@ describe('chatStore', () => {
       status: 'streaming',
       content: [{ type: 'text', text: '' }],
     });
+  });
+
+  it('toggles message pin state and highlighted message id', () => {
+    const messageId = 'msg-demo-1';
+
+    useChatStore.getState().toggleMessagePin(messageId);
+    useChatStore.getState().setHighlightedMessageId(messageId);
+
+    const message = useChatStore
+      .getState()
+      .messagesByConversation['conv-demo-flow']
+      .find((item) => item.id === messageId);
+
+    expect(message?.is_pinned).toBe(false);
+    expect(useChatStore.getState().highlightedMessageId).toBe(messageId);
+  });
+
+  it('archives a conversation and moves selection to a visible conversation', () => {
+    useChatStore.getState().setSelectedConversationId('conv-demo-flow');
+    useChatStore.getState().toggleConversationArchive('conv-demo-flow');
+
+    const state = useChatStore.getState();
+    const archived = state.conversations.find((conversation) => conversation.id === 'conv-demo-flow');
+
+    expect(archived?.is_archived).toBe(true);
+    expect(state.selectedConversationId).not.toBe('conv-demo-flow');
   });
 });
