@@ -202,3 +202,40 @@
 ### 后续事项
 - 继续打磨 `CodeBlock`、`DiffBlock`、`WebPreviewBlock`、`FileBlock`。
 - 接入真实后端时，需要把 `agent_switch` 与 `task_card` 正式纳入 ContentBlock / SSE 契约。
+
+---
+
+## 2026-05-25 — 打磨富媒体消息块展示
+
+### 改动范围
+- `docs/spec/frontend-content-blocks.spec.md`
+- `frontend/src/components/blocks/CodeBlock.tsx`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+- `frontend/src/components/blocks/DiffBlock.tsx`
+- `frontend/src/components/blocks/WebPreviewBlock.tsx`
+- `frontend/src/components/blocks/FileBlock.tsx`
+- `frontend/src/components/blocks/UnknownBlock.tsx`
+- `frontend/src/lib/mockData.ts`
+
+### 更新内容
+- 新增富媒体消息块 Spec，明确 code、diff、web preview、file 与未知 block 的验收标准。
+- `CodeBlock` 新增 Shiki 异步代码高亮，保留纯文本回退，并优化复制按钮状态。
+- 新增 `DiffBlock`，使用 unified 风格展示新增、删除和上下文行。
+- 新增 `WebPreviewBlock`，展示站点、标题、描述、URL 和外链入口。
+- 新增 `FileBlock`，展示文件类型图标、文件名、大小和打开入口。
+- 新增 `UnknownBlock`，用于未知消息块的安全降级展示。
+- `conv-demo-flow` 补充 diff、web_preview 和 file Mock 示例，方便 Demo 直接检查。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+- 本次仅消费已有 `ContentBlock` placeholder 类型，并继续保留前端 Demo 扩展块。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+
+### 后续事项
+- 可继续为 `ContentRenderer`、`CodeBlock` 复制行为和 `DiffBlock` 行渲染补组件测试。
+- 真实契约稳定后，用 `pnpm gen:types` 替换当前 placeholder 类型。
