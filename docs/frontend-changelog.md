@@ -283,3 +283,33 @@
 ### 后续事项
 - 可继续补 AgentsPage、AgentCreateDialog、MessageList 的组件测试。
 - 后端 Agent API 稳定后，将 `agentStore` 创建行为替换为 mutation + query invalidation。
+
+---
+
+## 2026-05-25 — 增强 Markdown 与网页产物预览
+
+### 改动范围
+- `frontend/src/components/blocks/FileBlock.tsx`
+- `frontend/src/components/blocks/WebPreviewBlock.tsx`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+- `frontend/src/lib/mockData.ts`
+
+### 更新内容
+- `FileBlock` 从单纯外链升级为“预览 + 外链”双操作。
+- Markdown 文件支持点击后在弹层内渲染 Markdown 内容。
+- `WebPreviewBlock` 支持点击打开内置网页预览弹层。
+- Mock WebPreview 增加预览标题与正文，用于模拟构建产物页面。
+- Mock Markdown 文件增加可预览内容，覆盖 Demo 演示路径。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- `preview_text`、`preview_title`、`preview_body` 为前端 Mock 扩展字段，真实契约落地前需要与 B1 / B2 同步。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+- 浏览器手动验证：进入 `/chat/conv-demo-flow`，分别点击 Markdown 文件预览和网页预览，确认弹层内容正常展示。
+
+### 后续事项
+- 真实后端支持产物文件后，可将预览内容替换为文件读取 API 或 artifact preview API。
