@@ -26,7 +26,7 @@ pnpm dev
 pnpm gen:types
 ```
 
-会覆盖 `src/lib/types.gen.ts`（生成代码，不要手改）。`src/lib/types.ts` 是手维护的友好别名层，导入这一个即可。**契约变更后必须重跑**。
+会从 `../shared/openapi.yaml` 覆盖 `src/lib/types.gen.ts`（生成代码，不要手改）。`src/lib/types.ts` 是手维护的友好别名层，导入这一个即可。**契约变更后必须重跑**。
 
 ## 测试 / Lint / 类型检查
 

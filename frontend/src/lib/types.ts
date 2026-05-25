@@ -2,7 +2,7 @@
  * Friendly aliases over the auto-generated OpenAPI types in `types.gen.ts`.
  *
  * Regenerate via:
- *   pnpm gen:types   (pulls from the live backend /openapi.json)
+ *   pnpm gen:types
  *
  * Hand-written here: SSE `StreamEvent` (OpenAPI does not describe the
  * text/event-stream payloads) and a couple of convenience unions.
@@ -17,20 +17,20 @@ type Schemas = components['schemas'];
  * Used to mark fields the backend always populates (via column defaults)
  * but did not flag as `required` in OpenAPI.
  *
- * TODO(B1): tighten ConversationOut/AgentOut/MessageOut `required` lists so
+ * TODO(B1): tighten Conversation/Agent/Message `required` lists so
  * we can drop these overrides.
  */
 type Override<T, R> = Omit<T, keyof R> & R;
 
 // ─── Auth ───
-export type User = Schemas['UserOut'];
+export type User = Schemas['User'];
 export type AuthResponse = Schemas['AuthResponse'];
 export type LoginRequest = Schemas['LoginRequest'];
 export type RegisterRequest = Schemas['RegisterRequest'];
 
 // ─── Conversations ───
 export type Conversation = Override<
-  Schemas['ConversationOut'],
+  Schemas['Conversation'],
   { agent_ids: string[]; is_pinned: boolean; is_archived: boolean }
 >;
 export type ConversationList = Override<
@@ -50,7 +50,7 @@ export type ContentBlock = TextBlock | CodeBlock | DiffBlock | WebPreviewBlock |
 
 // ─── Messages ───
 export type Message = Override<
-  Schemas['MessageOut'],
+  Schemas['Message'],
   { content: ContentBlock[]; status: MessageStatus; is_pinned: boolean }
 >;
 export type MessageList = Override<Schemas['MessageList'], { items: Message[] }>;
@@ -66,7 +66,7 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error';
 
 // ─── Agents ───
 export type Agent = Override<
-  Schemas['AgentOut'],
+  Schemas['Agent'],
   { capabilities: string[]; config: Record<string, unknown>; is_builtin: boolean; avatar_url: string }
 >;
 export type AgentList = Override<Schemas['AgentList'], { items: Agent[] }>;

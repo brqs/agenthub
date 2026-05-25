@@ -98,11 +98,11 @@ export function CodeBlock({ language, code }: { language: string; code: string }
       </div>
       {highlighted ? (
         <div
-          className="max-h-96 overflow-auto text-sm leading-6 scrollbar-thin [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-4"
+          className="scrollbar-hidden max-h-96 overflow-auto text-sm leading-6 [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:!p-4"
           dangerouslySetInnerHTML={{ __html: highlighted }}
         />
       ) : (
-        <pre className="max-h-96 overflow-auto p-4 text-sm leading-6 text-slate-200 scrollbar-thin">
+        <pre className="scrollbar-hidden max-h-96 overflow-auto p-4 text-sm leading-6 text-slate-200">
           <code className="font-mono">{code}</code>
         </pre>
       )}

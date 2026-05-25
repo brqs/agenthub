@@ -1,6 +1,7 @@
 import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react';
 import type { TaskCardBlock as TaskCardBlockData, TaskStatus } from '@/lib/mockData';
 import { getAgent } from '@/lib/mockData';
+import { cn } from '@/lib/utils';
 
 const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }>> = {
   pending: Circle,
@@ -25,7 +26,14 @@ export function TaskCardBlock({ block }: { block: TaskCardBlockData }) {
           const Icon = STATUS_ICON[task.status];
           const agent = getAgent(task.agent_id);
           return (
-            <div key={task.id} className="flex items-center gap-3 rounded bg-slate-950/70 px-3 py-2">
+            <div
+              key={task.id}
+              className={cn(
+                'task-row-enter flex items-center gap-3 rounded bg-slate-950/70 px-3 py-2 transition-colors',
+                task.status === 'running' && 'task-running bg-amber-400/10',
+                task.status === 'done' && 'task-done',
+              )}
+            >
               <Icon className={`h-4 w-4 ${STATUS_CLASS[task.status]}`} />
               <span className="text-xs text-slate-500">{index + 1}</span>
               <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{task.title}</span>
@@ -39,4 +47,3 @@ export function TaskCardBlock({ block }: { block: TaskCardBlockData }) {
     </div>
   );
 }
-
