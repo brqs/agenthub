@@ -9,8 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import OffsetPagination
 
-AgentProvider = Literal["claude", "openai", "custom"]
-UpstreamProvider = Literal["claude", "openai"]
+AgentProvider = Literal["claude", "deepseek", "openai", "custom"]
+UpstreamProvider = Literal["claude", "deepseek", "openai"]
 
 
 class AgentConfig(BaseModel):
@@ -20,7 +20,7 @@ class AgentConfig(BaseModel):
     top_p: float | None = Field(default=None, ge=0, le=1)
     upstream_provider: UpstreamProvider | None = Field(
         default=None,
-        description="Upstream provider for custom agents (claude or openai). "
+        description="Upstream provider for custom agents (claude, deepseek, or openai). "
                     "Only used when provider is 'custom'.",
     )
 

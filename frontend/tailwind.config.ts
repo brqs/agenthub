@@ -13,6 +13,7 @@ const config: Config = {
         },
         agent: {
           claude: '#C97064',
+          deepseek: '#2D6CDF',
           openai: '#10A37F',
           orchestrator: '#8B5CF6',
         },

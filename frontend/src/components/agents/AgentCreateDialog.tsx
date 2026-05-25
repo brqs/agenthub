@@ -78,6 +78,7 @@ export function AgentCreateDialog({
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
               >
                 <option value="custom">custom</option>
+                <option value="deepseek">deepseek</option>
                 <option value="openai">openai</option>
                 <option value="claude">claude</option>
               </select>
