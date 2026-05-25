@@ -145,13 +145,13 @@ export const mockConversations: DemoConversation[] = [
   },
   {
     id: 'conv-demo-flow',
-    title: '答辩 Demo 流程',
+    title: 'AgentHub 比赛演示',
     mode: 'group',
-    agent_ids: ['orchestrator', 'claude-code', 'codex-helper'],
+    agent_ids: ['orchestrator', 'web-designer', 'codex-helper', 'claude-code'],
     is_pinned: false,
     is_archived: false,
     last_message_at: minutesAgo(120),
-    last_message_preview: '建议用 3 分钟展示单聊、群聊和富媒体产物。',
+    last_message_preview: 'Orchestrator: 已拆解为任务规划、界面表达、代码产物和审查建议。',
     created_at: minutesAgo(540),
   },
 ];
@@ -287,12 +287,47 @@ export function TodoPanel() {
   ],
   'conv-demo-flow': [
     {
+      id: 'msg-demo-0',
+      conversation_id: 'conv-demo-flow',
+      role: 'user',
+      agent_id: null,
+      content: [
+        {
+          type: 'text',
+          text: '@orchestrator 帮我完成一个带任务拆解、代码产物、Diff 和网页预览的前端开发演示。',
+        },
+      ],
+      reply_to_id: null,
+      status: 'done',
+      is_pinned: false,
+      created_at: minutesAgo(136),
+    },
+    {
       id: 'msg-demo-1',
       conversation_id: 'conv-demo-flow',
       role: 'agent',
       agent_id: 'orchestrator',
       content: [
-        { type: 'text', text: 'Demo 建议走“单聊产物 → 群聊编排 → 富媒体展示”三段，观众最容易理解。' },
+        {
+          type: 'task_card',
+          title: 'AgentHub 比赛演示任务流',
+          tasks: [
+            { id: 'task-plan-demo', agent_id: 'orchestrator', title: '拆解 3 分钟演示路径', status: 'done' },
+            { id: 'task-polish-ui', agent_id: 'web-designer', title: '强调多 Agent 协作状态与界面层级', status: 'done' },
+            { id: 'task-output-code', agent_id: 'codex-helper', title: '输出可复制的前端代码与 Diff 产物', status: 'running' },
+            { id: 'task-review', agent_id: 'claude-code', title: '检查演示讲述和交互风险', status: 'pending' },
+          ],
+        },
+        {
+          type: 'text',
+          text: 'Demo 建议走“任务拆解 → Agent 接力 → 富媒体产物 → 结果审查”四段，观众最容易理解 AgentHub 和普通聊天工具的区别。',
+        },
+        {
+          type: 'agent_switch',
+          from_agent: 'orchestrator',
+          to_agent: 'web-designer',
+          task: '先把右侧栏和消息流的协作状态讲清楚。',
+        },
       ],
       reply_to_id: null,
       status: 'done',
@@ -305,6 +340,16 @@ export function TodoPanel() {
       role: 'agent',
       agent_id: 'codex-helper',
       content: [
+        {
+          type: 'agent_switch',
+          from_agent: 'web-designer',
+          to_agent: 'codex-helper',
+          task: '把界面建议落成可复制的前端代码和变更预览。',
+        },
+        {
+          type: 'text',
+          text: '我会把产物直接放进聊天流：先给一个交互修正 Diff，再附上 PR 网页预览和演示说明文件。',
+        },
         {
           type: 'diff',
           filename: 'frontend/src/components/chat/MessageInput.tsx',

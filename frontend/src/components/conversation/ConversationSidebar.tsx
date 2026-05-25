@@ -9,6 +9,7 @@ export function ConversationSidebar({
   onSearch,
   onSelect,
   onNewConversation,
+  onToggleArchive,
 }: {
   conversations: DemoConversation[];
   selectedConversationId: string;
@@ -16,6 +17,7 @@ export function ConversationSidebar({
   onSearch: (value: string) => void;
   onSelect: (conversationId: string) => void;
   onNewConversation: () => void;
+  onToggleArchive?: (conversationId: string) => void;
 }) {
   const normalized = search.trim().toLowerCase();
   const filtered = conversations.filter((conversation) =>
@@ -65,6 +67,7 @@ export function ConversationSidebar({
                   conversation={conversation}
                   active={conversation.id === selectedConversationId}
                   onSelect={() => onSelect(conversation.id)}
+                  onToggleArchive={() => onToggleArchive?.(conversation.id)}
                 />
               ))}
             </div>
@@ -83,6 +86,7 @@ export function ConversationSidebar({
                   conversation={conversation}
                   active={conversation.id === selectedConversationId}
                   onSelect={() => onSelect(conversation.id)}
+                  onToggleArchive={() => onToggleArchive?.(conversation.id)}
                 />
               ))
             ) : (

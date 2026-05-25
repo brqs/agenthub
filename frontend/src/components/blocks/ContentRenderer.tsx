@@ -37,10 +37,10 @@ export function ContentRenderer({
           const fromAgent = getAgent(block.from_agent);
           const toAgent = getAgent(block.to_agent);
           return (
-            <div key={`${block.type}-${index}`} className="py-2">
+            <div key={`${block.type}-${index}`} className="agent-switch-enter py-2">
               <div className="flex items-center gap-3 text-xs text-slate-500">
                 <span className="h-px flex-1 bg-slate-800" />
-                <span className="rounded-full border border-slate-700 bg-slate-950 px-3 py-1 text-slate-300">
+                <span className="rounded-full border border-brand/30 bg-brand/10 px-3 py-1 text-slate-300">
                   {fromAgent?.name ?? block.from_agent} → {toAgent?.name ?? block.to_agent}
                 </span>
                 <span className="h-px flex-1 bg-slate-800" />
