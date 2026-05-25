@@ -5,6 +5,33 @@
 
 ---
 
+## 执行状态速览（2026-05-25）
+
+当前 `npx vitest --run` → **19 passed / 0 failed**。
+
+| 测试文件 | 优先级 | 状态 |
+|---|---|---|
+| `stores/chatStore.test.ts` | P0 | ✅ |
+| `stores/agentStore.test.ts` | P0 | ✅ |
+| `components/blocks/ContentRenderer.test.tsx` | P0 | ✅ |
+| `components/chat/MessageInput.test.tsx` | P0 | ✅ |
+| `components/blocks/FileBlock.test.tsx` | P1 | ✅ |
+| `components/blocks/WebPreviewBlock.test.tsx` | P1 | ✅ |
+| `components/blocks/CodeBlock.test.tsx` | P1 | 🔴 |
+| `components/agents/AgentCreateDialog.test.tsx` | P2 | 🔴 |
+| `components/conversation/ConversationItem.test.tsx` | P1 | 🔴 |
+| `pages/AgentsPage.test.tsx` | P2 | 🔴 |
+| `pages/ChatPage.test.tsx` | P2 | 🔴 |
+| `hooks/useSendMessage.test.tsx` | P1 | 🔴（新切到 API mutation 后建议补） |
+| `hooks/useCreateConversation.test.tsx` | P1 | 🔴 |
+| `hooks/useStream.test.tsx` | P1 | 🔴 |
+| `lib/env.test.ts` | 新增 | 🔴 |
+| `lib/adapters/*.test.ts` | 新增 | 🔴 |
+
+🟢 全部 ✅／🟡 进行中／🔴 未开始
+
+---
+
 ## 1. 目标
 
 前端测试的第一阶段目标不是追求 100% 覆盖，而是保护当前 Demo 的核心路径：

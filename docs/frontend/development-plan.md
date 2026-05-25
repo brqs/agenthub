@@ -7,6 +7,23 @@
 
 ---
 
+## 执行状态速览（2026-05-25）
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 0 | 前端基建整理 | ✅ |
+| 1 | Discord 式主框架 | ✅ |
+| 2 | Mock 聊天体验 | ✅ |
+| 3 | 真实 API 接入 | ✅（Auth / 会话 / 消息 / Agent CRUD 已接，见 [changelog](changelog.md) 第一/二/三刀） |
+| 4 | SSE 流式接入 | 🟡 客户端就绪，等后端 register 修复后联调 |
+| 5 | 富媒体消息块 | ✅ |
+| 6 | Agent 管理页 | ✅ |
+| 7 | Demo 打磨 | 🟡 基础态完成；二轮打磨见 [demo-polish-v2-plan.md](demo-polish-v2-plan.md) 未开始 |
+
+🟢 全部 ✅／🟡 进行中／🔴 未开始
+
+---
+
 ## 1. 开发目标
 
 第一阶段目标是完成一个可演示的桌面版 AgentHub 前端：
@@ -148,7 +165,7 @@ frontend/src/
 
 ## 5. 分阶段开发计划
 
-### 阶段 0：前端基建整理
+### ✅ 阶段 0：前端基建整理
 
 目标：让前端项目具备稳定开发基础。
 
@@ -166,7 +183,7 @@ frontend/src/
 - 无后端时也能看到完整桌面 UI。
 - 深色主题视觉方向稳定。
 
-### 阶段 1：Discord 式主框架
+### ✅ 阶段 1：Discord 式主框架
 
 目标：完成 AgentHub 主界面骨架。
 
@@ -210,7 +227,7 @@ frontend/src/
 - 桌面四栏布局稳定，无明显溢出和错位。
 - UI 信息架构像 Discord，但品牌视觉属于 AgentHub。
 
-### 阶段 2：Mock 聊天体验
+### ✅ 阶段 2：Mock 聊天体验
 
 目标：先做出可演示的产品体验。
 
@@ -231,7 +248,7 @@ frontend/src/
 - 群聊中不同 Agent 身份清晰。
 - 右侧栏跟随当前会话更新。
 
-### 阶段 3：真实 API 接入
+### ✅ 阶段 3：真实 API 接入
 
 目标：逐步将 Mock 数据替换为后端 API。
 
@@ -276,7 +293,7 @@ TanStack Query 使用规划：
 - Agent 列表来自真实 API。
 - 发送消息后得到 `user_message` 和 `agent_message`。
 
-### 阶段 4：SSE 流式接入
+### 🟡 阶段 4：SSE 流式接入（客户端就绪，等后端可登录后联调）
 
 目标：跑通 AgentHub 的核心体验。
 
@@ -308,7 +325,7 @@ TanStack Query 使用规划：
 - 代码块可以流式出现。
 - 错误时 UI 不崩溃，并能显示重试入口。
 
-### 阶段 5：富媒体消息块
+### ✅ 阶段 5：富媒体消息块
 
 目标：完成 Demo 中最有产品感的内容展示。
 
@@ -341,7 +358,7 @@ const BLOCK_COMPONENTS = {
 - DiffBlock 至少能用 unified 视图展示。
 - 未知 block 类型有降级 UI。
 
-### 阶段 6：Agent 管理页
+### ✅ 阶段 6：Agent 管理页
 
 目标：做出内置 Agent 与自建 Agent 的管理入口。
 
@@ -360,7 +377,7 @@ const BLOCK_COMPONENTS = {
 - Agent 卡片视觉统一。
 - 创建表单字段结构完整。
 
-### 阶段 7：Demo 打磨
+### 🟡 阶段 7：Demo 打磨（基础态已做；二轮打磨见 [demo-polish-v2-plan.md](demo-polish-v2-plan.md)）
 
 目标：保证比赛演示稳定、顺滑、有产品感。
 

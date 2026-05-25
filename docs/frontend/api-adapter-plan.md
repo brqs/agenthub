@@ -5,6 +5,20 @@
 
 ---
 
+## 执行状态速览（2026-05-25）
+
+| Step | 内容 | 状态 |
+|---|---|---|
+| 1 | 新增 `lib/env.ts` 集中读环境变量 | ✅ |
+| 2 | 拆出 Mock SSE | 🟡 `sse.ts` 改用 `env.useMockSse` 分支，但 `mockSse.ts` 还没拆成独立文件 |
+| 3 | 新增 Adapter 类型与空实现 | ✅ `auth / conversations / agents / messages` 全部完成 |
+| 4 | 逐步迁移 hooks | ✅ `useAgents / useConversations / useMessages / useCreateConversation / useCreateAgent / useSendMessage` 全部走双模式 |
+| 5 | 真实 API 联调 | 🔴 阻塞：后端 `/auth/register` 500，无法登录跑全链路冒烟 |
+
+🟢 全部 ✅／🟡 进行中／🔴 未开始或阻塞
+
+---
+
 ## 1. 背景
 
 当前前端已经完成桌面 Mock Demo：
@@ -665,7 +679,7 @@ docs/spec/frontend-api-alignment.spec.md
 
 ## 11. 推荐实施步骤
 
-### Step 1：新增 env 封装
+### ✅ Step 1：新增 env 封装
 
 文件：
 
@@ -683,7 +697,7 @@ frontend/src/lib/env.ts
 
 - 当前 Mock Demo 行为不变。
 
-### Step 2：拆出 Mock SSE
+### 🟡 Step 2：拆出 Mock SSE（已切 `env.useMockSse`；`mockSse.ts` 文件未拆）
 
 文件：
 
@@ -702,7 +716,7 @@ frontend/src/lib/sse.ts
 - 现有流式回复测试通过。
 - Demo 群聊协作流不变。
 
-### Step 3：新增 Adapter 类型与空实现
+### ✅ Step 3：新增 Adapter 类型与空实现
 
 文件：
 
@@ -725,7 +739,7 @@ frontend/src/lib/adapters/artifacts.ts
 - 类型检查通过。
 - hooks 行为不变。
 
-### Step 4：逐步迁移 hooks
+### ✅ Step 4：逐步迁移 hooks
 
 顺序：
 
@@ -743,7 +757,7 @@ useAuth
 - Mock 模式下所有页面行为不变。
 - API 模式下可以按接口逐个联调。
 
-### Step 5：真实 API 联调
+### 🔴 Step 5：真实 API 联调（阻塞：后端 register 500）
 
 前置条件：
 

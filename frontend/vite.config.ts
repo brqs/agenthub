@@ -12,9 +12,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // 把 /api 代理到后端
+      // /api 代理到后端；可用 VITE_DEV_PROXY_TARGET 覆盖（默认指向远端 demo 后端）
       '/api': {
-        target: 'http://localhost:8000',
+        target: process.env.VITE_DEV_PROXY_TARGET || 'http://111.229.151.159:8000',
         changeOrigin: true,
       },
     },
