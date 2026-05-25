@@ -9,7 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import OffsetPagination
 
-AgentProvider = Literal["claude", "deepseek", "openai", "custom"]
+AgentProvider = Literal["claude", "deepseek", "openai", "custom", "mock"]
+CreatableAgentProvider = Literal["claude", "deepseek", "openai", "custom"]
 UpstreamProvider = Literal["claude", "deepseek", "openai"]
 
 
@@ -44,7 +45,7 @@ class AgentOut(BaseModel):
 
 class CreateAgentRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64)
-    provider: AgentProvider
+    provider: CreatableAgentProvider
     avatar_url: str = ""
     capabilities: list[str] = Field(default_factory=list, max_length=10)
     system_prompt: str | None = Field(default=None, max_length=8192)

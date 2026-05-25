@@ -51,9 +51,13 @@ async def list_agents(
         stmt = stmt.where(Agent.is_builtin.is_(builtin))
     if provider:
         stmt = stmt.where(Agent.provider == provider)
+    else:
+        # Mock agents are test/dev fixtures. They can still be queried explicitly
+        # with provider=mock, but should not pollute the normal product list.
+        stmt = stmt.where(Agent.provider != "mock")
 
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    stmt = stmt.order_by(Agent.is_builtin.desc(), Agent.created_at.asc()).offset(
+    stmt = stmt.order_by(Agent.is_builtin.desc(), Agent.created_at.asc(), Agent.id.asc()).offset(
         (page - 1) * page_size
     ).limit(page_size)
     items = (await db.execute(stmt)).scalars().all()

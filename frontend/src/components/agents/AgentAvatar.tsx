@@ -7,6 +7,7 @@ const PROVIDER_STYLES: Record<Agent['provider'], string> = {
   deepseek: 'bg-agent-deepseek text-white',
   openai: 'bg-agent-openai text-white',
   custom: 'bg-agent-orchestrator text-white',
+  mock: 'bg-slate-700 text-slate-100',
 };
 
 export function AgentAvatar({

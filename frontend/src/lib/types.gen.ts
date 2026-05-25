@@ -851,7 +851,9 @@ export interface components {
             items?: components["schemas"]["Message"][];
         };
         /** @enum {string} */
-        AgentProvider: "claude" | "deepseek" | "openai" | "custom";
+        AgentProvider: "claude" | "deepseek" | "openai" | "custom" | "mock";
+        /** @enum {string} */
+        CreatableAgentProvider: "claude" | "deepseek" | "openai" | "custom";
         AgentConfig: {
             model?: string;
             temperature?: number;
@@ -879,7 +881,7 @@ export interface components {
         };
         CreateAgentRequest: {
             name: string;
-            provider: components["schemas"]["AgentProvider"];
+            provider: components["schemas"]["CreatableAgentProvider"];
             /** @default  */
             avatar_url: string;
             /** @default [] */
