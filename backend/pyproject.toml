@@ -14,7 +14,6 @@ dependencies = [
     "alembic>=1.13.0",
     "redis>=5.0.0",
     "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
     "bcrypt<5.0.0",
     "python-multipart>=0.0.12",
     "sse-starlette>=2.1.0",
@@ -33,7 +32,6 @@ dev = [
     "ruff>=0.7.0",
     "mypy>=1.11.0",
     "types-python-jose",
-    "types-passlib",
 ]
 
 [build-system]
@@ -80,7 +78,7 @@ ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["passlib.*", "jose.*"]
+module = ["jose.*"]
 ignore_missing_imports = true
 
 # ─── Pytest ───
