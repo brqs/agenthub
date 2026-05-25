@@ -45,7 +45,8 @@ conda run -n LLMAgent python -m pytest tests/test_artifact_parser.py
 | B2-01 | 实现 StreamingArtifactParser 流式产物解析器 | 已完成 | [B2-01-streaming-artifact-parser.md](B2-01-streaming-artifact-parser.md) |
 | B2-02 | 实现 ClaudeAdapter 真实 Anthropic 流式接入 | 已完成 | [B2-02-claude-adapter-streaming.md](B2-02-claude-adapter-streaming.md) |
 | B2-03 | 实现 OpenAIAdapter 真实 OpenAI 流式接入 | 已完成 | [B2-03-openai-adapter-streaming.md](B2-03-openai-adapter-streaming.md) |
-| B2-04 | 实现 CustomAdapter 委托上游 Provider | 待执行 | [B2-04-custom-adapter-delegation.md](B2-04-custom-adapter-delegation.md) |
+| B2-04 | 实现 CustomAdapter 委托上游 Provider | 已完成 | [B2-04-custom-adapter-delegation.md](B2-04-custom-adapter-delegation.md) |
+| B2-05 | Agent 配置校验与内置 Agent 配置对齐 | 待执行 | [B2-05-agent-config-validation.md](B2-05-agent-config-validation.md) |
 
 ## 模板
 
