@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -280,3 +281,117 @@ async def test_stream_error_marks_agent_message_error(client: AsyncClient) -> No
     assert "event: error" in body
     assert message is not None
     assert message.status == "error"
+
+
+async def test_stream_adapter_error_chunk_marks_message_error(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+        ) -> AsyncIterator[Any]:
+            from app.agents.types import StreamChunk
+
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(
+                event_type="block_start", block_index=0, block_type="text"
+            )
+            yield StreamChunk(
+                event_type="delta", block_index=0, text_delta="partial"
+            )
+            yield StreamChunk(
+                event_type="error",
+                error_code="rate_limit",
+                error="Rate limited",
+            )
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter()
+
+    monkeypatch.setattr(
+        "app.api.v1.stream.get_adapter", mock_get_adapter
+    )
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        body = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+
+    assert response.status_code == 200
+    assert "event: error" in body
+    assert "rate_limit" in body
+    assert message is not None
+    assert message.status == "error"
+    assert len(message.content) >= 1
+    assert message.content[0]["type"] == "text"
+    assert message.content[0]["text"] == "partial"
+
+
+async def test_stream_adapter_exception_marks_message_error_and_preserves_partial_content(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+        ) -> AsyncIterator[Any]:
+            from app.agents.types import StreamChunk
+
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(
+                event_type="block_start", block_index=0, block_type="text"
+            )
+            yield StreamChunk(
+                event_type="delta", block_index=0, text_delta="partial"
+            )
+            raise RuntimeError("boom")
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter()
+
+    monkeypatch.setattr(
+        "app.api.v1.stream.get_adapter", mock_get_adapter
+    )
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        body = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+
+    assert response.status_code == 200
+    assert "event: error" in body
+    assert "internal_error" in body
+    assert message is not None
+    assert message.status == "error"
+    assert len(message.content) >= 1
+    assert message.content[0]["type"] == "text"
+    assert message.content[0]["text"] == "partial"
