@@ -97,3 +97,40 @@
 - 接入真实 `useConversations`、`useMessages`、`useAgents` hooks。
 - 将 Mock 流式回复替换为 `@microsoft/fetch-event-source` 的真实 SSE。
 - 为 `TaskCardBlock` 补正式 OpenAPI / ContentBlock 契约前，需要先与 B1 / B2 同步。
+
+---
+
+## 2026-05-25 — 用 Mock 实现 API Hooks 与 SSE 接入形态
+
+### 改动范围
+- `frontend/src/hooks/useConversations.ts`
+- `frontend/src/hooks/useMessages.ts`
+- `frontend/src/hooks/useAgents.ts`
+- `frontend/src/hooks/useSendMessage.ts`
+- `frontend/src/hooks/useStream.ts`
+- `frontend/src/lib/sse.ts`
+- `frontend/src/stores/chatStore.ts`
+- `frontend/src/pages/ChatPage.tsx`
+- `frontend/src/pages/AgentsPage.tsx`
+
+### 更新内容
+- 在后端 API 尚未完成的情况下，新增前端 API hooks 的 Mock 实现。
+- `ChatPage` 改为通过 `useConversations`、`useMessages`、`useSendMessage` 和 `useStream` 组织数据流。
+- `useSendMessage` 模拟真实发送消息流程，返回 pending agent message id。
+- `lib/sse.ts` 新增 Mock SSE 分支，使用真实 SSE 事件形态模拟 `start`、`block_start`、`delta`、`block_end`、`done`。
+- `useStream` 支持向外透出事件回调，页面可将流式事件同步写入消息状态。
+- `chatStore` 新增 `createPendingExchange` 和 `applyStreamEvent`，为后续真实 API / SSE 替换保留稳定边界。
+
+### API / 契约影响
+- 暂不涉及 `shared/openapi.yaml`。
+- 暂不涉及重新生成 `frontend/src/lib/types.ts`。
+- 约定 `VITE_USE_MOCK_API !== 'false'` 时使用 Mock SSE；后续接真实后端时可通过环境变量关闭。
+
+### 验证方式
+- `./node_modules/.bin/tsc -b`
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0`
+- `./node_modules/.bin/vite build`
+
+### 后续事项
+- 后端完成后，将 hooks 内部数据源从 Mock store 替换为 TanStack Query + `api.ts`。
+- `lib/sse.ts` 已保留真实 `fetchEventSource` 分支，后端 SSE 可用后将 `VITE_USE_MOCK_API=false` 进行联调。
