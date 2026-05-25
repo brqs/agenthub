@@ -136,3 +136,134 @@ class TestStreamingArtifactParser:
         assert len(blocks) == 1
         assert blocks[0]["type"] == "code"
         assert blocks[0]["metadata"].get("language") == "tsx"
+
+    def test_diff_fence_emits_diff_block(self) -> None:
+        parser = StreamingArtifactParser()
+        text = (
+            "```diff\n"
+            "diff --git a/app.py b/app.py\n"
+            "--- a/app.py\n"
+            "+++ b/app.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+            "```"
+        )
+        chunks = _all_chunks(parser, text)
+        blocks = _extract_blocks(chunks)
+
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "diff"
+        assert blocks[0]["metadata"].get("filename") == "changes.diff"
+        assert "-old" in blocks[0]["text"]
+        assert "+new" in blocks[0]["text"]
+
+    def test_patch_fence_emits_diff_block(self) -> None:
+        parser = StreamingArtifactParser()
+        text = (
+            "```patch\n"
+            "--- a/foo.txt\n"
+            "+++ b/foo.txt\n"
+            "@@ -1 +1 @@\n"
+            "-line\n"
+            "+line\n"
+            "```"
+        )
+        chunks = _all_chunks(parser, text)
+        blocks = _extract_blocks(chunks)
+
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "diff"
+        assert blocks[0]["metadata"].get("filename") == "changes.diff"
+
+    def test_regular_code_fence_still_emits_code_block(self) -> None:
+        parser = StreamingArtifactParser()
+        text = "```python\nprint(1)\n```"
+        chunks = _all_chunks(parser, text)
+        blocks = _extract_blocks(chunks)
+
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "code"
+        assert blocks[0]["metadata"].get("language") == "python"
+        assert "print(1)" in blocks[0]["code"]
+
+    def test_standalone_url_emits_web_preview_block(self) -> None:
+        parser = StreamingArtifactParser()
+        text = "https://github.com/brqs/agenthub/pull/17"
+        chunks = _all_chunks(parser, text)
+        blocks = _extract_blocks(chunks)
+
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "web_preview"
+        assert blocks[0]["metadata"].get("url") == "https://github.com/brqs/agenthub/pull/17"
+
+    def test_inline_url_remains_text(self) -> None:
+        parser = StreamingArtifactParser()
+        text = "请看 https://example.com"
+        chunks = _all_chunks(parser, text)
+        blocks = _extract_blocks(chunks)
+
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "text"
+        assert "https://example.com" in blocks[0]["text"]
+
+    def test_url_split_across_chunks_is_stable(self) -> None:
+        parser = StreamingArtifactParser()
+        chunks = []
+        chunks.extend(parser.feed("https://"))
+        chunks.extend(parser.feed("example.com\nworld"))
+        chunks.extend(parser.flush())
+
+        blocks = _extract_blocks(chunks)
+        web_preview_blocks = [b for b in blocks if b["type"] == "web_preview"]
+        assert len(web_preview_blocks) == 1
+        assert web_preview_blocks[0]["metadata"].get("url") == "https://example.com"
+        text_blocks = [b for b in blocks if b["type"] == "text"]
+        assert any("world" in b["text"] for b in text_blocks)
+        # Parser should not crash or lose content.
+        assert not any(c.event_type == "error" for c in chunks)
+
+    def test_incomplete_url_prefix_waits_for_host(self) -> None:
+        parser = StreamingArtifactParser()
+        chunks = []
+        chunks.extend(parser.feed("https://"))
+        # Buffer holds the incomplete URL – no block started yet.
+        assert not any(c.event_type == "block_start" for c in chunks)
+
+        chunks.extend(parser.flush())
+        blocks = _extract_blocks(chunks)
+        # https:// alone is not a valid URL – falls back to text.
+        assert not any(b["type"] == "web_preview" for b in blocks)
+        assert any("https://" in b["text"] for b in blocks)
+
+    def test_url_prefix_completes_across_chunks(self) -> None:
+        parser = StreamingArtifactParser()
+        chunks = []
+        chunks.extend(parser.feed("https://"))
+        chunks.extend(parser.feed("example.com"))
+        chunks.extend(parser.flush())
+
+        blocks = _extract_blocks(chunks)
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "web_preview"
+        assert blocks[0]["metadata"].get("url") == "https://example.com"
+
+    def test_diff_fence_split_across_chunks_is_stable(self) -> None:
+        parser = StreamingArtifactParser()
+        chunks = []
+        chunks.extend(parser.feed("``"))
+        chunks.extend(parser.feed("`diff\n--- a/app.py\n"))
+        chunks.extend(parser.feed("+++ b/app.py\n``"))
+        chunks.extend(parser.feed("`\n"))
+        chunks.extend(parser.flush())
+
+        blocks = _extract_blocks(chunks)
+        diff_blocks = [b for b in blocks if b["type"] == "diff"]
+        assert len(diff_blocks) == 1
+        assert "--- a/app.py" in diff_blocks[0]["text"]
+        assert "+++ b/app.py" in diff_blocks[0]["text"]
+        # No triple-backtick should leak into deltas.
+        for c in chunks:
+            if c.event_type == "delta":
+                assert "```" not in (c.text_delta or "")
+                assert "```" not in (c.code_delta or "")

@@ -33,6 +33,61 @@ class _ContentAccumulator:
         self.blocks: list[dict[str, Any]] = []
         self.current: dict[str, Any] | None = None
 
+    @staticmethod
+    def _parse_diff(raw: str) -> tuple[str, str, str]:
+        """Extract (filename, before, after) from unified diff text."""
+        lines = raw.splitlines(keepends=True)
+        filename = "changes.diff"
+        before_lines: list[str] = []
+        after_lines: list[str] = []
+
+        for line in lines:
+            stripped = line.rstrip("\n")
+            if stripped.startswith("+++ b/"):
+                filename = stripped[6:]
+            elif stripped.startswith("diff --git "):
+                parts = stripped.split()
+                if len(parts) >= 4 and parts[2].startswith("a/") and parts[3].startswith("b/"):
+                    filename = parts[3][2:]
+
+            if stripped.startswith("diff --git") or stripped.startswith("index "):
+                continue
+            if stripped.startswith("---") or stripped.startswith("+++"):
+                continue
+            if stripped.startswith("@@"):
+                continue
+
+            if stripped.startswith("-"):
+                before_lines.append(stripped[1:])
+            elif stripped.startswith("+"):
+                after_lines.append(stripped[1:])
+            else:
+                before_lines.append(stripped)
+                after_lines.append(stripped)
+
+        return filename, "\n".join(before_lines), "\n".join(after_lines)
+
+    def _finalize_current(self) -> None:
+        """Convert the current accumulating block into a persistable dict."""
+        if self.current is None:
+            return
+        if self.current.get("type") == "diff":
+            raw_diff = self.current.get("diff", "")
+            try:
+                filename, before, after = self._parse_diff(raw_diff)
+            except Exception:  # noqa: BLE001
+                filename = self.current.get("filename", "changes.diff")
+                before = raw_diff
+                after = ""
+            self.current = {
+                "type": "diff",
+                "filename": filename,
+                "before": before,
+                "after": after,
+            }
+        self.blocks.append(self.current)
+        self.current = None
+
     def feed(self, chunk: StreamChunk) -> None:
         if chunk.event_type == "block_start":
             self.current = {"type": chunk.block_type or "text"}
@@ -41,19 +96,31 @@ class _ContentAccumulator:
             elif chunk.block_type == "code":
                 self.current["code"] = ""
                 self.current["language"] = (chunk.metadata or {}).get("language", "text")
+            elif chunk.block_type == "diff":
+                self.current["diff"] = ""
+                self.current["filename"] = (chunk.metadata or {}).get("filename", "changes.diff")
+            elif chunk.block_type == "web_preview":
+                meta = chunk.metadata or {}
+                self.current["url"] = meta.get("url", "")
+                if "title" in meta:
+                    self.current["title"] = meta["title"]
+                if "description" in meta:
+                    self.current["description"] = meta["description"]
+                if "thumbnail_url" in meta:
+                    self.current["thumbnail_url"] = meta["thumbnail_url"]
         elif chunk.event_type == "delta" and self.current is not None:
             if chunk.text_delta:
-                self.current["text"] = self.current.get("text", "") + chunk.text_delta
+                if self.current.get("type") == "diff":
+                    self.current["diff"] = self.current.get("diff", "") + chunk.text_delta
+                else:
+                    self.current["text"] = self.current.get("text", "") + chunk.text_delta
             if chunk.code_delta:
                 self.current["code"] = self.current.get("code", "") + chunk.code_delta
         elif chunk.event_type == "block_end" and self.current is not None:
-            self.blocks.append(self.current)
-            self.current = None
+            self._finalize_current()
 
     def to_list(self) -> list[dict[str, Any]]:
-        if self.current is not None:
-            self.blocks.append(self.current)
-            self.current = None
+        self._finalize_current()
         return self.blocks
 
 
