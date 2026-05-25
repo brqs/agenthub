@@ -49,8 +49,9 @@ conda run -n LLMAgent python -m pytest tests/test_artifact_parser.py
 | B2-05 | Agent 配置校验与内置 Agent 配置对齐 | 已完成 | [B2-05-agent-config-validation.md](B2-05-agent-config-validation.md) |
 | B2-06 | SSE error 状态持久化协同修复 | 已完成 | [B2-06-stream-error-status.md](B2-06-stream-error-status.md) |
 | B2-07 | ArtifactParser v2 富媒体识别增强 | 已完成 | [B2-07-artifact-parser-v2.md](B2-07-artifact-parser-v2.md) |
-| B2-08 | Orchestrator Spec 与任务拆解 Prompt | 进行中 | [B2-08-orchestrator-spec.md](B2-08-orchestrator-spec.md) |
-| B2-09 | Orchestrator 子 Agent 顺序调度与 block_index 重映射 | 已拆解，待 B2-08 Spec 完成后执行 | [B2-09-orchestrator-dispatch.md](B2-09-orchestrator-dispatch.md) |
+| B2-08 | Orchestrator Spec 与任务拆解 Prompt | 已完成 | [B2-08-orchestrator-spec.md](B2-08-orchestrator-spec.md) |
+| B2-09 | Orchestrator 子 Agent 顺序调度与 block_index 重映射 | 已完成 | [B2-09-orchestrator-dispatch.md](B2-09-orchestrator-dispatch.md) |
+| B2-10 | Orchestrator 失败降级与部分成功输出 | 已拆解，待执行 | [B2-10-orchestrator-fallback.md](B2-10-orchestrator-fallback.md) |
 
 ## 模板
 

@@ -24,6 +24,19 @@ async def _collect(
     ]
 
 
+def _assert_blocks_balanced(chunks: list[StreamChunk]) -> None:
+    stack: list[int] = []
+    for chunk in chunks:
+        if chunk.event_type == "block_start" and chunk.block_index is not None:
+            stack.append(chunk.block_index)
+        elif chunk.event_type == "block_end" and chunk.block_index is not None:
+            assert stack, f"Unexpected block_end for block_index={chunk.block_index}"
+            assert (
+                stack.pop() == chunk.block_index
+            ), f"Mismatched block_end for block_index={chunk.block_index}"
+    assert not stack, f"Unclosed blocks: {stack}"
+
+
 class FakeSubAdapter(BaseAgentAdapter):
     provider = "fake"
 
@@ -50,6 +63,27 @@ class FakeSubAdapter(BaseAgentAdapter):
         self.received_config = config
         for chunk in self._chunks:
             yield chunk
+
+
+class FakePartialThenExceptionAdapter(BaseAgentAdapter):
+    """Yields some chunks then raises an exception mid-stream."""
+
+    provider = "fake"
+
+    def __init__(self, agent_id: str, chunks: list[StreamChunk], exc: Exception) -> None:
+        super().__init__(agent_id=agent_id)
+        self._chunks = chunks
+        self._exc = exc
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        for chunk in self._chunks:
+            yield chunk
+        raise self._exc
 
 
 def _task(
@@ -150,6 +184,7 @@ async def test_orchestrator_remaps_block_indices_without_collisions() -> None:
     a_delta = next(chunk for chunk in chunks if chunk.text_delta == "from a")
     b_delta = next(chunk for chunk in chunks if chunk.text_delta == "from b")
     assert a_delta.block_index != b_delta.block_index
+    _assert_blocks_balanced(chunks)
 
 
 async def test_orchestrator_preserves_subagent_metadata_and_delta_fields() -> None:
@@ -265,3 +300,342 @@ async def test_orchestrator_intercepts_subagent_error_chunk() -> None:
         for chunk in chunks
     )
     assert any("- failed: @agent-a - Backend API" in (chunk.text_delta or "") for chunk in chunks)
+
+
+async def test_orchestrator_continues_after_subagent_stream_exception() -> None:
+    adapter_a = FakePartialThenExceptionAdapter(
+        "agent-a",
+        [
+            StreamChunk(
+                event_type="block_start", block_index=0, block_type="text"
+            ),
+            StreamChunk(
+                event_type="delta", block_index=0, text_delta="partial from a"
+            ),
+        ],
+        RuntimeError("upstream connection lost"),
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Backend API", "Build API"),
+                _task("task-b", "agent-b", "Frontend UI", "Build UI"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert any(chunk.text_delta == "partial from a" for chunk in chunks)
+    assert any(
+        chunk.event_type == "delta"
+        and "@agent-a failed: upstream connection lost" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(chunk.text_delta == "from b" for chunk in chunks)
+    assert any(
+        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(
+        "- succeeded: @agent-b - Frontend UI" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    _assert_blocks_balanced(chunks)
+
+
+async def test_orchestrator_continues_after_subagent_error_chunk() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="rate_limit",
+                error="too many requests",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Backend API", "Build API"),
+                _task("task-b", "agent-b", "Frontend UI", "Build UI"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert any(
+        chunk.event_type == "delta"
+        and "@agent-a failed: too many requests" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(chunk.text_delta == "from b" for chunk in chunks)
+    assert any(
+        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(
+        "- succeeded: @agent-b - Frontend UI" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+
+
+async def test_orchestrator_skips_tasks_with_failed_dependencies() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="rate_limit",
+                error="too many requests",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Backend API", "Build API"),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Frontend UI",
+                    "Build UI",
+                    depends_on=["task-a"],
+                ),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert not any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "agent-b"
+        for chunk in chunks
+    )
+    assert not any(chunk.text_delta == "from b" for chunk in chunks)
+    assert any(
+        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(
+        "- skipped: @agent-b - Frontend UI" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+
+
+async def test_orchestrator_all_tasks_fail_still_done() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="rate_limit",
+                error="too many requests",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter(
+        "agent-b",
+        [
+            StreamChunk(event_type="start", agent_id="agent-b"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-b",
+                error_code="timeout",
+                error="connection timeout",
+            ),
+        ],
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Backend API", "Build API"),
+                _task("task-b", "agent-b", "Frontend UI", "Build UI"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert any(
+        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(
+        "- failed: @agent-b - Frontend UI" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+
+
+async def test_orchestrator_adapter_factory_exception_is_task_failure() -> None:
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+
+    def adapter_factory(agent_id: str) -> BaseAgentAdapter:
+        if agent_id == "agent-a":
+            raise RuntimeError("factory broken")
+        return adapter_b
+
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Backend API", "Build API"),
+                _task("task-b", "agent-b", "Frontend UI", "Build UI"),
+            ],
+            "adapter_factory": adapter_factory,
+        },
+    )
+
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert any(
+        chunk.event_type == "delta"
+        and "@agent-a failed: factory broken" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(chunk.text_delta == "from b" for chunk in chunks)
+    assert any(
+        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(
+        "- succeeded: @agent-b - Frontend UI" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+
+
+async def test_orchestrator_fallback_adapter_handles_invalid_task_plan() -> None:
+    fallback = FakeSubAdapter("fallback", _text_chunks("fallback result"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": "invalid task plan",
+            "fallback_agent_id": "claude-code",
+            "fallback_adapter": fallback,
+        },
+    )
+
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert any(
+        chunk.event_type == "delta"
+        and "Task plan unavailable; falling back to @claude-code." in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert any(
+        chunk.event_type == "agent_switch"
+        and chunk.to_agent == "claude-code"
+        and chunk.task == "fallback"
+        for chunk in chunks
+    )
+    assert any(chunk.text_delta == "fallback result" for chunk in chunks)
+    assert any(
+        "- fallback: single agent mode" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+
+
+async def test_orchestrator_does_not_fallback_when_adapter_source_missing() -> None:
+    fallback = FakeSubAdapter("fallback", _text_chunks("fallback result"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Backend API", "Build API")],
+            "fallback_agent_id": "claude-code",
+            "fallback_adapter": fallback,
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[1].error_code == "missing_sub_adapters"
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert fallback.received_messages == []
+
+
+async def test_orchestrator_rejects_duplicate_task_ids() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Backend API", "Build API"),
+                _task("task-a", "agent-a", "Review API", "Review API"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[1].error_code == "invalid_task_plan"
+    assert "duplicate task_id" in (chunks[1].error or "")
+    assert adapter_a.received_messages == []
+
+
+async def test_orchestrator_fallback_closes_open_block_on_exception() -> None:
+    fallback = FakePartialThenExceptionAdapter(
+        "fallback",
+        [
+            StreamChunk(
+                event_type="block_start", block_index=0, block_type="text"
+            ),
+            StreamChunk(
+                event_type="delta", block_index=0, text_delta="partial fallback"
+            ),
+        ],
+        RuntimeError("fallback crashed"),
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": "invalid task plan",
+            "fallback_agent_id": "claude-code",
+            "fallback_adapter": fallback,
+        },
+    )
+
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert any(chunk.text_delta == "partial fallback" for chunk in chunks)
+    assert any(
+        chunk.event_type == "delta"
+        and "@claude-code failed: fallback crashed" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    _assert_blocks_balanced(chunks)
