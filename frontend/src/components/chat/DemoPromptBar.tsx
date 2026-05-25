@@ -5,7 +5,7 @@ export const DEMO_PROMPT =
 
 export function DemoPromptBar({ onSelect }: { onSelect: (prompt: string) => void }) {
   return (
-    <div className="mb-3 flex items-center gap-3 rounded-md border border-brand/25 bg-brand/10 px-3 py-2">
+    <div className="mb-2.5 flex items-center gap-3 rounded-md border border-brand/25 bg-brand/10 px-3 py-2 max-[800px]:py-1.5 [@media(max-height:800px)]:mb-2 [@media(max-height:800px)]:py-1.5">
       <div className="flex shrink-0 items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand-light">
         <Sparkles className="h-3.5 w-3.5" />
         Demo

@@ -22,14 +22,18 @@ export function MessageBubble({
   return (
     <article
       className={cn(
-        'flex gap-3 rounded-md transition-colors',
+        'group flex gap-3 rounded-md px-1 py-1 transition-colors',
         isUser && 'justify-end',
         highlighted && 'bg-brand/10 ring-1 ring-brand/40',
       )}
     >
-      {!isUser && <AgentAvatar agent={agent} />}
-      <div className={cn('max-w-3xl', isUser ? 'order-1' : 'min-w-0 flex-1')}>
-        <div className={cn('mb-1 flex items-center gap-2 text-xs text-slate-500', isUser && 'justify-end')}>
+      {!isUser && (
+        <div className="pt-6">
+          <AgentAvatar agent={agent} />
+        </div>
+      )}
+      <div className={cn(isUser ? 'order-1 max-w-[min(680px,78%)]' : 'min-w-0 flex-1')}>
+        <div className={cn('mb-1.5 flex items-center gap-2 px-1 text-xs text-slate-500', isUser && 'justify-end')}>
           <span className="font-medium text-slate-300">{isUser ? '你' : agent?.name ?? 'Agent'}</span>
           <span>{formatTime(message.created_at)}</span>
           {message.status === 'streaming' && <span className="text-brand-light">正在输入</span>}
@@ -39,7 +43,7 @@ export function MessageBubble({
               type="button"
               onClick={() => onTogglePin(message.id)}
               className={cn(
-                'ml-1 rounded-md p-1 transition hover:bg-slate-800 hover:text-white',
+                'ml-1 rounded-md p-1 opacity-80 transition hover:bg-slate-800 hover:text-white group-hover:opacity-100',
                 message.is_pinned ? 'text-brand-light' : 'text-slate-600',
               )}
               title={message.is_pinned ? '取消 Pin' : 'Pin 消息'}
@@ -51,12 +55,12 @@ export function MessageBubble({
         </div>
         <div
           className={cn(
-            'rounded-md px-4 py-3 shadow-sm',
+            'min-w-0 overflow-x-hidden rounded-md px-4 py-3 shadow-sm',
             isUser
-              ? 'bg-brand text-white'
+              ? 'bg-brand text-white shadow-brand/10'
               : message.status === 'error'
                 ? 'border border-red-500/30 bg-red-950/20 text-slate-100'
-                : 'border border-slate-800 bg-slate-900/80 text-slate-100',
+                : 'border border-slate-800 bg-slate-900/75 text-slate-100 shadow-black/10',
           )}
         >
           <ContentRenderer blocks={message.content} streaming={message.status === 'streaming'} />

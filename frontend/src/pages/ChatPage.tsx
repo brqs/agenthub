@@ -33,6 +33,7 @@ export function ChatPage() {
   const resetMessageForRetry = useChatStore((state) => state.resetMessageForRetry);
   const setHighlightedMessageId = useChatStore((state) => state.setHighlightedMessageId);
   const toggleMessagePin = useChatStore((state) => state.toggleMessagePin);
+  const toggleConversationPin = useChatStore((state) => state.toggleConversationPin);
   const toggleConversationArchive = useChatStore((state) => state.toggleConversationArchive);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
 
@@ -76,6 +77,7 @@ export function ChatPage() {
         onSearch={setSearch}
         onSelect={selectConversation}
         onNewConversation={() => setNewConversationOpen(true)}
+        onTogglePin={toggleConversationPin}
         onToggleArchive={toggleConversationArchive}
       />
       <section className="flex min-w-0 flex-1 flex-col">

@@ -161,6 +161,16 @@ describe('chatStore', () => {
     expect(useChatStore.getState().highlightedMessageId).toBe(messageId);
   });
 
+  it('toggles conversation pin state', () => {
+    useChatStore.getState().toggleConversationPin('conv-product-copy');
+
+    const pinned = useChatStore
+      .getState()
+      .conversations.find((conversation) => conversation.id === 'conv-product-copy');
+
+    expect(pinned?.is_pinned).toBe(true);
+  });
+
   it('archives a conversation and moves selection to a visible conversation', () => {
     useChatStore.getState().setSelectedConversationId('conv-demo-flow');
     useChatStore.getState().toggleConversationArchive('conv-demo-flow');

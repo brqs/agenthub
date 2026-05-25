@@ -27,6 +27,7 @@ interface ChatState {
   setSearch: (search: string) => void;
   setHighlightedMessageId: (messageId: string | null) => void;
   toggleMessagePin: (messageId: string) => void;
+  toggleConversationPin: (conversationId: string) => void;
   toggleConversationArchive: (conversationId: string) => void;
   createPendingExchange: (conversationId: string, text: string) => { agentMessageId: string } | null;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
@@ -227,6 +228,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
             message.id === messageId ? { ...message, is_pinned: !message.is_pinned } : message,
           ),
         ]),
+      ),
+    }));
+  },
+  toggleConversationPin: (conversationId) => {
+    set((state) => ({
+      conversations: state.conversations.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, is_pinned: !conversation.is_pinned }
+          : conversation,
       ),
     }));
   },

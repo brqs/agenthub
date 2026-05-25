@@ -9,6 +9,7 @@ export function ArchivePage() {
   const { data: conversations } = useConversations();
   const selectedConversationId = useChatStore((state) => state.selectedConversationId);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
+  const toggleConversationPin = useChatStore((state) => state.toggleConversationPin);
   const toggleConversationArchive = useChatStore((state) => state.toggleConversationArchive);
   const archived = conversations.filter((conversation) => conversation.is_archived);
 
@@ -41,6 +42,7 @@ export function ArchivePage() {
                 conversation={conversation}
                 active={conversation.id === selectedConversationId}
                 onSelect={() => openConversation(conversation.id)}
+                onTogglePin={() => toggleConversationPin(conversation.id)}
                 onToggleArchive={() => toggleConversationArchive(conversation.id)}
               />
             ))}

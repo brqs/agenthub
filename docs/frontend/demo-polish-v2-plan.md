@@ -8,14 +8,15 @@
 
 ## 执行状态速览（2026-05-25）
 
-**整体进度：🟡 第一批已开始实现。**
+**整体进度：🟡 二轮 Demo 体验打磨主体已完成，剩余真实投屏微调。**
 
 | 批次 | 内容 | 状态 |
 |---|---|---|
 | 第一批 | 聊天主界面重构 / 右侧栏协作状态 / Demo Prompt | 🟡 |
 | 第二批 | Pin 消息 / Archive 入口 / 会话操作菜单 | 🟡 |
 | 第三批 | 用户菜单 / Settings 面板 / 主题切换基础态 | 🟡 |
-| 第四批 | 视觉一致性 / 动效细节 / Demo Seed 优化 | 🟡 |
+| 第四批 | 视觉一致性 / 动效细节 / Demo Seed 优化 | ✅ |
+| 第五批 | 桌面布局收口 / 富媒体抗溢出 / 右栏状态密度 | ✅ |
 
 🟢 全部 ✅／🟡 进行中／🔴 未开始
 
@@ -549,7 +550,7 @@ Codex Helper 正在输出代码...
 
 ```text
 1. 重构 ChatHeader / MessageList / MessageInput 的信息层级
-2. 新增 OrchestratorStatusCard
+2. 右侧栏以 Agent 列表为主，不再保留独立 OrchestratorStatusCard
 3. 新增 DemoPromptBar
 4. 强化标准演示会话 seed
 ```
@@ -615,7 +616,6 @@ frontend/src/components/layout/SettingsDialog.tsx
 frontend/src/pages/ArchivePage.tsx
 frontend/src/components/chat/DemoPromptBar.tsx
 frontend/src/components/chat/StreamingStatusBar.tsx
-frontend/src/components/agents/OrchestratorStatusCard.tsx
 ```
 
 可能修改：
@@ -668,7 +668,6 @@ setRightPanelOpen(open: boolean): void;
 
 ```text
 frontend/src/stores/uiStore.test.ts
-frontend/src/components/agents/OrchestratorStatusCard.test.tsx
 frontend/src/components/chat/DemoPromptBar.test.tsx
 frontend/src/components/layout/UserMenu.test.tsx
 frontend/src/components/layout/SettingsDialog.test.tsx
@@ -677,7 +676,7 @@ frontend/src/pages/ArchivePage.test.tsx
 
 重点测试：
 
-- OrchestratorStatusCard 能从 Mock 消息 blocks 推导状态。
+- 右侧 Agent 列表能从 Mock 消息 blocks 推导 Active / Done / Idle 状态。
 - Demo Prompt 点击后填入输入框。
 - Pin / Unpin 后右侧栏数据变化。
 - Archive 后会话进入归档视图。
@@ -766,10 +765,10 @@ npm test -- --run
 
 ```text
 1. 调整 ChatHeader / MessageInput / MessageList 的 Demo 信息层级
-2. RightAgentPanel 增加 OrchestratorStatusCard
+2. RightAgentPanel 保留 Agent 列表作为主要协作状态面板
 3. 新增 DemoPromptBar
 4. 更新 mockData 的标准演示会话
-5. 补 OrchestratorStatusCard 与 DemoPromptBar 测试
+5. 补 RightAgentPanel 与 DemoPromptBar 测试
 ```
 
 完成这批后，Demo 的“多 Agent 协作感”和“现场演示稳定性”会提升最明显。
