@@ -358,3 +358,30 @@ B2-09 允许提前准备任务文档，但实现必须等待 `docs/spec/orchestr
 - B2-09 的核心边界是“注入式可测调度”，不要为了演示提前接生产 registry 或真实 LLM 任务拆解。
 - block index 重映射使用“原始 index → 全局 index”的 per-subtask 映射表，比固定 offset 更稳，可处理子 Agent 原始 index 不连续的情况。
 - 子 Agent 的 `error` chunk 不能透传，否则上层 SSE 可能把整个 Orchestrator message 标记为 error；当前仅做 error chunk 拦截，Adapter 抛异常、复杂失败降级和部分成功策略留给 B2-10。
+
+## 2026-05-25 — B2 拆解 B2-10 Orchestrator 失败降级任务
+
+### 任务
+启动 B2-10：在 B2-09 注入式顺序调度基础上，补齐 Orchestrator 的失败降级、部分成功输出、依赖跳过和 fallback adapter 测试路径。
+
+### 关键 Prompt
+> 请执行 B2-10。先阅读 AGENTS.md，然后阅读 docs/spec/orchestrator.spec.md 和 docs/b2-task-dispatch/B2-10-orchestrator-fallback.md。严格按文档实现：只增强 Orchestrator 失败降级；捕获子 Agent stream 异常、adapter_factory 异常和 error chunk；失败任务输出普通 text block；后续不依赖失败任务的任务继续执行；依赖失败任务的任务标记 skipped；所有任务失败也必须 summary + done；任务计划非法时仅在提供 fallback adapter 的情况下走单 Agent fallback。不要实现真实 LLM 任务拆解，不接 registry/seed，不改 OpenAPI / BaseAgentAdapter / StreamChunk / ContentBlock，不改 frontend，不 commit，不 push，不创建 PR。完成后运行 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
+
+### AI 输出摘要
+1. 新增 `docs/b2-task-dispatch/B2-10-orchestrator-fallback.md`：
+   - 明确 B2-10 只处理 Orchestrator 失败降级，不做 retry、timeout、并发调度或生产 registry 接线。
+   - 规定子 Agent `stream()` 抛异常时保留 partial content，并追加 text failure block。
+   - 规定 `adapter_factory` 异常、子 Agent `error` chunk、依赖失败跳过和全失败仍 `done` 的行为。
+   - 为任务计划不可用场景定义测试用 fallback adapter 注入方式。
+   - 给出 6 类必须覆盖的单元测试和验证命令。
+2. 更新 `docs/b2-task-dispatch/README.md` 和 `docs/b2-task-dispatch/B2-roadmap.md`：
+   - 将 B2-08 / B2-09 标记为已完成。
+   - 将 B2-10 标记为“已拆解，待执行”。
+   - 将当前推荐执行顺序推进到 B2-10 / B2-11 / B2-12。
+
+### 人工调整
+当前工作区从 `feat/B2-orchestrator-dispatch` 切出 `feat/B2-orchestrator-fallback`，以避免 B2-10 文档和后续代码混入 B2-09 PR。
+
+### 经验
+- Orchestrator 的失败降级要区分“任务级失败”和“编排器 fatal error”：前者应转成普通文本并继续，后者才 yield `error`。
+- B2-10 仍不应该接真实 registry 或 LLM task decomposition；fallback adapter 先通过 config 注入形成可测闭环。
