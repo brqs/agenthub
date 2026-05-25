@@ -11,12 +11,14 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from app.agents.adapters.claude import ClaudeAdapter
+from app.agents.adapters.deepseek import DeepSeekAdapter
 from app.agents.adapters.openai import OpenAIAdapter
 from app.agents.base import BaseAgentAdapter
 from app.agents.types import ChatMessage, StreamChunk
 
 UPSTREAM_ADAPTERS: dict[str, type[BaseAgentAdapter]] = {
     "claude": ClaudeAdapter,
+    "deepseek": DeepSeekAdapter,
     "openai": OpenAIAdapter,
 }
 

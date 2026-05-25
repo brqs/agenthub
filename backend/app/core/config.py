@@ -39,8 +39,10 @@ class Settings(BaseSettings):
 
     # ─── AI Providers ───
     anthropic_api_key: str = Field(default="")
+    deepseek_api_key: str = Field(default="")
     openai_api_key: str = Field(default="")
     anthropic_base_url: str = Field(default="")
+    deepseek_base_url: str = Field(default="https://api.deepseek.com")
     openai_base_url: str = Field(default="")
 
     # ─── CORS ───

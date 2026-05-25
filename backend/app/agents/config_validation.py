@@ -6,10 +6,11 @@ from typing import Any
 
 SUPPORTED_PROVIDER_MODELS: dict[str, set[str]] = {
     "claude": {"claude-sonnet-4-6"},
+    "deepseek": {"deepseek-v4-flash", "deepseek-v4-pro"},
     "openai": {"gpt-4o"},
 }
 
-SUPPORTED_UPSTREAM_PROVIDERS: set[str] = {"claude", "openai"}
+SUPPORTED_UPSTREAM_PROVIDERS: set[str] = {"claude", "deepseek", "openai"}
 
 
 class AgentConfigValidationError(ValueError):

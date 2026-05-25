@@ -36,6 +36,19 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "config": {"model": "gpt-4o", "temperature": 0.7, "max_tokens": 4096},
     },
     {
+        "id": "deepseek-assistant",
+        "name": "DeepSeek Assistant",
+        "provider": "deepseek",
+        "avatar_url": "/avatars/deepseek.png",
+        "capabilities": ["chat", "analysis", "coding"],
+        "system_prompt": None,
+        "config": {
+            "model": "deepseek-v4-flash",
+            "temperature": 0.7,
+            "max_tokens": 4096,
+        },
+    },
+    {
         "id": "orchestrator",
         "name": "Orchestrator",
         "provider": "custom",
