@@ -46,7 +46,24 @@ export type CodeBlock = Schemas['CodeBlock'];
 export type DiffBlock = Schemas['DiffBlock'];
 export type WebPreviewBlock = Schemas['WebPreviewBlock'];
 export type FileBlock = Schemas['FileBlock'];
-export type ContentBlock = TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock;
+export interface ToolCallBlock {
+  type: 'tool_call';
+  call_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  status: 'pending' | 'ok' | 'error';
+  output_preview?: string;
+  output_truncated?: boolean;
+  error_code?: string;
+}
+
+export type ContentBlock =
+  | TextBlock
+  | CodeBlock
+  | DiffBlock
+  | WebPreviewBlock
+  | FileBlock
+  | ToolCallBlock;
 
 // ─── Messages ───
 export type Message = Override<
@@ -86,4 +103,22 @@ export type StreamEvent =
   | { event: 'done'; data: { message_id?: string; total_blocks?: number } }
   | { event: 'error'; data: { error_code?: string; error?: string } }
   | { event: 'agent_switch'; data: { from_agent: string; to_agent: string; task?: string } }
+  | {
+      event: 'tool_call';
+      data: {
+        call_id: string;
+        tool_name: string;
+        tool_arguments: Record<string, unknown>;
+      };
+    }
+  | {
+      event: 'tool_result';
+      data: {
+        call_id: string;
+        tool_status: 'ok' | 'error';
+        tool_output?: string;
+        tool_output_truncated?: boolean;
+        error_code?: string;
+      };
+    }
   | { event: 'heartbeat'; data: Record<string, never> };

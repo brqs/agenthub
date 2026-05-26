@@ -3,6 +3,7 @@ import { DiffBlock } from './DiffBlock';
 import { FileBlock } from './FileBlock';
 import { TaskCardBlock } from './TaskCardBlock';
 import { TextBlock } from './TextBlock';
+import { ToolCallBlock } from './ToolCallBlock';
 import { UnknownBlock } from './UnknownBlock';
 import { WebPreviewBlock } from './WebPreviewBlock';
 import type { DemoContentBlock } from '@/lib/mockData';
@@ -32,6 +33,9 @@ export function ContentRenderer({
         }
         if (block.type === 'task_card') {
           return <TaskCardBlock key={`${block.type}-${index}`} block={block} />;
+        }
+        if (block.type === 'tool_call') {
+          return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;
         }
         if (block.type === 'agent_switch') {
           const fromAgent = getAgent(block.from_agent);
