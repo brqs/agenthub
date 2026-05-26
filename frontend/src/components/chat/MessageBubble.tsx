@@ -32,7 +32,7 @@ export function MessageBubble({
           <AgentAvatar agent={agent} />
         </div>
       )}
-      <div className={cn(isUser ? 'order-1 max-w-[min(680px,78%)]' : 'min-w-0 flex-1')}>
+      <div className={cn(isUser ? 'order-1 flex max-w-[min(680px,78%)] flex-col items-end' : 'min-w-0 flex-1')}>
         <div className={cn('mb-1.5 flex items-center gap-2 px-1 text-xs text-slate-500', isUser && 'justify-end')}>
           <span className="font-medium text-slate-300">{isUser ? '你' : agent?.name ?? 'Agent'}</span>
           <span>{formatTime(message.created_at)}</span>
@@ -43,8 +43,8 @@ export function MessageBubble({
               type="button"
               onClick={() => onTogglePin(message.id)}
               className={cn(
-                'ml-1 rounded-md p-1 opacity-80 transition hover:bg-slate-800 hover:text-white group-hover:opacity-100',
-                message.is_pinned ? 'text-brand-light' : 'text-slate-600',
+                'ml-1 rounded-md p-1 transition hover:bg-slate-800 hover:text-white group-hover:opacity-100',
+                message.is_pinned ? 'text-brand-light opacity-100' : 'text-slate-600 opacity-0',
               )}
               title={message.is_pinned ? '取消 Pin' : 'Pin 消息'}
               aria-label={message.is_pinned ? '取消 Pin' : 'Pin 消息'}
@@ -57,7 +57,7 @@ export function MessageBubble({
           className={cn(
             'min-w-0 overflow-visible rounded-md px-4 py-3 shadow-sm',
             isUser
-              ? 'bg-brand text-white shadow-brand/10'
+              ? 'user-message-bubble w-fit max-w-full bg-brand px-4 py-2.5 text-white shadow-brand/10'
               : message.status === 'error'
                 ? 'border border-red-500/30 bg-red-950/20 text-slate-100'
                 : 'border border-slate-800 bg-slate-900/75 text-slate-100 shadow-black/10',
