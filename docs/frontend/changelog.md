@@ -1068,3 +1068,20 @@
 - `pnpm lint` ✅
 - `pnpm build` ✅
 - 浏览器打开 `/chat/conv-markdown-test` 验证：收起 → Header 出现展开按钮 → 刷新后保持折叠 → 展开恢复。
+
+---
+
+## 2026-05-26 — DiffBlock 浅色模式配色修复
+
+### 改动范围
+- `frontend/src/components/blocks/DiffBlock.tsx`
+
+### 更新内容
+- **显式 light/dark 配色**：Diff 容器、header、行号、前缀、上下文/新增/删除行全部改为显式浅色与深色 token。
+- **浅色可读性**：新增行使用浅绿底深绿字，删除行使用浅红底深红字，避免原先深色 token 在浅色模式下变成灰绿/灰红大片糊住。
+- **边框层级**：浅色模式下使用 `border-slate-300/200` 系列，深色模式保留原有 `slate-800/900` 层级。
+
+### 验证方式
+- `pnpm vitest run src/components/blocks/ContentRenderer.test.tsx` ✅
+- `pnpm lint` ✅
+- `pnpm build` ✅
