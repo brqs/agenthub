@@ -91,16 +91,32 @@ describe('chatStore', () => {
       data: { block_index: 1, text_delta: 'hello' },
     });
     store.applyStreamEvent(messageId!, {
+      event: 'tool_call',
+      data: {
+        call_id: 'call-write',
+        tool_name: 'write_file',
+        tool_arguments: { path: 'public/demo.html' },
+      },
+    });
+    store.applyStreamEvent(messageId!, {
+      event: 'tool_result',
+      data: {
+        call_id: 'call-write',
+        tool_status: 'ok',
+        tool_output: 'wrote file',
+      },
+    });
+    store.applyStreamEvent(messageId!, {
       event: 'agent_switch',
       data: { from_agent: 'orchestrator', to_agent: 'codex-helper', task: '实现代码' },
     });
     store.applyStreamEvent(messageId!, {
       event: 'block_start',
-      data: { block_index: 3, block_type: 'code', metadata: { language: 'tsx' } },
+      data: { block_index: 4, block_type: 'code', metadata: { language: 'tsx' } },
     });
     store.applyStreamEvent(messageId!, {
       event: 'delta',
-      data: { block_index: 3, code_delta: 'export {}' },
+      data: { block_index: 4, code_delta: 'export {}' },
     });
     store.applyStreamEvent(messageId!, { event: 'done', data: { total_blocks: 4 } });
 
@@ -112,8 +128,14 @@ describe('chatStore', () => {
     expect(message?.status).toBe('done');
     expect(message?.content[0]).toMatchObject({ type: 'task_card', title: '测试任务' });
     expect(message?.content[1]).toMatchObject({ type: 'text', text: 'hello' });
-    expect(message?.content[2]).toMatchObject({ type: 'agent_switch', to_agent: 'codex-helper' });
-    expect(message?.content[3]).toMatchObject({ type: 'code', language: 'tsx', code: 'export {}' });
+    expect(message?.content[2]).toMatchObject({
+      type: 'tool_call',
+      call_id: 'call-write',
+      status: 'ok',
+      output_preview: 'wrote file',
+    });
+    expect(message?.content[3]).toMatchObject({ type: 'agent_switch', to_agent: 'codex-helper' });
+    expect(message?.content[4]).toMatchObject({ type: 'code', language: 'tsx', code: 'export {}' });
   });
 
   it('marks stream errors and supports retry reset', () => {

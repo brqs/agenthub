@@ -84,6 +84,25 @@ function buildMockEvents(messageId: string): StreamEvent[] {
       ...textDeltaEvents(ORCHESTRATOR_REPLY, 1),
       { event: 'block_end', data: { block_index: 1 } },
       {
+        event: 'tool_call',
+        data: {
+          call_id: 'stream-write-demo-html',
+          tool_name: 'write_file',
+          tool_arguments: {
+            path: 'public/demo.html',
+            content_preview: '<!doctype html><html lang="zh-CN">...',
+          },
+        },
+      },
+      {
+        event: 'tool_result',
+        data: {
+          call_id: 'stream-write-demo-html',
+          tool_status: 'ok',
+          tool_output: 'wrote 4598 bytes to public/demo.html',
+        },
+      },
+      {
         event: 'agent_switch',
         data: {
           from_agent: 'orchestrator',
@@ -91,9 +110,28 @@ function buildMockEvents(messageId: string): StreamEvent[] {
           task: '补充群聊任务流的视觉层级和状态反馈',
         },
       },
-      { event: 'block_start', data: { block_index: 3, block_type: 'text' } },
-      ...textDeltaEvents('视觉上建议把任务卡作为主线索，Agent 切换作为聊天流里的轻量分隔，避免抢走消息正文的注意力。', 3),
-      { event: 'block_end', data: { block_index: 3 } },
+      { event: 'block_start', data: { block_index: 4, block_type: 'text' } },
+      ...textDeltaEvents('视觉上建议把任务卡作为主线索，Agent 切换作为聊天流里的轻量分隔，避免抢走消息正文的注意力。', 4),
+      { event: 'block_end', data: { block_index: 4 } },
+      {
+        event: 'tool_call',
+        data: {
+          call_id: 'stream-bash-build',
+          tool_name: 'bash',
+          tool_arguments: {
+            command: 'pnpm build',
+            cwd: '.',
+          },
+        },
+      },
+      {
+        event: 'tool_result',
+        data: {
+          call_id: 'stream-bash-build',
+          tool_status: 'ok',
+          tool_output: 'vite build completed in 1.42s',
+        },
+      },
       {
         event: 'agent_switch',
         data: {
@@ -104,11 +142,11 @@ function buildMockEvents(messageId: string): StreamEvent[] {
       },
       {
         event: 'block_start',
-        data: { block_index: 5, block_type: 'code', metadata: { language: 'tsx' } },
+        data: { block_index: 7, block_type: 'code', metadata: { language: 'tsx' } },
       },
-      ...codeDeltaEvents(CODE_REPLY, 5),
-      { event: 'block_end', data: { block_index: 5 } },
-      { event: 'done', data: { total_blocks: 6 } },
+      ...codeDeltaEvents(CODE_REPLY, 7),
+      { event: 'block_end', data: { block_index: 7 } },
+      { event: 'done', data: { total_blocks: 8 } },
     ];
   }
 

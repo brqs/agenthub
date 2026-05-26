@@ -36,6 +36,14 @@ describe('ContentRenderer', () => {
         tasks: [{ id: 'task-1', agent_id: 'orchestrator', title: '拆解任务', status: 'done' }],
       },
       {
+        type: 'tool_call',
+        call_id: 'call-1',
+        tool_name: 'write_file',
+        arguments: { path: 'public/demo.html' },
+        status: 'ok',
+        output_preview: 'wrote 120 bytes',
+      },
+      {
         type: 'agent_switch',
         from_agent: 'orchestrator',
         to_agent: 'codex-helper',
@@ -51,6 +59,8 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('Demo Preview')).toBeInTheDocument();
     expect(screen.getByText('demo.md')).toBeInTheDocument();
     expect(screen.getByText('任务卡')).toBeInTheDocument();
+    expect(screen.getByText('write_file')).toBeInTheDocument();
+    expect(screen.getByText('call-1')).toBeInTheDocument();
     expect(screen.getByText('Orchestrator')).toBeInTheDocument();
     expect(screen.getByText('Codex Helper')).toBeInTheDocument();
   });
