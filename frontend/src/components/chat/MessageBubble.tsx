@@ -55,7 +55,7 @@ export function MessageBubble({
         </div>
         <div
           className={cn(
-            'min-w-0 overflow-x-hidden rounded-md px-4 py-3 shadow-sm',
+            'min-w-0 overflow-visible rounded-md px-4 py-3 shadow-sm',
             isUser
               ? 'bg-brand text-white shadow-brand/10'
               : message.status === 'error'

@@ -1,12 +1,96 @@
-import rehypeKatex from 'rehype-katex';
+import { renderToString } from 'katex';
+import { isValidElement, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 
-function normalizeMathDelimiters(text: string): string {
-  return text
-    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_match, content: string) => `$$${content}$$`)
+const FENCED_CODE_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
+const INLINE_CODE_PATTERN = /(`+[^`\n]*?`+)/g;
+
+function normalizeMathOutsideCode(text: string, streaming: boolean): string {
+  return stabilizeStreamingMath(text, streaming)
+    .replace(/\\\[((?:.|\n)*?)\\\]/g, (_match, content: string) => {
+      return `\n\n$$\n${content.trim()}\n$$\n\n`;
+    })
     .replace(/\\\(((?:.|\n)*?)\\\)/g, (_match, content: string) => `$${content}$`);
+}
+
+function normalizeInlineSegments(text: string, streaming: boolean): string {
+  return text
+    .split(INLINE_CODE_PATTERN)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      return normalizeMathOutsideCode(segment, streaming);
+    })
+    .join('');
+}
+
+function normalizeMarkdownForChat(text: string, streaming: boolean): string {
+  return text
+    .split(FENCED_CODE_PATTERN)
+    .map((segment, index) => {
+      if (index % 2 === 1) return segment;
+      return normalizeInlineSegments(segment, streaming);
+    })
+    .join('');
+}
+
+function stabilizeStreamingMath(text: string, streaming: boolean): string {
+  if (!streaming) return text;
+
+  const tokens = [...text.matchAll(/(?<!\\)\${1,2}/g)];
+  let inlineOpenIndex: number | null = null;
+  let displayOpenIndex: number | null = null;
+
+  for (const token of tokens) {
+    const delimiter = token[0];
+    const index = token.index;
+    if (index === undefined) continue;
+
+    if (delimiter === '$$') {
+      displayOpenIndex = displayOpenIndex === null ? index : null;
+      continue;
+    }
+
+    if (displayOpenIndex !== null) continue;
+    inlineOpenIndex = inlineOpenIndex === null ? index : null;
+  }
+
+  const orphanIndex = displayOpenIndex ?? inlineOpenIndex;
+  if (orphanIndex === null) return text;
+
+  const delimiterLength = displayOpenIndex === null ? 1 : 2;
+  return `${text.slice(0, orphanIndex)}${'\\$'.repeat(delimiterLength)}${text.slice(
+    orphanIndex + delimiterLength,
+  )}`;
+}
+
+function classNameHasMath(className: string | undefined): boolean {
+  return className?.split(/\s+/).includes('language-math') ?? false;
+}
+
+function classNameHasDisplayMath(className: string | undefined): boolean {
+  return className?.split(/\s+/).includes('math-display') ?? false;
+}
+
+function childrenToText(children: ReactNode): string {
+  if (children === null || children === undefined || typeof children === 'boolean') return '';
+  if (typeof children === 'string' || typeof children === 'number') return String(children);
+  if (Array.isArray(children)) return children.map(childrenToText).join('');
+  if (isValidElement<{ children?: ReactNode }>(children)) {
+    return childrenToText(children.props.children);
+  }
+  return '';
+}
+
+function renderMathHtml(value: string, displayMode: boolean): string {
+  return renderToString(value.trim(), {
+    displayMode,
+    output: 'html',
+    strict: false,
+    throwOnError: false,
+    trust: false,
+  });
 }
 
 /*
@@ -69,13 +153,37 @@ const components: Components = {
   td: ({ node: _node, ...props }) => (
     <td className="border border-slate-800 px-3 py-2 align-top" {...props} />
   ),
-  pre: ({ node: _node, ...props }) => (
-    <pre
-      className="my-3 max-w-full overflow-x-auto rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-100"
-      {...props}
-    />
-  ),
+  pre: ({ node: _node, children, ...props }) => {
+    if (
+      isValidElement<{ className?: string }>(children) &&
+      classNameHasDisplayMath(children.props.className)
+    ) {
+      return <>{children}</>;
+    }
+
+    return (
+      <pre
+        className="my-3 max-w-full overflow-x-auto rounded-md border border-slate-800 bg-slate-950 p-3 text-sm leading-6 text-slate-100"
+        {...props}
+      >
+        {children}
+      </pre>
+    );
+  },
   code: ({ node: _node, className, children, ...props }) => {
+    if (classNameHasMath(className)) {
+      const math = childrenToText(children);
+      const displayMode = classNameHasDisplayMath(className);
+      const Tag = displayMode ? 'div' : 'span';
+
+      return (
+        <Tag
+          className={displayMode ? 'my-3 max-w-full overflow-x-auto overflow-y-visible' : undefined}
+          dangerouslySetInnerHTML={{ __html: renderMathHtml(math, displayMode) }}
+        />
+      );
+    }
+
     const isInline = !className || !className.startsWith('language-');
     if (isInline) {
       return (
@@ -107,13 +215,12 @@ const components: Components = {
 };
 
 export function TextBlock({ text, streaming = false }: { text: string; streaming?: boolean }) {
-  const normalizedText = normalizeMathDelimiters(text);
+  const normalizedText = normalizeMarkdownForChat(text, streaming);
 
   return (
-    <div className={`min-w-0 text-slate-100${streaming ? ' streaming-cursor' : ''}`}>
+    <div className={`agent-markdown min-w-0 text-slate-100${streaming ? ' streaming-cursor' : ''}`}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false }]]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
         components={components}
       >
         {normalizedText}
