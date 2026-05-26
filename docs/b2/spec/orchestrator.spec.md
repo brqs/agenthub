@@ -564,7 +564,7 @@ async def _yield_summary(
 | `backend/app/agents/types.py` | StreamChunk / ChatMessage 定义 |
 | `backend/app/agents/registry.py` | Adapter 注册表 |
 | `backend/app/agents/adapters/claude.py` | Orchestrator 底层可委托的拆解 LLM |
-| `docs/spec/orchestrator.spec.md` | 本 Spec |
-| `docs/b2-task-dispatch/B2-08-orchestrator-spec.md` | B2-08 任务文档 |
-| `docs/b2-task-dispatch/B2-09-orchestrator-dispatch.md` | B2-09 任务文档（待创建） |
-| `docs/b2-task-dispatch/B2-10-orchestrator-fallback.md` | B2-10 任务文档（待创建） |
+| `docs/b2/spec/orchestrator.spec.md` | 本 Spec |
+| `docs/b2/task-dispatch/B2-08-orchestrator-spec.md` | B2-08 任务文档 |
+| `docs/b2/task-dispatch/B2-09-orchestrator-dispatch.md` | B2-09 任务文档（待创建） |
+| `docs/b2/task-dispatch/B2-10-orchestrator-fallback.md` | B2-10 任务文档（待创建） |

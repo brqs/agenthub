@@ -1,8 +1,12 @@
 # AgentHub 产品设计文档（Product Design）
 
 > 配套文档：[development-plan.md](./development-plan.md) · [tech-architecture.md](./tech-architecture.md) · [api-spec.md](./api-spec.md)
-> 文档版本：v1.0
-> 最后更新：2026-05-22
+> 文档版本：v1.1（Agent Runtime Pivot）
+> 最后更新：2026-05-26
+
+> ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：产品定位从"多 LLM 聊天聚合"明确为"多 Agent Runtime 协作 + 真产物可交付"。决策见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
+>
+> 已就地同步章节：§1 产品概述、§4 价值主张、§5 功能架构、§10 Orchestrator 协作（含产物预览/二次编辑链路）。其他章节（§2 竞品、§3 用户画像、§6-§9 旅程/IA/页面/富媒体、§11-§15）UI/IA 层面不受 pivot 影响，保留 v1.0，仅在 §9 / §10 子节顶部加注。
 
 ---
 
@@ -28,21 +32,27 @@
 
 ## 1. 产品概述
 
-### 1.1 一句话定义
+### 1.1 一句话定义（v1.1）
 
-> **AgentHub —— 像聊微信一样，与多个 AI 协作完成复杂任务。**
+> **AgentHub —— 像聊微信一样，让多个真 Agent（外部 Claude Code / Codex + 团队自建）协作完成代码、网页、文档等可交付产物。**
 
 ### 1.2 详细描述
 
-AgentHub 是一个以 **IM 聊天为核心交互范式** 的多 Agent 协作平台。用户像使用飞书 / 微信一样，通过新建对话、发送消息的方式与不同 AI Agent 交互。每个 Agent 是一个"聊天对象"，用户可以单聊、群聊、并行管理多个会话。复杂任务由主 Agent（Orchestrator）自动拆解并分派给最合适的子 Agent，所有产物（代码、网页、Diff、文档）以富媒体卡片形式内联展示。
+AgentHub 是一个以 **IM 聊天为核心交互范式** 的多 Agent 协作平台。用户像使用飞书 / 微信一样，通过新建对话、发送消息的方式与不同 AI Agent 交互。
 
-### 1.3 产品定位三要素
+**v1.1 重要区分**：这里的 "Agent" 是**具备工具与执行能力的真 Agent**（能写文件、跑命令、用工具），而非传统聊天机器人：
+- **外部 Agent**：嵌入 Claude Agent SDK / OpenAI Agents SDK，复用其原生 agent loop 与工具
+- **自建 Agent**：团队实现完整 framework（AgentLoop + ToolRegistry + MCP + ContextManager + MemoryManager），用户可对话式创建（设定 System Prompt + 工具白名单）
+
+每个 Agent 是一个"聊天对象"，用户可以单聊、群聊、并行管理多个会话。复杂任务由主 Agent（Orchestrator）自动拆解并分派给最合适的子 Agent。所有产物（代码、网页、Diff、文档）实时写入会话级 Workspace 沙箱，**前端可在聊天流中直接预览、二次编辑、续聊**。
+
+### 1.3 产品定位三要素（v1.1）
 
 | 要素 | 内容 |
 |------|------|
 | **目标用户** | 开发者、产品经理、内容创作者等需要频繁与 AI 协作完成任务的知识工作者 |
-| **核心场景** | 多任务并行 + 多 Agent 协同（写代码 + 写文案 + 设计 UI 一站搞定） |
-| **核心价值** | "0 学习成本" 的多 Agent 协作体验 + 产物即时可视 + 上下文连续不断 |
+| **核心场景** | 多任务并行 + 多 Agent 协同（写代码 + 写文案 + 设计 UI 一站搞定）+ 产物可二次编辑 |
+| **核心价值** | "0 学习成本" 的多 Agent 协作体验 + **真 Agent 能力**（写文件/跑命令/用工具）+ 产物即时可视且可编辑 + 上下文连续不断 |
 
 ### 1.4 设计哲学
 
@@ -198,71 +208,100 @@ Agent 输出新版本 + Diff 视图 →
 
 ## 4. 产品价值主张
 
-### 4.1 用户价值
+### 4.1 用户价值（v1.1）
 
 | 价值点 | 说明 |
 |--------|------|
 | **零学习成本** | IM 范式人人会用，5 秒上手 |
 | **多任务并行** | 多会话像多个聊天窗口，互不干扰 |
-| **多 AI 协作** | 群聊 @Orchestrator 自动调度，告别"复制上下文" |
-| **产物即时可视** | 代码高亮、网页预览、Diff 直接看，无需切工具 |
-| **上下文连续** | 历史完整保留，多轮迭代修改 |
-| **生态开放** | 自建 Agent 自由组合，未来接入更多模型 |
+| **多 Agent 协作** | 群聊 @Orchestrator 自动调度，告别"复制上下文" |
+| **真 Agent 能力** ✨ | Agent 自己写文件、跑命令、用 MCP 工具，不止聊天 |
+| **产物即时可视且可编辑** ✨ | 代码 / 网页 / Diff 直接在聊天流预览；选中代码可 Monaco 编辑后续聊 |
+| **上下文连续 + 长期记忆** | 历史完整保留；关键消息 pin 为长期记忆 |
+| **生态开放** | 接入 Claude Code / Codex 等市面 agent runtime；用户可自建 Agent（System Prompt + 工具白名单 + MCP server） |
 
 ### 4.2 业务价值（远期）
 
 - 通过 Orchestrator 降低用户调度多 Agent 的成本，提升用户粘性
-- 统一适配器层降低接入新 Provider 的边际成本
+- 统一适配器层（External / Builtin / ModelGateway）降低接入新 runtime / 新 LLM 的边际成本
 - 用户自建 Agent 形成"长尾内容"
+- Workspace 沙箱沉淀用户产物，提高迁移成本
 
-### 4.3 价值 USP（Unique Selling Proposition）
+### 4.3 差异化矩阵（v1.1 新增）
 
-> "**唯一一个能让你像群聊一样与多个 AI 协作的平台。**"
+| 维度 | ChatGPT | Cursor / Windsurf | Devin | **AgentHub** |
+|---|---|---|---|---|
+| 多 Agent 协作 | ✗ | ✗ | 单 Agent | ✅ 群聊 + Orchestrator |
+| 多 Runtime 接入 | 自家 | 自家 + 外接 | 自家 | ✅ Claude Code + Codex + 自建 |
+| 自建 Agent Framework | ✗ | ✗ | ✗ | ✅ Loop + Tool + MCP + Memory |
+| 产物即时可视 | 部分 | IDE | ✗ | ✅ iframe + 文件树 |
+| 产物二次编辑 + 续聊 | ✗ | ✅ IDE 内 | ✗ | ✅ 聊天内 Monaco |
+| IM 多会话并行 | 有 | ✗（IDE） | ✗ | ✅ 微信式 |
+
+### 4.4 价值 USP（Unique Selling Proposition）
+
+> "**唯一一个能让你像群聊一样与多个真 Agent（自带工具与执行能力）协作的平台。**"
 
 ---
 
 ## 5. 功能架构图
 
+> v1.1 调整：Agent 体系细分为「外部 Runtime + 自建 Framework + ModelGateway 底座」三层；新增「Workspace / Artifact 体系」（产物预览 + 二次编辑）。
+
 ```
-                     AgentHub
-                        │
-       ┌────────────────┼─────────────────┐
-       │                │                  │
-   ┌───▼────┐      ┌────▼─────┐      ┌────▼─────┐
-   │ 账号体系│      │ 聊天体系  │      │ Agent体系│
-   └───┬────┘      └────┬─────┘      └────┬─────┘
-       │                │                  │
-   ┌───▼──────┐    ┌────▼──────┐    ┌─────▼─────┐
-   │ 注册      │    │ 会话管理   │    │ 内置 Agent │
-   │ 登录      │    │ ├ 列表     │    │ ├ Claude  │
-   │ 个人资料  │    │ ├ 新建     │    │ ├ Codex   │
-   │           │    │ ├ 置顶     │    │ ├ Orches  │
-   │           │    │ ├ 归档     │    │ └ Writer  │
-   │           │    │ ├ 搜索     │    │            │
-   │           │    │ └ 删除     │    │ 自建 Agent │
-   └───────────┘    │            │    │ ├ 创建     │
-                    │ 消息体系    │    │ ├ 编辑     │
-                    │ ├ 文本     │    │ ├ 删除     │
-                    │ ├ 代码     │    │ └ 复制     │
-                    │ ├ Diff     │    │            │
-                    │ ├ 网页预览  │    │ 能力标签   │
-                    │ ├ 文件     │    │            │
-                    │ ├ Pin      │    │            │
-                    │ ├ 重生成   │    │            │
-                    │ ├ 复制     │    │            │
-                    │ └ 搜索     │    │            │
-                    │            │    │            │
-                    │ 协作模式    │    │            │
-                    │ ├ 单聊     │    │            │
-                    │ ├ 群聊     │    │            │
-                    │ ├ @ 提及   │    │            │
-                    │ └ 任务编排 │    │            │
-                    │            │    │            │
-                    │ 流式体验    │    │            │
-                    │ ├ 逐字输出 │    │            │
-                    │ ├ 中断     │    │            │
-                    │ └ 重连     │    │            │
-                    └───────────┘    └───────────┘
+                              AgentHub
+                                 │
+       ┌─────────────┬───────────┼───────────┬─────────────┐
+       │             │           │           │             │
+   ┌───▼────┐  ┌─────▼────┐  ┌───▼────┐  ┌──▼──────┐  ┌──▼──────────┐
+   │ 账号体系│  │ 聊天体系  │  │Agent体系│  │Workspace│  │ 流式协议    │
+   │        │  │           │  │ 三层    │  │ ✨v1.1  │  │ SSE + tool_*│
+   └───┬────┘  └────┬─────┘   └───┬────┘  └──┬──────┘  └─────────────┘
+       │            │              │           │
+       │            │              │           ▼
+       │            │              │    ┌────────────┐
+       │            │              │    │ Artifact   │
+       │            │              │    │ 预览/编辑   │
+       │            │              │    │ ├ iframe   │
+       │            │              │    │ ├ Monaco   │
+       │            │              │    │ └ 文件树    │
+       │            │              ▼    └────────────┘
+       │            │       ┌──────────────────────┐
+       │            │       │ Layer A: External    │
+       │            │       │  ├ Claude Code (SDK) │
+       │            │       │  └ Codex (Agents SDK)│
+       │            │       ├──────────────────────┤
+       │            │       │ Layer B: Builtin     │
+       │            │       │  ├ AgentLoop         │
+       │            │       │  ├ ToolRegistry      │
+       │            │       │  ├ MCPClient (stdio) │
+       │            │       │  ├ MemoryManager     │
+       │            │       │  └ ContextManager    │
+       │            │       ├──────────────────────┤
+       │            │       │ Layer C: ModelGateway│
+       │            │       │  (Claude/OpenAI/     │
+       │            │       │   DeepSeek raw API)  │
+       │            │       ├──────────────────────┤
+       │            │       │ Orchestrator (保留)  │
+       │            │       │  子 Agent = 真 Agent │
+       │            │       └──────────────────────┘
+```
+
+### 5.1 详细功能清单（v1.1）
+
+| 体系 | 功能 | 状态 |
+|---|---|---|
+| 账号 | 注册 / 登录 / 个人资料 | ✅ v1.0 已交付 |
+| 聊天 - 会话 | 列表 / 新建 / 置顶 / 归档 / 搜索 / 删除 | ✅ v1.0 已交付 |
+| 聊天 - 消息 | 文本 / 代码 / Diff / 网页预览 / 文件 / Pin / 重生成 / 复制 / 搜索 | ✅ v1.0 已交付 |
+| 聊天 - 消息 | **ToolCallBlock**（工具调用卡片） | ✨ v1.1 新增 |
+| 聊天 - 协作 | 单聊 / 群聊 / @ 提及 / 任务编排 | ✅ v1.0 已交付 |
+| 聊天 - 流式 | 逐字输出 / 中断 / 重连 | ✅ v1.0 已交付 |
+| Agent - 外部 | Claude Code（Claude Agent SDK）/ Codex（OpenAI Agents SDK） | ✨ v1.1 新增 |
+| Agent - 自建 | 创建 / 编辑 / 删除 / 复制（System Prompt + 工具白名单 + MCP server） | ✨ v1.1 升级（v1.0 仅 prompt 包装） |
+| Agent - 主 | Orchestrator（保留，子 Agent 升级为真 Agent） | ✅ v1.0 + v1.1 升级 |
+| Workspace - 沙箱 | 每会话隔离目录 + 路径校验 + 文件树 | ✨ v1.1 新增 |
+| Workspace - 产物 | iframe 预览 / Monaco 二次编辑 / 续聊 | ✨ v1.1 新增 |
 ```
 
 ### 5.1 P0 功能（MVP 必交付）
@@ -775,15 +814,36 @@ AgentHub
 
 ## 10. Orchestrator 协作设计
 
+> ✏️ v1.1 注：Orchestrator 框架不变，但子 Agent 升级为**真 Agent**（外部 Claude Code / Codex 或自建 BuiltinAgent）。同一会话的所有子 Agent 共享一个 Workspace 沙箱，可以协作产出文件；前端在 Orchestrator 任务卡上显示"工具调用次数 + 产物文件列表"。
+
 ### 10.1 Orchestrator 角色定位
 
 ```
 Orchestrator = 群聊中的"组长"
 ├─ 接收用户的复杂请求
-├─ 拆解为子任务
-├─ 分派给最合适的子 Agent
-├─ 监督执行
-└─ 汇总产出
+├─ 拆解为子任务（每个子任务指派给一个真 Agent）
+├─ 分派给最合适的子 Agent（External / Builtin）
+├─ 监督执行（call_id 重映射为 task_id.<原 call_id> 防冲突）
+├─ 失败降级（任务失败不阻塞独立任务，依赖失败任务 skipped；全失败仍出 summary）
+└─ 汇总产出（含 workspace 文件列表）
+```
+
+### 10.1.1 v1.1 群聊示例
+
+```
+用户：@Orchestrator 帮我做一个 React Todo App，前端 + 后端 + 一键预览
+
+Orchestrator → 拆解为 3 个子任务：
+  task-1 @claude-code     "写 React 前端到 frontend/"
+  task-2 @codex           "写 FastAPI 后端到 backend/"
+  task-3 @builtin-deploy  "把 frontend/ 跑起来并返回预览 URL"   (depends_on: [task-1])
+
+Claude Code → 真实写入 workspace 5 个 .tsx 文件 → 前端实时显示 5 个 ToolCallBlock + 文件树更新
+Codex      → 真实写入 workspace 3 个 .py 文件 + 跑 alembic init → ToolCallBlock + tool_result
+BuiltinAgent → tool: bash("pnpm install && pnpm dev") → tool_result(ok, url=http://localhost:5173)
+             → 前端在 ArtifactPreview 中 iframe 这个 URL
+
+用户在 Monaco 改了 App.tsx → 自动续聊 "我把 App.tsx 改成了这样，请基于此继续优化" → Agent 接续
 ```
 
 ### 10.2 群聊消息流的视觉表达

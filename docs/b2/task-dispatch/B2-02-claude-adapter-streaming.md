@@ -21,8 +21,8 @@ backend/app/agents/adapters/claude.py 仍是 stub，无法真实调用 Anthropic
 
 请先阅读：
 1. AGENTS.md
-2. docs/b2-ai-task-dispatch-template.md
-3. docs/b2-task-dispatch/B2-01-streaming-artifact-parser.md
+2. docs/b2/ai-task-dispatch-template.md
+3. docs/b2/task-dispatch/B2-01-streaming-artifact-parser.md
 4. backend/app/agents/base.py
 5. backend/app/agents/types.py
 6. backend/app/agents/artifact_parser.py

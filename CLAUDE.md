@@ -4,6 +4,8 @@
 > 所有 AI 助手（Claude Code / Cursor / Codex 等）在本仓库工作时，都应首先阅读此文件并严格遵守其中的约定。
 > 团队成员对应规则的更新会在每日同步中通知所有人。
 
+> ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：项目定位从"多 LLM Provider 包装"升级为"多 Agent Runtime 编排平台 + 自建 Agent Framework"。Adapter 接口与 StreamChunk 协议已升级，详见 [docs/spec/agent-runtime-pivot.adr.md](docs/spec/agent-runtime-pivot.adr.md)。本文件 §2 / §4.2 / §4.3 / §5 / §7 已就地同步；原 raw LLM Adapter 降级为 ModelGateway 底座。
+
 ---
 
 ## 0. 阅读优先级
@@ -20,12 +22,12 @@
 
 ## 1. 项目速览（30 秒读完）
 
-**AgentHub** 是一个 IM 聊天式的多 Agent 协作平台。用户通过类似微信/飞书的对话界面，与多个 AI Agent（Claude / Codex / 自建）进行 1v1 单聊或群聊，由主 Agent（Orchestrator）协调任务分派，Agent 回复以富媒体卡片（代码块、Diff、网页预览）形式内联展示。
+**AgentHub** 是一个 IM 聊天式的多 Agent 协作平台。用户像聊微信一样与多个**具备工具与执行能力的真 Agent**（外部 Claude Code / Codex、团队自建 Agent）协作，由主 Agent（Orchestrator）协调任务分派，Agent 产出代码、网页、文档等可交付物，在聊天流中实时预览、二次编辑。
 
 - **比赛项目**，3 人团队，14 天交付
-- **核心交互**：IM 范式 + SSE 流式响应 + 多 Agent 编排
-- **技术栈**：React + Vite（前端）、FastAPI + PostgreSQL（后端）、Claude/OpenAI SDK
-- **架构核心**：Adapter 模式屏蔽 Provider 差异 + OpenAPI 契约驱动前后端
+- **核心交互**：IM 范式 + SSE 流式响应 + 多 Agent 编排 + Workspace 沙箱产物
+- **技术栈**：React + Vite（前端）、FastAPI + PostgreSQL（后端）、Claude Agent SDK + OpenAI Agents SDK + MCP（Agent runtime）
+- **架构核心**：三层 Agent（External / Builtin / ModelGateway）+ 统一 BaseAgentAdapter v2 契约 + OpenAPI 契约驱动前后端
 
 详细背景见 [docs/development-plan.md](docs/development-plan.md) 和 [docs/product-design.md](docs/product-design.md)。
 
@@ -34,16 +36,24 @@
 ## 2. 团队与目录所有权
 
 ```
-团队（3 人）：
-  F  → 前端开发        → frontend/**
-  B1 → 后端核心平台    → backend/app/{core,models,services,api}/**
-  B2 → Agent 集成      → backend/app/agents/**
+团队（3 人，pivot 后边界）：
+  F  → 前端开发                → frontend/**
+                                  + 新增：ToolCallBlock / ArtifactPreview / Monaco 编辑器 / Workspace 文件树
+  B1 → 后端核心平台 + 沙箱     → backend/app/{core,models,services,api}/**
+                                  + 新增：backend/app/workspaces/**（Workspace 服务 + Artifact API）
+  B2 → Agent Runtime Layer    → backend/app/agents/**
+                                  ├── external/          外部 Agent SDK 嵌入（Claude Agent / Codex）
+                                  ├── builtin/           自建 Agent Framework（loop + tools + mcp）
+                                  ├── model_gateway/     原 raw LLM Adapter 迁移而来（底座）
+                                  └── orchestrator.py    保留
 
 共享文件（改前需通知所有人）：
   shared/openapi.yaml         (API 契约 ★ 最关键)
   backend/app/schemas/**      (Pydantic 模型)
+  backend/app/agents/base.py  (BaseAgentAdapter v2 契约)
+  backend/app/agents/types.py (StreamChunk 协议)
   docker-compose.yml
-  CLAUDE.md / docs/**
+  CLAUDE.md / AGENTS.md / docs/**
 ```
 
 **铁律**：
@@ -68,7 +78,10 @@ redis-py (asyncio)      (Redis 异步客户端)
 python-jose             (JWT)
 passlib[bcrypt]         (密码哈希)
 sse-starlette           (SSE)
-anthropic / openai      (LLM SDK)
+claude-agent-sdk        (Claude Code agent runtime 嵌入)
+openai-agents           (OpenAI Agents SDK / Codex 嵌入)
+mcp                     (MCP Python SDK — stdio transport)
+anthropic / openai      (LLM SDK — 仅 ModelGateway 内部使用，禁止直接 import)
 pytest + pytest-asyncio (测试)
 ruff + mypy             (lint + 类型检查)
 ```
@@ -123,39 +136,55 @@ eslint + prettier
 - ❌ 不允许前端硬编码 API 路径字符串
 - ❌ 不允许后端跳过 Pydantic 直接返回字典
 
-### 4.2 契约 2：BaseAgentAdapter（B1 ↔ B2 解耦点）
+### 4.2 契约 2：BaseAgentAdapter v2（B1 ↔ B2 解耦点）
 
-📍 `backend/app/agents/base.py` —— B1 不感知具体 Provider 的唯一通道
+📍 `backend/app/agents/base.py` —— B1 不感知具体 Agent 类型的唯一通道
+📍 完整规范：[docs/b2/spec/agent-runtime-adapter.spec.md](docs/b2/spec/agent-runtime-adapter.spec.md)
 
 ```python
 class BaseAgentAdapter(ABC):
+    """v2 — 同时支持 ExternalAgent / BuiltinAgent / Orchestrator 三类子 Adapter。"""
+
+    provider: str = ""
+
     @abstractmethod
-    async def stream(
+    def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,      # v2 新增：会话沙箱根目录
+        tool_specs: list[ToolSpec] | None = None,  # v2 新增：允许工具白名单
     ) -> AsyncIterator[StreamChunk]: ...
 ```
 
+**StreamChunk 新事件**：`tool_call` / `tool_result`（配对，含 call_id），详见 spec。
+
 **AI 必须**：
 - ✅ B1 代码通过 `agents.registry.get_adapter(agent_id)` 拿 Adapter，不直接 import 具体类
-- ✅ B2 新增 Provider 时继承 `BaseAgentAdapter`，**不能改基类签名**
-- ❌ B1 严禁直接 `import anthropic` / `import openai`
+- ✅ B2 新增 Adapter 时继承 `BaseAgentAdapter v2`，**不能改基类签名**
+- ✅ B1 调用 stream 时必须传 `workspace_path`（由 WorkspaceService.get_or_create 得到）
+- ❌ B1 严禁直接 `import anthropic` / `import openai` / `import claude_agent_sdk` / `import openai_agents`
 - ❌ B2 严禁在 Adapter 中访问数据库（如需配置由 Service 层注入）
+- ❌ ModelGateway backends（`agents/model_gateway/*`）**不得**注册为顶层 Agent，仅供 BuiltinAgent 内部使用
 
 ### 4.3 契约 3：ContentBlock 联合类型（消息富媒体）
 
 📍 `backend/app/schemas/message.py` + `frontend/src/lib/types.ts`
 
 ```python
-ContentBlock = TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock
+ContentBlock = (
+    TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock
+    | ToolCallBlock      # v2 新增：与 StreamChunk.tool_call / tool_result 配对
+)
 # 用 discriminator="type" 区分
 ```
 
 **AI 必须**：
 - ✅ 新增 Block 类型：先改 schemas → 同步 OpenAPI → F 加渲染组件
 - ✅ 前端用 `BLOCK_COMPONENTS[block.type]` 字典分发渲染
+- ✅ `ToolCallBlock` 由 SSE 的 `tool_call` + `tool_result` 配对持久化（B1 _ContentAccumulator 负责），call_id 全程透传
 - ❌ 严禁在某一处加新类型而不更新另两处
 
 ---
@@ -175,11 +204,17 @@ agenthub/
 ├── backend/
 │   └── app/
 │       ├── core/        【B1】配置、DB、JWT、依赖注入
-│       ├── models/      【B1】SQLAlchemy 模型
+│       ├── models/      【B1】SQLAlchemy 模型（含 workspace.py）
 │       ├── schemas/     【共享】Pydantic Schema（B1+B2 协同）
-│       ├── api/v1/      【B1】路由（除 agents.py 由 B2 主导）
-│       ├── services/    【B1】业务逻辑
-│       └── agents/      【B2】Adapter、Orchestrator、产物解析
+│       ├── api/v1/      【B1】路由（除 agents.py 由 B2 主导；含 workspaces.py）
+│       ├── services/    【B1】业务逻辑（含 workspace_service.py）
+│       ├── workspaces/  【B1】Workspace 沙箱与 Artifact 服务（pivot 新增）
+│       └── agents/      【B2】Agent Runtime Layer
+│           ├── base.py / types.py / registry.py / orchestrator.py
+│           ├── artifact_parser.py
+│           ├── external/        外部 Agent SDK 嵌入（Claude Agent / Codex）
+│           ├── builtin/         自建 Agent Framework（loop / tools / mcp）
+│           └── model_gateway/   原 raw LLM Adapter 迁移而来（仅 builtin 内部使用）
 └── frontend/
     └── src/
         ├── lib/         【F】API 客户端、类型、工具
@@ -286,25 +321,25 @@ export function MessageBubble(props: any) {
    - curl 测试通过
 ```
 
-### 7.2 添加新 Agent Adapter
+### 7.2 添加新 ModelGateway Backend（raw LLM provider，仅 BuiltinAgent 底座）
 
 ```
-任务：添加 <Provider> 的 Adapter。
+任务：在 ModelGateway 下添加 <Provider> backend。
 
 参考：
-- 接口定义：backend/app/agents/base.py
-- 已有示例：backend/app/agents/adapters/claude.py
+- 接口定义：backend/app/agents/model_gateway/__init__.py
+- 已有示例：backend/app/agents/model_gateway/claude.py
+- Spec：docs/b2/spec/provider-resilience.spec.md + docs/b2/spec/builtin-agent-framework.spec.md §6
 
 要求：
-1. 在 backend/app/agents/adapters/ 下创建 <provider>.py
-2. 继承 BaseAgentAdapter，实现 _create_client 和 stream
-3. 把 LLM 原生流事件转换为标准 StreamChunk
-4. 在 backend/app/agents/registry.py 的 PROVIDER_MAP 中注册
-5. 添加单元测试（用 Mock 上游响应）
-6. 在 alembic/seeds/seed_agents.py 中添加 Seed 数据（可选）
-7. 验证：
+1. 在 backend/app/agents/model_gateway/ 下创建 <provider>.py
+2. 实现 stream(messages, tools, config)，把 Provider 原生 tool calling 协议映射为 StreamChunk(tool_call/tool_result)
+3. 在 ModelGateway BACKEND_MAP 中注册
+4. 添加单元测试（mock 上游 + 覆盖 tool calling 路径）
+5. 验证：
    - 单元测试通过
-   - 端到端：通过 SSE 端点能拿到流式响应
+   - BuiltinAgentAdapter 选用此 backend 后端到端 tool 调用流程通畅
+注意：ModelGateway backend ❌ 不要 ❌ 注册到顶层 AgentRegistry。它们仅服务 BuiltinAgent。
 ```
 
 ### 7.3 添加新 ContentBlock 类型
@@ -359,15 +394,68 @@ export function MessageBubble(props: any) {
 - 修复一处但放过相同模式的其他位置
 ```
 
+### 7.6 添加新 ExternalAgentAdapter（嵌入第三方 agent runtime SDK）
+
+```
+任务：添加 <RuntimeName>（如 OpenCode、Codex 等）的 ExternalAgentAdapter。
+
+参考：
+- 接口规范：docs/b2/spec/agent-runtime-adapter.spec.md §5.1
+- 已有示例：backend/app/agents/external/claude_code.py（Claude Agent SDK 嵌入）
+
+要求：
+1. 在 backend/app/agents/external/ 下创建 <runtime>.py
+2. 继承 BaseAgentAdapter v2，实现 stream()；workspace_path 透传给 SDK 作为 cwd
+3. 把 SDK 原生流事件完整映射到 StreamChunk（含 tool_call / tool_result，保持 call_id 配对）
+4. 错误映射到标准 error_code（external_runtime_error / workspace_violation 等）
+5. 在 backend/app/agents/registry.py 注册到 EXTERNAL_RUNTIME_MAP
+6. 单元测试（mock SDK + 覆盖 tool_call 透传 + 错误映射）
+7. 验证：端到端真 Agent 写文件 → workspace 可见 → 前端 ToolCallBlock 渲染
+注意：❌ 不要在 ExternalAgentAdapter 内自实现 loop / tool registry（由第三方 SDK 提供）。
+```
+
+### 7.7 添加新 Tool 到 BuiltinAgent ToolRegistry
+
+```
+任务：在 BuiltinAgent ToolRegistry 中添加 <tool_name> 工具。
+
+参考：
+- 规范：docs/b2/spec/builtin-agent-framework.spec.md §3 + docs/b1/spec/workspace-sandbox.spec.md §4
+
+要求：
+1. 在 backend/app/agents/builtin/tools/ 下添加 <tool_name>.py（execute 函数 + 校验）
+2. 在 ToolRegistry TOOLS 字典中注册 ToolSpec（JSON Schema 完整）
+3. 校验：所有写/执行操作必须通过 workspace_sandbox 模块的 validate_*
+4. 单元测试覆盖：正常 / 边界违反 / 超时
+注意：bash 命令必须走白名单；网络/eval 工具不接受 PR。
+```
+
+### 7.8 添加新 MCP server 接入
+
+```
+任务：让 BuiltinAgent 接入 <mcp_server_name>。
+
+参考：
+- 规范：docs/b2/spec/builtin-agent-framework.spec.md §5
+
+要求：
+1. 在 backend/app/agents/builtin/mcp/ 下扩展 MCPClient 配置
+2. 仅支持 stdio transport；HTTP 不接受
+3. 工具命名空间用 `mcp_<server>__<tool>` 前缀避免与 native tool 冲突
+4. 启动失败 / 运行崩溃必须映射到标准 error_code（mcp_server_down）
+5. 单元测试 mock 子进程，覆盖启动、调用、断开
+```
+
 ---
 
 ## 8. 反模式（绝对不要做）
 
 ### ❌ 不要
 
-1. **不要绕过 BaseAgentAdapter 直接调 Anthropic SDK**
-   - 正确：B1 → registry.get_adapter() → Adapter → SDK
-   - 错误：B1 直接 `from anthropic import ...`
+1. **不要绕过 BaseAgentAdapter 直接调底层 SDK**
+   - 正确：B1 → registry.get_adapter() → Adapter → (External SDK / Builtin loop)
+   - 错误：B1 直接 `from anthropic import ...` / `from claude_agent_sdk import ...` / `from openai_agents import ...`
+   - 错误：ModelGateway backend 注册为顶层 Agent（它只能被 BuiltinAgent 内部调用）
 
 2. **不要在前端硬编码 API 路径字符串**
    - 正确：从生成的 types 或 API 客户端调用
@@ -578,14 +666,18 @@ open http://localhost:5173
 | [docs/tech-architecture.md](docs/tech-architecture.md) | 写代码前看相关章节 |
 | [docs/api-spec.md](docs/api-spec.md) | 调 API 或加 API |
 | [docs/product-design.md](docs/product-design.md) | 做 UI / 交互 |
-| `docs/spec/<module>.spec.md` | 开始具体模块前 |
+| [docs/spec/agent-runtime-pivot.adr.md](docs/spec/agent-runtime-pivot.adr.md) | ★ **理解 pivot 决策** —— 任何 Agent 层改动前必读 |
+| [docs/b2/spec/agent-runtime-adapter.spec.md](docs/b2/spec/agent-runtime-adapter.spec.md) | 改 `base.py` / `types.py` / 任何 Adapter 前 |
+| [docs/b2/spec/builtin-agent-framework.spec.md](docs/b2/spec/builtin-agent-framework.spec.md) | 改自建 Agent loop / tools / MCP 前 |
+| [docs/b1/spec/workspace-sandbox.spec.md](docs/b1/spec/workspace-sandbox.spec.md) | 改 workspace / 文件操作 / Artifact API 前 |
+| `docs/spec/<module>.spec.md` | 开始其他具体模块前 |
 | `shared/openapi.yaml` | 写任何前后端代码前 |
 
 ---
 
 ## 15. 元规则（关于本文件）
 
-- 本文件 ≤ 500 行（当前未超），保证每次 AI 读取都加载得动
+- 本文件 ≤ 750 行（pivot 后任务模板增至 8 个；如再增长需要先精简旧内容）
 - 详细内容放到 `docs/` 下并在此引用，不要复制粘贴
 - 任何团队成员发现遗漏或冲突，立即提 PR 更新
 - 每个 Sprint 结束 Review 一次本文件，删除过时内容
@@ -593,6 +685,7 @@ open http://localhost:5173
 
 ---
 
-**版本**：v1.0
-**最后更新**：2026-05-22
+**版本**：v1.1
+**最后更新**：2026-05-26
 **维护者**：AgentHub 团队
+**变更说明**：v1.1 同步 Agent Runtime Pivot（[ADR-001](docs/spec/agent-runtime-pivot.adr.md)）——§1 项目速览、§2 目录所有权、§3.1 技术栈、§4.2 契约 2、§4.3 契约 3、§5 目录约定、§7 任务模板、§8 反模式、§14 文档索引 均已就地同步。

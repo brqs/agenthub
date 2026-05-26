@@ -27,9 +27,9 @@ backend/app/agents/adapters/openai.py 仍是 stub，无法真实调用 OpenAI，
 
 请先阅读：
 1. AGENTS.md
-2. docs/b2-task-dispatch/B2-roadmap.md
-3. docs/b2-task-dispatch/B2-01-streaming-artifact-parser.md
-4. docs/b2-task-dispatch/B2-02-claude-adapter-streaming.md
+2. docs/b2/task-dispatch/B2-roadmap.md
+3. docs/b2/task-dispatch/B2-01-streaming-artifact-parser.md
+4. docs/b2/task-dispatch/B2-02-claude-adapter-streaming.md
 5. backend/app/agents/base.py
 6. backend/app/agents/types.py
 7. backend/app/agents/artifact_parser.py

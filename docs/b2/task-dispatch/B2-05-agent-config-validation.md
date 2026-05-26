@@ -30,9 +30,9 @@ AgentHub 已完成：
 
 请先阅读：
 1. AGENTS.md
-2. docs/spec/agent-config-validation.spec.md
-3. docs/b2-task-dispatch/B2-roadmap.md
-4. docs/b2-task-dispatch/B2-04-custom-adapter-delegation.md
+2. docs/b2/spec/agent-config-validation.spec.md
+3. docs/b2/task-dispatch/B2-roadmap.md
+4. docs/b2/task-dispatch/B2-04-custom-adapter-delegation.md
 5. backend/app/agents/base.py
 6. backend/app/agents/adapters/claude.py
 7. backend/app/agents/adapters/openai.py
