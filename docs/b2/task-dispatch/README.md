@@ -9,7 +9,7 @@
 - Git/PR Claude 负责 Git 状态整理、commit、push 和 PR 准备。
 - B2 负责人根据任务文档调度 Claude Code，并将执行结果交回 Codex 审阅。
 
-Git/PR 操作规范见 [../git-pr-ops/README.md](../git-pr-ops/README.md)。
+Git/PR 操作规范见 [../../archive/git-pr-ops/README.md](../../archive/git-pr-ops/README.md)。
 
 B2 总体目标框架和后续任务路线图见 [B2-roadmap.md](B2-roadmap.md)。
 
@@ -58,4 +58,4 @@ conda run -n LLMAgent python -m pytest tests/test_artifact_parser.py
 
 ## 模板
 
-通用分发模板见 [../b2-ai-task-dispatch-template.md](../b2-ai-task-dispatch-template.md)。
+通用分发模板见 [../ai-task-dispatch-template.md](../ai-task-dispatch-template.md)。

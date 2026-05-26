@@ -2,8 +2,14 @@
 
 > 配套文档：[development-plan.md](./development-plan.md) · [tech-architecture.md](./tech-architecture.md)
 > 机器可读契约：[../shared/openapi.yaml](../shared/openapi.yaml)（唯一真相源）
-> 文档版本：v1.0
-> 最后更新：2026-05-22
+> 文档版本：v1.1（Agent Runtime Pivot — 占位 / Sprint 5 Day 2 由 B1 落地）
+> 最后更新：2026-05-26
+
+> ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：本文档（人类可读版）已在以下章节补充 pivot 新增能力的**占位说明**，但具体 schema / 字段定义将在 Sprint 5 Day 1-2 由 B1 完成（届时机器可读 [openapi.yaml](../shared/openapi.yaml) 与本文档将同步更新到 v1.1 正式版）。完整决策见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
+>
+> v1.1 占位章节：§5.6（SSE 新增 tool_call / tool_result 事件）/ §7.4（ToolCallBlock 加入 ContentBlock 联合）/ §11（Workspace & Artifact API，新增 3 端点）/ §8 错误码追加 6 个 / 附录 E 变更日志。
+>
+> v1.0 已有的认证、会话、消息、Agent CRUD、SSE 基础事件（start/block_*/delta/done/error/agent_switch）章节**全部保留并继续生效**，pivot 不破坏向后兼容。
 
 ---
 
@@ -19,6 +25,7 @@
 8. [错误码规范](#8-错误码规范)
 9. [限流与配额](#9-限流与配额)
 10. [完整调用示例（端到端）](#10-完整调用示例端到端)
+11. [Workspace & Artifact API（v1.1 — Pivot 新增，占位）](#11-workspace--artifact-apiv11--pivot-新增占位)
 
 ---
 
@@ -891,6 +898,34 @@ await fetchEventSource('/api/v1/messages/' + messageId + '/stream', {
 });
 ```
 
+### 5.6 v1.1 占位：新增 `tool_call` / `tool_result` 事件（Pivot）
+
+> Sprint 5 Day 1-2 由 B1 与 B2 协同落地。本节为人类可读占位；正式 schema 见届时更新的 [openapi.yaml](../shared/openapi.yaml) 与 [agent-runtime-adapter.spec.md §3](b2/spec/agent-runtime-adapter.spec.md)。
+
+新增 2 个 SSE 事件类型，与 v1.0 `start / block_* / delta / done / error / agent_switch` 并列：
+
+| 事件 | 含义 | 主要字段 |
+|---|---|---|
+| `tool_call` | Agent 决定调用一个工具 | `call_id` / `tool_name` / `tool_arguments` |
+| `tool_result` | 工具执行完成回传结果 | `call_id` / `tool_status` ("ok"\|"error") / `tool_output` / `tool_output_truncated` |
+
+**配对契约**：每个 `tool_call` 必有匹配的 `tool_result`（按 `call_id` 关联）；否则 yield `error(code=tool_call_orphan)`。
+
+**示例片段**：
+
+```
+event: tool_call
+data: {"call_id":"c-001","tool_name":"write_file",
+       "tool_arguments":{"path":"App.tsx","content":"export function App()..."}}
+
+event: tool_result
+data: {"call_id":"c-001","tool_status":"ok","tool_output":"wrote 312 bytes"}
+```
+
+**新增错误码**（在 §8 错误码规范中追加）：`tool_call_failed` / `tool_call_orphan` / `workspace_violation` / `mcp_server_down` / `external_runtime_error` / `loop_max_iterations`。
+
+**持久化**：B1 `_ContentAccumulator` 把一对 `tool_call` + `tool_result` 配对为单个 `ToolCallBlock`（见 §7.8）写入 `messages.content`。
+
 ---
 
 ## 6. Agent
@@ -1117,7 +1152,8 @@ type ContentBlock =
   | CodeBlock
   | DiffBlock
   | WebPreviewBlock
-  | FileBlock;
+  | FileBlock
+  | ToolCallBlock;        // ✨ v1.1 新增（pivot）
 
 interface TextBlock {
   type: "text";
@@ -1151,6 +1187,19 @@ interface FileBlock {
   url: string;
   size: number;           // bytes
   mime_type: string;
+}
+
+// ✨ v1.1 新增（pivot）— 由 SSE tool_call + tool_result 配对持久化而来
+// 完整规范：docs/b2/spec/agent-runtime-adapter.spec.md §3 / §7.2
+interface ToolCallBlock {
+  type: "tool_call";
+  call_id: string;                                // 唯一 id，如 "c-001" 或 "t1.c-001"（orchestrator 子任务重映射后）
+  tool_name: string;                              // 如 "write_file" / "bash" / "mcp_fs__list_directory"
+  arguments: Record<string, unknown>;             // tool 参数（write_file 的 content 可能 preview 截断）
+  status: "pending" | "ok" | "error";             // pending 仅在流式过程出现
+  output_preview?: string;                        // tool 返回的输出（已截断，最大 ~2 KB）
+  output_truncated?: boolean;                     // true 表示原始输出更长，需要访问 workspace 看完整文件
+  error_code?: string;                            // status=error 时填，如 "workspace_violation" / "tool_call_failed"
 }
 ```
 
@@ -1501,6 +1550,85 @@ curl -X POST http://localhost:8000/api/v1/conversations/c2/messages \
 
 ---
 
+## 11. Workspace & Artifact API（v1.1 — Pivot 新增，占位）
+
+> Sprint 5 Day 1-2 由 B1 落地。完整安全边界与路径校验规则见 [docs/b1/spec/workspace-sandbox.spec.md](b1/spec/workspace-sandbox.spec.md)。
+>
+> 设计目标：每个 conversation 对应一个隔离 sandbox 目录，所有 Agent（External / Builtin）在其中读写文件；前端通过 3 个端点浏览、预览、二次编辑产物。
+
+### 11.1 资源关系
+
+```
+Conversation (1) ─── (1) Workspace ─── (n) Files
+                          │
+                          └── root_path = /workspaces/<conversation_id>/
+```
+
+- **懒创建**：Conversation 创建时**不**立即建 workspace；Agent 第一次需要 `workspace_path` 时由 WorkspaceService 创建
+- **生命周期**：Conversation 删除 → workspace 行 cascade + 物理目录 rmtree
+
+### 11.2 GET `/api/v1/workspaces/{conv_id}/tree` — 文件树（占位）
+
+**鉴权**：✅ + 校验 conversation 归属当前用户
+
+**Query**：
+- `max_depth?` — 默认 5
+- `path?` — 子目录路径（默认根）
+
+**响应 200**：
+
+```json
+{
+  "root": "/workspaces/uuid",
+  "tree": [
+    {"type": "dir",  "name": "src",       "children": [
+      {"type": "file", "name": "App.tsx",  "size": 312, "mime_type": "text/plain"},
+      {"type": "file", "name": "index.css","size": 80,  "mime_type": "text/css"}
+    ]},
+    {"type": "file", "name": "README.md",  "size": 120, "mime_type": "text/markdown"}
+  ]
+}
+```
+
+### 11.3 GET `/api/v1/workspaces/{conv_id}/files/{path}` — 读文件（占位）
+
+**鉴权**：✅ + 路径校验（[workspace-sandbox.spec.md §4](b1/spec/workspace-sandbox.spec.md)）
+
+**响应 200**（按 mime 分类）：
+- `text/html` → 含 `Content-Security-Policy: default-src 'self' 'unsafe-inline'; sandbox` + `X-Frame-Options: SAMEORIGIN`（前端可直接 iframe 预览）
+- `text/*` / `application/json` → 文本内容
+- 图片 → 直接二进制
+- 其他 → `application/octet-stream`（前端提供下载）
+
+**错误**：
+- 404 — 文件不存在
+- 403 — 路径越界 / 试图读 `.agenthub/`（返回 `workspace_violation` 错误码）
+
+### 11.4 PUT `/api/v1/workspaces/{conv_id}/files/{path}` — 写文件（占位，前端二次编辑回写）
+
+**鉴权**：✅ + 路径校验 + 禁止写 `.env` / `.git/` / `secrets/` / `.agenthub/`
+
+**请求**：原始文件内容（`Content-Type` 必须是 `text/*` 或 `application/octet-stream`）
+
+**响应 204**
+
+**典型用例**：用户在 Monaco 编辑器改了 `App.tsx` → PUT 回写 → 前端自动在对话中发送一条系统消息 "我把 App.tsx 改成了这样，请基于此继续" → Agent 接续
+
+### 11.5 安全边界（强制）
+
+| 操作 | 校验 | 拒绝时返回 |
+|---|---|---|
+| 任意路径 | 必须落在 `workspace_root` 之内（resolve 后再 `relative_to` 校验） | 403 `workspace_violation` |
+| 任意路径 | 不允许穿越符号链接 | 403 `workspace_violation` |
+| 任意路径 | 禁止读写 `.agenthub/` / `.git/` | 403 `workspace_violation` |
+| 写操作 | 禁止写 `.env` / `secrets/` / `.ssh/` | 403 `workspace_violation` |
+| 读操作 | 最大 1 MB | 413 |
+| 写操作 | 最大 1 MB | 413 |
+
+❌ **不做**（MVP）：Docker per-conversation 隔离、网络/CPU 限制、Workspace 字节配额。
+
+---
+
 ## 附录 A：OpenAPI 规范同步
 
 本文档为人类可读版，机器可读版位于 `shared/openapi.yaml`。
@@ -1534,3 +1662,4 @@ curl -X POST http://localhost:8000/api/v1/conversations/c2/messages \
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-05-22 | v1.0 | 初始版本 |
+| 2026-05-26 | v1.1（占位） | Agent Runtime Pivot：新增 §5.6 SSE `tool_call` / `tool_result` 事件、§7.4 `ToolCallBlock` 联合类型分支、§11 Workspace & Artifact API（3 端点）；新增错误码 `tool_call_failed` / `tool_call_orphan` / `workspace_violation` / `mcp_server_down` / `external_runtime_error` / `loop_max_iterations`。正式 schema 由 B1 在 Sprint 5 Day 1-2 同步到 `shared/openapi.yaml` 与本文档。决策见 [ADR-001](spec/agent-runtime-pivot.adr.md)。|

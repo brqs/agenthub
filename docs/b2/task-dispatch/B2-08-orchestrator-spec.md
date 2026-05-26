@@ -18,8 +18,8 @@ B2-08 的目标不是直接写完整生产实现，而是先定义 Orchestrator 
 
 请先阅读：
 1. AGENTS.md
-2. docs/b2-task-dispatch/B2-roadmap.md
-3. docs/b2-ai-task-dispatch-template.md
+2. docs/b2/task-dispatch/B2-roadmap.md
+3. docs/b2/ai-task-dispatch-template.md
 4. docs/tech-architecture.md
 5. backend/app/agents/orchestrator.py
 6. backend/app/agents/base.py
@@ -30,10 +30,10 @@ B2-08 的目标不是直接写完整生产实现，而是先定义 Orchestrator 
 11. backend/app/agents/adapters/openai.py
 
 允许修改：
-- docs/spec/orchestrator.spec.md
-- docs/b2-task-dispatch/B2-08-orchestrator-spec.md
-- docs/b2-task-dispatch/README.md
-- docs/b2-task-dispatch/B2-roadmap.md
+- docs/b2/spec/orchestrator.spec.md
+- docs/b2/task-dispatch/B2-08-orchestrator-spec.md
+- docs/b2/task-dispatch/README.md
+- docs/b2/task-dispatch/B2-roadmap.md
 - docs/ai-collaboration-log.md
 
 禁止修改：
@@ -51,7 +51,7 @@ B2-08 的目标不是直接写完整生产实现，而是先定义 Orchestrator 
 本任务不允许修改 OpenAPI、BaseAgentAdapter.stream() 签名、StreamChunk schema 或 ContentBlock schema。
 
 交付目标：
-1. 新建 `docs/spec/orchestrator.spec.md`
+1. 新建 `docs/b2/spec/orchestrator.spec.md`
    必须包含：
    - 目标
    - 输入 / 输出
@@ -64,15 +64,15 @@ B2-08 的目标不是直接写完整生产实现，而是先定义 Orchestrator 
    - 不修改 BaseAgentAdapter / StreamChunk / ContentBlock 的约束
    - B2-09 / B2-10 的验收标准
 
-2. 更新或完善 `docs/b2-task-dispatch/B2-08-orchestrator-spec.md`
+2. 更新或完善 `docs/b2/task-dispatch/B2-08-orchestrator-spec.md`
    保持它作为本任务的 Claude Code 执行文档。
    如果你认为当前命令不够完整，可以补充细节，但不要改变任务边界。
 
-3. 更新 `docs/b2-task-dispatch/README.md`
+3. 更新 `docs/b2/task-dispatch/README.md`
    - 在任务索引中加入 B2-08
    - B2-08 状态标记为“已拆解，待执行”或“进行中”
 
-4. 更新 `docs/b2-task-dispatch/B2-roadmap.md`
+4. 更新 `docs/b2/task-dispatch/B2-roadmap.md`
    - 将 B2-08 状态从“待拆解”更新为“已拆解，待执行”
    - 明确 B2-08 只做 Spec / Prompt，不实现完整 Orchestrator
    - 保持 B2-09 / B2-10 作为后续实现任务
@@ -150,10 +150,10 @@ git status --short
 
 ### 修改的文件
 
-1. 新建 `docs/spec/orchestrator.spec.md`
-2. 更新 `docs/b2-task-dispatch/B2-08-orchestrator-spec.md`（本文件）
-3. 更新 `docs/b2-task-dispatch/README.md`
-4. 更新 `docs/b2-task-dispatch/B2-roadmap.md`
+1. 新建 `docs/b2/spec/orchestrator.spec.md`
+2. 更新 `docs/b2/task-dispatch/B2-08-orchestrator-spec.md`（本文件）
+3. 更新 `docs/b2/task-dispatch/README.md`
+4. 更新 `docs/b2/task-dispatch/B2-roadmap.md`
 5. 更新 `docs/ai-collaboration-log.md`
 
 ### `orchestrator.spec.md` 核心设计点

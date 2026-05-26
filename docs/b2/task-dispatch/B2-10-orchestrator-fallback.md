@@ -24,8 +24,8 @@
 ## 开始前必须确认
 
 1. 先阅读 `AGENTS.md`。
-2. 先阅读 `docs/spec/orchestrator.spec.md`，重点看 §8 和 §10.2。
-3. 先阅读 `docs/b2-task-dispatch/B2-09-orchestrator-dispatch.md`。
+2. 先阅读 `docs/b2/spec/orchestrator.spec.md`，重点看 §8 和 §10.2。
+3. 先阅读 `docs/b2/task-dispatch/B2-09-orchestrator-dispatch.md`。
 4. 当前代码应已经包含 B2-09 的 `OrchestratorAdapter` 基础顺序调度实现。
 5. 如果当前分支不是基于 B2-09 代码，请停止并回报，不要自行重写 Orchestrator。
 
@@ -37,7 +37,7 @@
 
 如实现过程中发现任务文档有明显歧义，可以最小更新：
 
-- `docs/b2-task-dispatch/B2-10-orchestrator-fallback.md`
+- `docs/b2/task-dispatch/B2-10-orchestrator-fallback.md`
 
 ## 禁止修改
 

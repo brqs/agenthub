@@ -36,7 +36,7 @@ Git/PR Claude 不负责实现业务代码，也不负责最终代码审阅。代
 
 1. 读取协作规则：
    - `AGENTS.md`
-   - `docs/git-pr-ops/README.md`
+   - `docs/archive/git-pr-ops/README.md`
    - 当前任务文档或 Codex 审阅结论
 
 2. 检查状态：

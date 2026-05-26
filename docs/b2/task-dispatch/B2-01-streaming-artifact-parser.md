@@ -20,7 +20,7 @@ backend/app/agents/artifact_parser.py 中的 StreamingArtifactParser 仍是 TODO
 
 请先阅读：
 1. AGENTS.md
-2. docs/b2-ai-task-dispatch-template.md
+2. docs/b2/ai-task-dispatch-template.md
 3. backend/app/agents/types.py
 4. backend/app/agents/base.py
 5. backend/app/agents/artifact_parser.py
