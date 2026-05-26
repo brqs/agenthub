@@ -646,7 +646,7 @@
 ## 2026-05-25 — 完成 Mock 多 Agent 协作演示闭环
 
 ### 改动范围
-- `docs/spec/frontend-chat-demo.spec.md`
+- `docs/frontend/spec/frontend-chat-demo.spec.md`
 - `frontend/src/lib/sse.ts`
 - `frontend/src/lib/mockData.ts`
 - `frontend/src/stores/chatStore.ts`
@@ -679,7 +679,7 @@
 ## 2026-05-25 — 打磨富媒体消息块展示
 
 ### 改动范围
-- `docs/spec/frontend-content-blocks.spec.md`
+- `docs/frontend/spec/frontend-content-blocks.spec.md`
 - `frontend/src/components/blocks/CodeBlock.tsx`
 - `frontend/src/components/blocks/ContentRenderer.tsx`
 - `frontend/src/components/blocks/DiffBlock.tsx`
@@ -716,8 +716,8 @@
 ## 2026-05-25 — 完成 Agent 管理页与 Demo 打磨
 
 ### 改动范围
-- `docs/spec/frontend-agent-management.spec.md`
-- `docs/spec/frontend-demo-polish.spec.md`
+- `docs/frontend/spec/frontend-agent-management.spec.md`
+- `docs/frontend/spec/frontend-demo-polish.spec.md`
 - `frontend/src/pages/AgentsPage.tsx`
 - `frontend/src/components/agents/AgentCard.tsx`
 - `frontend/src/components/agents/AgentCreateDialog.tsx`
@@ -863,7 +863,7 @@
   - `POST /api/v1/auth/register`（合法 payload） → **500 Internal Server Error** ❌（后端 bug，**阻塞前端实测带 token 的列表请求**）
 
 ### 后续事项 / 阻塞
-- **🔴 阻塞 B1**：`POST /api/v1/auth/register` 对合法 payload 返回 500（非 422）。需要 B1 检查 [backend/app/api/v1/auth.py](backend/app/api/v1/auth.py) register 路由的 commit/flush 逻辑或返回 Pydantic 校验，并把 server 日志贴出来定位。422 校验路径工作正常，所以问题在路由本身。
+- **🔴 阻塞 B1**：`POST /api/v1/auth/register` 对合法 payload 返回 500（非 422）。需要 B1 检查 [backend/app/api/v1/auth.py](../../backend/app/api/v1/auth.py) register 路由的 commit/flush 逻辑或返回 Pydantic 校验，并把 server 日志贴出来定位。422 校验路径工作正常，所以问题在路由本身。
 - 待 register 修复后：前端把 `VITE_USE_MOCK_API=false` 启动一次，确认登录、`/auth/me`、`/conversations`、`/agents` 通跑。
 - 通知 B1 把上面列出的 `required` 字段补到 OpenAPI，前端去掉 `types.ts` 里的 `Override` 收窄。
 - 下一刀：`useMessages`（消息列表 + 游标分页）+ `useSendMessage`（POST messages 返回 `{user_message, agent_message}`）+ SSE 联调。

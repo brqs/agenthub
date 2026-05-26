@@ -12,7 +12,7 @@
 
 请先阅读：
 1. AGENTS.md
-2. docs/git-pr-ops/README.md
+2. docs/archive/git-pr-ops/README.md
 3. docs/ai-collaboration-log.md
 4. 当前要提交的任务文档或 Codex 审阅结论
 

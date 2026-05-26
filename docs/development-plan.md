@@ -1,8 +1,12 @@
 # AgentHub 项目开发方案（Development Plan）
 
 > 课题：AgentHub - 多 Agent 协作平台
-> 文档版本：v1.0
-> 最后更新：2026-05-22
+> 文档版本：v1.1（Agent Runtime Pivot）
+> 最后更新：2026-05-26
+
+> ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：PDF 课题要求接入"Claude Code / Codex / OpenCode 等 agent runtime + 用户自建 Agent"，与 v1.0 计划"raw LLM Adapter 包装"存在错配。Adapter 接口、StreamChunk 协议、Agent 层分类已升级；新增 Workspace 沙箱。完整决策见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
+>
+> 本文档已就地同步的章节：§3 MoSCoW / §4.1 技术栈 / §5 系统架构（§5.2 数据流注解）/ §8 关键技术方案 / §13 里程碑。其他章节（§6 数据模型 / §7 API / §9-12 / §14-16）保持 v1.0；新增能力（Workspace 表 / Artifact API / SSE tool_* 事件 / ToolCallBlock）将在 Sprint 5 Day 1-2 由对应 owner 增量更新到 §6 / §7。
 
 ---
 
@@ -78,8 +82,11 @@
 
 ## 3. 产品功能范围（MoSCoW）
 
+> v1.1 已根据 [ADR-001 Agent Runtime Pivot](spec/agent-runtime-pivot.adr.md) 重新校准 P0。原 v1.0 中"接入 LLM Provider"已被"接入 Agent Runtime + 自建 Framework"取代。
+
 ### 3.1 Must Have（P0 —— 必须实现）
 
+#### 平台基础（Sprint 1-4 已交付，pivot 后继续生效）
 - ✅ JWT 用户认证（注册、登录）
 - ✅ 会话管理：新建、列表、置顶、归档、删除
 - ✅ 单聊模式：1v1 与单个 Agent 对话
@@ -87,30 +94,42 @@
 - ✅ 流式响应（SSE）：Agent 逐字回复
 - ✅ 上下文连续：自动携带历史消息
 - ✅ 富媒体消息：文本、代码块（高亮）
-- ✅ Agent 注册表：内置 Claude + OpenAI Codex + 自建 Agent
 - ✅ Docker Compose 一键启动
+
+#### Agent Runtime（v1.1 — pivot 后核心）
+- 🆕 **外部 Agent Runtime 接入**：Claude Code（Claude Agent SDK 嵌入）+ Codex（OpenAI Agents SDK 嵌入），通过统一 BaseAgentAdapter v2 屏蔽差异
+- 🆕 **自建 Agent Framework MVP**：AgentLoop（model_call → tool_call → observe → loop）+ ToolRegistry 三件套（read_file / write_file / bash）+ 1 个 MCP server（filesystem，stdio）+ MemoryManager + ContextManager
+- 🆕 **Workspace 沙箱**：每会话一个隔离目录，所有 Agent 在其中读写文件；路径校验拒绝越界
+- 🆕 **产物实时预览**：HTML → iframe（带 CSP sandbox）、文本/代码 → 高亮渲染
+- 🆕 **产物二次编辑**：Monaco 编辑器修改后回写 workspace 并自动续聊
+- 🆕 Agent 注册表：分三类（external / builtin / orchestrator）；用户可对话式创建自建 Agent（设定 System Prompt + 工具白名单）
 
 ### 3.2 Should Have（P1 —— 应该实现）
 
-- 🟡 代码 Diff 视图、网页预览卡（iframe）
-- 🟡 消息搜索、Pin 关键消息
-- 🟡 自定义 Agent 创建（System Prompt + 模型配置）
-- 🟡 Orchestrator 任务拆解可视化
-- 🟡 复制代码、重新生成、引用消息
+- 🟡 代码 Diff 视图、网页预览卡（已交付）
+- 🟡 消息搜索、Pin 关键消息（已交付）
+- 🟡 ToolCallBlock 折叠卡片（pivot 必须，归入 P0）
+- 🟡 Orchestrator 任务卡升级（工具次数 + 产物文件列表）
+- 🟡 复制代码、重新生成、引用消息（已交付）
 
 ### 3.3 Could Have（P2 —— 可以实现）
 
-- 🟢 一键部署产物（静态站点）
+- 🟢 一键部署产物（静态站点） —— 演示时口述
+- 🟢 OpenCode 等额外外部 Runtime 接入（Sprint 6 候选）
+- 🟢 MCP HTTP transport / 多 server 路由
+- 🟢 BuiltinAgent 并行 tool 调用、向量记忆检索
 - 🟢 Tauri 桌面端打包
 - 🟢 PPT/文档产物预览
-- 🟢 版本历史、对话式局部修改
+- 🟢 版本历史
 
 ### 3.4 Won't Have（暂不实现）
 
 - ❌ 多用户协作、团队管理
 - ❌ 移动端原生 App
 - ❌ Agent 计费、配额管理
-- ❌ 容器化部署、CI/CD 流水线
+- ❌ Docker per-conversation 隔离（workspace 用宿主机目录 + 路径校验）
+- ❌ Workspace 资源配额（CPU / 内存 / 字节）
+- ❌ CI/CD 流水线
 
 ---
 
@@ -132,8 +151,9 @@
 | **数据库** | PostgreSQL 15 | JSONB 存富媒体消息块、全文索引 |
 | **缓存/Pub-Sub** | Redis 7 | SSE 多实例分发、会话上下文缓存 |
 | **认证** | python-jose（JWT） + passlib（bcrypt） | 简单 JWT 即可，无需复杂 OAuth |
-| **AI SDK** | `anthropic` + `openai` 官方 Python SDK | 官方维护、流式 API 完善 |
-| **实时通信** | SSE (Server-Sent Events) | LLM 流式响应标准方案，HTTP/2 友好，比 WebSocket 简单 |
+| **Agent Runtime（v1.1）** | `claude-agent-sdk` + `openai-agents` + `mcp`（Python SDK，stdio） | 嵌入第三方 agent runtime，复用其内置 loop / tool / MCP；自建 Agent 通过 mcp client 接入 stdio server |
+| **Model Gateway（v1.1）** | `anthropic` + `openai`（仅 BuiltinAgent 内部） | 提供 tool calling 协议映射；不再作为顶层 Agent |
+| **实时通信** | SSE (Server-Sent Events) — v1.1 扩展 tool_call / tool_result 事件 | LLM 流式响应标准方案，HTTP/2 友好，比 WebSocket 简单 |
 | **包管理** | 后端：`uv` 或 `poetry` / 前端：`pnpm` | 性能与依赖管理最佳实践 |
 | **代码质量** | 后端：`ruff` + `mypy` / 前端：`eslint` + `prettier` | 自动化代码风格统一 |
 | **测试** | 后端：`pytest` + `httpx` / 前端：`vitest` + `@testing-library` | 业界标准 |
@@ -172,14 +192,16 @@
 
 ### 5.1 整体架构图
 
+> v1.1 关键变化：在 FastAPI 与外部 AI Provider 之间插入三层 Agent Runtime（External / Builtin / ModelGateway）；新增 Workspace 沙箱与 Artifact API；前端新增 ToolCallBlock + ArtifactPreview + Monaco 编辑器。完整架构请直接读 [docs/tech-architecture.md §3 / §6](tech-architecture.md)。
+
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │                         浏览器 / Tauri 桌面端                    │
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │              React 18 + Vite SPA (前端 F)                │ │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐ │ │
-│  │  │ 会话列表  │  │ 聊天窗口  │  │ 富媒体消息块         │ │ │
-│  │  │ Sidebar  │  │ ChatWin  │  │ Code/Diff/WebPreview │ │ │
+│  │  │ 会话列表  │  │ 聊天窗口  │  │ 富媒体消息块（+ToolCall│ │
+│  │  │ Sidebar  │  │ ChatWin  │  │  +ArtifactPreview）   │ │ │
 │  │  └──────────┘  └──────────┘  └──────────────────────┘ │ │
 │  │       │             │                  │                │ │
 │  │       └─ TanStack Query (REST) ─┐      │                │ │
@@ -220,7 +242,7 @@
        └──────────────┘         └─────────────────┘
 ```
 
-### 5.2 数据流：用户发送一条消息
+### 5.2 数据流：用户发送一条消息（v1.1 — 含 tool_call 链路）
 
 ```
 1. F: 用户在 ChatWindow 输入文字 → POST /api/v1/conversations/{id}/messages
@@ -229,17 +251,21 @@
 4. F: 拿到 agent_msg_id → 立即发起 GET /api/v1/messages/{agent_msg_id}/stream (SSE)
 5. B1: stream.py 路由
    ├─ context_builder 组装历史消息
-   ├─ registry.get_adapter(agent_id) 获取 B2 的 Adapter
-   ├─ adapter.stream(...) → 拿到 AsyncIterator[StreamChunk]
+   ├─ WorkspaceService.get_or_create(conv_id) → workspace_path   ✨ v1.1
+   ├─ registry.get_adapter(agent_id) 获取 v2 Adapter（external / builtin / orchestrator）
+   ├─ adapter.stream(messages, workspace_path=..., tool_specs=...) → AsyncIterator[StreamChunk]
    └─ 循环：
-      ├─ 转换 StreamChunk → SSE event
+      ├─ 转换 StreamChunk → SSE event（含 tool_call / tool_result）   ✨ v1.1
       ├─ yield 给前端
-      └─ 累积到 DB（消息内容增量写入）
+      └─ _ContentAccumulator 累积：text/code 增量、tool_call+tool_result 配对成 ToolCallBlock   ✨ v1.1
 6. F: useStream Hook 监听 EventSource
    ├─ 收到 delta → 增量更新 MessageList 中的对应消息
    ├─ 收到 block_start → 创建新的 ContentBlock
+   ├─ 收到 tool_call → 创建 ToolCallBlock（pending 状态）   ✨ v1.1
+   ├─ 收到 tool_result → 按 call_id 找到对应 ToolCallBlock 更新（ok/error）   ✨ v1.1
    └─ 收到 done → 关闭流，标记消息完成
-7. B1: 流结束 → 更新 agent_message.status = "done"
+7. B1: 流结束 → 更新 agent_message.status = "done"，content 持久化为 ContentBlock[]（含 ToolCallBlock）
+8. F: 用户点击产物文件 → GET /api/v1/workspaces/{conv}/files/{path} → iframe / Monaco 编辑器   ✨ v1.1
 ```
 
 ### 5.3 群聊场景：Orchestrator 协调
@@ -642,55 +668,52 @@ export function useStream(messageId: string | null) {
 }
 ```
 
-### 8.2 Agent Adapter 抽象
+### 8.2 Agent Adapter 抽象（v1.1 — BaseAgentAdapter v2）
+
+> v1.1 升级：新增 `workspace_path` / `tool_specs` 参数；StreamChunk 新增 `tool_call` / `tool_result` 事件类型。完整规范见 [docs/b2/spec/agent-runtime-adapter.spec.md](b2/spec/agent-runtime-adapter.spec.md)；原 v1 签名（无 workspace / tool）已迁移到 ModelGateway 内部接口。
 
 ```python
-# app/agents/base.py
+# backend/app/agents/base.py（v2）
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
-from .types import ChatMessage, StreamChunk
+from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
+from .types import ChatMessage, StreamChunk, ToolSpec
 
 class BaseAgentAdapter(ABC):
-    """Agent 适配器抽象类——所有 Agent 实现的统一接口"""
+    """v2 — 同时支持 External / Builtin / Orchestrator 三类子 Adapter。"""
+
+    provider: str = ""  # "external" / "builtin" / "orchestrator"
 
     @abstractmethod
-    async def stream(
+    def stream(
         self,
         messages: list[ChatMessage],
-        system_prompt: str | None,
-        config: dict,
-    ) -> AsyncIterator[StreamChunk]:
-        """
-        流式调用 LLM 并产出标准化的 StreamChunk。
-        
-        Args:
-            messages: 历史对话（已由 ContextBuilder 组装好）
-            system_prompt: 系统提示（可选，覆盖默认）
-            config: 模型参数 {model, temperature, max_tokens, ...}
-        
-        Yields:
-            StreamChunk: 标准化的流事件（start/delta/block_*/done/error）
-        """
-        ...
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,        # ✨ v2 新增
+        tool_specs: list[ToolSpec] | None = None,  # ✨ v2 新增
+    ) -> AsyncIterator[StreamChunk]: ...
 
 
-# app/agents/types.py
-class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "system"]
-    content: str  # 简化版：只传文本内容
-
+# backend/app/agents/types.py（v1.1）
 class StreamChunk(BaseModel):
-    event_type: Literal["start", "block_start", "delta", "block_end", "done", "error"]
-    block_index: int | None = None
-    block_type: Literal["text", "code", "diff", "web_preview"] | None = None
-    text_delta: str | None = None
-    code_delta: str | None = None
-    metadata: dict | None = None
-    error: str | None = None
-
-    def to_json(self) -> str:
-        return self.model_dump_json(exclude_none=True)
+    event_type: Literal[
+        "start", "block_start", "delta", "block_end",
+        "done", "error", "agent_switch", "heartbeat",
+        "tool_call",      # ✨ v1.1
+        "tool_result",    # ✨ v1.1
+    ]
+    # v1 字段保留 + v1.1 新增：call_id / tool_name / tool_arguments / tool_status / tool_output / tool_output_truncated
+    ...
 ```
+
+**三层子 Adapter**（详见 [tech-architecture.md §6.3](tech-architecture.md)）：
+
+- **Layer A — ExternalAgentAdapter**（`agents/external/`）：嵌入 Claude Agent SDK / OpenAI Agents SDK，复用其内置 loop/tool/MCP
+- **Layer B — BuiltinAgentAdapter**（`agents/builtin/`）：自建 AgentLoop + ToolRegistry + MCPClient + Memory（详见 §8.7-§8.10）
+- **Layer C — ModelGateway**（`agents/model_gateway/`）：原 raw LLM Adapter 迁移而来，仅 BuiltinAgent 内部使用，**不注册为顶层 Agent**
 
 ### 8.3 Orchestrator 任务拆解
 
@@ -793,6 +816,8 @@ async def get_current_user(
 
 ### 8.6 上下文组装（Context Builder）
 
+> v1.1 注：现有 ContextBuilder + ContextCompression 在 BuiltinAgent 中作为 `ContextManager` 子组件复用，不重新实现。
+
 ```python
 # app/services/context_builder.py
 class ContextBuilder:
@@ -818,6 +843,64 @@ class ContextBuilder:
             total_chars += len(text)
         return result
 ```
+
+### 8.7 BuiltinAgent AgentLoop（v1.1 新增）
+
+> 完整规范：[builtin-agent-framework.spec.md §2](b2/spec/builtin-agent-framework.spec.md)
+
+```python
+# backend/app/agents/builtin/loop.py（伪代码摘要）
+async def run_agent_loop(messages, tools, workspace_path, model_gateway, config, max_iter=10):
+    yield StreamChunk(event_type="start")
+    for iteration in range(max_iter):
+        tool_calls = []
+        async for chunk in model_gateway.stream(messages, tools=tools, config=config):
+            if chunk.event_type == "tool_call":
+                tool_calls.append(parse_tool_call(chunk))
+            yield chunk
+        if not tool_calls:
+            yield StreamChunk(event_type="done"); return
+        for call in tool_calls:
+            result = await execute_tool(call, workspace_path, tools)
+            yield StreamChunk(event_type="tool_result", call_id=call.id, tool_status=result.status, ...)
+        messages = append_tool_results(messages, tool_calls, results)
+    yield StreamChunk(event_type="error", error_code="loop_max_iterations")
+```
+
+终止条件、错误处理矩阵详见 spec。MVP 不做并行 tool / 投机执行 / Agent 调用子 Agent。
+
+### 8.8 ToolRegistry — MVP 三件套（v1.1 新增）
+
+> 完整规范：[builtin-agent-framework.spec.md §3](b2/spec/builtin-agent-framework.spec.md)
+
+| Tool | 约束 |
+|---|---|
+| `read_file` | 路径必须在 workspace 内；最大读 1 MB |
+| `write_file` | 路径校验（§8.9）；禁止写 `.env`/`.git`/`secrets/`；最大 1 MB |
+| `bash` | 命令首词必须在白名单（`ls cat mkdir rm mv cp node python pnpm pip cd pwd echo grep find`）；超时 30s；cwd 强制 workspace |
+
+工具结果用统一 `ToolResult(call_id, status, output, error_code)`，由 AgentLoop 包装为 `StreamChunk(tool_result)`。
+
+### 8.9 Workspace Sandbox（v1.1 新增）
+
+> 完整规范：[workspace-sandbox.spec.md](b1/spec/workspace-sandbox.spec.md)
+
+- 每会话一个目录：宿主机 `/var/lib/agenthub/workspaces/<conv_id>/`（容器内 `/workspaces`）
+- 数据模型：`workspaces` 表（id / conversation_id unique / root_path / 时间戳），cascade 删除
+- 路径校验函数（B1 提供）：`validate_write_path(workspace_root, user_path) -> Path`
+- 拒绝：`../` / 符号链接 / `.env` / `.git` / `secrets/` / `.agenthub/`
+- HTTP API：`GET /tree`、`GET /files/{path}`（含 mime sniff + iframe CSP）、`PUT /files/{path}`
+- ❌ 不做：Docker per-conversation、网络/CPU 隔离（P2）
+
+### 8.10 MCP Client（v1.1 新增）
+
+> 完整规范：[builtin-agent-framework.spec.md §5](b2/spec/builtin-agent-framework.spec.md)
+
+- 使用官方 `mcp` Python SDK
+- 仅 **stdio** transport（HTTP 不做）
+- MVP 启动 1 个 server：`@modelcontextprotocol/server-filesystem`
+- 工具命名空间用前缀 `mcp_fs__` 避免与 native tool 冲突
+- 错误：启动失败 → `error(mcp_server_down)`；运行崩溃 → `tool_result(error)` + 标记降级
 
 ---
 
@@ -1255,30 +1338,53 @@ feat(B1/api): add SSE stream endpoint for messages
 
 ## 13. 里程碑与时间线
 
-### 13.1 Sprint 计划（14 天）
+### 13.1 Sprint 计划（v1.1 — pivot 后版本）
 
 | Sprint | 时间 | 目标 | 验收标准 |
 |--------|------|------|----------|
 | **Sprint 0** | Day 1-2 | 契约 + 脚手架 | `docker compose up` 启动成功，OpenAPI v0.1 完成 |
-| **Sprint 1** | Day 3-5 | 单聊 MVP | 登录 → 选 Claude → 发消息 → 看到流式回复 |
+| **Sprint 1** | Day 3-5 | 单聊 MVP（raw LLM） | 登录 → 选 Agent → 发消息 → 看到流式回复 |
 | **Sprint 2** | Day 6-8 | 富媒体 + Agent 管理 | 代码块高亮、Diff 视图、Agent CRUD |
 | **Sprint 3** | Day 9-11 | 群聊 + Orchestrator | @ 多 Agent，Orchestrator 拆解、依次回复 |
-| **Sprint 4** | Day 12-14 | 打磨 + 交付物 | Bug Fix、Demo 视频、文档完整 |
+| **Sprint 4** | Day 12-? | 打磨（含 demo polish v2、context compression）| Bug Fix、文档、Provider resilience、smoke tests |
+| **Sprint 5（pivot）** ✨ | **2026-05-26 ~ 06-03（8 天）** | **Agent Runtime Pivot：External + Builtin + Workspace** | Day 3：Claude Code 真实写 HTML → iframe 预览；Day 5：BuiltinAgent MVP；Day 6：Codex + Orchestrator 接通真 Agent；Day 8：Demo 视频 + 答辩材料 |
 
-### 13.2 关键里程碑
+### 13.1.1 Sprint 5 — Pivot 8 天详细计划
+
+> 与 [team-division.md §7.1-PIVOT](team-division.md) / §7.2-PIVOT 同步保持一致。
+
+| Day | F | B1 | B2 |
+|---|---|---|---|
+| **1** | 等待 schema | Workspace 模型 + Alembic + WorkspaceService 骨架 | BaseAgentAdapter v2 + StreamChunk v1.1 + ToolSpec + MockAdapter v2 |
+| **2** | ToolCallBlock + ArtifactPreview iframe | Artifact API + OpenAPI 同步 + SSE 协议扩展 | ExternalAgentAdapter (Claude Agent SDK) + ModelGateway 迁移 |
+| **3** | SSE handler tool_* 配对 + Workspace 文件树 | 联调 + bug fix | **里程碑：真 Agent 写 HTML → iframe 预览端到端** |
+| **4** | Monaco 编辑器 + 二次编辑回写 | PUT 文件接口 + AgentRegistry v2 配合 | BuiltinAgent AgentLoop + ToolRegistry 三件套 |
+| **5** | 错误态 / 空态 / 加载态 | 收尾 + 性能验证 | BuiltinAgent MemoryManager + MCP filesystem server |
+| **6** | Orchestrator 任务卡升级 | — | ExternalAgentAdapter (Codex)；Orchestrator 接通真 Agent |
+| **7** | Demo 视频脚本 + 关键交互预录制 | Bug fix + 文档同步 | 全链路 smoke + 失败降级回归 + 文档 |
+| **8** | Demo 视频录制 + 答辩讲稿 | 答辩讲稿 | 答辩讲稿 + ADR 收尾 |
+
+### 13.2 关键里程碑（v1.1）
 
 ```
-Day 2:  ✅ 脚手架完成，前后端可独立启动
-Day 5:  ✅ 里程碑 1 - 单聊 MVP 跑通
-Day 8:  ✅ 里程碑 2 - 富媒体产物预览完整
-Day 11: ✅ 里程碑 3 - 群聊 Orchestrator 演示就绪
-Day 14: ✅ 全部交付物完成，提交答辩
+Day 2:   ✅ 脚手架完成，前后端可独立启动            （已达成）
+Day 5:   ✅ 里程碑 1 - 单聊 MVP 跑通               （已达成）
+Day 8:   ✅ 里程碑 2 - 富媒体产物预览完整          （已达成）
+Day 11:  ✅ 里程碑 3 - 群聊 Orchestrator 演示就绪 （已达成）
+
+【pivot 触发于 2026-05-26（Day 5 of new Sprint）】
+
+Sprint 5 Day 3:  ✨ 里程碑 4 - 第一个真 Agent 端到端 demo（Claude Code 写 HTML → iframe）
+Sprint 5 Day 5:  ✨ 里程碑 5 - BuiltinAgent Framework MVP 跑通（loop + 3 tool + 1 MCP）
+Sprint 5 Day 6:  ✨ 里程碑 6 - Codex 接入 + Orchestrator 接通真 Agent
+Sprint 5 Day 8:  ✨ 里程碑 7 - 全部交付物完成，提交答辩
 ```
 
 ### 13.3 每日例会建议
 
 - **早会**（15 分钟）：每人说昨天进度、今天计划、当前阻塞
 - **晚同步**（异步消息）：在群里发 Daily Update，附 PR 链接
+- **Sprint 5 额外**：每日 Demo 5 分钟（演示当天可见进展），保证视频素材逐日积累
 
 ---
 

@@ -1,8 +1,12 @@
 # AgentHub 技术架构文档（Tech Architecture）
 
 > 配套文档：[development-plan.md](./development-plan.md) · [team-division.md](./team-division.md) · [api-spec.md](./api-spec.md)
-> 文档版本：v1.0
-> 最后更新：2026-05-22
+> 文档版本：v1.1（Agent Runtime Pivot）
+> 最后更新：2026-05-26
+
+> ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：Agent 层重新分为三层（External / Builtin Framework / ModelGateway 底座）；BaseAgentAdapter v2 接口升级；新增 Workspace 沙箱。决策依据见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
+>
+> 本文档已就地同步的章节：§3（核心组件）/ §6（Adapter 与 Orchestrator）/ §13（ADR 索引）。其他章节（§1 总览、§2 分层、§4 数据流、§5 数据架构、§7 SSE、§8 安全、§9 前端、§10 部署、§11-12 性能与可观测、§14 演进）保留 v1.0 内容，待 pivot 后小幅同步，主要影响是 §4 数据流需要补 tool_call / tool_result 链路、§7 SSE 事件枚举需要扩展、§9 前端需要补 ToolCallBlock / ArtifactPreview。
 
 ---
 
@@ -212,28 +216,32 @@ async for chunk in adapter.stream(...):
 
 ## 3. 核心组件设计
 
-### 3.1 组件清单
+### 3.1 组件清单（v1.1 — Agent Runtime Pivot）
 
 | 组件 | 所属层 | 文件 | 职责 |
 |------|--------|------|------|
 | **AuthRouter** | API | `api/v1/auth.py` | 登录、注册、获取当前用户 |
 | **ConversationRouter** | API | `api/v1/conversations.py` | 会话 CRUD |
 | **MessageRouter** | API | `api/v1/messages.py` | 消息 CRUD、发送 |
-| **StreamRouter** | API | `api/v1/stream.py` | **SSE 流式端点** |
+| **StreamRouter** | API | `api/v1/stream.py` | **SSE 流式端点**（v1.1 扩展 tool_call / tool_result 事件） |
 | **AgentRouter** | API | `api/v1/agents.py` | Agent CRUD |
+| **WorkspaceRouter** ✨ | API | `api/v1/workspaces.py` | Workspace 文件树、文件读取、二次编辑回写（**pivot 新增**） |
 | **ConversationService** | Service | `services/conversation_service.py` | 会话业务逻辑 |
 | **MessageService** | Service | `services/message_service.py` | 消息业务逻辑、状态机 |
 | **ContextBuilder** | Service | `services/context_builder.py` | 历史消息 → Agent 上下文 |
-| **BaseAgentAdapter** | Agent | `agents/base.py` | Adapter 抽象基类 |
-| **AdapterRegistry** | Agent | `agents/registry.py` | Adapter 工厂 |
-| **ClaudeAdapter** | Agent | `agents/adapters/claude.py` | Anthropic SDK 封装 |
-| **OpenAIAdapter** | Agent | `agents/adapters/openai.py` | OpenAI SDK 封装 |
-| **CustomAdapter** | Agent | `agents/adapters/custom.py` | 自定义 Agent（System Prompt 包装） |
-| **Orchestrator** | Agent | `agents/orchestrator.py` | 任务拆解 + 分派 |
-| **ArtifactParser** | Agent | `agents/artifact_parser.py` | 流式输出 → ContentBlock |
+| **WorkspaceService** ✨ | Service | `services/workspace_service.py` | Workspace CRUD + 路径校验（**pivot 新增**） |
+| **BaseAgentAdapter v2** | Agent | `agents/base.py` | Adapter 抽象基类（含 workspace_path / tool_specs） |
+| **AgentRegistry v2** | Agent | `agents/registry.py` | 注册 ExternalAgent / BuiltinAgent / Orchestrator |
+| **Orchestrator** | Agent | `agents/orchestrator.py` | 任务拆解 + 分派（保留，子 Agent 升级为真 Agent） |
+| **ArtifactParser** | Agent | `agents/artifact_parser.py` | 流式输出 → ContentBlock（保留） |
+| **Layer A — ExternalAgentAdapter** ✨ | Agent | `agents/external/` | 嵌入 Claude Agent SDK / OpenAI Agents SDK，复用其内置 loop/tool/MCP（**pivot 新增**） |
+| **Layer B — BuiltinAgentAdapter** ✨ | Agent | `agents/builtin/` | 自建 AgentLoop + ToolRegistry + MCPClient + Memory（**pivot 新增**） |
+| **Layer C — ModelGateway** ✨ | Agent | `agents/model_gateway/` | 原 raw LLM Adapter 迁移而来（Claude/OpenAI/DeepSeek + resilience），仅 BuiltinAgent 内部使用 |
 | **Security** | Infrastructure | `core/security.py` | JWT、密码哈希 |
 | **Database** | Infrastructure | `core/database.py` | 连接池、会话工厂 |
 | **PubSub** | Infrastructure | `core/pubsub.py` | Redis Pub/Sub 封装 |
+
+> ✨ = pivot 新增 / 重新分层。完整迁移映射见 [agent-runtime-pivot.adr.md §6](spec/agent-runtime-pivot.adr.md)。
 
 ### 3.2 组件交互（C4 Container 视图）
 
@@ -261,16 +269,30 @@ async for chunk in adapter.stream(...):
           │                              └──────┬───────────┘
           ▼                                     │
    ┌──────────────┐                            ▼
-   │ Models (SQL) │                     ┌──────────────────┐
-   └──────┬───────┘                     │ Adapters         │
-          │                              │  ├ Claude        │
-          ▼                              │  ├ OpenAI        │
-   ┌──────────────┐                     │  └ Custom        │
-   │ PostgreSQL   │                     └──────┬───────────┘
-   └──────────────┘                            │
+   │ Models (SQL) │                     ┌────────────────────────────┐
+   └──────┬───────┘                     │ Agent Runtime Layer (v1.1) │
+          │                              │ ┌────────────────────────┐ │
+          ▼                              │ │ ExternalAgentAdapter   │ │
+   ┌──────────────┐                     │ │  ├ ClaudeCode (SDK)    │ │
+   │ PostgreSQL   │                     │ │  └ Codex   (Agents SDK)│ │
+   └──────────────┘                     │ ├────────────────────────┤ │
+                                         │ │ BuiltinAgentAdapter    │ │
+   ┌──────────────┐                     │ │  └ AgentLoop           │ │
+   │ Workspace ✨ │ ◀── 读/写 ─────────│ │     ├ ToolRegistry     │ │
+   │ /workspaces/ │                     │ │     ├ MCPClient        │ │
+   │  <conv_id>/  │                     │ │     └ ModelGateway     │ │
+   └──────────────┘                     │ │        (Claude/OpenAI/ │ │
+                                         │ │         DeepSeek)      │ │
+                                         │ ├────────────────────────┤ │
+                                         │ │ Orchestrator (子 Agent │ │
+                                         │ │  通过本接口拿 v2 Adapter)│
+                                         │ └────────────────────────┘ │
+                                         └──────┬─────────────────────┘
+                                                │
                                                 ▼
                                        ┌──────────────────┐
-                                       │ External LLM APIs│
+                                       │ External LLM /   │
+                                       │ Agent runtime    │
                                        └──────────────────┘
 ```
 
@@ -559,132 +581,183 @@ CREATE INDEX idx_agents_user_builtin ON agents(user_id, is_builtin);
 
 ## 6. Adapter 与 Orchestrator 设计
 
-### 6.1 BaseAgentAdapter 抽象
+> ✏️ v1.1（pivot）重写：6.1 / 6.2 升级到 v2 签名；6.3 改为三层 Adapter 分类（External / Builtin / ModelGateway）；6.4 / 6.5 / 6.6 保留并补注 pivot 影响。**完整规范请直接读 [docs/b2/spec/agent-runtime-adapter.spec.md](b2/spec/agent-runtime-adapter.spec.md) 与 [docs/b2/spec/builtin-agent-framework.spec.md](b2/spec/builtin-agent-framework.spec.md)**——本节为架构层概述。
 
-**设计目标**：让 B1 的代码完全不感知具体 LLM Provider，新增 Provider 只需 ~100 行代码。
+### 6.1 BaseAgentAdapter v2 抽象
+
+**设计目标**：让 B1 完全不感知具体 Agent 类型（外部 runtime / 自建 framework / orchestrator），三类子 Adapter 通过同一接口注册到 AgentRegistry。
 
 ```python
-# app/agents/base.py
+# backend/app/agents/base.py（v2）
 from abc import ABC, abstractmethod
-from typing import AsyncIterator
-from .types import ChatMessage, StreamChunk
+from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
+from .types import ChatMessage, StreamChunk, ToolSpec
+
 
 class BaseAgentAdapter(ABC):
-    """
-    所有 Agent 适配器的统一接口。
-    
-    设计原则：
-    1. 输入归一化：统一接收 ChatMessage 列表
-    2. 输出归一化：统一产出 StreamChunk
-    3. 配置传递：模型参数通过 config dict 透传
-    4. 异步生成器：天然支持流式
-    """
-    
-    provider: str  # 子类必须设置
-    
-    def __init__(self, agent_db_row, http_client=None):
-        """从 DB 行构造，注入 HTTP 客户端便于测试"""
-        self.agent = agent_db_row
-        self.client = http_client or self._create_client()
-    
+    """v2 — Agent Runtime adapter contract."""
+
+    provider: str = ""  # "external" / "builtin" / "orchestrator"
+
+    def __init__(
+        self,
+        agent_id: str,
+        system_prompt: str | None = None,
+        default_config: dict[str, Any] | None = None,
+    ) -> None: ...
+
     @abstractmethod
-    def _create_client(self):
-        """子类创建对应 SDK 客户端"""
-        ...
-    
-    @abstractmethod
-    async def stream(
+    def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
-        config: dict | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,        # ✨ v2 新增
+        tool_specs: list[ToolSpec] | None = None,  # ✨ v2 新增
     ) -> AsyncIterator[StreamChunk]:
-        """流式返回标准化 chunk"""
+        """流式返回标准化 chunk（含 tool_call / tool_result）"""
         ...
 ```
 
-### 6.2 StreamChunk 协议
+**变更摘要 vs v1**：
+- 新增 `workspace_path`：会话沙箱根目录（B1 由 WorkspaceService 创建并注入）
+- 新增 `tool_specs`：BuiltinAgent 工具白名单；ExternalAdapter 可忽略
+- 关键字参数强制 keyword-only（防止误传）
+
+### 6.2 StreamChunk 协议（v1.1 扩展 tool_call / tool_result）
 
 ```python
-# app/agents/types.py
-from typing import Literal
-from pydantic import BaseModel
-
-class ChatMessage(BaseModel):
-    role: Literal["user", "assistant", "system"]
-    content: str
-
+# backend/app/agents/types.py（v1.1）
 class StreamChunk(BaseModel):
     event_type: Literal[
-        "start",         # 流开始
-        "block_start",   # 新内容块开始
-        "delta",         # 增量内容
-        "block_end",     # 当前内容块结束
-        "done",          # 流结束
-        "error",         # 错误
+        "start", "block_start", "delta", "block_end",
+        "done", "error", "agent_switch", "heartbeat",
+        "tool_call",      # ✨ v1.1 新增
+        "tool_result",    # ✨ v1.1 新增
     ]
-    block_index: int | None = None  # 第几个内容块（从 0 开始）
-    block_type: Literal["text", "code", "diff", "web_preview"] | None = None
+    # ── v1 字段保留 ──
+    block_index: int | None = None
+    block_type: Literal["text", "code", "diff", "web_preview", "tool_call"] | None = None  # +tool_call
     text_delta: str | None = None
     code_delta: str | None = None
-    metadata: dict | None = None    # 如代码块的 language
+    metadata: dict | None = None
     error: str | None = None
     error_code: str | None = None
-    
-    def to_sse_data(self) -> dict:
-        """转 SSE event 格式"""
-        return {
-            "event": self.event_type,
-            "data": self.model_dump_json(exclude_none=True),
-        }
+    # ── v1.1 tool_call / tool_result ──
+    call_id: str | None = None               # 一对 tool_call/tool_result 的关联 id
+    tool_name: str | None = None             # tool_call
+    tool_arguments: dict | None = None       # tool_call
+    tool_status: Literal["ok", "error"] | None = None  # tool_result
+    tool_output: str | None = None           # tool_result（已截断）
+    tool_output_truncated: bool | None = None
 ```
 
-### 6.3 ClaudeAdapter 实现示意
+**事件配对契约**：
+
+```
+tool_call { call_id: "c-001", tool_name: "write_file", tool_arguments: {...} }
+   ⋮（同步执行）
+tool_result { call_id: "c-001", tool_status: "ok", tool_output: "..." }
+```
+
+新增错误码：`tool_call_failed` / `tool_call_orphan` / `workspace_violation` / `mcp_server_down` / `external_runtime_error`。
+
+### 6.3 三类 Adapter 子类（v1.1 新分类）
+
+#### 6.3.A Layer A — ExternalAgentAdapter（嵌入第三方 agent runtime）
 
 ```python
-# app/agents/adapters/claude.py
-import anthropic
-from app.agents.base import BaseAgentAdapter
-from app.agents.types import StreamChunk
-from app.agents.artifact_parser import StreamingArtifactParser
+# backend/app/agents/external/claude_code.py
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
-class ClaudeAdapter(BaseAgentAdapter):
-    provider = "claude"
-    
-    def _create_client(self):
-        return anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    
-    async def stream(self, messages, system_prompt=None, config=None):
-        config = config or {}
-        parser = StreamingArtifactParser()
-        
-        yield StreamChunk(event_type="start")
-        
-        try:
-            async with self.client.messages.stream(
-                model=config.get("model", "claude-sonnet-4-6"),
-                max_tokens=config.get("max_tokens", 4096),
-                system=system_prompt or self.agent.system_prompt or "",
-                messages=[m.model_dump() for m in messages],
-            ) as stream:
-                async for text in stream.text_stream:
-                    # 通过 parser 切分代码块 / 文本
-                    for chunk in parser.feed(text):
-                        yield chunk
-            
-            # 流结束，flush 剩余内容
-            for chunk in parser.flush():
-                yield chunk
-            
-            yield StreamChunk(event_type="done")
-        
-        except anthropic.RateLimitError as e:
-            yield StreamChunk(event_type="error", error=str(e), error_code="rate_limit")
-        except anthropic.APIError as e:
-            yield StreamChunk(event_type="error", error=str(e), error_code="api_error")
+class ClaudeCodeAdapter(BaseAgentAdapter):
+    provider = "external"
+
+    async def stream(self, messages, *, workspace_path, tool_specs=None, **kw):
+        yield StreamChunk(event_type="start", agent_id=self.agent_id)
+        options = ClaudeAgentOptions(cwd=str(workspace_path), ...)
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(_messages_to_prompt(messages))
+            async for sdk_event in client.receive_response():
+                # 映射 SDK 原生事件 → StreamChunk（含 tool_use → tool_call 等）
+                for chunk in map_claude_sdk_event(sdk_event):
+                    yield chunk
+        yield StreamChunk(event_type="done", agent_id=self.agent_id)
 ```
 
-### 6.4 StreamingArtifactParser 状态机
+- 不自实现 loop / tool registry（由 SDK 提供）
+- workspace_path 透传为 SDK 的 `cwd`
+- 错误统一映射到标准 error_code
+
+类似的还有 `backend/app/agents/external/codex.py`（基于 `openai-agents` SDK）。
+
+#### 6.3.B Layer B — BuiltinAgentAdapter（团队自建 framework）
+
+```python
+# backend/app/agents/builtin/adapter.py
+class BuiltinAgentAdapter(BaseAgentAdapter):
+    provider = "builtin"
+
+    async def stream(self, messages, *, workspace_path, tool_specs=None, **kw):
+        # 1. 注入长期记忆
+        recalled = await self.memory.recall(conv_id=...)
+        # 2. 合并 tools（native + MCP）
+        all_tools = (tool_specs or list(NATIVE_TOOLS.values())) \
+                    + await self.mcp_client.list_tools()
+        # 3. 启动 AgentLoop
+        async for chunk in run_agent_loop(
+            messages, all_tools, workspace_path,
+            self.model_gateway, merged_config,
+        ):
+            yield chunk
+```
+
+完整 AgentLoop / ToolRegistry / MCPClient 设计见 [docs/b2/spec/builtin-agent-framework.spec.md](b2/spec/builtin-agent-framework.spec.md)。
+
+#### 6.3.C Layer C — ModelGateway（v1 raw LLM Adapter 降级）
+
+```python
+# backend/app/agents/model_gateway/__init__.py
+class ModelGateway:
+    """Provider 无关的模型调用入口（含 tool calling 映射），仅供 BuiltinAgent 内部使用。"""
+
+    BACKEND_MAP = {
+        "claude":   ClaudeBackend,    # 原 agents/adapters/claude.py
+        "openai":   OpenAIBackend,    # 原 agents/adapters/openai.py
+        "deepseek": DeepSeekBackend,  # 原 agents/adapters/deepseek.py
+    }
+
+    async def stream(self, messages, tools, config) -> AsyncIterator[StreamChunk]: ...
+```
+
+- ❌ 不注册到顶层 AgentRegistry（不是顶层 Agent）
+- ✅ retry / timeout / 错误码统一（复用 [docs/b2/spec/provider-resilience.spec.md](b2/spec/provider-resilience.spec.md)）
+- ✅ 新增能力：把 Provider 原生 tool calling 协议（Anthropic `tool_use` / OpenAI `tool_calls`）映射为 `StreamChunk(tool_call)`
+
+### 6.4 ClaudeBackend 实现示意（v1 ClaudeAdapter 迁移而来）
+
+> 📍 v1.1 已迁移到 `backend/app/agents/model_gateway/claude.py`，作为 BuiltinAgent 的可选 LLM 后端。原 v1 代码（基于 `anthropic.AsyncAnthropic.messages.stream`）保留其骨架，**新增**对 Anthropic `tool_use` content block 的解析与 `StreamChunk(tool_call/tool_result)` 映射；retry / timeout / error_code 策略沿用 [provider-resilience.spec.md](b2/spec/provider-resilience.spec.md)。完整设计见 [builtin-agent-framework.spec.md §6](b2/spec/builtin-agent-framework.spec.md)。
+
+```python
+# backend/app/agents/model_gateway/claude.py（伪代码）
+class ClaudeBackend:
+    async def stream(self, messages, tools, config) -> AsyncIterator[StreamChunk]:
+        async with self.client.messages.stream(
+            model=config.get("model", "claude-sonnet-4-6"),
+            tools=[_tool_spec_to_claude(t) for t in tools],  # ✨ v1.1
+            messages=[m.model_dump() for m in messages],
+        ) as stream:
+            async for event in stream:
+                # 把 content_block_start(type="tool_use") → StreamChunk(tool_call)
+                # 把 content_block_delta(text) → StreamChunk(delta)
+                for chunk in _map_anthropic_event(event):
+                    yield chunk
+```
+
+### 6.5 StreamingArtifactParser 状态机
 
 ```python
 # app/agents/artifact_parser.py
@@ -803,7 +876,12 @@ class StreamingArtifactParser:
         )
 ```
 
-### 6.5 Orchestrator 实现
+### 6.6 Orchestrator 实现（v1.1 — 子 Agent 升级为真 Agent）
+
+> v1.1 改动：Orchestrator 框架不变，但子 Adapter 通过 BaseAgentAdapter v2 接口拿到，因此现在可以是 ExternalAgentAdapter（Claude Code / Codex）或 BuiltinAgentAdapter；call_id 在跨子 Agent 时按 `task_id.<原 call_id>` 重映射，避免冲突。详见 [orchestrator.spec.md](b2/spec/orchestrator.spec.md) 与 [agent-runtime-adapter.spec.md §5.3](b2/spec/agent-runtime-adapter.spec.md)。
+
+下面的 v1 代码示意保留以说明框架；实际生产代码见 [backend/app/agents/orchestrator.py](../backend/app/agents/orchestrator.py)。
+
 
 ```python
 # app/agents/orchestrator.py
@@ -871,22 +949,16 @@ class OrchestratorAdapter(BaseAgentAdapter):
         yield StreamChunk(event_type="done")
 ```
 
-### 6.6 Adapter 扩展指南
+### 6.7 Adapter 扩展指南（v1.1 — 三类入口）
 
-新增一个 Provider 的步骤：
+| 你想新增的是 | 入口 | 步骤摘要 | 详细模板 |
+|---|---|---|---|
+| 外部 Agent runtime（OpenCode、xxx CLI 等） | `agents/external/<runtime>.py` | 嵌入 SDK + 映射事件到 StreamChunk（含 tool_*） + 注册到 `EXTERNAL_RUNTIME_MAP` | [CLAUDE.md §7.6](../CLAUDE.md) |
+| 自建 Agent 的工具 | `agents/builtin/tools/<tool>.py` | 实现 execute + 校验 + 注册 ToolSpec | [CLAUDE.md §7.7](../CLAUDE.md) |
+| 自建 Agent 的 MCP server | `agents/builtin/mcp/` 配置 | 仅 stdio transport；前缀 `mcp_<server>__` | [CLAUDE.md §7.8](../CLAUDE.md) |
+| ModelGateway 新 LLM provider | `agents/model_gateway/<provider>.py` | 实现 stream(messages, tools, config)；不要注册到顶层 AgentRegistry | [CLAUDE.md §7.2](../CLAUDE.md) |
 
-1. 在 `agents/adapters/` 下创建 `xxx.py`
-2. 继承 `BaseAgentAdapter`，实现 `_create_client` 和 `stream`
-3. 在 `agents/registry.py` 中注册：
-   ```python
-   PROVIDER_MAP = {
-       "claude": ClaudeAdapter,
-       "openai": OpenAIAdapter,
-       "xxx": XxxAdapter,  # 新增
-   }
-   ```
-4. 在 `agents` 表插入 Seed 数据
-5. 完成
+> ❌ 不再在 `agents/adapters/` 下新增文件 —— pivot 后该目录将拆分到 `external/` / `builtin/` / `model_gateway/`。
 
 ---
 
@@ -1502,6 +1574,17 @@ logger.info("message_streamed",
 ## 13. 技术决策记录（ADR）
 
 > ADR：Architecture Decision Record，重要技术选型的决策记录
+
+### ★ ADR-007（v1.1）：Agent Runtime Pivot
+
+- **状态**：Accepted（2026-05-26）
+- **决策**：Agent 层重新分为三层（ExternalAgentAdapter / BuiltinAgent Framework / ModelGateway 底座）；BaseAgentAdapter v2 接口升级（新增 workspace_path / tool_specs）；StreamChunk 新增 tool_call / tool_result 事件；引入 Workspace 沙箱
+- **理由**：PDF 课题要求接入 Claude Code / Codex / OpenCode 等真 agent runtime，并支持自建 Agent，而 v1 实现的是 raw LLM API 包装
+- **影响**：扩大了 ADR-001（SSE）与 ADR-004（Adapter 协议翻译）的适用面；新增三份 spec 文档支撑
+- **完整 ADR**：[docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)
+- **配套规范**：[agent-runtime-adapter.spec.md](b2/spec/agent-runtime-adapter.spec.md) / [builtin-agent-framework.spec.md](b2/spec/builtin-agent-framework.spec.md) / [workspace-sandbox.spec.md](b1/spec/workspace-sandbox.spec.md)
+
+> ADR-001 ~ ADR-006 为 v1.0 历史决策，仍然生效。
 
 ### ADR-001：选择 SSE 而非 WebSocket
 - **背景**：需要把 LLM 流式响应推给前端

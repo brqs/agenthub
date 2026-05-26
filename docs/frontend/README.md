@@ -1,6 +1,6 @@
 # AgentHub 前端文档索引
 
-> 这里只放前端相关文档。Spec 留在 [docs/spec/](../spec/) 与全项目共享。
+> 这里只放前端相关文档。前端 Spec 收在 [docs/frontend/spec/](spec/)。
 > Owner：F。涉及契约（OpenAPI / ContentBlock）变更时同步 B1 / B2。
 > 最后更新：2026-05-25
 
@@ -18,14 +18,14 @@
 
 ---
 
-## 相关 Spec（共享在 docs/spec/）
+## 相关 Spec
 
 | Spec | 覆盖范围 |
 |---|---|
-| [chat-demo](../spec/frontend-chat-demo.spec.md) | Mock 多 Agent 协作流 |
-| [content-blocks](../spec/frontend-content-blocks.spec.md) | 富媒体消息块 |
-| [agent-management](../spec/frontend-agent-management.spec.md) | Agent 管理页 |
-| [demo-polish](../spec/frontend-demo-polish.spec.md) | Demo 体验状态打磨 |
+| [chat-demo](spec/frontend-chat-demo.spec.md) | Mock 多 Agent 协作流 |
+| [content-blocks](spec/frontend-content-blocks.spec.md) | 富媒体消息块 |
+| [agent-management](spec/frontend-agent-management.spec.md) | Agent 管理页 |
+| [demo-polish](spec/frontend-demo-polish.spec.md) | Demo 体验状态打磨 |
 
 ---
 
