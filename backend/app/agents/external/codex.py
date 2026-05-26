@@ -1,0 +1,508 @@
+"""Codex external runtime adapter backed by OpenAI Agents SDK."""
+
+from __future__ import annotations
+
+import asyncio
+import importlib
+import inspect
+import json
+from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from pathlib import Path
+from typing import Any, Literal, cast
+
+from app.agents.base import BaseAgentAdapter
+from app.agents.types import ChatMessage, StreamChunk, ToolSpec
+
+SDK_MODULE_NAME = "agents"
+DEFAULT_MODEL = "gpt-4.1"
+DEFAULT_TIMEOUT_SECONDS = 120.0
+DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+TEXT_EVENT_NAMES = {
+    "text_delta",
+    "text",
+    "output_text_delta",
+    "response.output_text.delta",
+}
+TOOL_CALL_EVENT_NAMES = {
+    "tool_call",
+    "tool_use",
+    "function_call",
+    "function_tool_call",
+    "response.output_item.added",
+}
+TOOL_RESULT_EVENT_NAMES = {
+    "tool_result",
+    "tool_call_output",
+    "function_call_output",
+    "tool_output_item",
+}
+SKIP_EVENT_NAMES = {
+    "start",
+    "done",
+    "raw_response_event",
+    "run_item_stream_event",
+    "agent_updated_stream_event",
+}
+
+
+class CodexAdapter(BaseAgentAdapter):
+    """Adapter for Codex / OpenAI Agents SDK runtime events."""
+
+    provider = "codex"
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[ToolSpec] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        yield StreamChunk(event_type="start", agent_id=self.agent_id)
+
+        if workspace_path is None:
+            yield self._error("workspace_violation", "Codex requires a workspace_path")
+            return
+
+        merged = self.merged_config(config)
+        timeout_seconds = self._float_config(
+            merged.get("timeout_seconds"),
+            DEFAULT_TIMEOUT_SECONDS,
+        )
+        output_max_chars = int(
+            merged.get("tool_output_max_chars", DEFAULT_TOOL_OUTPUT_MAX_CHARS)
+        )
+
+        try:
+            sdk = self._load_sdk()
+            sdk_stream = await self._open_sdk_stream(
+                sdk,
+                messages,
+                system_prompt,
+                workspace_path,
+                merged,
+            )
+        except Exception as exc:  # noqa: BLE001
+            yield self._error(self._classify_exception(exc), self._safe_message(exc))
+            return
+
+        block_open = False
+        block_index = 0
+        total_blocks = 0
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                async for sdk_event in sdk_stream:
+                    for chunk in self._map_sdk_event(sdk_event, output_max_chars):
+                        if chunk.event_type == "delta":
+                            if not block_open:
+                                yield StreamChunk(
+                                    event_type="block_start",
+                                    block_index=block_index,
+                                    block_type="text",
+                                )
+                                block_open = True
+                            chunk.block_index = block_index
+                            yield chunk
+                            continue
+
+                        if block_open:
+                            yield StreamChunk(event_type="block_end", block_index=block_index)
+                            total_blocks += 1
+                            block_index += 1
+                            block_open = False
+                        yield chunk
+        except TimeoutError:
+            if block_open:
+                yield StreamChunk(event_type="block_end", block_index=block_index)
+            yield self._error("timeout", "Codex runtime timed out")
+            return
+        except Exception as exc:  # noqa: BLE001
+            if block_open:
+                yield StreamChunk(event_type="block_end", block_index=block_index)
+            yield self._error(self._classify_exception(exc), self._safe_message(exc))
+            return
+
+        if block_open:
+            yield StreamChunk(event_type="block_end", block_index=block_index)
+            total_blocks += 1
+
+        yield StreamChunk(
+            event_type="done",
+            agent_id=self.agent_id,
+            total_blocks=total_blocks,
+        )
+
+    def _load_sdk(self) -> Any:
+        return importlib.import_module(SDK_MODULE_NAME)
+
+    async def _open_sdk_stream(
+        self,
+        sdk: Any,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        workspace_path: Path,
+        config: dict[str, Any],
+    ) -> AsyncIterator[Any]:
+        result = await self._start_run(sdk, messages, system_prompt, workspace_path, config)
+        stream_events = getattr(result, "stream_events", None)
+        if callable(stream_events):
+            events = stream_events()
+        else:
+            events = result
+        if inspect.isawaitable(events):
+            events = await events
+        return cast(AsyncIterator[Any], events)
+
+    async def _start_run(
+        self,
+        sdk: Any,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        workspace_path: Path,
+        config: dict[str, Any],
+    ) -> Any:
+        runner = self._sdk_attr(sdk, "Runner", "agents")
+        agent_cls = self._sdk_attr(sdk, "SandboxAgent", "agents.sandbox")
+        prompt = self._format_input(messages)
+        run_config = self._build_run_config(sdk, workspace_path, config)
+
+        if runner is not None and agent_cls is not None:
+            agent = self._build_agent(agent_cls, messages, system_prompt, config)
+            run_streamed = runner.run_streamed
+            kwargs = self._supported_kwargs(
+                run_streamed,
+                {
+                    "input": prompt,
+                    "run_config": run_config,
+                },
+            )
+            result = run_streamed(agent, **kwargs)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        run_streamed = getattr(sdk, "run_streamed", None)
+        if callable(run_streamed):
+            kwargs = self._supported_kwargs(
+                run_streamed,
+                {
+                    "input": prompt,
+                    "messages": [message.model_dump() for message in messages],
+                    "system_prompt": self._effective_instructions(messages, system_prompt),
+                    "model": str(config.get("model") or DEFAULT_MODEL),
+                    "run_config": run_config,
+                },
+            )
+            result = run_streamed(**kwargs)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        raise RuntimeError("OpenAI Agents SDK does not expose a streaming runner")
+
+    def _build_agent(
+        self,
+        agent_cls: Callable[..., Any],
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        config: dict[str, Any],
+    ) -> Any:
+        kwargs = self._supported_kwargs(
+            agent_cls,
+            {
+                "name": self.agent_id,
+                "instructions": self._effective_instructions(messages, system_prompt),
+                "model": str(config.get("model") or DEFAULT_MODEL),
+            },
+        )
+        return agent_cls(**kwargs)
+
+    def _build_run_config(
+        self,
+        sdk: Any,
+        workspace_path: Path,
+        config: dict[str, Any],
+    ) -> Any:
+        manifest_cls = self._sdk_attr(sdk, "Manifest", "agents.sandbox")
+        sandbox_run_config_cls = self._sdk_attr(
+            sdk,
+            "SandboxRunConfig",
+            "agents.sandbox",
+            "agents.run_config",
+        )
+        run_config_cls = self._sdk_attr(sdk, "RunConfig", "agents.run", "agents.run_config")
+        client_cls = self._sdk_attr(
+            sdk,
+            "UnixLocalSandboxClient",
+            "agents.sandbox.sandboxes.unix_local",
+        )
+        options_cls = self._sdk_attr(
+            sdk,
+            "UnixLocalSandboxClientOptions",
+            "agents.sandbox.sandboxes.unix_local",
+        )
+        required_sdk_types = (
+            manifest_cls,
+            sandbox_run_config_cls,
+            run_config_cls,
+            client_cls,
+            options_cls,
+        )
+        if any(sdk_type is None for sdk_type in required_sdk_types):
+            raise RuntimeError("OpenAI Agents SDK sandbox runtime is unavailable")
+
+        manifest = manifest_cls(root=str(workspace_path))
+        sandbox_config = sandbox_run_config_cls(
+            client=client_cls(),
+            options=self._sandbox_options(options_cls, config),
+            manifest=manifest,
+        )
+        return run_config_cls(
+            model=str(config.get("model") or DEFAULT_MODEL),
+            sandbox=sandbox_config,
+            workflow_name="AgentHub Codex runtime",
+        )
+
+    def _sdk_attr(self, sdk: Any, name: str, *module_names: str) -> Any:
+        value = getattr(sdk, name, None)
+        if value is not None:
+            return value
+        for module_name in module_names:
+            try:
+                module = importlib.import_module(module_name)
+            except ModuleNotFoundError:
+                continue
+            value = getattr(module, name, None)
+            if value is not None:
+                return value
+        return None
+
+    def _map_sdk_event(
+        self,
+        event: Any,
+        output_max_chars: int,
+    ) -> list[StreamChunk]:
+        nested = self._nested_event(event)
+        if nested is not None:
+            chunks = self._map_sdk_event(nested, output_max_chars)
+            if chunks:
+                return chunks
+
+        event_name = self._event_name(event)
+        if self._is_tool_call(event_name, event):
+            return [self._tool_call_chunk(event)]
+        if self._is_tool_result(event_name, event):
+            return [self._tool_result_chunk(event, output_max_chars)]
+        if event_name in SKIP_EVENT_NAMES:
+            return []
+
+        text = self._text_delta(event, event_name)
+        if text is None:
+            return []
+        return [StreamChunk(event_type="delta", text_delta=text)]
+
+    def _nested_event(self, event: Any) -> Any | None:
+        for name in ("data", "item"):
+            nested = self._field(event, (name,))
+            if nested is not None and nested is not event:
+                return nested
+        return None
+
+    def _event_name(self, event: Any) -> str:
+        value = self._field(event, ("type", "event_type", "kind"))
+        if isinstance(value, str):
+            return value.lower()
+        return type(event).__name__.lower()
+
+    def _is_tool_call(self, event_name: str, event: Any) -> bool:
+        item_type = self._string_field(event, ("item_type", "type"))
+        return event_name in TOOL_CALL_EVENT_NAMES or item_type == "tool_call_item"
+
+    def _is_tool_result(self, event_name: str, event: Any) -> bool:
+        item_type = self._string_field(event, ("item_type", "type"))
+        return event_name in TOOL_RESULT_EVENT_NAMES or item_type == "tool_call_output_item"
+
+    def _text_delta(self, event: Any, event_name: str) -> str | None:
+        if event_name not in TEXT_EVENT_NAMES and not event_name.endswith("text.delta"):
+            return None
+        value = self._field(event, ("text_delta", "delta", "text"))
+        return value if isinstance(value, str) and value else None
+
+    def _tool_call_chunk(self, event: Any) -> StreamChunk:
+        return StreamChunk(
+            event_type="tool_call",
+            call_id=self._string_field_deep(event, ("call_id", "id", "tool_call_id")),
+            tool_name=self._string_field_deep(event, ("tool_name", "name")),
+            tool_arguments=self._arguments_field(event),
+        )
+
+    def _tool_result_chunk(self, event: Any, output_max_chars: int) -> StreamChunk:
+        output = self._tool_output(event)
+        truncated_output = self._truncate(output, output_max_chars) if output is not None else None
+        return StreamChunk(
+            event_type="tool_result",
+            call_id=self._string_field_deep(event, ("call_id", "tool_call_id", "id")),
+            tool_status=self._tool_status(event),
+            tool_output=truncated_output,
+            tool_output_truncated=(
+                None
+                if output is None or truncated_output is None
+                else len(output) > len(truncated_output)
+            ),
+        )
+
+    def _field(self, event: Any, names: tuple[str, ...]) -> Any:
+        if isinstance(event, Mapping):
+            for name in names:
+                if name in event:
+                    return event[name]
+            return None
+        for name in names:
+            value = getattr(event, name, None)
+            if value is not None:
+                return value
+        return None
+
+    def _string_field(self, event: Any, names: tuple[str, ...]) -> str | None:
+        value = self._field(event, names)
+        if value is None:
+            return None
+        return value if isinstance(value, str) else str(value)
+
+    def _string_field_deep(self, event: Any, names: tuple[str, ...]) -> str | None:
+        for candidate in self._field_candidates(event):
+            value = self._string_field(candidate, names)
+            if value is not None:
+                return value
+        return None
+
+    def _field_deep(self, event: Any, names: tuple[str, ...]) -> Any:
+        for candidate in self._field_candidates(event):
+            value = self._field(candidate, names)
+            if value is not None:
+                return value
+        return None
+
+    def _field_candidates(self, event: Any) -> list[Any]:
+        candidates = [event]
+        for name in ("raw_item", "item", "data"):
+            nested = self._field(event, (name,))
+            if nested is not None and nested is not event:
+                candidates.append(nested)
+        return candidates
+
+    def _arguments_field(self, event: Any) -> dict[str, Any]:
+        value = self._field_deep(event, ("tool_arguments", "arguments", "input"))
+        if isinstance(value, Mapping):
+            return dict(value)
+        if not isinstance(value, str) or not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {"raw": value}
+        if isinstance(parsed, Mapping):
+            return dict(parsed)
+        return {"value": parsed}
+
+    def _tool_status(self, event: Any) -> Literal["ok", "error"]:
+        status = self._field_deep(event, ("tool_status", "status"))
+        if status == "error":
+            return "error"
+        is_error = self._field_deep(event, ("is_error", "error"))
+        return "error" if is_error is True else "ok"
+
+    def _tool_output(self, event: Any) -> str | None:
+        value = self._field_deep(event, ("tool_output", "output", "result", "content"))
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        if isinstance(value, Iterable) and not isinstance(value, Mapping):
+            return "".join(str(item) for item in value)
+        return json.dumps(value, ensure_ascii=False) if isinstance(value, Mapping) else str(value)
+
+    def _runtime_options(self, config: dict[str, Any]) -> dict[str, Any]:
+        options = config.get("runtime_options", {})
+        return dict(options) if isinstance(options, Mapping) else {}
+
+    def _sandbox_options(self, options_cls: Callable[..., Any], config: dict[str, Any]) -> Any:
+        runtime_options = self._runtime_options(config)
+        exposed_ports = runtime_options.get("exposed_ports", ())
+        if not isinstance(exposed_ports, tuple):
+            if isinstance(exposed_ports, list):
+                exposed_ports = tuple(int(port) for port in exposed_ports)
+            else:
+                exposed_ports = ()
+        return options_cls(exposed_ports=exposed_ports)
+
+    def _effective_instructions(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+    ) -> str:
+        lines: list[str] = []
+        effective_system = self.effective_system_prompt(system_prompt)
+        if effective_system:
+            lines.append(effective_system)
+        lines.extend(message.content for message in messages if message.role == "system")
+        return "\n\n".join(lines)
+
+    def _format_input(self, messages: list[ChatMessage]) -> str:
+        lines = [
+            f"{message.role.title()}: {message.content}"
+            for message in messages
+            if message.role != "system" and message.content
+        ]
+        return "\n\n".join(lines)
+
+    def _supported_kwargs(
+        self,
+        callable_obj: Callable[..., Any],
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            signature = inspect.signature(callable_obj)
+        except (TypeError, ValueError):
+            return kwargs
+        parameters = signature.parameters.values()
+        if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters):
+            return kwargs
+        names = set(signature.parameters)
+        return {key: value for key, value in kwargs.items() if key in names}
+
+    @staticmethod
+    def _float_config(value: object, default: float) -> float:
+        if value is None:
+            return default
+        try:
+            parsed = float(cast(Any, value))
+        except (TypeError, ValueError):
+            return default
+        return parsed if parsed > 0 else default
+
+    @staticmethod
+    def _truncate(value: str, max_chars: int) -> str:
+        if max_chars <= 0:
+            return ""
+        return value[:max_chars]
+
+    def _error(self, error_code: str, error: str) -> StreamChunk:
+        return StreamChunk(
+            event_type="error",
+            agent_id=self.agent_id,
+            error_code=error_code,
+            error=error,
+            metadata={"provider": self.provider},
+        )
+
+    def _classify_exception(self, exc: BaseException) -> str:
+        lowered = f"{exc.__class__.__name__}: {exc}".lower()
+        if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
+            return "missing_api_key"
+        return "external_runtime_error"
+
+    @staticmethod
+    def _safe_message(exc: BaseException) -> str:
+        return (str(exc) or exc.__class__.__name__)[:500]

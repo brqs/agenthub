@@ -2,10 +2,11 @@
 
 > 定义 B2 Provider Adapter 的 retry、timeout 和错误映射策略。
 > 本 Spec 服务于 B2-11，不修改 `BaseAgentAdapter`、`StreamChunk`、OpenAPI 或前端契约。
+> B2-20 之后，本 Spec 仅适用于 `agents/model_gateway/**` 与 legacy raw adapter shim；`claude` / `openai` / `deepseek` / `custom` 不再是顶层 AgentRegistry provider。
 
 ## 目标
 
-让 Claude / OpenAI / DeepSeek / Custom 适配器在上游不稳定时输出一致、可预测的 `StreamChunk`：
+让 legacy Claude / OpenAI / DeepSeek / Custom 适配器或 ModelGateway backend 在上游不稳定时输出一致、可预测的 `StreamChunk`：
 
 - 缺少 API key 时立即输出 `missing_api_key`。
 - rate limit 统一输出 `rate_limit`，默认不重试。

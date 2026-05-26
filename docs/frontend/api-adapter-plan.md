@@ -395,8 +395,16 @@ frontend/src/lib/adapters/agents.ts
 ```ts
 export interface CreateAgentInput {
   name: string;
-  provider: 'claude' | 'openai' | 'custom';
-  model: string;
+  provider: 'claude_code' | 'codex' | 'opencode' | 'builtin';
+  config: {
+    model_backend?: 'claude' | 'deepseek' | 'openai';
+    max_iterations?: number;
+    mcp_servers?: Record<string, unknown>[];
+    command?: string | string[];
+    args?: string[];
+    timeout_seconds?: number;
+    [key: string]: unknown;
+  };
   capabilities: string[];
   systemPrompt: string;
 }

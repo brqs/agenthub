@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-SUPPORTED_PROVIDER_MODELS: dict[str, set[str]] = {
-    "claude": {"claude-sonnet-4-6"},
-    "deepseek": {"deepseek-v4-flash", "deepseek-v4-pro"},
-    "openai": {"gpt-4o"},
-}
-
 SUPPORTED_UPSTREAM_PROVIDERS: set[str] = {"claude", "deepseek", "openai"}
+TOP_LEVEL_PROVIDERS: set[str] = {
+    "claude_code",
+    "codex",
+    "opencode",
+    "builtin",
+    "mock",
+}
 
 
 class AgentConfigValidationError(ValueError):
@@ -65,6 +66,55 @@ def _validate_numeric(
         )
 
 
+def _validate_string_list(config: dict[str, Any], key: str) -> None:
+    value = config.get(key)
+    if value is None:
+        return
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=f"'{key}' must be a list of strings",
+            details={"field": key, "value": value},
+        )
+
+
+def _validate_mcp_servers(config: dict[str, Any]) -> None:
+    value = config.get("mcp_servers")
+    if value is None:
+        return
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'mcp_servers' must be a list of objects",
+            details={"field": "mcp_servers", "value": value},
+        )
+
+
+def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> None:
+    _validate_numeric(config, "timeout_seconds", 1, 3600)
+    if provider == "opencode":
+        command = config.get("command")
+        if command is not None and not isinstance(command, str | list):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'command' must be a string or list",
+                details={"field": "command", "value": command},
+            )
+        _validate_string_list(config, "args")
+
+
+def _validate_builtin_config(config: dict[str, Any]) -> None:
+    model_backend = config.get("model_backend", "claude")
+    if not isinstance(model_backend, str) or model_backend not in SUPPORTED_UPSTREAM_PROVIDERS:
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported model_backend '{model_backend}'",
+            details={"model_backend": model_backend},
+        )
+    _validate_numeric(config, "max_iterations", 1, 50, allow_float=False)
+    _validate_mcp_servers(config)
+
+
 def validate_agent_config(
     *,
     provider: str,
@@ -82,92 +132,35 @@ def validate_agent_config(
             message="config must be an object",
         )
 
+    _ = system_prompt
     normalized = dict(config)
 
+    provider = provider.lower()
+
     # provider
-    if provider not in SUPPORTED_PROVIDER_MODELS and provider != "custom":
+    if provider not in TOP_LEVEL_PROVIDERS:
         raise AgentConfigValidationError(
             code="INVALID_PROVIDER",
             message=f"Unsupported provider '{provider}'",
             details={"provider": provider},
         )
 
-    # model
-    model = normalized.get("model")
-    if model is None or model == "":
-        raise AgentConfigValidationError(
-            code="INVALID_MODEL",
-            message="model is required and must be a non-empty string",
-            details={"provider": provider},
-        )
-    if not isinstance(model, str):
-        raise AgentConfigValidationError(
-            code="INVALID_MODEL",
-            message="model must be a string",
-            details={"provider": provider, "model": model},
-        )
+    if provider == "mock":
+        return normalized
 
-    # upstream_provider
-    upstream_provider = normalized.get("upstream_provider")
-    if upstream_provider is not None:
-        if not isinstance(upstream_provider, str):
-            raise AgentConfigValidationError(
-                code="INVALID_UPSTREAM_PROVIDER",
-                message="upstream_provider must be a string",
-                details={"upstream_provider": upstream_provider},
-            )
-        upstream_provider = upstream_provider.lower()
-        normalized["upstream_provider"] = upstream_provider
+    if provider in {"claude_code", "codex", "opencode"}:
+        _validate_external_runtime_config(provider, normalized)
+        return normalized
 
-    # provider-specific rules
-    if provider == "custom":
-        # system_prompt required
-        if not system_prompt or not isinstance(system_prompt, str) or system_prompt.strip() == "":
-            raise AgentConfigValidationError(
-                code="MISSING_SYSTEM_PROMPT",
-                message="custom agent requires a non-empty system_prompt",
-            )
+    if provider == "builtin":
+        _validate_builtin_config(normalized)
+        return normalized
 
-        # upstream_provider required
-        if upstream_provider is None:
-            raise AgentConfigValidationError(
-                code="INVALID_UPSTREAM_PROVIDER",
-                message="custom agent requires upstream_provider (claude or openai)",
-            )
-        if upstream_provider not in SUPPORTED_UPSTREAM_PROVIDERS:
-            raise AgentConfigValidationError(
-                code="INVALID_UPSTREAM_PROVIDER",
-                message=f"Unsupported upstream_provider '{upstream_provider}'",
-                details={"upstream_provider": upstream_provider},
-            )
-
-        # model validated against upstream provider
-        effective_model_provider = upstream_provider
-    else:
-        # direct providers should not carry upstream_provider
-        if upstream_provider is not None:
-            raise AgentConfigValidationError(
-                code="INVALID_AGENT_CONFIG",
-                message=f"provider '{provider}' does not allow upstream_provider",
-                details={"provider": provider},
-            )
-        effective_model_provider = provider
-
-    # model whitelist
-    supported_models = SUPPORTED_PROVIDER_MODELS.get(effective_model_provider, set())
-    if model not in supported_models:
-        raise AgentConfigValidationError(
-            code="INVALID_MODEL",
-            message=f"Unsupported model '{model}' for provider '{effective_model_provider}'",
-            details={"provider": effective_model_provider, "model": model},
-        )
-
-    # numeric fields
-    _validate_numeric(normalized, "temperature", 0, 2)
-    _validate_numeric(normalized, "max_tokens", 1, 16384, allow_float=False)
-    _validate_numeric(normalized, "top_p", 0, 1)
-
-    return normalized
+    raise AgentConfigValidationError(
+        code="INVALID_PROVIDER",
+        message=f"Unsupported provider '{provider}'",
+        details={"provider": provider},
+    )
 
 
 def merge_agent_config(

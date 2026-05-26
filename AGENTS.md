@@ -22,11 +22,11 @@
 
 ## 1. 项目速览（30 秒读完）
 
-**AgentHub** 是一个 IM 聊天式的多 Agent 协作平台。用户像聊微信一样与多个**具备工具与执行能力的真 Agent**（外部 Claude Code / Codex、团队自建 Agent）协作，由主 Agent（Orchestrator）协调任务分派，Agent 产出代码、网页、文档等可交付物，在聊天流中实时预览、二次编辑。
+**AgentHub** 是一个 IM 聊天式的多 Agent 协作平台。用户像聊微信一样与多个**具备工具与执行能力的真 Agent**（外部 Claude Code / Codex / OpenCode、团队自建 Agent）协作，由主 Agent（Orchestrator）协调任务分派，Agent 产出代码、网页、文档等可交付物，在聊天流中实时预览、二次编辑。
 
 - **比赛项目**，3 人团队，14 天交付
 - **核心交互**：IM 范式 + SSE 流式响应 + 多 Agent 编排 + Workspace 沙箱产物
-- **技术栈**：React + Vite（前端）、FastAPI + PostgreSQL（后端）、Claude Agent SDK + OpenAI Agents SDK + MCP（Agent runtime）
+- **技术栈**：React + Vite（前端）、FastAPI + PostgreSQL（后端）、Claude Agent SDK + OpenAI Agents SDK + OpenCode CLI + MCP（Agent runtime）
 - **架构核心**：三层 Agent（External / Builtin / ModelGateway）+ 统一 BaseAgentAdapter v2 契约 + OpenAPI 契约驱动前后端
 
 详细背景见 [docs/development-plan.md](docs/development-plan.md) 和 [docs/product-design.md](docs/product-design.md)。
@@ -42,7 +42,7 @@
   B1 → 后端核心平台 + 沙箱     → backend/app/{core,models,services,api}/**
                                   + 新增：backend/app/workspaces/**（Workspace 服务 + Artifact API）
   B2 → Agent Runtime Layer    → backend/app/agents/**
-                                  ├── external/          外部 Agent SDK 嵌入（Claude Agent / Codex）
+                                  ├── external/          外部 Agent runtime 嵌入（Claude Code / Codex / OpenCode）
                                   ├── builtin/           自建 Agent Framework（loop + tools + mcp）
                                   ├── model_gateway/     原 raw LLM Adapter 迁移而来（底座）
                                   └── orchestrator.py    保留
@@ -80,6 +80,7 @@ passlib[bcrypt]         (密码哈希)
 sse-starlette           (SSE)
 claude-agent-sdk        (Claude Code agent runtime 嵌入)
 openai-agents           (OpenAI Agents SDK / Codex 嵌入)
+opencode                (OpenCode CLI — subprocess runtime)
 mcp                     (MCP Python SDK — stdio transport)
 anthropic / openai      (LLM SDK — 仅 ModelGateway 内部使用，禁止直接 import)
 pytest + pytest-asyncio (测试)
@@ -212,7 +213,7 @@ agenthub/
 │       └── agents/      【B2】Agent Runtime Layer
 │           ├── base.py / types.py / registry.py / orchestrator.py
 │           ├── artifact_parser.py
-│           ├── external/        外部 Agent SDK 嵌入（Claude Agent / Codex）
+│           ├── external/        外部 Agent runtime 嵌入（Claude Code / Codex / OpenCode）
 │           ├── builtin/         自建 Agent Framework（loop / tools / mcp）
 │           └── model_gateway/   原 raw LLM Adapter 迁移而来（仅 builtin 内部使用）
 └── frontend/
@@ -394,7 +395,7 @@ export function MessageBubble(props: any) {
 - 修复一处但放过相同模式的其他位置
 ```
 
-### 7.6 添加新 ExternalAgentAdapter（嵌入第三方 agent runtime SDK）
+### 7.6 添加新 ExternalAgentAdapter（嵌入第三方 agent runtime SDK / CLI）
 
 ```
 任务：添加 <RuntimeName>（如 OpenCode、Codex 等）的 ExternalAgentAdapter。
@@ -405,13 +406,13 @@ export function MessageBubble(props: any) {
 
 要求：
 1. 在 backend/app/agents/external/ 下创建 <runtime>.py
-2. 继承 BaseAgentAdapter v2，实现 stream()；workspace_path 透传给 SDK 作为 cwd
-3. 把 SDK 原生流事件完整映射到 StreamChunk（含 tool_call / tool_result，保持 call_id 配对）
+2. 继承 BaseAgentAdapter v2，实现 stream()；workspace_path 透传给 SDK / CLI 作为 cwd
+3. 把 SDK / CLI 原生流事件完整映射到 StreamChunk（含 tool_call / tool_result，保持 call_id 配对）
 4. 错误映射到标准 error_code（external_runtime_error / workspace_violation 等）
-5. 在 backend/app/agents/registry.py 注册到 EXTERNAL_RUNTIME_MAP
-6. 单元测试（mock SDK + 覆盖 tool_call 透传 + 错误映射）
+5. 在 `backend/app/agents/registry.py` 的顶层 `PROVIDER_MAP` 中注册 provider
+6. 单元测试（mock SDK / fake subprocess + 覆盖 tool_call 透传 + 错误映射）
 7. 验证：端到端真 Agent 写文件 → workspace 可见 → 前端 ToolCallBlock 渲染
-注意：❌ 不要在 ExternalAgentAdapter 内自实现 loop / tool registry（由第三方 SDK 提供）。
+注意：❌ 不要在 ExternalAgentAdapter 内自实现 loop / tool registry（由第三方 runtime 提供）。
 ```
 
 ### 7.7 添加新 Tool 到 BuiltinAgent ToolRegistry
