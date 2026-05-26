@@ -998,3 +998,73 @@
   - Agent 详情面板加编辑/删除按钮 + 调 `PATCH/DELETE /agents/{id}`
   - 错误消息重试按钮 → `POST /messages/{id}/regenerate`
 - 接下来必须等后端：完整 E2E 跑通 Auth → 列表 → 发消息 → SSE 流。
+
+---
+
+## 2026-05-26 — Markdown / 公式渲染重构
+
+### 改动范围
+- `frontend/src/components/blocks/TextBlock.tsx`
+- `frontend/src/components/blocks/TextBlock.test.tsx`
+- `frontend/src/styles/globals.css`
+
+### 更新内容
+- **公式分隔符适配**：保留 `remark-math` 解析，新增聊天模型输出规范化层，兼容 `\( ... \)`、`\[ ... \]`、`$...$`、`$$...$$`。
+- **避开代码区域**：规范化公式前先跳过 fenced code block 和 inline code，避免代码里的 `$12`、`\(x+y\)` 被误识别为公式。
+- **流式容错**：streaming 状态下遇到未闭合 `$` / `$$` 时先转义为普通文本，避免半截公式导致 KaTeX 报错或布局抖动。
+- **KaTeX 渲染链路修正**：放弃 `rehype-katex` 直接接入 `react-markdown` 的路径，改为在 `code` renderer 中调用 `katex.renderToString`，保留 KaTeX 生成的 `top/height` inline style，修复上下标、cases、分式、求和上下限错位。
+- **长公式布局**：将 `.katex-display` 限定在 `.agent-markdown` 下，块级公式在聊天气泡内横向滚动，不撑破消息区。
+- **浅色主题修复**：补齐 `bg-slate-900/75` 的 light-mode 映射，避免 Agent Markdown 气泡出现深底黑字、公式不可读。
+
+### 验证方式
+- `pnpm vitest run src/components/blocks/TextBlock.test.tsx` ✅ 6/6
+- `pnpm lint` ✅
+- `pnpm build` ✅
+- 浏览器打开 `/markdown-test` 检查：KaTeX 正常渲染，长公式容器 `overflow-x: auto`，页面未出现横向撑宽。
+
+### 后续事项
+- 如后续接入 `CodeBlock` 独立高亮渲染到 Markdown fenced code，可复用当前“先保护代码区域，再处理公式”的策略。
+- 若真实 SSE 仍出现特殊公式分隔符（例如模型输出 `\begin{equation}` 裸块），再补一层专门的 delimiter normalization。
+
+---
+
+## 2026-05-26 — 会话列表悬浮操作按钮优化
+
+### 改动范围
+- `frontend/src/components/conversation/ConversationItem.tsx`
+- `frontend/src/components/conversation/ConversationItem.test.tsx`
+
+### 更新内容
+- **操作按钮合并**：将会话条目里的 Pin 与 Archive/Restore 合并为右上角同一个 hover/focus action group。
+- **右侧槽位复用**：普通状态下右侧固定槽位显示最后消息时间，hover 或键盘 focus-within 时切换为 Pin 与 Archive。
+- **摘要显示优化**：右侧时间槽位只影响标题行，agent/meta 与 preview 行释放完整宽度，摘要可显示更长。
+- **点击隔离**：点击 Pin / Archive 不触发会话选择。
+- **浅色模式优化**：会话 active/hover、操作按钮背景、文字、ring 都改为显式 light/dark 样式，避免浅色模式下出现突兀黑色浮块。
+
+### 验证方式
+- `pnpm vitest run src/components/conversation/ConversationItem.test.tsx src/pages/ArchivePage.test.tsx` ✅ 4/4
+- `pnpm lint` ✅
+- `pnpm build` ✅
+
+---
+
+## 2026-05-26 — 会话侧边栏可折叠
+
+### 改动范围
+- `frontend/src/stores/uiStore.ts`
+- `frontend/src/stores/uiStore.test.ts`
+- `frontend/src/pages/ChatPage.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.tsx`
+- `frontend/src/components/chat/ChatHeader.tsx`
+
+### 更新内容
+- **会话历史可折叠**：ConversationSidebar 顶部新增“收起会话列表”按钮，收起后主聊天区自动变宽。
+- **Header 展开入口**：侧边栏折叠时，ChatHeader 标题左侧显示“展开会话列表”按钮，避免用户找不到恢复入口。
+- **状态持久化**：`uiStore` 新增 `conversationSidebarCollapsed`，并写入 `agenthub-ui` localStorage，刷新后保持上次展开/折叠状态。
+- **测试覆盖**：补充 uiStore 折叠状态切换测试。
+
+### 验证方式
+- `pnpm vitest run src/stores/uiStore.test.ts src/components/conversation/ConversationItem.test.tsx` ✅ 5/5
+- `pnpm lint` ✅
+- `pnpm build` ✅
+- 浏览器打开 `/chat/conv-markdown-test` 验证：收起 → Header 出现展开按钮 → 刷新后保持折叠 → 展开恢复。

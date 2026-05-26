@@ -15,6 +15,7 @@ import { useMessages } from '@/hooks/useMessages';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useStream } from '@/hooks/useStream';
 import { useChatStore } from '@/stores/chatStore';
+import { useUiStore } from '@/stores/uiStore';
 
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
@@ -35,6 +36,8 @@ export function ChatPage() {
   const toggleMessagePin = useChatStore((state) => state.toggleMessagePin);
   const toggleConversationPin = useChatStore((state) => state.toggleConversationPin);
   const toggleConversationArchive = useChatStore((state) => state.toggleConversationArchive);
+  const conversationSidebarCollapsed = useUiStore((state) => state.conversationSidebarCollapsed);
+  const setConversationSidebarCollapsed = useUiStore((state) => state.setConversationSidebarCollapsed);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
 
   const visibleConversations = conversations.filter((item) => !item.is_archived);
@@ -70,20 +73,27 @@ export function ChatPage() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950">
-      <ConversationSidebar
-        conversations={visibleConversations}
-        selectedConversationId={conversation?.id ?? ''}
-        search={search}
-        onSearch={setSearch}
-        onSelect={selectConversation}
-        onNewConversation={() => setNewConversationOpen(true)}
-        onTogglePin={toggleConversationPin}
-        onToggleArchive={toggleConversationArchive}
-      />
+      {!conversationSidebarCollapsed && (
+        <ConversationSidebar
+          conversations={visibleConversations}
+          selectedConversationId={conversation?.id ?? ''}
+          search={search}
+          onSearch={setSearch}
+          onSelect={selectConversation}
+          onNewConversation={() => setNewConversationOpen(true)}
+          onCollapse={() => setConversationSidebarCollapsed(true)}
+          onTogglePin={toggleConversationPin}
+          onToggleArchive={toggleConversationArchive}
+        />
+      )}
       <section className="flex min-w-0 flex-1 flex-col">
         {conversation ? (
           <>
-            <ChatHeader conversation={conversation} />
+            <ChatHeader
+              conversation={conversation}
+              sidebarCollapsed={conversationSidebarCollapsed}
+              onExpandSidebar={() => setConversationSidebarCollapsed(false)}
+            />
             <StreamingStatusBar messages={messages} />
             <MessageList
               messages={messages}

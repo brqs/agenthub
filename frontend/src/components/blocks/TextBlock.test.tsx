@@ -48,4 +48,52 @@ x \\equiv \\sum_{i=1}^k a_i M_i y_i \\pmod M
 
     expect(screen.getByText(/正在输出公式/)).toBeInTheDocument();
   });
+
+  it('does not parse math delimiters inside code spans or fenced code blocks', () => {
+    const { container } = render(
+      <TextBlock
+        text={`行内代码：\`price = "$12"\`
+
+\`\`\`tsx
+const formula = "\\\\(x+y\\\\)";
+\`\`\`
+
+正文公式：\\(x+y\\)`}
+      />,
+    );
+
+    expect(screen.getByText('price = "$12"')).toBeInTheDocument();
+    expect(screen.getByText(/const formula/)).toBeInTheDocument();
+    expect(container.querySelectorAll('.katex')).toHaveLength(1);
+  });
+
+  it('keeps long display formulas in a scrollable KaTeX display container', () => {
+    const { container } = render(
+      <TextBlock
+        text={String.raw`\[
+\mathcal{L}(\theta)= -\sum_{i=1}^{n}\sum_{j=1}^{m} y_{ij}\log\left(\frac{\exp(z_{ij}/\tau)}{\sum_{k=1}^{m}\exp(z_{ik}/\tau)}\right)+\lambda\left\|\theta\right\|_2^2
+\]`}
+      />,
+    );
+
+    const displayMath = container.querySelector('.katex-display');
+    expect(displayMath).toBeInTheDocument();
+    expect(displayMath?.textContent).toContain('L');
+  });
+
+  it('preserves KaTeX inline positioning styles for stacked formulas', () => {
+    const { container } = render(
+      <TextBlock
+        text={String.raw`\[
+\begin{cases}
+x \equiv 2 \pmod{3}\\
+x \equiv 3 \pmod{5}
+\end{cases}
+\]`}
+      />,
+    );
+
+    expect(container.querySelector('.katex .pstrut')).toHaveAttribute('style');
+    expect(container.querySelector('.katex .vlist > span')).toHaveAttribute('style');
+  });
 });

@@ -123,10 +123,18 @@
    * The only global tweak we need is letting long display-math formulas
    * scroll horizontally inside the chat bubble instead of overflowing.
    */
-  .katex-display {
+  .agent-markdown .katex-display {
     max-width: 100%;
+    margin: 0.85rem 0;
     overflow-x: auto;
     overflow-y: hidden;
+    padding: 0.25rem 0;
+    text-align: center;
+  }
+
+  .agent-markdown .katex-error {
+    color: #fca5a5;
+    white-space: normal;
   }
 }
 
@@ -157,6 +165,10 @@
 
   html:not(.dark) .bg-slate-900\/70 {
     @apply bg-white/80;
+  }
+
+  html:not(.dark) .bg-slate-900\/75 {
+    @apply bg-white/90;
   }
 
   html:not(.dark) .bg-slate-900\/60 {
