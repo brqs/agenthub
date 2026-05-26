@@ -12,12 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.deps import DbSession, get_current_user
 from app.models.agent import Agent
 from app.models.conversation import Conversation
+from app.models.conversation_memory import ConversationMemory
 from app.models.user import User
 from app.schemas.conversation import (
     ConversationList,
+    ConversationMemoryOut,
     ConversationOut,
     CreateConversationRequest,
     UpdateConversationRequest,
@@ -156,6 +159,27 @@ async def get_conversation(
 ) -> ConversationOut:
     conv = await _get_owned_conversation(db, user.id, conv_id)
     return ConversationOut.model_validate(conv)
+
+
+@router.get("/{conv_id}/memory", response_model=ConversationMemoryOut)
+async def get_conversation_memory(
+    conv_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> ConversationMemoryOut:
+    if not settings.is_development:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Not found"}},
+        )
+    await _get_owned_conversation(db, user.id, conv_id)
+    memory = await db.get(ConversationMemory, conv_id)
+    if not memory:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "MEMORY_NOT_FOUND", "message": "Not found"}},
+        )
+    return ConversationMemoryOut.model_validate(memory)
 
 
 @router.patch("/{conv_id}", response_model=ConversationOut)
