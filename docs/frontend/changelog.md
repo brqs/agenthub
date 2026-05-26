@@ -1085,3 +1085,19 @@
 - `pnpm vitest run src/components/blocks/ContentRenderer.test.tsx` ✅
 - `pnpm lint` ✅
 - `pnpm build` ✅
+
+---
+
+## 2026-05-26 — CodeBlock 浅色模式高亮优化
+
+### 改动范围
+- `frontend/src/components/blocks/CodeBlock.tsx`
+
+### 更新内容
+- **按主题切换 Shiki**：浅色模式使用 `github-light`，深色模式继续使用 `github-dark`，避免浅色背景上使用深色主题 token 导致颜色过淡。
+- **代码块外壳双主题**：容器、header、语言标签、复制按钮、fallback 文本均改为显式 light/dark 配色。
+
+### 验证方式
+- `pnpm vitest run src/components/blocks/ContentRenderer.test.tsx` ✅
+- `pnpm lint` ✅
+- `pnpm build` ✅

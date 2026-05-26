@@ -10,6 +10,8 @@ import tsx from 'shiki/langs/tsx.mjs';
 import typescript from 'shiki/langs/typescript.mjs';
 import yaml from 'shiki/langs/yaml.mjs';
 import githubDark from 'shiki/themes/github-dark.mjs';
+import githubLight from 'shiki/themes/github-light.mjs';
+import { useUiStore } from '@/stores/uiStore';
 
 type SupportedLanguage = 'css' | 'html' | 'javascript' | 'json' | 'markdown' | 'tsx' | 'typescript' | 'yaml';
 
@@ -29,7 +31,7 @@ const SUPPORTED_LANGUAGES = new Set<string>([
 ]);
 
 const highlighterPromise = createHighlighterCore({
-  themes: [githubDark],
+  themes: [githubDark, githubLight],
   langs: [css, html, javascript, json, markdown, tsx, typescript, yaml],
   engine: createJavaScriptRegexEngine(),
 });
@@ -45,6 +47,7 @@ function normalizeLanguage(language: string): SupportedLanguage {
 }
 
 export function CodeBlock({ language, code }: { language: string; code: string }) {
+  const theme = useUiStore((state) => state.theme);
   const [copied, setCopied] = useState(false);
   const [highlighted, setHighlighted] = useState<string | null>(null);
 
@@ -56,7 +59,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
         const highlighter = await highlighterPromise;
         const html = highlighter.codeToHtml(code, {
           lang: normalizeLanguage(language || 'markdown'),
-          theme: 'github-dark',
+          theme: theme === 'dark' ? 'github-dark' : 'github-light',
         });
         if (!cancelled) setHighlighted(html);
       } catch {
@@ -69,7 +72,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
     return () => {
       cancelled = true;
     };
-  }, [code, language]);
+  }, [code, language, theme]);
 
   async function copyCode() {
     try {
@@ -82,9 +85,9 @@ export function CodeBlock({ language, code }: { language: string; code: string }
   }
 
   return (
-    <div className="my-3 min-w-0 overflow-hidden rounded-md border border-slate-700 bg-slate-950">
-      <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+    <div className="my-3 min-w-0 overflow-hidden rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-950">
+      <div className="flex items-center justify-between border-b border-slate-300 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
+        <span className="text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-400">
           {language || 'text'}
         </span>
         <button
@@ -92,7 +95,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
           onClick={copyCode}
           title={copied ? '代码已复制' : '复制代码'}
           aria-label={copied ? '代码已复制' : '复制代码'}
-          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-white"
+          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? '已复制' : '复制'}
@@ -104,7 +107,7 @@ export function CodeBlock({ language, code }: { language: string; code: string }
           dangerouslySetInnerHTML={{ __html: highlighted }}
         />
       ) : (
-        <pre className="scrollbar-hidden max-h-80 min-w-0 overflow-auto p-4 text-sm leading-6 text-slate-200">
+        <pre className="scrollbar-hidden max-h-80 min-w-0 overflow-auto p-4 text-sm leading-6 text-slate-800 dark:text-slate-200">
           <code className="font-mono">{code}</code>
         </pre>
       )}
