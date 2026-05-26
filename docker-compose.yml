@@ -46,6 +46,7 @@ services:
       - ./backend/tests:/app/tests
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
+      - ./workspaces:/workspaces
     depends_on:
       postgres:
         condition: service_healthy

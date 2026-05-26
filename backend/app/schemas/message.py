@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,8 +46,19 @@ class FileBlock(BaseModel):
     mime_type: str
 
 
+class ToolCallBlock(BaseModel):
+    type: Literal["tool_call"] = "tool_call"
+    call_id: str
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    status: Literal["pending", "ok", "error"]
+    output_preview: str | None = None
+    output_truncated: bool | None = None
+    error_code: str | None = None
+
+
 ContentBlock = Annotated[
-    TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock,
+    TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock | ToolCallBlock,
     Field(discriminator="type"),
 ]
 

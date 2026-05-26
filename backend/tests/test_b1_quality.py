@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -397,8 +398,11 @@ async def test_stream_adapter_error_chunk_marks_message_error(
         async def stream(
             self,
             messages: list[Any],
+            *,
             system_prompt: str | None = None,
             config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
         ) -> AsyncIterator[Any]:
             from app.agents.types import StreamChunk
 
@@ -456,8 +460,11 @@ async def test_stream_adapter_exception_marks_message_error_and_preserves_partia
         async def stream(
             self,
             messages: list[Any],
+            *,
             system_prompt: str | None = None,
             config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
         ) -> AsyncIterator[Any]:
             from app.agents.types import StreamChunk
 

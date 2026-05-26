@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -115,8 +116,11 @@ async def test_stream_persists_diff_block(
         async def stream(
             self,
             messages: list[Any],
+            *,
             system_prompt: str | None = None,
             config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
         ) -> AsyncIterator[Any]:
             yield StreamChunk(event_type="start")
             yield StreamChunk(
@@ -172,8 +176,11 @@ async def test_stream_persists_web_preview_block(
         async def stream(
             self,
             messages: list[Any],
+            *,
             system_prompt: str | None = None,
             config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
         ) -> AsyncIterator[Any]:
             yield StreamChunk(event_type="start")
             yield StreamChunk(

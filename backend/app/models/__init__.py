@@ -5,5 +5,6 @@ from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
 from app.models.message import Message
 from app.models.user import User
+from app.models.workspace import Workspace
 
-__all__ = ["Agent", "Conversation", "ConversationMemory", "Message", "User"]
+__all__ = ["Agent", "Conversation", "ConversationMemory", "Message", "User", "Workspace"]
