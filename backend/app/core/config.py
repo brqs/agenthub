@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     deepseek_base_url: str = Field(default="https://api.deepseek.com")
     openai_base_url: str = Field(default="")
 
+    # ─── Context Compression ───
+    context_compression_mode: str = Field(default="hybrid")
+    context_compression_provider: str = Field(default="deepseek")
+    context_compression_model: str = Field(default="deepseek-v4-flash")
+    context_compression_api_key: str = Field(default="")
+    context_compression_base_url: str = Field(default="")
+    context_summary_max_tokens: int = Field(default=1200)
+    context_recent_raw_keep: int = Field(default=12)
+
     # ─── CORS ───
     cors_origins: str = Field(default="http://localhost:5173")
 
