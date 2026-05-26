@@ -1101,3 +1101,20 @@
 - `pnpm vitest run src/components/blocks/ContentRenderer.test.tsx` ✅
 - `pnpm lint` ✅
 - `pnpm build` ✅
+
+---
+
+## 2026-05-26 — 用户消息气泡紧凑化
+
+### 改动范围
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/styles/globals.css`
+
+### 更新内容
+- **内容自适应宽度**：用户消息气泡改为按内容收缩，短消息不再撑成大块紫色卡片。
+- **消息内边距收紧**：用户气泡里的 Markdown 段落去掉首尾多余 margin，多段消息保留轻量间距。
+- **Pin 操作降噪**：未 Pin 的消息默认隐藏 Pin 按钮，hover/focus 时出现，已 Pin 消息保持可见。
+
+### 验证方式
+- `pnpm lint` ✅
+- `pnpm build` ✅
