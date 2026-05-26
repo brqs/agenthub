@@ -17,286 +17,157 @@ from app.seeds.seed_agents import BUILTIN_AGENTS
 
 
 class TestValidConfigs:
-    def test_valid_claude_config(self) -> None:
-        config = {"model": "claude-sonnet-4-6", "temperature": 0.7, "max_tokens": 4096}
+    def test_valid_claude_code_config(self) -> None:
+        config = {"sdk_options": {}}
         result = validate_agent_config(
-            provider="claude",
+            provider="claude_code",
             config=config,
             system_prompt=None,
         )
-        assert result["model"] == "claude-sonnet-4-6"
-        assert result["temperature"] == 0.7
-        assert result["max_tokens"] == 4096
+        assert result == {"sdk_options": {}}
 
-    def test_valid_openai_config(self) -> None:
-        config = {"model": "gpt-4o", "temperature": 0.7, "max_tokens": 4096}
+    def test_valid_codex_config(self) -> None:
+        config = {"model": "gpt-4.1", "timeout_seconds": 120}
         result = validate_agent_config(
-            provider="openai",
+            provider="codex",
             config=config,
             system_prompt=None,
         )
-        assert result["model"] == "gpt-4o"
-        assert result["temperature"] == 0.7
-        assert result["max_tokens"] == 4096
+        assert result["model"] == "gpt-4.1"
+        assert result["timeout_seconds"] == 120
 
-    def test_valid_deepseek_config(self) -> None:
-        config = {"model": "deepseek-v4-flash", "temperature": 0.7, "max_tokens": 4096}
+    def test_valid_opencode_config(self) -> None:
+        config = {"command": "opencode", "args": ["run", "--jsonl"], "timeout_seconds": 120}
         result = validate_agent_config(
-            provider="deepseek",
+            provider="opencode",
             config=config,
             system_prompt=None,
         )
-        assert result["model"] == "deepseek-v4-flash"
-        assert result["temperature"] == 0.7
-        assert result["max_tokens"] == 4096
+        assert result["command"] == "opencode"
+        assert result["args"] == ["run", "--jsonl"]
+
+    def test_valid_builtin_config(self) -> None:
+        config = {"model_backend": "claude", "max_iterations": 10, "mcp_servers": []}
+        result = validate_agent_config(
+            provider="builtin",
+            config=config,
+            system_prompt=None,
+        )
+        assert result == config
 
 
-class TestCustomAgentRules:
-    def test_custom_config_requires_system_prompt_none(self) -> None:
+class TestLegacyProviderRules:
+    @pytest.mark.parametrize("provider", ["claude", "openai", "deepseek", "custom"])
+    def test_legacy_raw_provider_rejected_for_top_level_agent(self, provider: str) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="custom",
+                provider=provider,
                 config={"model": "claude-sonnet-4-6", "upstream_provider": "claude"},
-                system_prompt=None,
+                system_prompt="legacy prompt",
             )
-        assert exc_info.value.code == "MISSING_SYSTEM_PROMPT"
-
-    def test_custom_config_requires_system_prompt_empty(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="custom",
-                config={"model": "claude-sonnet-4-6", "upstream_provider": "claude"},
-                system_prompt="",
-            )
-        assert exc_info.value.code == "MISSING_SYSTEM_PROMPT"
-
-    def test_custom_config_requires_system_prompt_whitespace(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="custom",
-                config={"model": "claude-sonnet-4-6", "upstream_provider": "claude"},
-                system_prompt="   ",
-            )
-        assert exc_info.value.code == "MISSING_SYSTEM_PROMPT"
-
-    def test_custom_config_requires_upstream_provider(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="custom",
-                config={"model": "claude-sonnet-4-6"},
-                system_prompt="You are a test agent.",
-            )
-        assert exc_info.value.code == "INVALID_UPSTREAM_PROVIDER"
-
-    def test_custom_config_accepts_claude_upstream(self) -> None:
-        config = {"model": "claude-sonnet-4-6", "upstream_provider": "claude"}
-        result = validate_agent_config(
-            provider="custom",
-            config=config,
-            system_prompt="You are a test agent.",
-        )
-        assert result["upstream_provider"] == "claude"
-        assert result["model"] == "claude-sonnet-4-6"
-
-    def test_custom_config_accepts_openai_upstream(self) -> None:
-        config = {"model": "gpt-4o", "upstream_provider": "openai"}
-        result = validate_agent_config(
-            provider="custom",
-            config=config,
-            system_prompt="You are a test agent.",
-        )
-        assert result["upstream_provider"] == "openai"
-        assert result["model"] == "gpt-4o"
-
-    def test_custom_config_accepts_deepseek_upstream(self) -> None:
-        config = {"model": "deepseek-v4-pro", "upstream_provider": "deepseek"}
-        result = validate_agent_config(
-            provider="custom",
-            config=config,
-            system_prompt="You are a test agent.",
-        )
-        assert result["upstream_provider"] == "deepseek"
-        assert result["model"] == "deepseek-v4-pro"
-
-    def test_custom_model_validated_against_upstream(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="custom",
-                config={"model": "claude-sonnet-4-6", "upstream_provider": "openai"},
-                system_prompt="You are a test agent.",
-            )
-        assert exc_info.value.code == "INVALID_MODEL"
-
-    def test_upstream_provider_case_insensitive_and_normalized(self) -> None:
-        config = {"model": "gpt-4o", "upstream_provider": "OpenAI"}
-        result = validate_agent_config(
-            provider="custom",
-            config=config,
-            system_prompt="You are a test agent.",
-        )
-        assert result["upstream_provider"] == "openai"
-
-
-class TestDirectProviderRules:
-    def test_direct_provider_rejects_upstream_provider_claude(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "upstream_provider": "openai"},
-                system_prompt=None,
-            )
-        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
-
-    def test_direct_provider_rejects_upstream_provider_openai(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="openai",
-                config={"model": "gpt-4o", "upstream_provider": "claude"},
-                system_prompt=None,
-            )
-        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
-
-    def test_direct_provider_rejects_upstream_provider_deepseek(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="deepseek",
-                config={
-                    "model": "deepseek-v4-flash",
-                    "upstream_provider": "openai",
-                },
-                system_prompt=None,
-            )
-        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert exc_info.value.code == "INVALID_PROVIDER"
 
 
 class TestModelValidation:
-    def test_missing_model_rejected_none(self) -> None:
+    def test_invalid_builtin_model_backend_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"temperature": 0.7},
+                provider="builtin",
+                config={"model_backend": "custom"},
                 system_prompt=None,
             )
-        assert exc_info.value.code == "INVALID_MODEL"
+        assert exc_info.value.code == "INVALID_MODEL_BACKEND"
 
-    def test_missing_model_rejected_empty(self) -> None:
+    def test_invalid_opencode_args_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": ""},
+                provider="opencode",
+                config={"args": "run"},
                 system_prompt=None,
             )
-        assert exc_info.value.code == "INVALID_MODEL"
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
-    def test_deepseek_unsupported_model_rejected(self) -> None:
+    def test_invalid_mcp_servers_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="deepseek",
-                config={"model": "deepseek-chat"},
+                provider="builtin",
+                config={"mcp_servers": ["fs"]},
                 system_prompt=None,
             )
-        assert exc_info.value.code == "INVALID_MODEL"
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
 
 class TestNumericValidation:
-    def test_temperature_zero_is_allowed(self) -> None:
-        config = {"model": "claude-sonnet-4-6", "temperature": 0}
+    def test_timeout_one_is_allowed(self) -> None:
+        config = {"timeout_seconds": 1}
         result = validate_agent_config(
-            provider="claude",
+            provider="codex",
             config=config,
             system_prompt=None,
         )
-        assert result["temperature"] == 0
+        assert result["timeout_seconds"] == 1
 
-    def test_temperature_out_of_range_rejected_negative(self) -> None:
+    def test_timeout_out_of_range_rejected_negative(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "temperature": -0.1},
+                provider="codex",
+                config={"timeout_seconds": -0.1},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
-    def test_temperature_out_of_range_rejected_over(self) -> None:
+    def test_timeout_out_of_range_rejected_over(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "temperature": 2.1},
+                provider="opencode",
+                config={"timeout_seconds": 4000},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
-    def test_max_tokens_out_of_range_rejected_zero(self) -> None:
+    def test_max_iterations_out_of_range_rejected_zero(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "max_tokens": 0},
+                provider="builtin",
+                config={"max_iterations": 0},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
-    def test_max_tokens_out_of_range_rejected_large(self) -> None:
+    def test_max_iterations_out_of_range_rejected_large(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "max_tokens": 20000},
+                provider="builtin",
+                config={"max_iterations": 100},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
-    def test_max_tokens_float_rejected(self) -> None:
+    def test_max_iterations_float_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "max_tokens": 1.5},
+                provider="builtin",
+                config={"max_iterations": 1.5},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "integer" in exc_info.value.message
 
-    def test_top_p_out_of_range_rejected_negative(self) -> None:
+    def test_timeout_bool_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "top_p": -0.1},
-                system_prompt=None,
-            )
-        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
-
-    def test_top_p_out_of_range_rejected_over(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "top_p": 1.1},
-                system_prompt=None,
-            )
-        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
-
-    def test_temperature_bool_rejected(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "temperature": True},
+                provider="claude_code",
+                config={"timeout_seconds": True},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "boolean" in exc_info.value.message
 
-    def test_max_tokens_bool_rejected(self) -> None:
+    def test_max_iterations_bool_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "max_tokens": True},
-                system_prompt=None,
-            )
-        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
-        assert "boolean" in exc_info.value.message
-
-    def test_top_p_bool_rejected(self) -> None:
-        with pytest.raises(AgentConfigValidationError) as exc_info:
-            validate_agent_config(
-                provider="claude",
-                config={"model": "claude-sonnet-4-6", "top_p": False},
+                provider="builtin",
+                config={"max_iterations": False},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
@@ -305,10 +176,10 @@ class TestNumericValidation:
 
 class TestImmutability:
     def test_validation_does_not_mutate_input_config(self) -> None:
-        original = {"model": "claude-sonnet-4-6", "temperature": 0.7}
+        original = {"model_backend": "claude", "max_iterations": 10}
         config_copy = dict(original)
         validate_agent_config(
-            provider="claude",
+            provider="builtin",
             config=config_copy,
             system_prompt=None,
         )
@@ -319,7 +190,7 @@ class TestConfigType:
     def test_config_none_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
-                provider="claude",
+                provider="builtin",
                 config=None,  # type: ignore[arg-type]
                 system_prompt=None,
             )
@@ -329,11 +200,11 @@ class TestConfigType:
 
 class TestMergeAgentConfig:
     def test_merge_agent_config_preserves_existing_model(self) -> None:
-        existing = {"model": "claude-sonnet-4-6", "temperature": 0.7}
-        patch = {"temperature": 0.5}
+        existing = {"model_backend": "claude", "max_iterations": 10}
+        patch = {"max_iterations": 5}
         merged = merge_agent_config(existing, patch)
-        assert merged["model"] == "claude-sonnet-4-6"
-        assert merged["temperature"] == 0.5
+        assert merged["model_backend"] == "claude"
+        assert merged["max_iterations"] == 5
 
 
 class TestBuiltinAgents:
@@ -353,9 +224,9 @@ class TestCreateAgentRequestSchema:
             CreateAgentRequest.model_validate(
                 {
                     "name": "agent",
-                    "provider": "claude",
+                    "provider": "claude_code",
                     "capabilities": [str(i) for i in range(11)],
-                    "config": {"model": "claude-sonnet-4-6"},
+                    "config": {},
                 }
             )
 

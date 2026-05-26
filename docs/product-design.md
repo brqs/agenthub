@@ -41,7 +41,7 @@
 AgentHub 是一个以 **IM 聊天为核心交互范式** 的多 Agent 协作平台。用户像使用飞书 / 微信一样，通过新建对话、发送消息的方式与不同 AI Agent 交互。
 
 **v1.1 重要区分**：这里的 "Agent" 是**具备工具与执行能力的真 Agent**（能写文件、跑命令、用工具），而非传统聊天机器人：
-- **外部 Agent**：嵌入 Claude Agent SDK / OpenAI Agents SDK，复用其原生 agent loop 与工具
+- **外部 Agent**：嵌入 Claude Agent SDK / OpenAI Agents SDK / OpenCode CLI，复用其原生 agent loop、工具或 CLI runtime
 - **自建 Agent**：团队实现完整 framework（AgentLoop + ToolRegistry + MCP + ContextManager + MemoryManager），用户可对话式创建（设定 System Prompt + 工具白名单）
 
 每个 Agent 是一个"聊天对象"，用户可以单聊、群聊、并行管理多个会话。复杂任务由主 Agent（Orchestrator）自动拆解并分派给最合适的子 Agent。所有产物（代码、网页、Diff、文档）实时写入会话级 Workspace 沙箱，**前端可在聊天流中直接预览、二次编辑、续聊**。
@@ -409,10 +409,10 @@ Agent 输出新版本 + Diff 视图 →
 4. 表单：
    - 头像（选择 / 上传）
    - 名称（如"文案专家"）
-   - Provider（Claude / OpenAI / Custom）
+   - Runtime Provider（Claude Code / Codex / OpenCode / Builtin）
    - System Prompt（文本框）
    - 能力标签（多选）
-   - 模型 / 温度（高级选项）
+   - Builtin 配置（model_backend / max_iterations / MCP servers）或 runtime 专属配置（高级选项）
 5. 点击"测试"按钮 → 弹出试用对话框
 6. 满意后点击"保存"
 7. 返回 Agent 列表 → 新 Agent 出现在"我的 Agent"分组
@@ -1114,8 +1114,8 @@ text-2xl:  24px  (空状态大字)
 🤖 Claude Code                            10:30
 ┌─────────────────────────────────────────┐
 │ ⚠️ 调用失败                              │
-│ Anthropic API Key 未配置或已失效         │
-│ 请联系管理员检查环境变量                  │
+│ Runtime 凭证或配置未完成                  │
+│ 请联系管理员检查 Agent 运行时配置          │
 │                                          │
 │ [ 重试 ]                                 │
 └─────────────────────────────────────────┘

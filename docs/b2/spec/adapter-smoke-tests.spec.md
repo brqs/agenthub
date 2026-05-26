@@ -2,12 +2,13 @@
 
 > 定义 B2 Adapter E2E smoke tests 与可选真实 API slow tests 的边界。
 > 本 Spec 服务于 B2-12，不修改 Adapter 公共契约、不提交任何 API key。
+> B2-20 之后，本文中的 Claude / OpenAI / DeepSeek / Custom smoke 仅覆盖 ModelGateway / legacy raw adapter shim；真实顶层 runtime smoke 由 B2-16~B2-20 的 external / builtin adapter 测试覆盖。
 
 ## 目标
 
 B2-12 的目标是给 Agent Adapter 主链路补一层“比单元测试更接近真实消费方式”的 smoke tests：
 
-- 用 fake/mock upstream 验证 Claude / OpenAI / DeepSeek / Custom Adapter 的端到端 `stream()` 输出契约。
+- 用 fake/mock upstream 验证 legacy Claude / OpenAI / DeepSeek / Custom Adapter shim 的端到端 `stream()` 输出契约。
 - 验证输出事件序列能被 B1 `_ContentAccumulator` 正确消费并形成 ContentBlock。
 - 验证 error chunk 不破坏内容累积和事件生命周期。
 - 提供可选真实 API slow tests，用于人工 smoke，不进入默认 CI / 默认 pytest。

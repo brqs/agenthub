@@ -19,7 +19,7 @@
 | 目录 | Owner | 内容 |
 |---|---|---|
 | [b1/](b1/) | B1 | 后端核心、Workspace、云端联调、测试记录 |
-| [b2/](b2/) | B2 | Agent 集成、Adapter、Orchestrator、Provider resilience |
+| [b2/](b2/) | B2 | Agent Runtime Layer、External/Builtin Adapter、ModelGateway、Orchestrator |
 | [frontend/](frontend/) | F | 前端计划、测试、变更记录、前端 Spec |
 
 ## 归档

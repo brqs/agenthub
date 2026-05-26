@@ -2,12 +2,12 @@
 
 > 配套文档：[development-plan.md](./development-plan.md) · [tech-architecture.md](./tech-architecture.md)
 > 机器可读契约：[../shared/openapi.yaml](../shared/openapi.yaml)（唯一真相源）
-> 文档版本：v1.1（Agent Runtime Pivot — 占位 / Sprint 5 Day 2 由 B1 落地）
-> 最后更新：2026-05-26
+> 文档版本：v1.1（Agent Runtime Pivot）
+> 最后更新：2026-05-27
 
-> ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：本文档（人类可读版）已在以下章节补充 pivot 新增能力的**占位说明**，但具体 schema / 字段定义将在 Sprint 5 Day 1-2 由 B1 完成（届时机器可读 [openapi.yaml](../shared/openapi.yaml) 与本文档将同步更新到 v1.1 正式版）。完整决策见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
+> ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：本文档（人类可读版）已同步当前已落地的 pivot 契约；机器可读 [openapi.yaml](../shared/openapi.yaml) 仍是唯一真相源。完整决策见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
 >
-> v1.1 已落地章节：§5.6（SSE 新增 tool_call / tool_result 事件）/ §7.4（ToolCallBlock 加入 ContentBlock 联合）/ §11（Workspace & Artifact API，新增 3 端点）/ §8 错误码追加 6 个 / 附录 E 变更日志。
+> v1.1 已落地章节：§5.6（SSE 新增 tool_call / tool_result 事件）/ §6（Agent provider 与 config schema 切换为真实 runtime / builtin）/ §7.4（ToolCallBlock 加入 ContentBlock 联合）/ §11（Workspace & Artifact API，新增 3 端点）/ §8 错误码追加 / 附录 E 变更日志。
 >
 > v1.0 已有的认证、会话、消息、Agent CRUD、SSE 基础事件（start/block_*/delta/done/error/agent_switch）章节**全部保留并继续生效**，pivot 不破坏向后兼容。
 
@@ -941,7 +941,8 @@ data: {"call_id":"c-001","tool_status":"ok","tool_output":"wrote 312 bytes"}
 | `builtin` | bool | - | 仅内置 / 仅自建 / 都返回 |
 | `provider` | string | - | 按 Provider 过滤 |
 
-Provider values: `claude` / `deepseek` / `openai` / `custom`.
+Provider values: `claude_code` / `codex` / `opencode` / `builtin` / `mock`.
+Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only in migrated data and are internally mapped to `builtin` ModelGateway backends.
 
 **响应 200**：
 ```json
@@ -950,44 +951,44 @@ Provider values: `claude` / `deepseek` / `openai` / `custom`.
     {
       "id": "claude-code",
       "name": "Claude Code",
-      "provider": "claude",
+      "provider": "claude_code",
       "avatar_url": "/avatars/claude.png",
-      "capabilities": ["coding", "writing"],
-      "system_prompt": null,
-      "config": {"model": "claude-sonnet-4-6"},
+      "capabilities": ["coding", "files", "analysis"],
+      "system_prompt": "You are Claude Code...",
+      "config": {"sdk_options": {}},
       "is_builtin": true,
       "created_at": "2026-05-22T00:00:00Z"
     },
     {
       "id": "codex-helper",
       "name": "Codex Helper",
-      "provider": "openai",
+      "provider": "codex",
       "avatar_url": "/avatars/openai.png",
-      "capabilities": ["coding"],
-      "system_prompt": null,
-      "config": {"model": "gpt-4o"},
+      "capabilities": ["coding", "sandbox"],
+      "system_prompt": "You are Codex Helper...",
+      "config": {"model": "gpt-4.1", "timeout_seconds": 120},
       "is_builtin": true,
       "created_at": "2026-05-22T00:00:00Z"
     },
     {
-      "id": "deepseek-assistant",
-      "name": "DeepSeek Assistant",
-      "provider": "deepseek",
-      "avatar_url": "/avatars/deepseek.png",
-      "capabilities": ["chat", "analysis", "coding"],
-      "system_prompt": null,
-      "config": {"model": "deepseek-v4-flash"},
+      "id": "opencode-helper",
+      "name": "OpenCode Helper",
+      "provider": "opencode",
+      "avatar_url": "/avatars/opencode.png",
+      "capabilities": ["coding", "cli", "files"],
+      "system_prompt": "You are OpenCode Helper...",
+      "config": {"command": "opencode", "args": [], "timeout_seconds": 120},
       "is_builtin": true,
       "created_at": "2026-05-22T00:00:00Z"
     },
     {
       "id": "orchestrator",
       "name": "Orchestrator",
-      "provider": "custom",
+      "provider": "builtin",
       "avatar_url": "/avatars/orchestrator.png",
       "capabilities": ["task_decomposition", "coordination"],
       "system_prompt": "你是任务协调专家...",
-      "config": {"model": "claude-sonnet-4-6", "upstream_provider": "claude"},
+      "config": {"model_backend": "claude", "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper", "web-designer"]},
       "is_builtin": true,
       "created_at": "2026-05-22T00:00:00Z"
     }
@@ -1006,15 +1007,14 @@ Provider values: `claude` / `deepseek` / `openai` / `custom`.
 ```json
 {
   "name": "文案专家",
-  "provider": "custom",
+  "provider": "builtin",
   "avatar_url": "/avatars/custom-1.png",
   "capabilities": ["writing", "copywriting"],
   "system_prompt": "你是一位专业的文案撰稿人，擅长营销文案、社交媒体内容创作...",
   "config": {
-    "model": "claude-sonnet-4-6",
-    "temperature": 0.7,
-    "max_tokens": 4096,
-    "upstream_provider": "claude"
+    "model_backend": "claude",
+    "max_iterations": 10,
+    "mcp_servers": []
   }
 }
 ```
@@ -1023,19 +1023,18 @@ Provider values: `claude` / `deepseek` / `openai` / `custom`.
 | 字段 | 约束 |
 |------|------|
 | `name` | 1-64 字符 |
-| `provider` | `claude` / `deepseek` / `openai` / `custom` |
+| `provider` | `claude_code` / `codex` / `opencode` / `builtin` |
 | `capabilities` | 字符串数组，最多 10 项 |
 | `system_prompt` | 最长 8KB |
-| `config.model` | 必须是 Provider 支持的模型 |
-| `config.temperature` | 0.0 - 2.0 |
-| `config.max_tokens` | 1 - 16384 |
-| `config.upstream_provider` | 仅 `custom` agent 必填，取值 `claude` / `deepseek` / `openai` |
+| `config.model_backend` | 仅 `builtin` 使用，取值 `claude` / `deepseek` / `openai` |
+| `config.max_iterations` | 仅 `builtin` 使用，1 - 50 |
+| `config.mcp_servers` | 仅 `builtin` 使用，MCP server 配置数组 |
+| `config.command` / `config.args` / `config.timeout_seconds` | 仅 `opencode` 使用 |
 
-**Custom Agent 额外规则**：
-- `provider` 为 `custom` 时，`system_prompt` 必须为非空字符串。
-- `provider` 为 `custom` 时，`config.upstream_provider` 必填，且只能是 `claude`、`deepseek` 或 `openai`。
-- `config.model` 必须属于 `upstream_provider` 支持的模型（例如 `upstream_provider=deepseek` 时只能用 `deepseek-v4-flash` / `deepseek-v4-pro`）。
-- `provider` 为 `claude` / `deepseek` / `openai` 时，不允许携带 `config.upstream_provider`。
+**Provider 规则**：
+- `builtin` 使用 `model_backend` 选择内部 ModelGateway backend，raw LLM provider 不再作为顶层 Agent provider。
+- `opencode` 允许 `command` / `args` / `timeout_seconds` 配置 CLI runtime。
+- `claude_code` / `codex` 配置透传给对应 external runtime adapter。
 
 **响应 201**：（同 6.1 列表项）
 
@@ -1043,8 +1042,6 @@ Provider values: `claude` / `deepseek` / `openai` / `custom`.
 - `422 INVALID_PROVIDER`
 - `422 INVALID_MODEL`
 - `422 INVALID_AGENT_CONFIG`
-- `422 INVALID_UPSTREAM_PROVIDER`
-- `422 MISSING_SYSTEM_PROMPT`
 - `422 SYSTEM_PROMPT_TOO_LARGE`
 
 ---
@@ -1068,23 +1065,22 @@ Provider values: `claude` / `deepseek` / `openai` / `custom`.
 {
   "name": "新名字",
   "system_prompt": "新的 prompt",
-  "config": {"temperature": 0.5}
+  "config": {"max_iterations": 5}
 }
 ```
 
 **Config 局部合并**：
 `PATCH` 中的 `config` 会与现有配置做浅合并，不是整体替换。例如：
 ```json
-{"config": {"temperature": 0.5}}
+{"config": {"max_iterations": 5}}
 ```
-会保留已有 `model` 和 `upstream_provider`，仅更新 `temperature`。
+会保留已有 `model_backend` 和 `mcp_servers`，仅更新 `max_iterations`。
 
 **响应 200**：（同 6.3）
 
 **错误**：
 - `403 CANNOT_MODIFY_BUILTIN` —— 内置 Agent 不可修改
 - `422 INVALID_AGENT_CONFIG` —— 合并后的配置校验失败
-- `422 MISSING_SYSTEM_PROMPT` —— custom agent 的 system_prompt 被清空或置空
 
 ---
 
@@ -1210,7 +1206,7 @@ interface ToolCallBlock {
 interface Agent {
   id: string;
   name: string;
-  provider: "claude" | "deepseek" | "openai" | "custom";
+  provider: "claude_code" | "codex" | "opencode" | "builtin" | "mock";
   avatar_url: string;
   capabilities: string[];
   system_prompt: string | null;
@@ -1220,10 +1216,12 @@ interface Agent {
 }
 
 interface AgentConfig {
-  model: string;
-  temperature?: number;
-  max_tokens?: number;
-  top_p?: number;
+  model_backend?: "claude" | "deepseek" | "openai";
+  max_iterations?: number;
+  mcp_servers?: object[];
+  command?: string | string[];
+  args?: string[];
+  timeout_seconds?: number;
   [key: string]: any;
 }
 ```
@@ -1321,9 +1319,8 @@ interface ErrorResponse {
 | `CONTENT_TOO_LARGE` | 422 | 消息内容超过上限 |
 | `INVALID_PROVIDER` | 422 | provider 非法 |
 | `INVALID_MODEL` | 422 | model 非法 |
+| `INVALID_MODEL_BACKEND` | 422 | builtin model_backend 非法 |
 | `INVALID_AGENT_CONFIG` | 422 | Agent 配置非法（如数值越界、携带了不该有的字段） |
-| `INVALID_UPSTREAM_PROVIDER` | 422 | upstream_provider 非法或缺失 |
-| `MISSING_SYSTEM_PROMPT` | 422 | custom agent 缺少 system_prompt |
 | `SYSTEM_PROMPT_TOO_LARGE` | 422 | System Prompt 超长 |
 | `CANNOT_MODIFY_BUILTIN` | 403 | 内置资源不可改 |
 | `CANNOT_DELETE_BUILTIN` | 403 | 内置资源不可删 |
@@ -1677,6 +1674,7 @@ Conversation (1) ─── (1) Workspace ─── (n) Files
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-05-22 | v1.0 | 初始版本 |
-| 2026-05-26 | v1.1（占位） | Agent Runtime Pivot：新增 §5.6 SSE `tool_call` / `tool_result` 事件、§7.4 `ToolCallBlock` 联合类型分支、§11 Workspace & Artifact API（3 端点）；新增错误码 `tool_call_failed` / `tool_call_orphan` / `workspace_violation` / `mcp_server_down` / `external_runtime_error` / `loop_max_iterations`。正式 schema 由 B1 在 Sprint 5 Day 1-2 同步到 `shared/openapi.yaml` 与本文档。决策见 [ADR-001](spec/agent-runtime-pivot.adr.md)。|
+| 2026-05-26 | v1.1（pivot 基线） | Agent Runtime Pivot：新增 §5.6 SSE `tool_call` / `tool_result` 事件、§7.4 `ToolCallBlock` 联合类型分支、§11 Workspace & Artifact API（3 端点）；新增错误码 `tool_call_failed` / `tool_call_orphan` / `workspace_violation` / `mcp_server_down` / `external_runtime_error` / `loop_max_iterations`。决策见 [ADR-001](spec/agent-runtime-pivot.adr.md)。|
 | 2026-05-26 | v1.1（B1-PIVOT-3） | Workspace & Artifact API 已落地：`GET /workspaces/{conv_id}/tree`、`GET /workspaces/{conv_id}/files/{path}`、`PUT /workspaces/{conv_id}/files/{path}`；同步 `WorkspaceTreeNode` / `WorkspaceTreeResponse` 到 `shared/openapi.yaml`。|
 | 2026-05-26 | v1.1（B1-PIVOT-4/5） | SSE `tool_call` / `tool_result` 已落地：B1 stream 网关注入 `workspace_path`，配对持久化为 `ToolCallBlock`，并同步 `shared/openapi.yaml`。|
+| 2026-05-27 | v1.1（B2-20） | Agent provider / config schema 已切换为真实 runtime / builtin：顶层 creatable provider 为 `claude_code` / `codex` / `opencode` / `builtin`，legacy raw provider 仅作为历史数据或 BuiltinAgent ModelGateway backend；同步 `shared/openapi.yaml` 与本文 §6。|

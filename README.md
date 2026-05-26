@@ -12,7 +12,7 @@
 - 🤖 **多 Agent 协作**：单聊 + 群聊，Orchestrator 自动拆解任务
 - ⚡ **流式响应**：SSE 实时逐字输出，无加载等待焦虑
 - 🎨 **富媒体产物**：代码高亮、Diff 视图、网页预览内联展示
-- 🔌 **生态开放**：内置 Claude / OpenAI 适配，支持自建 Agent
+- 🔌 **生态开放**：接入 Claude Code / Codex / OpenCode runtime，支持团队自建 BuiltinAgent
 - 🌐 **跨平台**：Web / Tauri 桌面 / PWA 移动一份代码
 
 ## 🚀 快速开始
@@ -21,7 +21,7 @@
 
 - Docker & Docker Compose
 - Node.js 20+ & pnpm 8+
-- Anthropic API Key 和/或 OpenAI API Key
+- 按需准备 Claude Code / Codex / OpenCode runtime 环境；BuiltinAgent 的 ModelGateway 需要 Anthropic API Key 和/或 OpenAI-compatible API Key
 
 ### 一键启动
 
@@ -31,7 +31,7 @@ cd agenthub
 
 # 2. 配置环境变量
 cp .env.example .env
-# 编辑 .env，至少填入 ANTHROPIC_API_KEY 或 OPENAI_API_KEY
+# 编辑 .env，按需填入 runtime / ModelGateway 所需配置
 
 # 3. 启动后端（Postgres + Redis + FastAPI）
 docker compose up -d
@@ -75,7 +75,7 @@ agenthub/
 │       ├── schemas/       【共享】Pydantic Schema
 │       ├── api/v1/        【B1】路由层
 │       ├── services/      【B1】业务逻辑
-│       └── agents/        【B2】Adapter、Orchestrator
+│       └── agents/        【B2】External runtime、BuiltinAgent、ModelGateway、Orchestrator
 └── frontend/              ← React + Vite 前端
     └── src/
         ├── lib/           API 客户端、SSE、类型

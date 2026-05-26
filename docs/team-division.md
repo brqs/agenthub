@@ -38,7 +38,7 @@
 |------|------|--------|----------|
 | **F** | Frontend Engineer | React SPA + 产物 UI | IM 交互 + ToolCallBlock + ArtifactPreview + Monaco 编辑器 + Workspace 文件树 |
 | **B1** | Backend Core + Sandbox Engineer | FastAPI + DB + Workspace | 数据持久化、认证、IM 协议、SSE 网关、**Workspace 沙箱与 Artifact 服务（pivot 新增）** |
-| **B2** | Agent Runtime Engineer | Agent Runtime Layer | ExternalAgentAdapter（Claude Agent SDK / Codex）+ BuiltinAgent Framework（loop / tools / MCP / memory）+ ModelGateway 底座 + Orchestrator |
+| **B2** | Agent Runtime Engineer | Agent Runtime Layer | ExternalAgentAdapter（Claude Code / Codex / OpenCode）+ BuiltinAgent Framework（loop / tools / MCP / memory）+ ModelGateway 底座 + Orchestrator |
 
 ### 1.2 工作量预估（按 14 天 Sprint 计）
 
@@ -56,7 +56,7 @@
 |------|----------|----------|
 | **F** | React、TypeScript、CSS、HTTP、SSE/EventSource | Tailwind、shadcn、Zustand、Monaco editor、iframe sandbox |
 | **B1** | Python、SQL、HTTP、async、文件系统安全 | FastAPI、SQLAlchemy 2.0、JWT、Redis、subprocess 沙箱 |
-| **B2** | Python、async generator、Prompt 工程、Agent loop 设计 | Claude Agent SDK / OpenAI Agents SDK、MCP 协议、tool calling 调试 |
+| **B2** | Python、async generator、Prompt 工程、Agent loop 设计 | Claude Agent SDK / OpenAI Agents SDK / OpenCode CLI、MCP 协议、tool calling 调试 |
 
 ---
 
@@ -539,19 +539,20 @@ Python 3.11
 | B2-PIVOT-2 | **StreamChunk 协议扩展**（[backend/app/agents/types.py](../backend/app/agents/types.py)）：新增 tool_call / tool_result + 字段 + ToolSpec | [agent-runtime-adapter.spec.md §3-4](b2/spec/agent-runtime-adapter.spec.md) | model_config 不破；现有测试通过 |
 | B2-PIVOT-3 | **MockAgentAdapter v2**：能产出 tool_call / tool_result 序列，供 B1 / F 联调 | B2-PIVOT-1/2 | B1 集成测试可用 |
 | B2-PIVOT-4 | **ModelGateway 迁移**：把 [agents/adapters/{claude,openai,deepseek,resilience}.py](../backend/app/agents/adapters/) 移到 `agents/model_gateway/`；新增 `stream(messages, tools, config)` 接口；映射 Provider 原生 tool calling | B2-PIVOT-2 | 全量 pytest 通过（路径 import 同步） |
-| B2-PIVOT-5 | **删除 `adapters/custom.py` + 从顶层 registry 移除 model gateway provider 项**：避免 raw LLM 仍作为顶层 Agent 暴露 | B2-PIVOT-4 + B2-PIVOT-7 | seed_agents 更新；前端 Agents 列表无残留 |
+| B2-PIVOT-5 | **从顶层 registry 移除 raw/model gateway provider 项**：legacy adapter/custom 仅可作为兼容 shim，避免 raw LLM 仍作为新建顶层 Agent 暴露 | B2-PIVOT-4 + B2-PIVOT-7 | seed_agents 更新；前端 Agents 列表无 legacy provider |
 | B2-PIVOT-6 | **ExternalAgentAdapter — Claude Code（Claude Agent SDK）**：[agents/external/claude_code.py](../backend/app/agents/) | B2-PIVOT-1 + workspace_path 接通 | E2E：真实 SDK 写一个 hello.html → workspace 可见 |
-| B2-PIVOT-7 | **AgentRegistry v2**：注册 external / builtin / orchestrator 三类入口；保留 Orchestrator 工厂；seed_agents 重新生成默认 Agents | B2-PIVOT-6 | `GET /agents` 返回新分类 |
+| B2-PIVOT-7 | **AgentRegistry v2**：顶层 provider 使用 `claude_code` / `codex` / `opencode` / `builtin` / `mock`；保留 Orchestrator 工厂；seed_agents 重新生成默认 Agents | B2-PIVOT-6 | `GET /agents` 返回新分类 |
 | B2-PIVOT-8 | **BuiltinAgent Framework — AgentLoop**（[builtin-agent-framework.spec.md §2](b2/spec/builtin-agent-framework.spec.md)） | B2-PIVOT-4 | 5 个单测覆盖（无 tool / 单 tool / 多轮 / max_iter / error） |
 | B2-PIVOT-9 | **ToolRegistry — read_file / write_file / bash 三件套**（[§3](b2/spec/builtin-agent-framework.spec.md)） | B1-PIVOT-2 路径校验函数 | 5 个单测（含越界、白名单、超时） |
 | B2-PIVOT-10 | **MCPClient — stdio + 1 个 filesystem server**（[§5](b2/spec/builtin-agent-framework.spec.md)） | B2-PIVOT-8 | E2E：BuiltinAgent 通过 MCP 列目录 |
 | B2-PIVOT-11 | **MemoryManager 薄封装**（复用 [conversation_memory](../backend/app/models/conversation_memory.py)） | B2-PIVOT-8 | recall / pin 单测 |
 | B2-PIVOT-12 | **ExternalAgentAdapter — Codex（OpenAI Agents SDK）** | B2-PIVOT-6 模式 | E2E：Codex 写一个 Python 函数 + 跑通 |
-| B2-PIVOT-13 | **Orchestrator 接通真 Agent**：sub-adapter 通过 v2 接口拿到 ExternalAgent / BuiltinAgent；call_id 重映射 `task_id.<原 call_id>` | B2-PIVOT-6/8/12 | 群聊场景 E2E 演示 |
-| B2-PIVOT-14 | **依赖加入 pyproject.toml**：`claude-agent-sdk`、`openai-agents`、`mcp` | B2-PIVOT-6 | `uv sync` 通过 |
-| B2-PIVOT-15 | **答辩讲稿 + ADR 收尾**：5 分钟讲清三层架构 + 一个完整 demo 链路 | 全部 | 团队评审通过 |
+| B2-PIVOT-13 | **ExternalAgentAdapter — OpenCode（subprocess CLI）** | B2-PIVOT-6/12 模式 | E2E：OpenCode fake CLI 写文件；真实 CLI smoke opt-in |
+| B2-PIVOT-14 | **Orchestrator 接通真 Agent**：sub-adapter 通过 v2 接口拿到 ExternalAgent / BuiltinAgent；call_id 重映射 `task_id.<原 call_id>` | B2-PIVOT-6/8/12/13 | 群聊场景 E2E 演示 |
+| B2-PIVOT-15 | **依赖加入 pyproject.toml**：`claude-agent-sdk`、`openai-agents`、`mcp` | B2-PIVOT-6 | `uv sync` 通过 |
+| B2-PIVOT-16 | **答辩讲稿 + ADR 收尾**：5 分钟讲清三层架构 + 一个完整 demo 链路 | 全部 | 团队评审通过 |
 
-❌ 不做（明确边界）：OpenCode CLI 接入（Sprint 6 候选）、Agent 并行 tool 调用、向量记忆检索、MCP HTTP transport。
+❌ 不做（明确边界）：Agent 并行 tool 调用、向量记忆检索、MCP HTTP transport。
 
 ### 5.4 B2 的关键产出物
 
@@ -562,11 +563,11 @@ backend/app/agents/
 ├── registry.py                        # 工厂（~100 行）
 ├── orchestrator.py                    # 编排器（~200 行）
 ├── artifact_parser.py                 # 产物解析（~150 行）
-└── adapters/
-    ├── claude.py                      # ~150 行
-    ├── openai.py                      # ~150 行
-    ├── custom.py                      # ~100 行
-    └── mock.py                        # ~50 行
+├── adapters/
+│   └── mock.py                        # Mock 用于联调；legacy raw adapter shim 暂存
+├── external/                          # Claude Code / Codex / OpenCode runtime
+├── builtin/                           # AgentLoop / ToolRegistry / MCP
+└── model_gateway/                     # raw Claude/OpenAI/DeepSeek，仅 BuiltinAgent 内部使用
 ```
 
 ### 5.5 B2 的答辩重点
@@ -634,7 +635,7 @@ async for chunk in adapter.stream(
 
 **B2 视角**（三类子 Adapter）：
 ```python
-# Layer A — ExternalAgentAdapter（嵌入 Claude Agent SDK / Codex）
+# Layer A — ExternalAgentAdapter（嵌入 Claude Code / Codex / OpenCode）
 class ClaudeCodeAdapter(BaseAgentAdapter):
     async def stream(self, messages, *, workspace_path, tool_specs=None, **kw):
         async with ClaudeSDKClient(options=ClaudeAgentOptions(cwd=str(workspace_path))) as client:
@@ -707,7 +708,7 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
 | **3** | SSE handler tool_* 配对 + Workspace 文件树（F-PIVOT-2/4） | 联调 + bug fix | 端到端打通：Claude Code 真实写 HTML + iframe 预览 → **Sprint 5 第一个里程碑** | 三方联调 |
 | **4** | Monaco 编辑器 + 二次编辑回写（F-PIVOT-5） | PUT 文件接口、AgentRegistry v2 配合（B1 + B2-PIVOT-7） | BuiltinAgent Framework：AgentLoop + ToolRegistry 三件套（B2-PIVOT-8/9） | — |
 | **5** | 错误态 / 空态 / 加载态（F-PIVOT-7） | 收尾 + 性能验证 | BuiltinAgent MemoryManager + MCP filesystem server（B2-PIVOT-10/11） | — |
-| **6** | Orchestrator 任务卡升级（F-PIVOT-6） | — | ExternalAgentAdapter for Codex；Orchestrator 接通真 Agent（B2-PIVOT-12/13/14） | — |
+| **6** | Orchestrator 任务卡升级（F-PIVOT-6） | — | ExternalAgentAdapter for Codex / OpenCode；Orchestrator 接通真 Agent（B2-PIVOT-12/13/14） | — |
 | **7** | Demo 视频脚本 + 关键交互预录制（F-PIVOT-8） | Bug fix + 文档同步 | 全链路 smoke + 失败降级回归 + 文档（B2-PIVOT-15） | — |
 | **8** | Demo 视频录制 + 答辩讲稿 | 答辩讲稿（B1-PIVOT-8） | 答辩讲稿 + ADR 收尾 | 全员 |
 

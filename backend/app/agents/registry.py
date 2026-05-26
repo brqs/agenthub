@@ -6,32 +6,40 @@ B1 should NEVER import a specific adapter class. Always go through `get_adapter(
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.adapters.claude import ClaudeAdapter
-from app.agents.adapters.custom import CustomAdapter
-from app.agents.adapters.deepseek import DeepSeekAdapter
 from app.agents.adapters.mock import MockAdapter
-from app.agents.adapters.openai import OpenAIAdapter
 from app.agents.base import BaseAgentAdapter
+from app.agents.builtin.adapter import BuiltinAgentAdapter
+from app.agents.external.claude_code import ClaudeCodeAdapter
+from app.agents.external.codex import CodexAdapter
+from app.agents.external.opencode import OpenCodeAdapter
 from app.agents.orchestrator import OrchestratorAdapter
-from app.core.config import settings
 from app.models.agent import Agent
 
 # provider string → adapter class
 PROVIDER_MAP: dict[str, type[BaseAgentAdapter]] = {
     "mock": MockAdapter,
-    "claude": ClaudeAdapter,
-    "deepseek": DeepSeekAdapter,
-    "openai": OpenAIAdapter,
-    "custom": CustomAdapter,
+    "claude_code": ClaudeCodeAdapter,
+    "codex": CodexAdapter,
+    "opencode": OpenCodeAdapter,
+    "builtin": BuiltinAgentAdapter,
+}
+
+LEGACY_RAW_PROVIDER_TO_MODEL_BACKEND = {
+    "claude": "claude",
+    "deepseek": "deepseek",
+    "openai": "openai",
+    "custom": "claude",
 }
 
 ORCHESTRATOR_AGENT_ID = "orchestrator"
 DEFAULT_ORCHESTRATOR_SUB_AGENT_IDS = [
-    "deepseek-assistant",
     "claude-code",
     "codex-helper",
+    "opencode-helper",
     "web-designer",
 ]
 
@@ -53,7 +61,7 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
         ValueError: If provider unknown or its API key not configured.
     """
     # Dev shortcut: explicit mock
-    if agent_id == "mock" or (settings.environment == "test" and agent_id != ORCHESTRATOR_AGENT_ID):
+    if agent_id == "mock":
         return MockAdapter(agent_id="mock")
 
     agent: Agent | None = await db.get(Agent, agent_id)
@@ -66,7 +74,7 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
                 raise ValueError("orchestrator cannot dispatch to itself")
             return await get_adapter(sub_agent_id, db)
 
-        default_config = dict(agent.config)
+        default_config = dict(agent.config or {})
         default_config.setdefault(
             "managed_agent_ids",
             DEFAULT_ORCHESTRATOR_SUB_AGENT_IDS,
@@ -78,12 +86,32 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
             default_config=default_config,
         )
 
-    adapter_cls = PROVIDER_MAP.get(agent.provider)
-    if not adapter_cls:
-        raise ValueError(f"Unknown provider: {agent.provider}")
-
+    adapter_cls, default_config = _adapter_class_and_config(agent)
     return adapter_cls(
         agent_id=agent.id,
         system_prompt=agent.system_prompt,
-        default_config=agent.config,
+        default_config=default_config,
     )
+
+
+def _adapter_class_and_config(agent: Agent) -> tuple[type[BaseAgentAdapter], dict[str, object]]:
+    adapter_cls = PROVIDER_MAP.get(agent.provider)
+    if adapter_cls:
+        return adapter_cls, dict(agent.config or {})
+
+    legacy_model_backend = LEGACY_RAW_PROVIDER_TO_MODEL_BACKEND.get(agent.provider)
+    if legacy_model_backend:
+        return BuiltinAgentAdapter, _legacy_builtin_config(agent.provider, agent.config or {})
+
+    raise ValueError(f"Unknown provider: {agent.provider}")
+
+
+def _legacy_builtin_config(provider: str, config: dict[str, Any]) -> dict[str, object]:
+    migrated = dict(config)
+    migrated["model_backend"] = str(
+        migrated.pop("upstream_provider", None)
+        or LEGACY_RAW_PROVIDER_TO_MODEL_BACKEND[provider]
+    )
+    migrated.setdefault("max_iterations", 10)
+    migrated.setdefault("mcp_servers", [])
+    return migrated
