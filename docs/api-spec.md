@@ -345,6 +345,118 @@ Authorization: Bearer eyJhbGc...
 
 ---
 
+### 3.6 GET `/api/v1/conversations/{id}/memory` — 会话压缩记忆调试
+
+**鉴权**：✅
+
+**说明**：仅开发环境可用，用于 B1 验证 Context Builder 的滚动摘要。
+
+**响应 200**：
+```json
+{
+  "conversation_id": "uuid",
+  "summary_text": "【会话历史摘要】...",
+  "summarized_until_message_id": "uuid",
+  "source_message_count": 32,
+  "source_token_estimate": 12000,
+  "summary_token_estimate": 900,
+  "algorithm_version": "rules-v1",
+  "created_at": "2026-05-25T12:00:00Z",
+  "updated_at": "2026-05-25T12:00:00Z"
+}
+```
+
+**错误**：
+- `404 MEMORY_NOT_FOUND` —— 当前会话尚未触发压缩摘要
+- `404 NOT_FOUND` —— 非开发环境隐藏该调试端点
+
+---
+
+### 3.7 GET/PATCH `/api/v1/context-compression/config` — 上下文压缩配置
+
+**鉴权**：✅
+
+**说明**：上下文压缩使用独立的模型配置覆盖层，和普通聊天 Agent 的 provider/model 分开。管理员只需要填写 `provider`、`model`、`api_key` 和 `base_url`，后端内部自动处理 OpenAI-compatible、Anthropic/Claude、DeepSeek 等不同 API 格式。
+
+**默认配置**：
+```env
+CONTEXT_COMPRESSION_MODE=hybrid
+CONTEXT_COMPRESSION_PROVIDER=deepseek
+CONTEXT_COMPRESSION_MODEL=deepseek-v4-flash
+CONTEXT_COMPRESSION_API_KEY=sk-...
+CONTEXT_COMPRESSION_BASE_URL=https://api.deepseek.com
+```
+
+说明：上下文压缩使用独立的 `CONTEXT_COMPRESSION_API_KEY`，不会自动复用聊天 Agent 的 provider key。未配置时会自动回退到 rules-v2，保证聊天不中断。
+
+**GET 响应 200**：
+```json
+{
+  "mode": "hybrid",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "summary_max_tokens": 1200,
+  "recent_raw_keep": 12,
+  "api_key_configured": true,
+  "api_key_source": "context_compression_api_key",
+  "api_key_preview": "sk-***f0cb",
+  "base_url": "https://api.deepseek.com",
+  "supported_models": ["deepseek-v4-flash", "deepseek-v4-pro"]
+}
+```
+
+**PATCH 请求**（仅开发环境可用，运行时临时生效）：
+```json
+{
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro",
+  "api_key": "sk-xxx",
+  "base_url": "https://api.deepseek.com",
+  "summary_max_tokens": 1600,
+  "recent_raw_keep": 12
+}
+```
+
+**支持的 provider**：
+
+| provider | 内部处理 |
+|----------|----------|
+| `deepseek` | OpenAI-compatible，默认 base_url `https://api.deepseek.com` |
+| `openai` | OpenAI Chat Completions，base_url 可为空 |
+| `openai_compatible` | 任意 OpenAI-compatible 服务，必须填 base_url |
+| `anthropic` / `claude` | Anthropic Messages API |
+
+**POST `/api/v1/context-compression/config/test`**：
+
+用于测试当前或提交的压缩模型配置是否能连通。
+
+```json
+{
+  "provider": "openai_compatible",
+  "model": "custom-summary-model",
+  "api_key": "sk-xxx",
+  "base_url": "https://example.com/v1"
+}
+```
+
+响应：
+
+```json
+{
+  "ok": true,
+  "provider": "openai_compatible",
+  "model": "custom-summary-model"
+}
+```
+
+**错误**：
+- `422 UNSUPPORTED_COMPRESSION_PROVIDER` —— 压缩服务提供者不支持
+- `422 UNSUPPORTED_COMPRESSION_MODEL` —— 压缩模型不在当前 provider 白名单内
+- `422 MISSING_COMPRESSION_BASE_URL` —— `openai_compatible` 未填写 base_url
+- `404 NOT_FOUND` —— 非开发环境隐藏 PATCH 调试能力
+
+---
+
 ## 4. 消息（Messages）
 
 ### 4.1 GET `/api/v1/conversations/{id}/messages` — 历史消息

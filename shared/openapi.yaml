@@ -205,6 +205,117 @@ components:
               type: array
               items: { $ref: '#/components/schemas/Conversation' }
 
+    ConversationMemory:
+      type: object
+      required:
+        - conversation_id
+        - summary_text
+        - source_message_count
+        - source_token_estimate
+        - summary_token_estimate
+        - algorithm_version
+        - created_at
+        - updated_at
+      properties:
+        conversation_id: { type: string, format: uuid }
+        summary_text: { type: string }
+        summarized_until_message_id:
+          type: string
+          format: uuid
+          nullable: true
+        source_message_count: { type: integer }
+        source_token_estimate: { type: integer }
+        summary_token_estimate: { type: integer }
+        algorithm_version: { type: string, example: rules-v1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ContextCompressionConfig:
+      type: object
+      required:
+        - mode
+        - provider
+        - model
+        - summary_max_tokens
+        - recent_raw_keep
+        - api_key_configured
+        - api_key_source
+        - base_url
+        - supported_models
+      properties:
+        mode: { type: string, enum: [hybrid, rules] }
+        provider:
+          type: string
+          enum: [deepseek, openai, openai_compatible, anthropic]
+        model: { type: string, example: deepseek-v4-flash }
+        summary_max_tokens: { type: integer, example: 1200 }
+        recent_raw_keep: { type: integer, example: 12 }
+        api_key_configured: { type: boolean }
+        api_key_source:
+          type: string
+          enum:
+            - context_compression_api_key
+            - missing
+        api_key_preview:
+          type: string
+          nullable: true
+          example: sk-***f0cb
+        base_url: { type: string, example: https://api.deepseek.com }
+        supported_models:
+          type: array
+          items: { type: string }
+
+    UpdateContextCompressionConfigRequest:
+      type: object
+      properties:
+        mode: { type: string, enum: [hybrid, rules] }
+        provider:
+          type: string
+          enum: [deepseek, openai, openai_compatible, anthropic, claude]
+        model:
+          type: string
+          example: deepseek-v4-flash
+        api_key:
+          type: string
+          writeOnly: true
+        base_url:
+          type: string
+          example: https://api.deepseek.com
+        summary_max_tokens:
+          type: integer
+          minimum: 256
+          maximum: 8192
+        recent_raw_keep:
+          type: integer
+          minimum: 1
+          maximum: 100
+
+    ContextCompressionTestRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [deepseek, openai, openai_compatible, anthropic, claude]
+        model:
+          type: string
+          example: deepseek-v4-flash
+        api_key:
+          type: string
+          writeOnly: true
+        base_url:
+          type: string
+          example: https://api.deepseek.com
+
+    ContextCompressionTestResult:
+      type: object
+      required: [ok, provider, model]
+      properties:
+        ok: { type: boolean }
+        provider: { type: string }
+        model: { type: string }
+        error_code: { type: string, nullable: true }
+        message: { type: string, nullable: true }
+
     # ─── Message ───
     MessageRole:
       type: string
@@ -523,6 +634,71 @@ paths:
       tags: [Conversations]
       responses:
         '204': { description: No Content }
+
+  /api/v1/conversations/{id}/memory:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get compressed conversation memory
+      tags: [Conversations]
+      description: Development-only endpoint for B1 memory debugging.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConversationMemory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/context-compression/config:
+    get:
+      summary: Get context compression config
+      tags: [Context Compression]
+      description: Returns active summarizer settings without exposing API keys.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextCompressionConfig' }
+    patch:
+      summary: Update context compression config
+      tags: [Context Compression]
+      description: Development-only runtime update for compression model settings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateContextCompressionConfigRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextCompressionConfig' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /api/v1/context-compression/config/test:
+    post:
+      summary: Test context compression config
+      tags: [Context Compression]
+      description: Development-only connection test for a compression model config.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContextCompressionTestRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextCompressionTestResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ─── Messages ───
   /api/v1/conversations/{id}/messages:
