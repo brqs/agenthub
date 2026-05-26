@@ -102,6 +102,21 @@ components:
         size: { type: integer }
         mime_type: { type: string }
 
+    ToolCallBlock:
+      type: object
+      required: [type, call_id, tool_name, arguments, status]
+      properties:
+        type: { type: string, enum: [tool_call] }
+        call_id: { type: string }
+        tool_name: { type: string }
+        arguments:
+          type: object
+          additionalProperties: true
+        status: { type: string, enum: [pending, ok, error] }
+        output_preview: { type: string, nullable: true }
+        output_truncated: { type: boolean, nullable: true }
+        error_code: { type: string, nullable: true }
+
     ContentBlock:
       oneOf:
         - $ref: '#/components/schemas/TextBlock'
@@ -109,6 +124,7 @@ components:
         - $ref: '#/components/schemas/DiffBlock'
         - $ref: '#/components/schemas/WebPreviewBlock'
         - $ref: '#/components/schemas/FileBlock'
+        - $ref: '#/components/schemas/ToolCallBlock'
       discriminator:
         propertyName: type
         mapping:
@@ -117,6 +133,7 @@ components:
           diff: '#/components/schemas/DiffBlock'
           web_preview: '#/components/schemas/WebPreviewBlock'
           file: '#/components/schemas/FileBlock'
+          tool_call: '#/components/schemas/ToolCallBlock'
 
     # ─── User ───
     User:
@@ -448,6 +465,26 @@ components:
             items:
               type: array
               items: { $ref: '#/components/schemas/Agent' }
+
+    WorkspaceTreeNode:
+      type: object
+      required: [name, path, type]
+      properties:
+        name: { type: string }
+        path: { type: string, description: Path relative to workspace root }
+        type: { type: string, enum: [directory, file] }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/WorkspaceTreeNode' }
+        size: { type: integer, nullable: true }
+        mime_type: { type: string, nullable: true }
+
+    WorkspaceTreeResponse:
+      type: object
+      required: [root, tree]
+      properties:
+        root: { type: string, example: /workspaces/00000000-0000-0000-0000-000000000000 }
+        tree: { $ref: '#/components/schemas/WorkspaceTreeNode' }
 
   # ─── 通用响应 ───
   responses:
@@ -809,8 +846,98 @@ paths:
                   event: delta
                   data: {"block_index":0,"text_delta":"Hello"}
 
+                  event: tool_call
+                  data: {"call_id":"c-001","tool_name":"write_file","tool_arguments":{"path":"App.tsx"}}
+
+                  event: tool_result
+                  data: {"call_id":"c-001","tool_status":"ok","tool_output":"wrote 312 bytes"}
+
                   event: done
                   data: {"message_id":"..."}
+
+  # Workspace & Artifact API
+  /api/v1/workspaces/{conversation_id}/tree:
+    parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get workspace file tree
+      tags: [Workspaces]
+      parameters:
+        - name: max_depth
+          in: query
+          schema: { type: integer, default: 5, minimum: 0, maximum: 20 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceTreeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workspaces/{conversation_id}/files/{path}:
+    parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: path
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Read workspace file
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: File content
+          headers:
+            X-Content-Type-Options:
+              schema: { type: string, example: nosniff }
+            Content-Security-Policy:
+              schema: { type: string }
+              description: Present for text/html responses.
+            X-Frame-Options:
+              schema: { type: string, example: SAMEORIGIN }
+              description: Present for text/html responses.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+            text/plain:
+              schema: { type: string }
+            text/html:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File too large
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      summary: Write workspace file
+      tags: [Workspaces]
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+          text/plain:
+            schema: { type: string }
+      responses:
+        '204': { description: No Content }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File too large
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   # ─── Agents ───
   /api/v1/agents:

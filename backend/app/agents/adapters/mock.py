@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.types import ChatMessage, StreamChunk
+from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 
 class MockAdapter(BaseAgentAdapter):
@@ -22,8 +23,11 @@ class MockAdapter(BaseAgentAdapter):
     async def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[ToolSpec] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         # Echo user's last message to make it obvious we received it
         last_user = next(

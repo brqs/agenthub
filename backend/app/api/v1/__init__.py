@@ -2,7 +2,15 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import agents, auth, context_compression, conversations, messages, stream
+from app.api.v1 import (
+    agents,
+    auth,
+    context_compression,
+    conversations,
+    messages,
+    stream,
+    workspaces,
+)
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -16,3 +24,4 @@ api_router.include_router(
 api_router.include_router(messages.router, tags=["Messages"])
 api_router.include_router(stream.router, tags=["Messages"])
 api_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
+api_router.include_router(workspaces.router, prefix="/workspaces", tags=["Workspaces"])

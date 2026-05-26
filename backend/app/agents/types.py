@@ -23,9 +23,19 @@ StreamEventType = Literal[
     "error",
     "agent_switch",
     "heartbeat",
+    "tool_call",
+    "tool_result",
 ]
 
-BlockType = Literal["text", "code", "diff", "web_preview"]
+BlockType = Literal["text", "code", "diff", "web_preview", "tool_call"]
+
+
+class ToolSpec(BaseModel):
+    """Tool schema advertised to adapters that support tool use."""
+
+    name: str
+    description: str | None = None
+    parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class StreamChunk(BaseModel):
@@ -49,6 +59,13 @@ class StreamChunk(BaseModel):
     message_id: str | None = None
     agent_id: str | None = None
     total_blocks: int | None = None
+    # for tool_call / tool_result events
+    call_id: str | None = None
+    tool_name: str | None = None
+    tool_arguments: dict[str, Any] | None = None
+    tool_status: Literal["ok", "error"] | None = None
+    tool_output: str | None = None
+    tool_output_truncated: bool | None = None
 
     def to_sse(self) -> dict[str, str]:
         """Convert to {event, data} dict for sse-starlette."""

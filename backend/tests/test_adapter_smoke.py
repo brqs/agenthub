@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from importlib import import_module
+from pathlib import Path
 from typing import Any, Protocol, cast
 
 import pytest
@@ -289,8 +290,11 @@ class TestCustomAdapterSmoke:
             async def stream(
                 self,
                 messages: list[ChatMessage],
+                *,
                 system_prompt: str | None = None,
                 config: dict[str, Any] | None = None,
+                workspace_path: Path | None = None,
+                tool_specs: list[Any] | None = None,
             ) -> AsyncIterator[StreamChunk]:
                 for chunk in upstream_chunks:
                     yield chunk
