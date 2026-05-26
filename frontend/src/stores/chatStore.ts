@@ -142,6 +142,32 @@ function completeRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
   });
 }
 
+function applyToolCall(blocks: DemoContentBlock[], event: Extract<StreamEvent, { event: 'tool_call' }>): DemoContentBlock[] {
+  return [
+    ...blocks,
+    {
+      type: 'tool_call',
+      call_id: event.data.call_id,
+      tool_name: event.data.tool_name,
+      arguments: event.data.tool_arguments,
+      status: 'pending',
+    },
+  ];
+}
+
+function applyToolResult(blocks: DemoContentBlock[], event: Extract<StreamEvent, { event: 'tool_result' }>): DemoContentBlock[] {
+  return blocks.map((block) => {
+    if (block.type !== 'tool_call' || block.call_id !== event.data.call_id) return block;
+    return {
+      ...block,
+      status: event.data.tool_status,
+      output_preview: event.data.tool_output,
+      output_truncated: event.data.tool_output_truncated,
+      error_code: event.data.error_code,
+    };
+  });
+}
+
 function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContentBlock[] {
   if (event.event === 'block_start') {
     const next = [...blocks];
@@ -169,6 +195,9 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
     });
     return next;
   }
+
+  if (event.event === 'tool_call') return applyToolCall(blocks, event);
+  if (event.event === 'tool_result') return applyToolResult(blocks, event);
 
   if (event.event !== 'delta') return blocks;
 

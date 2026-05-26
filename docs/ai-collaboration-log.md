@@ -1,3 +1,20 @@
+## 2026-05-26 — F 实现 Mock ToolCall 与 Workspace 产物预览
+
+### 任务
+在 Agent Runtime Pivot 后，为前端补齐 Mock 版 ToolCallBlock、ArtifactPreview 和 Workspace 文件树。
+
+### 关键 Prompt
+> 实现Mock 版 ToolCallBlock + ArtifactPreview + 文件树
+
+### AI 输出摘要
+前端新增 `ToolCallBlock` 渲染组件、Mock workspace 数据、Workspace 文件树和 ArtifactPreview；Mock SSE 现在会发出 `tool_call` / `tool_result` 事件，聊天 store 能按 `call_id` 配对更新工具调用状态。演示会话中可看到 `write_file` / `bash` 工具调用，右侧栏可浏览 `public/demo.html`、`src/RuntimeDemo.tsx` 和 `README.md`，并预览 HTML iframe 或文本代码内容。
+
+### 人工调整
+本次只做 Mock UI 和前端状态管线，不修改 `shared/openapi.yaml`，等待 B1 落地正式 ToolCallBlock schema 与 Workspace Artifact API 后再切换真实数据源。
+
+### 经验
+Pivot 后前端可以不等待真实 Agent runtime 完全接通，先用 Mock SSE 和本地 workspace 数据做出端到端产品感；只要事件字段和目标 OpenAPI 形态保持一致，后续替换为真实 API 的成本可控。
+
 ## 2026-05-25 — B2 搭建后端云端联调环境
 
 ### 任务
