@@ -1,8 +1,17 @@
-import { Activity, ChevronRight, PanelRight, Pin, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Activity, ChevronRight, Files, PanelRight, Pin, ShieldCheck } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
+import { ArtifactPreview } from '@/components/artifact/ArtifactPreview';
+import { WorkspaceFileTree } from '@/components/artifact/WorkspaceFileTree';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
 import { getAgent } from '@/lib/mockData';
+import {
+  getFirstWorkspaceFile,
+  getMockArtifact,
+  getMockWorkspace,
+  getWorkspaceFilesFromMessages,
+} from '@/lib/mockWorkspace';
 import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -42,6 +51,14 @@ export function RightAgentPanel({
   const agents = conversation.agent_ids.map(getAgent).filter((agent) => agent !== undefined);
   const pinned = messages.filter((message) => message.is_pinned);
   const snapshot = getOrchestratorSnapshot(conversation, messages);
+  const workspace = useMemo(() => getMockWorkspace(conversation.id), [conversation.id]);
+  const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
+  const touchedFiles = getWorkspaceFilesFromMessages(messages);
+  const selectedArtifact = getMockArtifact(conversation.id, selectedArtifactPath);
+
+  useEffect(() => {
+    setSelectedArtifactPath(getFirstWorkspaceFile(workspace)?.path ?? null);
+  }, [workspace]);
 
   return (
     <aside className="hidden h-screen w-80 shrink-0 flex-col border-l border-slate-800 bg-slate-900 xl:flex 2xl:w-[22rem]">
@@ -99,6 +116,40 @@ export function RightAgentPanel({
               );
             })}
           </div>
+        </section>
+
+        <section className="mt-6">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Files className="h-3.5 w-3.5" />
+              Workspace
+            </div>
+            {workspace && (
+              <span className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-500">
+                {touchedFiles.length} outputs
+              </span>
+            )}
+          </div>
+
+          {workspace ? (
+            <div className="space-y-3">
+              <div className="rounded-md border border-slate-800 bg-slate-950/60 p-2">
+                <div className="mb-1 truncate px-2 py-1 text-[11px] text-slate-600" title={workspace.root}>
+                  {workspace.root}
+                </div>
+                <WorkspaceFileTree
+                  nodes={workspace.tree}
+                  selectedPath={selectedArtifactPath}
+                  onSelectFile={setSelectedArtifactPath}
+                />
+              </div>
+              <ArtifactPreview artifact={selectedArtifact} />
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm leading-6 text-slate-500">
+              当前会话还没有 workspace 产物。真 Agent 调用 write_file 后会在这里出现。
+            </div>
+          )}
         </section>
 
         <section className="mt-6">

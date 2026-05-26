@@ -562,7 +562,31 @@ export function TodoPanel() {
         },
         {
           type: 'text',
-          text: '我会把产物直接放进聊天流：先给一个交互修正 Diff，再附上 PR 网页预览和演示说明文件。',
+          text: '我会先通过工具把产物写进 workspace，再把可读的 Diff、网页预览和演示说明放进聊天流。',
+        },
+        {
+          type: 'tool_call',
+          call_id: 'mock-write-demo-html',
+          tool_name: 'write_file',
+          arguments: {
+            path: 'public/demo.html',
+            content_preview: '<!doctype html><html lang="zh-CN">...',
+          },
+          status: 'ok',
+          output_preview: 'wrote 4598 bytes to public/demo.html',
+          output_truncated: false,
+        },
+        {
+          type: 'tool_call',
+          call_id: 'mock-bash-smoke',
+          tool_name: 'bash',
+          arguments: {
+            command: 'pnpm build',
+            cwd: '.',
+          },
+          status: 'ok',
+          output_preview: 'vite build completed in 1.42s',
+          output_truncated: false,
         },
         {
           type: 'diff',
@@ -589,8 +613,8 @@ export function TodoPanel() {
         },
         {
           type: 'file',
-          filename: 'agenthub-demo-notes.md',
-          url: 'https://github.com/brqs/agenthub',
+          filename: 'README.md',
+          url: '#workspace/README.md',
           size: 18432,
           mime_type: 'text/markdown',
           preview_text: `# AgentHub Demo Notes

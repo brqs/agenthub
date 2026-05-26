@@ -55,4 +55,33 @@ describe('RightAgentPanel', () => {
     expect(screen.getByText('4 Agents')).toBeInTheDocument();
     expect(screen.queryByText('群聊协作中')).not.toBeInTheDocument();
   });
+
+  it('shows mock workspace files for the demo conversation', () => {
+    render(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        messages={[
+          {
+            ...messages[0],
+            conversation_id: 'conv-demo-flow',
+            content: [
+              ...messages[0].content,
+              {
+                type: 'tool_call',
+                call_id: 'call-file',
+                tool_name: 'write_file',
+                arguments: { path: 'public/demo.html' },
+                status: 'ok',
+              },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(screen.getAllByText('demo.html').length).toBeGreaterThan(0);
+    expect(screen.getByText('RuntimeDemo.tsx')).toBeInTheDocument();
+    expect(screen.getByText('1 outputs')).toBeInTheDocument();
+  });
 });
