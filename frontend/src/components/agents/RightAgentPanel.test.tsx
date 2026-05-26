@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { RightAgentPanel } from './RightAgentPanel';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
 
@@ -51,8 +51,11 @@ describe('RightAgentPanel', () => {
   it('keeps the panel header compact and avoids duplicated conversation status', () => {
     render(<RightAgentPanel conversation={conversation} messages={messages} />);
 
-    expect(screen.getByText('会话上下文')).toBeInTheDocument();
-    expect(screen.getByText('4 Agents')).toBeInTheDocument();
+    expect(screen.getByText('工作台')).toBeInTheDocument();
+    expect(screen.getByText('Group')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Workspace/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Context/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Agents$/ })).not.toBeInTheDocument();
     expect(screen.queryByText('群聊协作中')).not.toBeInTheDocument();
   });
 
@@ -79,9 +82,21 @@ describe('RightAgentPanel', () => {
       />,
     );
 
-    expect(screen.getByText('Workspace')).toBeInTheDocument();
+    expect(screen.getAllByText('Workspace').length).toBeGreaterThan(0);
     expect(screen.getAllByText('demo.html').length).toBeGreaterThan(0);
     expect(screen.getByText('RuntimeDemo.tsx')).toBeInTheDocument();
     expect(screen.getByText('1 outputs')).toBeInTheDocument();
+  });
+
+  it('keeps agents and pinned messages in the context tab', () => {
+    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Context/ }));
+
+    expect(screen.getByText('Agents in group')).toBeInTheDocument();
+    expect(screen.getAllByText('Codex Helper').length).toBeGreaterThan(0);
+    expect(screen.getByText('Pin 消息')).toBeInTheDocument();
+    expect(screen.getByText('1 pinned')).toBeInTheDocument();
+    expect(screen.getByText('富媒体内容')).toBeInTheDocument();
   });
 });
