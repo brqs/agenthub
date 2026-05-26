@@ -51,9 +51,15 @@ function buildUnifiedDiff(before: string, after: string): DiffLine[] {
 }
 
 const LINE_CLASS: Record<DiffLine['type'], string> = {
-  context: 'bg-slate-950 text-slate-300',
-  add: 'bg-emerald-950/40 text-emerald-100',
-  remove: 'bg-red-950/40 text-red-100',
+  context: 'bg-white text-slate-800 dark:bg-slate-950 dark:text-slate-300',
+  add: 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100',
+  remove: 'bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-100',
+};
+
+const PREFIX_CLASS: Record<DiffLine['type'], string> = {
+  context: 'text-slate-400 dark:text-slate-500',
+  add: 'text-emerald-700 dark:text-emerald-300',
+  remove: 'text-red-700 dark:text-red-300',
 };
 
 const PREFIX: Record<DiffLine['type'], string> = {
@@ -74,13 +80,13 @@ export function DiffBlock({
   const diff = buildUnifiedDiff(before, after);
 
   return (
-    <div className="my-3 min-w-0 overflow-hidden rounded-md border border-slate-700 bg-slate-950">
-      <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
+    <div className="my-3 min-w-0 overflow-hidden rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-950">
+      <div className="flex items-center justify-between border-b border-slate-300 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950">
         <div className="flex min-w-0 items-center gap-2">
           <GitCompareArrows className="h-4 w-4 shrink-0 text-brand-light" />
-          <span className="truncate text-xs font-medium text-slate-300">{filename}</span>
+          <span className="truncate text-xs font-medium text-slate-800 dark:text-slate-300">{filename}</span>
         </div>
-        <span className="rounded bg-slate-900 px-2 py-1 text-xs text-slate-500">
+        <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-900 dark:text-slate-500">
           {diff.filter((line) => line.type === 'add').length} added / {diff.filter((line) => line.type === 'remove').length} removed
         </span>
       </div>
@@ -88,15 +94,15 @@ export function DiffBlock({
         {diff.map((line, index) => (
           <div
             key={`${line.type}-${index}-${line.text}`}
-            className={`grid min-w-max grid-cols-[48px_48px_24px_minmax(28rem,1fr)] border-b border-slate-900/80 font-mono leading-6 ${LINE_CLASS[line.type]}`}
+            className={`grid min-w-max grid-cols-[48px_48px_24px_minmax(28rem,1fr)] border-b border-slate-200 font-mono leading-6 dark:border-slate-900/80 ${LINE_CLASS[line.type]}`}
           >
-            <span className="select-none border-r border-slate-800 px-2 text-right text-xs text-slate-600">
+            <span className="select-none border-r border-slate-300 bg-slate-100/60 px-2 text-right text-xs text-slate-500 dark:border-slate-800 dark:bg-transparent dark:text-slate-600">
               {line.beforeLine ?? ''}
             </span>
-            <span className="select-none border-r border-slate-800 px-2 text-right text-xs text-slate-600">
+            <span className="select-none border-r border-slate-300 bg-slate-100/60 px-2 text-right text-xs text-slate-500 dark:border-slate-800 dark:bg-transparent dark:text-slate-600">
               {line.afterLine ?? ''}
             </span>
-            <span className="select-none px-2 text-center text-xs text-slate-500">{PREFIX[line.type]}</span>
+            <span className={`select-none px-2 text-center text-xs ${PREFIX_CLASS[line.type]}`}>{PREFIX[line.type]}</span>
             <span className="min-w-0 whitespace-pre px-2">{line.text || ' '}</span>
           </div>
         ))}
