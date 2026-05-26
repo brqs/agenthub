@@ -11,10 +11,12 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
 from app.models.message import Message
+from app.services.model_gateway import CompressionModelGateway
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -234,6 +236,98 @@ async def test_openapi_uses_http_bearer_security(client: AsyncClient) -> None:
         for scheme in security_schemes.values()
     )
     assert all(scheme.get("type") != "oauth2" for scheme in security_schemes.values())
+
+
+async def test_context_compression_config_can_be_read_and_updated(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "context_compression_mode", "hybrid")
+    monkeypatch.setattr(settings, "context_compression_provider", "deepseek")
+    monkeypatch.setattr(settings, "context_compression_model", "deepseek-v4-flash")
+    monkeypatch.setattr(settings, "context_compression_api_key", "sk-test1234")
+
+    read_response = await client.get(
+        "/api/v1/context-compression/config",
+        headers=headers,
+    )
+    update_response = await client.patch(
+        "/api/v1/context-compression/config",
+        headers=headers,
+        json={"model": "deepseek-v4-pro", "summary_max_tokens": 900},
+    )
+
+    assert read_response.status_code == 200
+    assert read_response.json()["provider"] == "deepseek"
+    assert read_response.json()["model"] == "deepseek-v4-flash"
+    assert read_response.json()["api_key_configured"] is True
+    assert read_response.json()["api_key_preview"] == "sk-***1234"
+    assert update_response.status_code == 200
+    assert update_response.json()["model"] == "deepseek-v4-pro"
+    assert update_response.json()["summary_max_tokens"] == 900
+
+
+async def test_context_compression_config_rejects_unsupported_model(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    monkeypatch.setattr(settings, "environment", "development")
+
+    response = await client.patch(
+        "/api/v1/context-compression/config",
+        headers=headers,
+        json={"model": "deepseek-chat"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"]["code"] == "UNSUPPORTED_COMPRESSION_MODEL"
+
+
+async def test_context_compression_config_test_endpoint(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    monkeypatch.setattr(settings, "environment", "development")
+
+    async def fake_test_connection(
+        self: CompressionModelGateway,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str | None = None,
+    ) -> str:
+        assert provider == "openai_compatible"
+        assert model == "custom-summary-model"
+        assert api_key == "sk-test"
+        assert base_url == "https://example.com/v1"
+        return "ok"
+
+    monkeypatch.setattr(CompressionModelGateway, "test_connection", fake_test_connection)
+
+    response = await client.post(
+        "/api/v1/context-compression/config/test",
+        headers=headers,
+        json={
+            "provider": "openai_compatible",
+            "model": "custom-summary-model",
+            "api_key": "sk-test",
+            "base_url": "https://example.com/v1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "provider": "openai_compatible",
+        "model": "custom-summary-model",
+        "error_code": None,
+        "message": None,
+    }
 
 
 async def test_stream_success_marks_agent_message_done(client: AsyncClient) -> None:

@@ -19,7 +19,10 @@ if TYPE_CHECKING:
 
 class Message(Base):
     __tablename__ = "messages"
-    __table_args__ = (Index("idx_msg_conv_time", "conversation_id", "created_at"),)
+    __table_args__ = (
+        Index("idx_msg_conv_time", "conversation_id", "created_at"),
+        Index("idx_msg_conv_pinned_time", "conversation_id", "is_pinned", "created_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
     conversation_id: Mapped[UUID] = mapped_column(
