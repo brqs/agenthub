@@ -8,6 +8,7 @@ describe('uiStore', () => {
       settingsOpen: false,
       userMenuOpen: false,
       rightPanelOpen: true,
+      conversationSidebarCollapsed: false,
     });
     useUiStore.getState().setTheme('dark');
   });
@@ -30,5 +31,15 @@ describe('uiStore', () => {
 
     expect(useUiStore.getState().settingsOpen).toBe(true);
     expect(useUiStore.getState().userMenuOpen).toBe(true);
+  });
+
+  it('tracks conversation sidebar collapsed state', () => {
+    useUiStore.getState().setConversationSidebarCollapsed(true);
+
+    expect(useUiStore.getState().conversationSidebarCollapsed).toBe(true);
+
+    useUiStore.getState().toggleConversationSidebar();
+
+    expect(useUiStore.getState().conversationSidebarCollapsed).toBe(false);
   });
 });

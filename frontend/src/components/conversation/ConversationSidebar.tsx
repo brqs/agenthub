@@ -1,4 +1,4 @@
-import { Plus, Search } from 'lucide-react';
+import { PanelLeftClose, Plus, Search } from 'lucide-react';
 import { ConversationItem } from './ConversationItem';
 import type { DemoConversation } from '@/lib/mockData';
 
@@ -9,6 +9,7 @@ export function ConversationSidebar({
   onSearch,
   onSelect,
   onNewConversation,
+  onCollapse,
   onTogglePin,
   onToggleArchive,
 }: {
@@ -18,6 +19,7 @@ export function ConversationSidebar({
   onSearch: (value: string) => void;
   onSelect: (conversationId: string) => void;
   onNewConversation: () => void;
+  onCollapse?: () => void;
   onTogglePin?: (conversationId: string) => void;
   onToggleArchive?: (conversationId: string) => void;
 }) {
@@ -36,15 +38,28 @@ export function ConversationSidebar({
             <h1 className="text-base font-semibold text-white">AgentHub</h1>
             <p className="text-xs text-slate-500">多 Agent 协作频道</p>
           </div>
-          <button
-            type="button"
-            onClick={onNewConversation}
-            className="flex h-9 w-9 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover"
-            title="新建会话"
-            aria-label="新建会话"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {onCollapse && (
+              <button
+                type="button"
+                onClick={onCollapse}
+                className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-800 bg-slate-950 text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand"
+                title="收起会话列表"
+                aria-label="收起会话列表"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onNewConversation}
+              className="flex h-9 w-9 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover"
+              title="新建会话"
+              aria-label="新建会话"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <label className="mt-4 flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm text-slate-400 ring-1 ring-slate-800 focus-within:ring-brand">
           <Search className="h-4 w-4" />
