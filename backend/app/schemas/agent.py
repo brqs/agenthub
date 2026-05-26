@@ -9,21 +9,31 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import OffsetPagination
 
-AgentProvider = Literal["claude", "deepseek", "openai", "custom", "mock"]
-CreatableAgentProvider = Literal["claude", "deepseek", "openai", "custom"]
-UpstreamProvider = Literal["claude", "deepseek", "openai"]
+AgentProvider = Literal[
+    "claude_code",
+    "codex",
+    "opencode",
+    "builtin",
+    "mock",
+    "claude",
+    "deepseek",
+    "openai",
+    "custom",
+]
+CreatableAgentProvider = Literal["claude_code", "codex", "opencode", "builtin"]
+ModelBackend = Literal["claude", "deepseek", "openai"]
 
 
 class AgentConfig(BaseModel):
-    model: str = ""
-    temperature: float | None = Field(default=None, ge=0, le=2)
-    max_tokens: int | None = Field(default=None, ge=1, le=16384)
-    top_p: float | None = Field(default=None, ge=0, le=1)
-    upstream_provider: UpstreamProvider | None = Field(
+    model_backend: ModelBackend | None = Field(
         default=None,
-        description="Upstream provider for custom agents (claude, deepseek, or openai). "
-                    "Only used when provider is 'custom'.",
+        description="ModelGateway backend for builtin agents.",
     )
+    max_iterations: int | None = Field(default=None, ge=1, le=50)
+    mcp_servers: list[dict[str, Any]] | None = None
+    command: str | list[str] | None = None
+    args: list[str] | None = None
+    timeout_seconds: float | None = Field(default=None, ge=1, le=3600)
 
     # 允许额外 provider 专属字段
     model_config = ConfigDict(extra="allow")

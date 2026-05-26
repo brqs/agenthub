@@ -286,6 +286,44 @@ async def test_orchestrator_derives_tasks_from_managed_agents() -> None:
     assert "Build a calendar app" in adapter_b.received_messages[-1].content
 
 
+async def test_orchestrator_forwards_tool_events_with_remapped_call_ids() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="c-1",
+                tool_name="write_file",
+                tool_arguments={"path": "hello.html"},
+            ),
+            StreamChunk(
+                event_type="tool_result",
+                call_id="c-1",
+                tool_status="ok",
+                tool_output="wrote hello.html",
+            ),
+            StreamChunk(event_type="done", agent_id="agent-a"),
+        ],
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Write HTML", "Write hello.html")],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    tool_call = next(chunk for chunk in chunks if chunk.event_type == "tool_call")
+    tool_result = next(chunk for chunk in chunks if chunk.event_type == "tool_result")
+    assert tool_call.call_id == "task-a.c-1"
+    assert tool_result.call_id == "task-a.c-1"
+    assert tool_call.tool_name == "write_file"
+    assert tool_result.tool_status == "ok"
+
+
 async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() -> None:
     class FakeDb:
         async def get(self, model: object, key: str) -> Agent | None:
@@ -296,11 +334,11 @@ async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() 
                 id="orchestrator",
                 user_id=None,
                 name="Orchestrator",
-                provider="custom",
+                provider="builtin",
                 avatar_url="/avatars/orchestrator.png",
                 capabilities=["task_decomposition", "coordination"],
                 system_prompt="Coordinate sub agents.",
-                config={"model": "claude-sonnet-4-6"},
+                config={"model_backend": "claude"},
                 is_builtin=True,
             )
 

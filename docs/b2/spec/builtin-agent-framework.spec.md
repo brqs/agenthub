@@ -123,7 +123,7 @@ TOOLS = {
     "read_file": ToolSpec(
         name="read_file",
         description="Read a UTF-8 text file from the workspace.",
-        parameters_schema={
+        parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path relative to workspace root"},
@@ -134,7 +134,7 @@ TOOLS = {
     "write_file": ToolSpec(
         name="write_file",
         description="Write or overwrite a UTF-8 text file in the workspace.",
-        parameters_schema={
+        parameters={
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
@@ -146,7 +146,7 @@ TOOLS = {
     "bash": ToolSpec(
         name="bash",
         description="Run a whitelisted shell command in the workspace (timeout 30s).",
-        parameters_schema={
+        parameters={
             "type": "object",
             "properties": {
                 "command": {"type": "string"},

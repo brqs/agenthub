@@ -52,7 +52,7 @@ class TaskRunResult:
 class OrchestratorAdapter(BaseAgentAdapter):
     """Master agent that coordinates multiple sub-agents in group chat."""
 
-    provider = "custom"
+    provider = "builtin"
 
     async def stream(
         self,
@@ -359,6 +359,9 @@ async def _run_fallback(
                 for failure_chunk in _text_block(next_block_index, failure_text):
                     yield failure_chunk, next_block_index + 1
                 return
+            if chunk.event_type in {"tool_call", "tool_result"}:
+                yield _remap_tool_call_id(chunk, "fallback"), next_block_index
+                continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
             remapped, next_block_index = _remap_block_index(
@@ -502,6 +505,9 @@ async def _remapped_sub_stream(
                 for failure_chunk in _text_block(next_block_index, failure_text):
                     yield failure_chunk, next_block_index + 1, True
                 return
+            if chunk.event_type in {"tool_call", "tool_result"}:
+                yield _remap_tool_call_id(chunk, task.task_id), next_block_index, False
+                continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
             remapped, next_block_index = _remap_block_index(
@@ -584,6 +590,12 @@ def _remap_block_index(
         index_map[chunk.block_index] = mapped_index
         next_block_index += 1
     return chunk.model_copy(update={"block_index": mapped_index}), next_block_index
+
+
+def _remap_tool_call_id(chunk: StreamChunk, task_id: str) -> StreamChunk:
+    if not chunk.call_id:
+        return chunk
+    return chunk.model_copy(update={"call_id": f"{task_id}.{chunk.call_id}"})
 
 
 def _error_reason(chunk: StreamChunk) -> str:

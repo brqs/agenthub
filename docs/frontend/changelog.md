@@ -4,6 +4,8 @@
 > 适用范围：`frontend/**`、前端相关 API 对接、前端 Mock、UI/交互、SSE 消费、富媒体渲染。
 > 维护人：F（前端），涉及契约或跨模块变更时需同步 B1 / B2。
 
+> ⚠️ 2026-05-27 B2-20 契约变更：Agent 顶层 provider 已切换为 `claude_code` / `codex` / `opencode` / `builtin` / `mock`，`claude` / `openai` / `deepseek` / `custom` 仅作为历史数据或 BuiltinAgent 内部 ModelGateway backend。下方 2026-05-25 关于 `provider=custom` / `upstream_provider` 的记录是 pivot 前历史问题；前端需要基于最新 `shared/openapi.yaml` 重新生成类型并更新创建 Agent 表单。
+
 ---
 
 ## 当前状态总览（2026-05-25）
