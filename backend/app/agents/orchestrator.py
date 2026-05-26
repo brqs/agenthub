@@ -5,10 +5,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, cast
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.types import ChatMessage, StreamChunk
+from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 AdapterFactory = Callable[[str], BaseAgentAdapter | Awaitable[BaseAgentAdapter]]
 
@@ -56,8 +57,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
     async def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[ToolSpec] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
 
@@ -68,7 +72,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
         except ValueError as exc:
             if _has_fallback(merged_config):
                 async for chunk, updated_block_index in _run_fallback(
-                    merged_config, messages, next_block_index
+                    merged_config,
+                    messages,
+                    next_block_index,
+                    workspace_path,
+                    tool_specs,
                 ):
                     next_block_index = updated_block_index
                     yield chunk
@@ -117,6 +125,8 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 messages,
                 next_block_index,
                 result,
+                workspace_path,
+                tool_specs,
             ):
                 next_block_index = updated_block_index
                 yield chunk
@@ -298,6 +308,8 @@ async def _run_fallback(
     config: Mapping[str, Any],
     messages: list[ChatMessage],
     next_block_index: int,
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     fallback_agent_id = _get_fallback_agent_id(config)
 
@@ -329,7 +341,11 @@ async def _run_fallback(
     open_block_index: int | None = None
     try:
         async for chunk in fallback_adapter.stream(
-            messages, system_prompt=None, config=None
+            messages,
+            system_prompt=None,
+            config=None,
+            workspace_path=workspace_path,
+            tool_specs=tool_specs,
         ):
             if chunk.event_type in {"start", "done"}:
                 continue
@@ -461,11 +477,19 @@ async def _remapped_sub_stream(
     task: SubTask,
     messages: list[ChatMessage],
     next_block_index: int,
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
 ) -> AsyncIterator[tuple[StreamChunk, int, bool]]:
     index_map: dict[int, int] = {}
     open_block_index: int | None = None
     try:
-        async for chunk in sub_adapter.stream(messages, system_prompt=None, config=None):
+        async for chunk in sub_adapter.stream(
+            messages,
+            system_prompt=None,
+            config=None,
+            workspace_path=workspace_path,
+            tool_specs=tool_specs,
+        ):
             if chunk.event_type in {"start", "done"}:
                 continue
             if chunk.event_type == "error":
@@ -508,6 +532,8 @@ async def _run_task(
     messages: list[ChatMessage],
     next_block_index: int,
     result: TaskRunResult,
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     yield _agent_switch(task), next_block_index
     for chunk, updated_block_index in _text_block_with_next(
@@ -535,6 +561,8 @@ async def _run_task(
         task,
         sub_messages,
         next_block_index,
+        workspace_path,
+        tool_specs,
     ):
         next_block_index = updated_block_index
         task_failed = subtask_failed

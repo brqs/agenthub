@@ -107,6 +107,10 @@ frontend/.dockerignore
 # Alembic 临时
 backend/alembic/versions/*.pyc
 
+# Workspace artifacts
+workspaces/*
+!workspaces/.gitkeep
+
 # Generated OpenAPI types（前端从 openapi.yaml 生成；保留在源码中以便联调，但允许本地重生成）
 # frontend/src/lib/types.ts  # ← 如果选择不入库则启用本行
 

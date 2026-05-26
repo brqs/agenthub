@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -157,8 +158,11 @@ class FakeCustomUpstreamAdapter(BaseAgentAdapter):
     async def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         self.stream_call_count += 1
         yield StreamChunk(event_type="start", agent_id=self.agent_id)

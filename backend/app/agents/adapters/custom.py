@@ -8,13 +8,14 @@ The user's system prompt is injected into the upstream call.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from app.agents.adapters.claude import ClaudeAdapter
 from app.agents.adapters.deepseek import DeepSeekAdapter
 from app.agents.adapters.openai import OpenAIAdapter
 from app.agents.base import BaseAgentAdapter
-from app.agents.types import ChatMessage, StreamChunk
+from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 UPSTREAM_ADAPTERS: dict[str, type[BaseAgentAdapter]] = {
     "claude": ClaudeAdapter,
@@ -31,8 +32,11 @@ class CustomAdapter(BaseAgentAdapter):
     async def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[ToolSpec] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         merged = self.merged_config(config)
 
@@ -66,5 +70,7 @@ class CustomAdapter(BaseAgentAdapter):
             messages,
             system_prompt=effective_system,
             config=None,
+            workspace_path=workspace_path,
+            tool_specs=tool_specs,
         ):
             yield chunk
