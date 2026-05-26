@@ -23,8 +23,8 @@ B2-02 到 B2-05 已完成：
 
 请先阅读：
 1. AGENTS.md
-2. docs/spec/stream-error-status.spec.md
-3. docs/b2-task-dispatch/B2-roadmap.md
+2. docs/b2/spec/stream-error-status.spec.md
+3. docs/b2/task-dispatch/B2-roadmap.md
 4. backend/app/api/v1/stream.py
 5. backend/app/agents/types.py
 6. backend/app/agents/base.py

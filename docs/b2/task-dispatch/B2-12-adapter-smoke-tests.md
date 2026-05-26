@@ -23,8 +23,8 @@
 ## 开始前必须阅读
 
 1. `AGENTS.md`
-2. `docs/spec/adapter-smoke-tests.spec.md`
-3. `docs/spec/provider-resilience.spec.md`
+2. `docs/b2/spec/adapter-smoke-tests.spec.md`
+3. `docs/b2/spec/provider-resilience.spec.md`
 4. `backend/app/agents/base.py`
 5. `backend/app/agents/types.py`
 6. `backend/app/api/v1/stream.py`

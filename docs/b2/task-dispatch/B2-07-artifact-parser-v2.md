@@ -18,8 +18,8 @@ B2-06 已修复 SSE error 状态持久化。
 
 请先阅读：
 1. AGENTS.md
-2. docs/spec/artifact-parser-v2.spec.md
-3. docs/b2-task-dispatch/B2-roadmap.md
+2. docs/b2/spec/artifact-parser-v2.spec.md
+3. docs/b2/task-dispatch/B2-roadmap.md
 4. backend/app/agents/artifact_parser.py
 5. backend/app/agents/types.py
 6. backend/app/api/v1/stream.py

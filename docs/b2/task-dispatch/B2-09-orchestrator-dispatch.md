@@ -12,9 +12,9 @@ Codex 负责总览、任务拆解、边界检查和最终代码审阅。
 你只完成本任务范围内的 Orchestrator 顺序调度实现和测试，不要扩大到失败降级、并发调度、OpenAPI 或前端改动。
 
 启动前置条件：
-1. B2-08 必须已经产出 `docs/spec/orchestrator.spec.md`。
+1. B2-08 必须已经产出 `docs/b2/spec/orchestrator.spec.md`。
 2. 你必须先阅读 B2-08 Spec，并以它为准实现。
-3. 如果 `docs/spec/orchestrator.spec.md` 不存在，或其中的 Orchestrator 输入/输出规则不明确，请停止并回报，不要自行补写生产实现。
+3. 如果 `docs/b2/spec/orchestrator.spec.md` 不存在，或其中的 Orchestrator 输入/输出规则不明确，请停止并回报，不要自行补写生产实现。
 4. 如果你在 stacked branch 上工作，当前分支应基于 `feat/B2-orchestrator-spec`；如果 B2-08 已合并，则应基于最新 `main`。
 
 项目背景：
@@ -34,9 +34,9 @@ B2-09 的目标是把它推进到“可用的基础编排器”：
 
 请先阅读：
 1. AGENTS.md
-2. docs/spec/orchestrator.spec.md
-3. docs/b2-task-dispatch/B2-roadmap.md
-4. docs/b2-task-dispatch/B2-08-orchestrator-spec.md
+2. docs/b2/spec/orchestrator.spec.md
+3. docs/b2/task-dispatch/B2-roadmap.md
+4. docs/b2/task-dispatch/B2-08-orchestrator-spec.md
 5. docs/api-spec.md 中 Orchestrator SSE / agent_switch 示例
 6. docs/tech-architecture.md 中 Orchestrator 章节
 7. backend/app/agents/orchestrator.py
@@ -51,7 +51,7 @@ B2-09 的目标是把它推进到“可用的基础编排器”：
 - docs/ai-collaboration-log.md
 
 如 B2-08 Spec 明确要求同步说明，也允许最小更新：
-- docs/b2-task-dispatch/B2-roadmap.md
+- docs/b2/task-dispatch/B2-roadmap.md
 
 禁止修改：
 - backend/app/agents/base.py

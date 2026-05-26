@@ -1,8 +1,16 @@
 # AgentHub 三人分工开发方案（Team Division Plan）
 
 > 配套文档：[development-plan.md](./development-plan.md)
-> 文档版本：v1.0
-> 最后更新：2026-05-22
+> 文档版本：v1.1（Agent Runtime Pivot）
+> 最后更新：2026-05-26
+
+> ⚠️ **2026-05-26 Agent Runtime Pivot 生效** — 三人边界调整：
+> - **F** 新增产物预览/二次编辑/Workspace 文件树 UI
+> - **B1** 接管 Workspace 沙箱 + Artifact API + SSE tool_* 事件持久化
+> - **B2** 主战场从 "LLM Provider + 编排" 升级为 "Agent Runtime Layer（External + Builtin Framework）"
+>
+> 决策依据：[docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)
+> 已就地同步章节：§1 / §2.3 / §3 / §4 / §5 / §6 / §7。Sprint 1-4 历史保留为附录，Sprint 5 为 pivot 后剩余 8 天计划。
 
 ---
 
@@ -24,13 +32,13 @@
 
 ## 1. 团队结构与角色
 
-### 1.1 角色定位
+### 1.1 角色定位（v1.1 — Agent Runtime Pivot）
 
 | 代号 | 全称 | 主战场 | 核心产出 |
 |------|------|--------|----------|
-| **F** | Frontend Engineer | React SPA | 用户能看到的所有交互 |
-| **B1** | Backend Core Engineer | FastAPI + DB | 数据持久化、认证、IM 协议、SSE 网关 |
-| **B2** | Agent Integration Engineer | LLM Provider + 编排 | Adapter、Orchestrator、产物解析 |
+| **F** | Frontend Engineer | React SPA + 产物 UI | IM 交互 + ToolCallBlock + ArtifactPreview + Monaco 编辑器 + Workspace 文件树 |
+| **B1** | Backend Core + Sandbox Engineer | FastAPI + DB + Workspace | 数据持久化、认证、IM 协议、SSE 网关、**Workspace 沙箱与 Artifact 服务（pivot 新增）** |
+| **B2** | Agent Runtime Engineer | Agent Runtime Layer | ExternalAgentAdapter（Claude Agent SDK / Codex）+ BuiltinAgent Framework（loop / tools / MCP / memory）+ ModelGateway 底座 + Orchestrator |
 
 ### 1.2 工作量预估（按 14 天 Sprint 计）
 
@@ -42,13 +50,13 @@
 
 > 每人日均 ~6-7h，14 天约 90h，符合实际作息。
 
-### 1.3 各角色技能要求
+### 1.3 各角色技能要求（v1.1 — Agent Runtime Pivot）
 
 | 角色 | 必备技能 | 加分技能 |
 |------|----------|----------|
-| **F** | React、TypeScript、CSS、HTTP | Tailwind、shadcn、Zustand、SSE/EventSource |
-| **B1** | Python、SQL、HTTP、async | FastAPI、SQLAlchemy 2.0、JWT、Redis |
-| **B2** | Python、LLM API 使用 | Anthropic/OpenAI SDK、async generator、Prompt 工程 |
+| **F** | React、TypeScript、CSS、HTTP、SSE/EventSource | Tailwind、shadcn、Zustand、Monaco editor、iframe sandbox |
+| **B1** | Python、SQL、HTTP、async、文件系统安全 | FastAPI、SQLAlchemy 2.0、JWT、Redis、subprocess 沙箱 |
+| **B2** | Python、async generator、Prompt 工程、Agent loop 设计 | Claude Agent SDK / OpenAI Agents SDK、MCP 协议、tool calling 调试 |
 
 ---
 
@@ -98,27 +106,39 @@
 5. **每日同步契约变更**
    - 早会时若有 OpenAPI 变更，全员在 5 分钟内 `git pull` + `pnpm run gen:types`
 
-### 2.3 文件所有权矩阵
+### 2.3 文件所有权矩阵（v1.1 — Agent Runtime Pivot）
 
 | 目录 / 文件 | F | B1 | B2 |
 |------------|---|----|----|
 | `frontend/**` | ✅ Owner | 👁 Read | 👁 Read |
+| `frontend/src/components/blocks/ToolCallBlock.tsx` ✨ | ✅ Owner | 👁 Read | 👁 Read |
+| `frontend/src/components/artifact/**` ✨ | ✅ Owner | 👁 Read | 👁 Read |
 | `backend/app/core/**` | 👁 Read | ✅ Owner | 👁 Read |
 | `backend/app/models/**` | ❌ | ✅ Owner | 👁 Read |
+| `backend/app/models/workspace.py` ✨ | ❌ | ✅ Owner | 👁 Read |
 | `backend/app/schemas/**` | 👁 Read | 🤝 Co-Own | 🤝 Co-Own |
 | `backend/app/api/v1/auth.py` | 👁 Read | ✅ Owner | ❌ |
 | `backend/app/api/v1/conversations.py` | 👁 Read | ✅ Owner | ❌ |
 | `backend/app/api/v1/messages.py` | 👁 Read | ✅ Owner | ❌ |
 | `backend/app/api/v1/stream.py` | 👁 Read | ✅ Owner | 👁 Read |
 | `backend/app/api/v1/agents.py` | 👁 Read | 🤝 Co-Own | ✅ Owner |
+| `backend/app/api/v1/workspaces.py` ✨ | 👁 Read | ✅ Owner | 👁 Read |
 | `backend/app/services/**` | ❌ | ✅ Owner | 👁 Read |
-| `backend/app/agents/**` | ❌ | 👁 Read | ✅ Owner |
+| `backend/app/services/workspace_service.py` ✨ | ❌ | ✅ Owner | 👁 Read |
+| `backend/app/workspaces/**` ✨ | ❌ | ✅ Owner | 👁 Read |
+| `backend/app/agents/base.py` | 👁 Read | 👁 Read | ✅ Owner（**契约 2**，改前通知全员） |
+| `backend/app/agents/types.py` | 👁 Read | 👁 Read | ✅ Owner（**StreamChunk 协议**） |
+| `backend/app/agents/external/**` ✨ | ❌ | 👁 Read | ✅ Owner |
+| `backend/app/agents/builtin/**` ✨ | ❌ | 👁 Read | ✅ Owner |
+| `backend/app/agents/model_gateway/**` ✨ | ❌ | 👁 Read | ✅ Owner |
+| `backend/app/agents/orchestrator.py` | ❌ | 👁 Read | ✅ Owner |
 | `shared/openapi.yaml` | 🤝 Co-Own | ✅ Owner | 🤝 Co-Own |
 | `docs/**` | 🤝 Co-Own | 🤝 Co-Own | 🤝 Co-Own |
-| `CLAUDE.md` | 🤝 Co-Own | 🤝 Co-Own | 🤝 Co-Own |
-| `docker-compose.yml` | 👁 Read | ✅ Owner | 👁 Read |
+| `CLAUDE.md` / `AGENTS.md` | 🤝 Co-Own | 🤝 Co-Own | 🤝 Co-Own |
+| `docker-compose.yml`（含 workspace 卷挂载） | 👁 Read | ✅ Owner | 👁 Read |
 
 > ✅ Owner：主要负责 / 🤝 Co-Own：共同负责（需要协商） / 👁 Read：只读 / ❌：不应改动
+> ✨ = pivot 新增 / 重新分层文件
 
 ---
 
@@ -228,6 +248,23 @@ React 18 + Vite + TypeScript
 | **【P2】PWA 配置** | 可"添加到主屏幕" |
 | 录制 Demo 视频（团队） | 3 分钟覆盖核心流程 |
 | 写前端 README + 部署说明 | 他人按文档可启动 |
+
+### 3.3-PIVOT  F 的 Sprint 5（pivot 后剩余 8 天）追加任务
+
+> 新增前提：Sprint 1-4 的 IM UI / SSE 消费 / 富媒体渲染已交付。Sprint 5 聚焦"真 Agent 产物体验"。
+
+| # | 任务 | 依赖 | 验收 |
+|---|---|---|---|
+| F-PIVOT-1 | **ToolCallBlock 渲染组件**（折叠卡片显示 tool_name / arguments preview / result preview / 成功失败态） | B2 Day 1 交付 StreamChunk v1.1 schema | 单测覆盖 + Mock 数据演示 |
+| F-PIVOT-2 | **SSE handler 扩展**：识别 `tool_call` / `tool_result` 事件，按 `call_id` 配对累积进 ContentBlock 数组 | F-PIVOT-1 | 端到端：BuiltinAgent 工具调用 → 前端实时折叠卡片渲染 |
+| F-PIVOT-3 | **ArtifactPreview Panel**：右侧侧栏，根据 workspace_path 渲染 iframe（mime=text/html）或代码高亮（其他文本） | B1 Artifact API（Day 2 EOD） | 静态文件可预览；安全（CSP + sandbox） |
+| F-PIVOT-4 | **Workspace 文件树侧栏**：调 `GET /workspaces/{conv}/tree`，点击文件 → ArtifactPreview | F-PIVOT-3 | 大目录懒加载；面包屑 |
+| F-PIVOT-5 | **Monaco 代码编辑器**（仅文本/代码 mime），支持改完 PUT 回 workspace；编辑后自动在对话中发"我把 App.tsx 改成了这样，请基于此继续" | F-PIVOT-3、B1 PUT API | 改 → 保存 → Agent 接续 |
+| F-PIVOT-6 | **Orchestrator 任务卡升级**：在原任务卡上补充"工具调用次数"与"产物文件列表" | F-PIVOT-1 / 2 | 群聊场景显示 |
+| F-PIVOT-7 | **空态 / 加载态 / 错误态**：tool_call 中、tool 失败、workspace_violation 友好提示 | F-PIVOT-1 / 2 | 三类状态有视觉 |
+| F-PIVOT-8 | **Demo 视频脚本对齐**：把"真 Agent 写 HTML → iframe 预览 → 用户改代码 → Agent 接续"录成 30s 片段 | 全部 | 视频可剪辑 |
+
+❌ 不做（明确边界）：一键部署 UI（P2）、多面板布局重做（保持现有 3 栏）、移动端响应式重写（保持现有）。
 
 ### 3.4 F 的关键产出物
 
@@ -355,6 +392,23 @@ Python 3.11 + FastAPI + Uvicorn
 | 数据库 ER 图 | `docs/tech-architecture.md` |
 | 答辩讲稿 | 自己负责模块讲透 |
 
+### 4.3-PIVOT  B1 的 Sprint 5 追加任务
+
+> 新增前提：Sprint 1-4 的 auth / conversation / message / SSE / context compression 已交付。Sprint 5 聚焦"Workspace 沙箱 + Artifact 服务 + SSE 协议扩展"。
+
+| # | 任务 | 依赖 | 验收 |
+|---|---|---|---|
+| B1-PIVOT-1 | **Workspace 模型 + Alembic migration**（[workspace-sandbox.spec.md §2-3](b1/spec/workspace-sandbox.spec.md)） | — | `alembic upgrade head` 通过；conv 删除时 workspace 行 cascade |
+| B1-PIVOT-2 | **WorkspaceService**：get_or_create / list_tree / read_file / write_file（含 §4 路径校验） | B1-PIVOT-1 | 单测覆盖：越界 / 符号链接 / .env / 1MB 限制 |
+| B1-PIVOT-3 | **Artifact API**：`GET /workspaces/{conv}/tree` / `GET /files/{path}`（含 mime sniff、iframe CSP）/ `PUT /files/{path}` | B1-PIVOT-2 | curl 测试 + Swagger UI 可调 |
+| B1-PIVOT-4 | **OpenAPI 同步**：把上述 3 端点 + Workspace schema + SSE 新事件 + ContentBlock 新类型（ToolCallBlock）写入 `shared/openapi.yaml` | B2 Day 1 交付 StreamChunk v1.1 / Adapter v2 / ToolSpec 定义 | F 跑 `pnpm gen:types` 成功；后端 mypy 通过 |
+| B1-PIVOT-5 | **SSE 协议扩展**：[backend/app/api/v1/stream.py](../backend/app/api/v1/stream.py) 调用 Adapter v2 时传 `workspace_path`；`_ContentAccumulator` 处理 tool_call / tool_result 配对 → 持久化为 ToolCallBlock | B2 Adapter v2 + B1-PIVOT-2 | 集成测试：mock Builtin Adapter 调 write_file → DB 消息含 ToolCallBlock |
+| B1-PIVOT-6 | **Docker compose 卷挂载**：把宿主机 `/var/lib/agenthub/workspaces` 挂到容器 `/workspaces` | B1-PIVOT-1 | `docker compose up` 后 Agent 写文件能在宿主机看到 |
+| B1-PIVOT-7 | **Workspace 配置**：[backend/app/core/config.py](../backend/app/core/config.py) 加 `WORKSPACE_BASE_DIR` + 默认值 | B1-PIVOT-1 | 测试环境用 tmp 目录 |
+| B1-PIVOT-8 | **文档同步 + 答辩讲稿**：把 Workspace 安全边界 / SSE 协议升级写成 5 分钟讲稿 | 全部 | 团队评审通过 |
+
+❌ 不做（明确边界）：Docker per-conversation 隔离（P2）、网络/CPU 限制（P2）、workspace 配额（P2）、跨实例 workspace 路由（MVP 单机）。
+
 ### 4.4 B1 的关键产出物
 
 ```
@@ -382,7 +436,7 @@ backend/
 
 ## 5. B2（Agent 集成）详细任务清单
 
-> B2 当前更细的执行路线图和任务编号以 [docs/b2-task-dispatch/B2-roadmap.md](b2-task-dispatch/B2-roadmap.md) 为准；本节保留团队级分工视角。
+> B2 当前更细的执行路线图和任务编号以 [docs/b2/task-dispatch/B2-roadmap.md](b2/task-dispatch/B2-roadmap.md) 为准；本节保留团队级分工视角。
 
 ### 5.1 职责范围
 
@@ -417,7 +471,7 @@ Python 3.11
 | 设计 Adapter Registry | `agents/registry.py` | `get_adapter(agent_id)` 工作 |
 | 与 B1 对齐 SSE 事件类型 | `shared/openapi.yaml` + `docs/spec/streaming.spec.md` | 文档化所有事件 |
 | 阅读 Anthropic + OpenAI SDK 流式 API | 文档阅读笔记 | 输出 `docs/spec/llm-api-notes.md` |
-| **设计 Orchestrator Spec** | `docs/spec/orchestrator.spec.md` | 决定任务拆解方式 |
+| **设计 Orchestrator Spec** | `docs/b2/spec/orchestrator.spec.md` | 决定任务拆解方式 |
 
 **Day 2 验收**：B1 用 MockAdapter 即可跑通 SSE 端到端。
 
@@ -474,6 +528,30 @@ Python 3.11
 | Orchestrator 任务图设计文档 | 同上 |
 | AI 协作记录沉淀 | `docs/ai-collaboration-log.md` |
 | 答辩讲稿 | 准备 5 分钟讲稿 |
+
+### 5.3-PIVOT  B2 的 Sprint 5 追加任务
+
+> 新增前提：Sprint 1-4 的 B2-01~B2-13（Claude/OpenAI/DeepSeek/Custom raw LLM Adapter + Orchestrator 注入式调度 + Provider resilience）已交付。Sprint 5 把这些工作降级为 ModelGateway 底座，并构建 Layer A / Layer B。
+
+| # | 任务 | 依赖 | 验收 |
+|---|---|---|---|
+| B2-PIVOT-1 | **BaseAgentAdapter v2 接口升级**（[backend/app/agents/base.py](../backend/app/agents/base.py)）：新增 workspace_path / tool_specs；keyword-only | [agent-runtime-adapter.spec.md §2](b2/spec/agent-runtime-adapter.spec.md) | mypy 通过；现有 adapter 编译通过（不传新参时退化） |
+| B2-PIVOT-2 | **StreamChunk 协议扩展**（[backend/app/agents/types.py](../backend/app/agents/types.py)）：新增 tool_call / tool_result + 字段 + ToolSpec | [agent-runtime-adapter.spec.md §3-4](b2/spec/agent-runtime-adapter.spec.md) | model_config 不破；现有测试通过 |
+| B2-PIVOT-3 | **MockAgentAdapter v2**：能产出 tool_call / tool_result 序列，供 B1 / F 联调 | B2-PIVOT-1/2 | B1 集成测试可用 |
+| B2-PIVOT-4 | **ModelGateway 迁移**：把 [agents/adapters/{claude,openai,deepseek,resilience}.py](../backend/app/agents/adapters/) 移到 `agents/model_gateway/`；新增 `stream(messages, tools, config)` 接口；映射 Provider 原生 tool calling | B2-PIVOT-2 | 全量 pytest 通过（路径 import 同步） |
+| B2-PIVOT-5 | **删除 `adapters/custom.py` + 从顶层 registry 移除 model gateway provider 项**：避免 raw LLM 仍作为顶层 Agent 暴露 | B2-PIVOT-4 + B2-PIVOT-7 | seed_agents 更新；前端 Agents 列表无残留 |
+| B2-PIVOT-6 | **ExternalAgentAdapter — Claude Code（Claude Agent SDK）**：[agents/external/claude_code.py](../backend/app/agents/) | B2-PIVOT-1 + workspace_path 接通 | E2E：真实 SDK 写一个 hello.html → workspace 可见 |
+| B2-PIVOT-7 | **AgentRegistry v2**：注册 external / builtin / orchestrator 三类入口；保留 Orchestrator 工厂；seed_agents 重新生成默认 Agents | B2-PIVOT-6 | `GET /agents` 返回新分类 |
+| B2-PIVOT-8 | **BuiltinAgent Framework — AgentLoop**（[builtin-agent-framework.spec.md §2](b2/spec/builtin-agent-framework.spec.md)） | B2-PIVOT-4 | 5 个单测覆盖（无 tool / 单 tool / 多轮 / max_iter / error） |
+| B2-PIVOT-9 | **ToolRegistry — read_file / write_file / bash 三件套**（[§3](b2/spec/builtin-agent-framework.spec.md)） | B1-PIVOT-2 路径校验函数 | 5 个单测（含越界、白名单、超时） |
+| B2-PIVOT-10 | **MCPClient — stdio + 1 个 filesystem server**（[§5](b2/spec/builtin-agent-framework.spec.md)） | B2-PIVOT-8 | E2E：BuiltinAgent 通过 MCP 列目录 |
+| B2-PIVOT-11 | **MemoryManager 薄封装**（复用 [conversation_memory](../backend/app/models/conversation_memory.py)） | B2-PIVOT-8 | recall / pin 单测 |
+| B2-PIVOT-12 | **ExternalAgentAdapter — Codex（OpenAI Agents SDK）** | B2-PIVOT-6 模式 | E2E：Codex 写一个 Python 函数 + 跑通 |
+| B2-PIVOT-13 | **Orchestrator 接通真 Agent**：sub-adapter 通过 v2 接口拿到 ExternalAgent / BuiltinAgent；call_id 重映射 `task_id.<原 call_id>` | B2-PIVOT-6/8/12 | 群聊场景 E2E 演示 |
+| B2-PIVOT-14 | **依赖加入 pyproject.toml**：`claude-agent-sdk`、`openai-agents`、`mcp` | B2-PIVOT-6 | `uv sync` 通过 |
+| B2-PIVOT-15 | **答辩讲稿 + ADR 收尾**：5 分钟讲清三层架构 + 一个完整 demo 链路 | 全部 | 团队评审通过 |
+
+❌ 不做（明确边界）：OpenCode CLI 接入（Sprint 6 候选）、Agent 并行 tool 调用、向量记忆检索、MCP HTTP transport。
 
 ### 5.4 B2 的关键产出物
 
@@ -532,28 +610,44 @@ paths:
                 type: string
 ```
 
-### 6.2 契约 2：BaseAgentAdapter（B1 ↔ B2）
+### 6.2 契约 2：BaseAgentAdapter v2（B1 ↔ B2）
 
 **文件**：`backend/app/agents/base.py`
 **所有权**：B2 主维护
-**B1 视角**：
+**规范**：[docs/b2/spec/agent-runtime-adapter.spec.md](b2/spec/agent-runtime-adapter.spec.md) + [agent-runtime-pivot.adr.md §2.2](spec/agent-runtime-pivot.adr.md)
+
+**B1 视角**（必须传 workspace_path）：
 ```python
 # B1 在 stream.py 中调用
 from app.agents.registry import get_adapter
+from app.services.workspace_service import WorkspaceService
 
-adapter = get_adapter(agent_id)
-async for chunk in adapter.stream(messages, system_prompt, config):
-    yield {"event": chunk.event_type, "data": chunk.to_json()}
+adapter = await get_adapter(agent_id, db)
+workspace = await WorkspaceService().get_or_create(db, conv_id)
+async for chunk in adapter.stream(
+    messages,
+    workspace_path=workspace.root_path,
+    tool_specs=allowed_tools_for(agent_id),
+):
+    yield chunk.to_sse()
 ```
 
-**B2 视角**：
+**B2 视角**（三类子 Adapter）：
 ```python
-# B2 实现新 Adapter 时
-class MyAdapter(BaseAgentAdapter):
-    async def stream(self, messages, system_prompt, config):
-        async for chunk in upstream_call(...):
-            yield StreamChunk(event_type="delta", ...)
+# Layer A — ExternalAgentAdapter（嵌入 Claude Agent SDK / Codex）
+class ClaudeCodeAdapter(BaseAgentAdapter):
+    async def stream(self, messages, *, workspace_path, tool_specs=None, **kw):
+        async with ClaudeSDKClient(options=ClaudeAgentOptions(cwd=str(workspace_path))) as client:
+            ...  # 把 SDK 事件映射为 StreamChunk
+
+# Layer B — BuiltinAgentAdapter（自建 framework）
+class BuiltinAgentAdapter(BaseAgentAdapter):
+    async def stream(self, messages, *, workspace_path, tool_specs, **kw):
+        async for chunk in run_agent_loop(messages, tool_specs, workspace_path, ...):
+            yield chunk
 ```
+
+**新增 StreamChunk 事件**：`tool_call` / `tool_result`（配对，含 `call_id`）。
 
 ### 6.3 契约 3：Agent CRUD（B1 + B2 共同维护）
 
@@ -571,31 +665,64 @@ class MyAdapter(BaseAgentAdapter):
 3. F 重新生成类型
 4. F 在 `components/blocks/` 加新组件
 
+**v1.1 新增 `ToolCallBlock`**：由 B1 `_ContentAccumulator` 把 SSE 的 `tool_call` + `tool_result` 配对持久化为单个 block；`call_id` 全程透传。
+
+### 6.5 契约 5（v1.1 新增）：Workspace 路径与 Artifact API
+
+**文件**：`backend/app/workspaces/`、`backend/app/api/v1/workspaces.py`、`shared/openapi.yaml`
+**所有权**：B1 主维护；B2 / F 消费
+**规范**：[docs/b1/spec/workspace-sandbox.spec.md](b1/spec/workspace-sandbox.spec.md)
+
+**B2 视角**：通过 stream() 接收 `workspace_path: Path`，所有写操作经过 [workspace-sandbox.spec.md §4](b1/spec/workspace-sandbox.spec.md) 的校验函数（B1 提供 `validate_write_path`）。
+
+**F 视角**：通过 3 个端点消费 workspace：
+- `GET /api/v1/workspaces/{conv}/tree` —— 文件树
+- `GET /api/v1/workspaces/{conv}/files/{path}` —— 读 / iframe 预览
+- `PUT /api/v1/workspaces/{conv}/files/{path}` —— 二次编辑回写
+
 ---
 
 ## 7. Sprint × 角色 任务矩阵
 
-| Sprint | F（前端） | B1（核心后端） | B2（Agent 集成） |
-|--------|----------|----------------|------------------|
-| **S0 Day 1-2** | Vite 脚手架、Tailwind、Router、API Client、Mock | FastAPI 脚手架、Docker、DB、Models、OpenAPI v0.1 | BaseAgentAdapter、MockAdapter、Registry 设计 |
-| **S1 Day 3-5** | 登录、会话列表、聊天窗、文本块、SSE 消费 | 认证、CRUD、SSE 端点、Context Builder | Claude / OpenAI Adapter、内置 Seed |
-| **S2 Day 6-8** | 代码块、Diff、网页预览、Agent 页面 | Pin / 搜索 / 重生成、Agent CRUD 路由 | 产物解析、自定义 Agent、Agent CRUD 业务 |
-| **S3 Day 9-11** | @Mention、群聊 UI、任务卡片 | 群聊广播、Redis Pub/Sub、集成测试 | Orchestrator、错误降级 |
-| **S4 Day 12-14** | UI 打磨、Demo 视频、可选 Tauri | 性能 / 日志 / API 文档 | 文档、AI 协作记录、扩展 Agent |
+> v1.1 调整：Sprint 0-4 已完成（按 v1.0 计划交付，详见 [docs/b2/task-dispatch/B2-roadmap.md](b2/task-dispatch/B2-roadmap.md) 与 [docs/b1/backend-test-record.md](b1/backend-test-record.md)）。Sprint 5 为 pivot 后剩余 8 天计划。
 
-### 7.1 关键同步点（必须按时完成，否则阻塞他人）
+### 7.0 Sprint 0-4（已完成，保留为附录）
+
+| Sprint | F（前端） | B1（核心后端） | B2（Agent 集成 — 现降级为 ModelGateway 底座） |
+|--------|----------|----------------|------------------|
+| **S0 Day 1-2** | Vite 脚手架、Tailwind、Router、API Client、Mock | FastAPI 脚手架、Docker、DB、Models、OpenAPI v0.1 | BaseAgentAdapter v1、MockAdapter、Registry 设计 |
+| **S1 Day 3-5** | 登录、会话列表、聊天窗、文本块、SSE 消费 | 认证、CRUD、SSE 端点、Context Builder | Claude / OpenAI / DeepSeek Adapter、内置 Seed |
+| **S2 Day 6-8** | 代码块、Diff、网页预览、Agent 页面 | Pin / 搜索 / 重生成、Agent CRUD 路由 | 产物解析 v2、自定义 Agent、Agent CRUD 业务 |
+| **S3 Day 9-11** | @Mention、群聊 UI、任务卡片 | 群聊广播、Redis Pub/Sub、集成测试 | Orchestrator（注入式调度 + 失败降级） |
+| **S4 Day 12-?** | UI 打磨（demo polish v2 已交付） | Context compression / Conversation memory 已交付 | Provider resilience、Adapter smoke tests、B2-13 demo 材料 |
+
+### 7.1-PIVOT Sprint 5（pivot 执行，2026-05-26 起 8 天）
+
+> 基线：今天 = 2026-05-26（PDF 提交日 ~2026-06-04，留 1 天 buffer = 8 实际工作日）。
+
+| Day | F | B1 | B2 | 阻塞点 |
+|---|---|---|---|---|
+| **1** | 等待 schema | Workspace 模型 + Alembic + WorkspaceService 骨架（B1-PIVOT-1/2/6/7） | BaseAgentAdapter v2 + StreamChunk v1.1 + ToolSpec + MockAdapter v2（B2-PIVOT-1/2/3） | B2 接口升级阻塞 F & B1 |
+| **2** | ToolCallBlock 渲染 + ArtifactPreview iframe（F-PIVOT-1/3） | Artifact API + OpenAPI 同步 + SSE 协议扩展（B1-PIVOT-3/4/5） | ExternalAgentAdapter for Claude Agent SDK + ModelGateway 迁移（B2-PIVOT-4/6） | — |
+| **3** | SSE handler tool_* 配对 + Workspace 文件树（F-PIVOT-2/4） | 联调 + bug fix | 端到端打通：Claude Code 真实写 HTML + iframe 预览 → **Sprint 5 第一个里程碑** | 三方联调 |
+| **4** | Monaco 编辑器 + 二次编辑回写（F-PIVOT-5） | PUT 文件接口、AgentRegistry v2 配合（B1 + B2-PIVOT-7） | BuiltinAgent Framework：AgentLoop + ToolRegistry 三件套（B2-PIVOT-8/9） | — |
+| **5** | 错误态 / 空态 / 加载态（F-PIVOT-7） | 收尾 + 性能验证 | BuiltinAgent MemoryManager + MCP filesystem server（B2-PIVOT-10/11） | — |
+| **6** | Orchestrator 任务卡升级（F-PIVOT-6） | — | ExternalAgentAdapter for Codex；Orchestrator 接通真 Agent（B2-PIVOT-12/13/14） | — |
+| **7** | Demo 视频脚本 + 关键交互预录制（F-PIVOT-8） | Bug fix + 文档同步 | 全链路 smoke + 失败降级回归 + 文档（B2-PIVOT-15） | — |
+| **8** | Demo 视频录制 + 答辩讲稿 | 答辩讲稿（B1-PIVOT-8） | 答辩讲稿 + ADR 收尾 | 全员 |
+
+### 7.2-PIVOT 关键同步点（Sprint 5 — 替换 v1.0 §7.1）
 
 | 时间 | 谁 | 交付物 | 阻塞谁 |
 |------|----|--------|--------|
-| **Day 1 EOD** | B2 | `BaseAgentAdapter` + `MockAdapter` 初稿 | B1 |
-| **Day 2 EOD** | B1 | OpenAPI v0.1、所有 Pydantic Schema | F |
-| **Day 2 EOD** | B1 | Docker Compose 跑通 | B2 |
-| **Day 3 EOD** | F | OpenAPI → TS 类型生成跑通 | 自己 |
-| **Day 4 EOD** | B1 | SSE 端点（用 MockAdapter）跑通 | F |
-| **Day 4 EOD** | B2 | Claude Adapter 第一版可用 | B1 |
-| **Day 5 EOD** | 全员 | 单聊 MVP 联调通过 | Sprint 1 收尾 |
-| **Day 9 EOD** | B2 | Orchestrator 初版 | F |
-| **Day 11 EOD** | 全员 | 群聊联调通过 | Sprint 3 收尾 |
+| **Day 1 EOD** | B2 | `BaseAgentAdapter v2` + `StreamChunk v1.1` + `MockAdapter v2` | B1 / F |
+| **Day 1 EOD** | B1 | Workspace 模型 migration 跑通 | B2 |
+| **Day 2 EOD** | B1 | SSE tool_* 事件持久化 + Artifact API 上线 + OpenAPI 同步 | F |
+| **Day 2 EOD** | B2 | Claude Agent SDK ExternalAdapter 单测通过 | Day 3 联调 |
+| **Day 3 EOD** | 全员 | **第一个真 Agent 端到端 demo（Claude Code 写 HTML → iframe 预览）** | Sprint 5 第一里程碑 |
+| **Day 5 EOD** | B2 | BuiltinAgent MVP（loop + 3 tools + 1 MCP）跑通 | F 群聊场景 |
+| **Day 6 EOD** | B2 | Codex Adapter 跑通 + Orchestrator 接通真 Agent | Day 7 联调 |
+| **Day 8 EOD** | 全员 | Demo 视频 + 全部文档 + 答辩讲稿 | 交付 |
 
 ---
 
