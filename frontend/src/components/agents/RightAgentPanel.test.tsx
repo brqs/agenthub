@@ -47,4 +47,12 @@ describe('RightAgentPanel', () => {
     expect(screen.getAllByText('Done')).toHaveLength(2);
     expect(screen.getByText('Idle')).toBeInTheDocument();
   });
+
+  it('keeps the panel header compact and avoids duplicated conversation status', () => {
+    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+
+    expect(screen.getByText('会话上下文')).toBeInTheDocument();
+    expect(screen.getByText('4 Agents')).toBeInTheDocument();
+    expect(screen.queryByText('群聊协作中')).not.toBeInTheDocument();
+  });
 });

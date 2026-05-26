@@ -1,4 +1,4 @@
-import { Activity, ChevronRight, Pin, ShieldCheck } from 'lucide-react';
+import { Activity, ChevronRight, PanelRight, Pin, ShieldCheck } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
@@ -46,18 +46,14 @@ export function RightAgentPanel({
   return (
     <aside className="hidden h-screen w-80 shrink-0 flex-col border-l border-slate-800 bg-slate-900 xl:flex 2xl:w-[22rem]">
       <div className="border-b border-slate-800 p-4 max-[800px]:p-3 [@media(max-height:800px)]:p-3">
-        <div className="flex items-center gap-3">
-          <div className="flex -space-x-2">
-            {agents.slice(0, 3).map((agent) => (
-              <AgentAvatar key={agent.id} agent={agent} />
-            ))}
-          </div>
-          <div className="min-w-0">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <PanelRight className="h-4 w-4 shrink-0 text-slate-500" />
             <h2 className="truncate text-sm font-semibold text-white">会话上下文</h2>
-            <p className="text-xs text-slate-500">
-              {conversation.mode === 'group' ? '群聊协作中' : '单 Agent 单聊'}
-            </p>
           </div>
+          <span className="shrink-0 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-xs text-slate-500">
+            {agents.length} Agents
+          </span>
         </div>
       </div>
 
@@ -78,8 +74,9 @@ export function RightAgentPanel({
                   <div className="flex items-center gap-3">
                     <AgentAvatar agent={agent} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-white">{agent.name}</div>
-                      <div className="text-xs text-slate-500">{agent.provider}</div>
+                      <div className="truncate text-sm font-medium text-white" title={`${agent.name} · ${agent.provider}`}>
+                        {agent.name}
+                      </div>
                     </div>
                     <span className={cn('rounded-md border px-2 py-1 text-xs', STATUS_CLASS[status])}>
                       {STATUS_LABEL[status]}
@@ -87,11 +84,16 @@ export function RightAgentPanel({
                     <ChevronRight className="h-4 w-4 text-slate-600" />
                   </div>
                   <div className="mt-2.5 flex flex-wrap gap-1.5">
-                    {agent.capabilities.map((capability) => (
+                    {agent.capabilities.slice(0, 3).map((capability) => (
                       <span key={capability} className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
                         {capability}
                       </span>
                     ))}
+                    {agent.capabilities.length > 3 && (
+                      <span className="rounded bg-slate-800/70 px-2 py-0.5 text-xs text-slate-500">
+                        +{agent.capabilities.length - 3}
+                      </span>
+                    )}
                   </div>
                 </div>
               );

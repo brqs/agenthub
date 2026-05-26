@@ -1118,3 +1118,23 @@
 ### 验证方式
 - `pnpm lint` ✅
 - `pnpm build` ✅
+
+---
+
+## 2026-05-26 — 会话 Header 与右栏信息去重
+
+### 改动范围
+- `frontend/src/components/chat/ChatHeader.tsx`
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/components/agents/RightAgentPanel.test.tsx`
+
+### 更新内容
+- **会话概览集中到 Header**：顶部左侧保留会话名、模式与 Agent 摘要，Orchestrator 说明改为更短的弱提示。
+- **头像组改为快捷入口**：顶部右侧头像组压缩为最多 3 个头像与 `+N`，不再和右栏标题重复承担详情展示。
+- **右栏转为详情面板**：右栏顶部去掉重复头像与“群聊协作中”文案，只保留标题与 Agent 数量。
+- **Agent 卡片降噪**：provider 信息退到标题 tooltip，能力标签最多展示 3 个，超出用 `+N`。
+
+### 验证方式
+- `pnpm vitest run src/components/agents/RightAgentPanel.test.tsx` ✅
+- `pnpm lint` ✅
+- `pnpm build` ✅
