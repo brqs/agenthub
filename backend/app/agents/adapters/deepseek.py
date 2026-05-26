@@ -1,4 +1,4 @@
-"""DeepSeekAdapter - DeepSeek OpenAI-compatible streaming."""
+"""Compatibility shim for the legacy top-level DeepSeek adapter."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from app.agents.adapters.openai import OpenAIAdapter
 
 
 class DeepSeekAdapter(OpenAIAdapter):
-    """Adapter for DeepSeek models through its OpenAI-compatible API."""
+    """Legacy DeepSeek adapter using the ModelGateway OpenAI-compatible path."""
 
     provider = "deepseek"
     default_model = "deepseek-v4-flash"

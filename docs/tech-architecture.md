@@ -234,7 +234,7 @@ async for chunk in adapter.stream(...):
 | **AgentRegistry v2** | Agent | `agents/registry.py` | 注册 ExternalAgent / BuiltinAgent / Orchestrator |
 | **Orchestrator** | Agent | `agents/orchestrator.py` | 任务拆解 + 分派（保留，子 Agent 升级为真 Agent） |
 | **ArtifactParser** | Agent | `agents/artifact_parser.py` | 流式输出 → ContentBlock（保留） |
-| **Layer A — ExternalAgentAdapter** ✨ | Agent | `agents/external/` | 嵌入 Claude Agent SDK / OpenAI Agents SDK，复用其内置 loop/tool/MCP（**pivot 新增**） |
+| **Layer A — ExternalAgentAdapter** ✨ | Agent | `agents/external/` | 嵌入 Claude Agent SDK / OpenAI Agents SDK / OpenCode CLI，复用其内置 loop/tool/MCP 或 CLI runtime（**pivot 新增**） |
 | **Layer B — BuiltinAgentAdapter** ✨ | Agent | `agents/builtin/` | 自建 AgentLoop + ToolRegistry + MCPClient + Memory（**pivot 新增**） |
 | **Layer C — ModelGateway** ✨ | Agent | `agents/model_gateway/` | 原 raw LLM Adapter 迁移而来（Claude/OpenAI/DeepSeek + resilience），仅 BuiltinAgent 内部使用 |
 | **Security** | Infrastructure | `core/security.py` | JWT、密码哈希 |
@@ -599,7 +599,7 @@ from .types import ChatMessage, StreamChunk, ToolSpec
 class BaseAgentAdapter(ABC):
     """v2 — Agent Runtime adapter contract."""
 
-    provider: str = ""  # "external" / "builtin" / "orchestrator"
+    provider: str = ""  # "claude_code" / "codex" / "opencode" / "builtin" / "mock"
 
     def __init__(
         self,
@@ -674,7 +674,7 @@ tool_result { call_id: "c-001", tool_status: "ok", tool_output: "..." }
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 
 class ClaudeCodeAdapter(BaseAgentAdapter):
-    provider = "external"
+    provider = "claude_code"
 
     async def stream(self, messages, *, workspace_path, tool_specs=None, **kw):
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
@@ -692,7 +692,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
 - workspace_path 透传为 SDK 的 `cwd`
 - 错误统一映射到标准 error_code
 
-类似的还有 `backend/app/agents/external/codex.py`（基于 `openai-agents` SDK）。
+类似的还有 `backend/app/agents/external/codex.py`（基于 `openai-agents` SDK）和 `backend/app/agents/external/opencode.py`（基于 subprocess CLI / JSONL）。
 
 #### 6.3.B Layer B — BuiltinAgentAdapter（团队自建 framework）
 
@@ -878,7 +878,7 @@ class StreamingArtifactParser:
 
 ### 6.6 Orchestrator 实现（v1.1 — 子 Agent 升级为真 Agent）
 
-> v1.1 改动：Orchestrator 框架不变，但子 Adapter 通过 BaseAgentAdapter v2 接口拿到，因此现在可以是 ExternalAgentAdapter（Claude Code / Codex）或 BuiltinAgentAdapter；call_id 在跨子 Agent 时按 `task_id.<原 call_id>` 重映射，避免冲突。详见 [orchestrator.spec.md](b2/spec/orchestrator.spec.md) 与 [agent-runtime-adapter.spec.md §5.3](b2/spec/agent-runtime-adapter.spec.md)。
+> v1.1 改动：Orchestrator 框架不变，但子 Adapter 通过 BaseAgentAdapter v2 接口拿到，因此现在可以是 ExternalAgentAdapter（Claude Code / Codex / OpenCode）或 BuiltinAgentAdapter；call_id 在跨子 Agent 时按 `task_id.<原 call_id>` 重映射，避免冲突。详见 [orchestrator.spec.md](b2/spec/orchestrator.spec.md) 与 [agent-runtime-adapter.spec.md §5.3](b2/spec/agent-runtime-adapter.spec.md)。
 
 下面的 v1 代码示意保留以说明框架；实际生产代码见 [backend/app/agents/orchestrator.py](../backend/app/agents/orchestrator.py)。
 
@@ -886,7 +886,7 @@ class StreamingArtifactParser:
 ```python
 # app/agents/orchestrator.py
 class OrchestratorAdapter(BaseAgentAdapter):
-    provider = "custom"
+    provider = "builtin"
     
     DECOMPOSE_PROMPT = """
 你是一个任务分派助手。给定用户的请求，把它拆解成多个子任务，每个子任务指派给一个最合适的 Agent。
@@ -903,9 +903,8 @@ class OrchestratorAdapter(BaseAgentAdapter):
 """
     
     async def stream(self, messages, system_prompt=None, config=None):
-        # 1. 用 Claude 拆解任务
-        decompose_response = await self._call_claude_for_decomposition(messages)
-        tasks = decompose_response["tasks"]
+        # 1. 从 tasks 或 managed_agent_ids 得到任务计划
+        tasks = self._derive_or_parse_tasks(messages, config)
         
         # 2. 输出"任务规划"卡片
         yield StreamChunk(event_type="start")
@@ -953,7 +952,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
 
 | 你想新增的是 | 入口 | 步骤摘要 | 详细模板 |
 |---|---|---|---|
-| 外部 Agent runtime（OpenCode、xxx CLI 等） | `agents/external/<runtime>.py` | 嵌入 SDK + 映射事件到 StreamChunk（含 tool_*） + 注册到 `EXTERNAL_RUNTIME_MAP` | [CLAUDE.md §7.6](../CLAUDE.md) |
+| 外部 Agent runtime（OpenCode、xxx CLI 等） | `agents/external/<runtime>.py` | 嵌入 SDK/CLI + 映射事件到 StreamChunk（含 tool_*） + 注册到 registry `PROVIDER_MAP` | [CLAUDE.md §7.6](../CLAUDE.md) |
 | 自建 Agent 的工具 | `agents/builtin/tools/<tool>.py` | 实现 execute + 校验 + 注册 ToolSpec | [CLAUDE.md §7.7](../CLAUDE.md) |
 | 自建 Agent 的 MCP server | `agents/builtin/mcp/` 配置 | 仅 stdio transport；前缀 `mcp_<server>__` | [CLAUDE.md §7.8](../CLAUDE.md) |
 | ModelGateway 新 LLM provider | `agents/model_gateway/<provider>.py` | 实现 stream(messages, tools, config)；不要注册到顶层 AgentRegistry | [CLAUDE.md §7.2](../CLAUDE.md) |
@@ -1607,19 +1606,19 @@ logger.info("message_streamed",
 - **理由**：MVP 阶段查询模式简单（按消息 ID 取全部块），JSONB 性能足够
 - **后果**：未来若需按块类型聚合统计，需要再迁移
 
-### ADR-004：Adapter 用"协议翻译"而非"完美抽象"
-- **背景**：需要接入多个 LLM Provider
-- **选项**：完美抽象（所有 Provider 接口完全一致） / 协议翻译（统一基础接口，差异通过 config）
-- **决策**：协议翻译
-- **理由**：完美抽象在 tool calling / 多模态等场景会撕裂；协议翻译保留灵活性
-- **后果**：每个 Adapter 内部实现差异较大，但对外接口一致
+### ADR-004：Adapter 用"事件翻译"而非"完美抽象"
+- **背景**：需要接入 Claude Code / Codex / OpenCode 等 agent runtime，同时保留 BuiltinAgent + ModelGateway。
+- **选项**：完美抽象（所有 runtime 接口完全一致） / 事件翻译（统一 BaseAgentAdapter v2 + StreamChunk，差异在 adapter 内映射）
+- **决策**：事件翻译
+- **理由**：不同 runtime 的 tool/edit/bash/MCP 事件模型差异大，强行抽象会丢失能力；统一输出 `StreamChunk` 能稳定服务 B1/F。
+- **后果**：每个 Adapter 内部实现差异较大，但对外事件契约一致。
 
-### ADR-005：Orchestrator 用 function calling 拆解任务
-- **背景**：需要把用户请求拆成多个子任务分派
-- **选项**：纯 Prompt 输出 JSON / function calling / ReAct
-- **决策**：function calling（Claude 的 tool use）
-- **理由**：强制结构化输出，可靠性高；ReAct 太复杂
-- **后果**：依赖 Provider 支持 function calling（Claude / OpenAI 都支持）
+### ADR-005：Orchestrator 先走结构化任务计划，真实 runtime 由 registry 注入
+- **背景**：需要把用户请求拆成多个子任务分派，并能调度 ExternalAgentAdapter / BuiltinAgentAdapter。
+- **选项**：纯 Prompt 输出 JSON / function calling / 显式 tasks 注入 / ReAct
+- **决策**：MVP 支持显式 tasks / managed_agent_ids 生成任务计划，后续可用 BuiltinAgent + ModelGateway 增强拆解。
+- **理由**：先保证 registry 接线、call_id 重映射和失败降级可测；避免早期绑定单一 Provider 的 function calling。
+- **后果**：B2-20 已接通真实 runtime adapter factory；真实 LLM 任务拆解可作为后续增强。
 
 ### ADR-006：MVP 不引入 Refresh Token
 - **背景**：JWT 安全 vs 易用性

@@ -131,9 +131,9 @@ done
 
 > **BaseAgentAdapter 签名约束**：`stream()` 只接受 `messages`, `system_prompt`, `config`。**不得新增关键字参数**。所有 Orchestrator 专属参数（`available_agents`, `tasks`, `sub_adapters` 等）统一通过 `config` dict 注入。
 
-### 3.3 Registry 接入的已知 Gap（B2-09 之前必须解决）
+### 3.3 Registry 接入状态（B2-20 已解决）
 
-当前 `backend/app/seeds/seed_agents.py` 中 orchestrator 的 `provider` 为 `"custom"`：
+B2-09/B2-10 阶段曾存在一个生产接线 gap：`backend/app/seeds/seed_agents.py` 中 orchestrator 的 `provider` 为 `"custom"`：
 
 ```python
 {
@@ -143,21 +143,15 @@ done
 }
 ```
 
-而 `backend/app/agents/registry.py` 的 `PROVIDER_MAP` 把 `"custom"` 映射到 `CustomAdapter`，不是 `OrchestratorAdapter`。
+当时 `backend/app/agents/registry.py` 的 `PROVIDER_MAP` 把 `"custom"` 映射到 `CustomAdapter`，不是 `OrchestratorAdapter`，因此生产链路无法调用到真实 Orchestrator。
 
-**这意味着当前生产链路无法调用到 `OrchestratorAdapter`**。该 gap 必须在 Orchestrator 进入真实群聊联调前解决，但**不阻塞 B2-09 的注入式单元测试实现**。推荐拆分为独立 B1/B2 协同任务（如 B2-09a），方案（二选一）：
+B2-20 后当前语义已经切换为：
 
-**方案 A（推荐）**：新增 `provider="orchestrator"`
-- 在 `registry.py` 的 `PROVIDER_MAP` 中新增 `"orchestrator": OrchestratorAdapter`。
-- 同步修改 `seed_agents.py` 中 orchestrator 的 `provider` 为 `"orchestrator"`。
-- 优点：语义清晰，registry 路由自然。
+- seed 中 `orchestrator.provider == "builtin"`。
+- `registry.get_adapter()` 对 `agent_id == "orchestrator"` special-case 返回 `OrchestratorAdapter`，并注入 `adapter_factory`。
+- 顶层 provider 使用 `mock` / `claude_code` / `codex` / `opencode` / `builtin`；legacy raw provider 只作为迁移兼容或 BuiltinAgent ModelGateway backend。
 
-**方案 B**：`registry.get_adapter()` special-case
-- 在 `get_adapter()` 中检测 `agent_id == "orchestrator"`，直接返回 `OrchestratorAdapter`。
-- 不改 seed。
-- 缺点：hard-code agent_id，不利于后续多 Orchestrator。
-
-**约束**：本 Spec 阶段不改 registry/seed 代码，只记录 gap。B2-09 的注入式实现和单元测试不依赖该 gap 修复；registry/seed 生产接线由后续 B1/B2 协同任务完成。
+B2-09/B2-10 的注入式单元测试约束仍然有效；生产 registry/seed 接线以 B2-20 为准。
 
 ---
 

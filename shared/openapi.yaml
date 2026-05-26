@@ -395,24 +395,33 @@ components:
     # ─── Agent ───
     AgentProvider:
       type: string
-      enum: [claude, deepseek, openai, custom, mock]
+      enum: [claude_code, codex, opencode, builtin, mock, claude, deepseek, openai, custom]
 
     CreatableAgentProvider:
       type: string
-      enum: [claude, deepseek, openai, custom]
+      enum: [claude_code, codex, opencode, builtin]
 
     AgentConfig:
       type: object
       additionalProperties: true
       properties:
-        model: { type: string }
-        temperature: { type: number, minimum: 0, maximum: 2 }
-        max_tokens: { type: integer, minimum: 1, maximum: 16384 }
-        top_p: { type: number, minimum: 0, maximum: 1 }
-        upstream_provider:
+        model_backend:
           type: string
           enum: [claude, deepseek, openai]
-          description: 'Upstream provider for custom agents. Only used when provider is custom.'
+          description: ModelGateway backend for builtin agents.
+        max_iterations: { type: integer, minimum: 1, maximum: 50 }
+        mcp_servers:
+          type: array
+          items: { type: object, additionalProperties: true }
+        command:
+          oneOf:
+            - { type: string }
+            - type: array
+              items: { type: string }
+        args:
+          type: array
+          items: { type: string }
+        timeout_seconds: { type: number, minimum: 1, maximum: 3600 }
 
     Agent:
       type: object
@@ -958,7 +967,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AgentList' }
     post:
-      summary: Create custom agent
+      summary: Create agent
       tags: [Agents]
       requestBody:
         required: true

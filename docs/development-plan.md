@@ -97,12 +97,12 @@
 - ✅ Docker Compose 一键启动
 
 #### Agent Runtime（v1.1 — pivot 后核心）
-- 🆕 **外部 Agent Runtime 接入**：Claude Code（Claude Agent SDK 嵌入）+ Codex（OpenAI Agents SDK 嵌入），通过统一 BaseAgentAdapter v2 屏蔽差异
+- 🆕 **外部 Agent Runtime 接入**：Claude Code（Claude Agent SDK 嵌入）+ Codex（OpenAI Agents SDK 嵌入）+ OpenCode（subprocess CLI 嵌入），通过统一 BaseAgentAdapter v2 屏蔽差异
 - 🆕 **自建 Agent Framework MVP**：AgentLoop（model_call → tool_call → observe → loop）+ ToolRegistry 三件套（read_file / write_file / bash）+ 1 个 MCP server（filesystem，stdio）+ MemoryManager + ContextManager
 - 🆕 **Workspace 沙箱**：每会话一个隔离目录，所有 Agent 在其中读写文件；路径校验拒绝越界
 - 🆕 **产物实时预览**：HTML → iframe（带 CSP sandbox）、文本/代码 → 高亮渲染
 - 🆕 **产物二次编辑**：Monaco 编辑器修改后回写 workspace 并自动续聊
-- 🆕 Agent 注册表：分三类（external / builtin / orchestrator）；用户可对话式创建自建 Agent（设定 System Prompt + 工具白名单）
+- 🆕 Agent 注册表：顶层 provider 使用 `claude_code` / `codex` / `opencode` / `builtin` / `mock`，并保留 `orchestrator` 特例；用户可对话式创建自建 Agent（设定 System Prompt + 工具白名单）
 
 ### 3.2 Should Have（P1 —— 应该实现）
 
@@ -115,7 +115,6 @@
 ### 3.3 Could Have（P2 —— 可以实现）
 
 - 🟢 一键部署产物（静态站点） —— 演示时口述
-- 🟢 OpenCode 等额外外部 Runtime 接入（Sprint 6 候选）
 - 🟢 MCP HTTP transport / 多 server 路由
 - 🟢 BuiltinAgent 并行 tool 调用、向量记忆检索
 - 🟢 Tauri 桌面端打包
@@ -274,15 +273,15 @@
 1. F: 用户在群聊发送 "@Orchestrator 帮我做一个 Todo App"
 2. B1: 同上保存 user_message，创建 agent_message（Orchestrator）
 3. B2: OrchestratorAdapter.stream(...)
-   ├─ Step 1: 调 Claude/GPT 拆解任务 → 输出 [
-   │     {agent: "claude", task: "写后端 API"},
-   │     {agent: "codex", task: "写前端组件"}
+   ├─ Step 1: 基于 tasks 或 managed_agent_ids 生成任务计划 → 输出 [
+   │     {agent_id: "claude-code", task: "写后端 API"},
+   │     {agent_id: "codex-helper", task: "写前端组件"}
    │   ]
    ├─ Step 2: 用 yield 输出"任务规划"卡片到前端
    ├─ Step 3: 顺序调用每个子 Agent
    │   ├─ for subtask in tasks:
-   │   │   ├─ yield 一个"开始 @claude" 的提示
-   │   │   ├─ async for chunk in get_adapter(subtask.agent).stream(...):
+   │   │   ├─ yield 一个"开始 @claude-code" 的提示
+   │   │   ├─ async for chunk in get_adapter(subtask.agent_id).stream(...):
    │   │   │   yield chunk
    │   │   └─ yield 一个"@claude 完成" 的提示
    └─ Step 4: 输出最终汇总
@@ -395,7 +394,7 @@ class Agent(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))  # null = 内置
     name: Mapped[str] = mapped_column(String(64))
-    provider: Mapped[str] = mapped_column(String(32))  # "claude"|"openai"|"custom"
+    provider: Mapped[str] = mapped_column(String(32))  # "claude_code"|"codex"|"opencode"|"builtin"|"mock"; legacy raw provider only for migration
     avatar_url: Mapped[str] = mapped_column(String(512))
     capabilities: Mapped[list[str]] = mapped_column(JSONB, default=list)
     system_prompt: Mapped[str | None] = mapped_column(Text)
@@ -459,10 +458,11 @@ ContentBlock = Annotated[
 
 | ID | name | provider | 描述 |
 |----|------|----------|------|
-| `claude-code` | Claude Code | claude | 编码助手，擅长写/改代码 |
-| `codex-helper` | Codex Helper | openai | OpenAI Codex，通用编码助手 |
-| `web-designer` | Web Designer | custom (claude) | System Prompt 设定为 UI 设计专家 |
-| `orchestrator` | Orchestrator | custom | 任务拆解+分派的主 Agent |
+| `claude-code` | Claude Code | claude_code | 编码助手，擅长写/改代码 |
+| `codex-helper` | Codex Helper | codex | Codex runtime，通用编码助手 |
+| `opencode-helper` | OpenCode Helper | opencode | OpenCode runtime，CLI 型编码助手 |
+| `web-designer` | Web Designer | builtin | System Prompt 设定为 UI 设计专家 |
+| `orchestrator` | Orchestrator | builtin / orchestrator 特例 | 任务拆解+分派的主 Agent |
 
 ---
 
@@ -683,7 +683,7 @@ from .types import ChatMessage, StreamChunk, ToolSpec
 class BaseAgentAdapter(ABC):
     """v2 — 同时支持 External / Builtin / Orchestrator 三类子 Adapter。"""
 
-    provider: str = ""  # "external" / "builtin" / "orchestrator"
+    provider: str = ""  # "claude_code" / "codex" / "opencode" / "builtin" / "mock"
 
     @abstractmethod
     def stream(
@@ -711,7 +711,7 @@ class StreamChunk(BaseModel):
 
 **三层子 Adapter**（详见 [tech-architecture.md §6.3](tech-architecture.md)）：
 
-- **Layer A — ExternalAgentAdapter**（`agents/external/`）：嵌入 Claude Agent SDK / OpenAI Agents SDK，复用其内置 loop/tool/MCP
+- **Layer A — ExternalAgentAdapter**（`agents/external/`）：嵌入 Claude Agent SDK / OpenAI Agents SDK / OpenCode CLI，复用其内置 loop/tool/MCP 或 CLI runtime
 - **Layer B — BuiltinAgentAdapter**（`agents/builtin/`）：自建 AgentLoop + ToolRegistry + MCPClient + Memory（详见 §8.7-§8.10）
 - **Layer C — ModelGateway**（`agents/model_gateway/`）：原 raw LLM Adapter 迁移而来，仅 BuiltinAgent 内部使用，**不注册为顶层 Agent**
 
@@ -991,11 +991,11 @@ agenthub/
 │           ├── registry.py           # Adapter 工厂
 │           ├── orchestrator.py
 │           ├── artifact_parser.py
-│           └── adapters/
-│               ├── claude.py
-│               ├── openai.py
-│               ├── custom.py
-│               └── mock.py           # Mock 用于联调
+│           ├── adapters/
+│           │   └── mock.py           # Mock 用于联调；legacy raw adapter shim 暂存
+│           ├── external/             # Claude Code / Codex / OpenCode runtime
+│           ├── builtin/              # AgentLoop / ToolRegistry / MCP
+│           └── model_gateway/        # raw Claude/OpenAI/DeepSeek，仅 BuiltinAgent 内部使用
 │
 └── frontend/                         # React + Vite 前端
     ├── package.json
@@ -1347,7 +1347,7 @@ feat(B1/api): add SSE stream endpoint for messages
 | **Sprint 2** | Day 6-8 | 富媒体 + Agent 管理 | 代码块高亮、Diff 视图、Agent CRUD |
 | **Sprint 3** | Day 9-11 | 群聊 + Orchestrator | @ 多 Agent，Orchestrator 拆解、依次回复 |
 | **Sprint 4** | Day 12-? | 打磨（含 demo polish v2、context compression）| Bug Fix、文档、Provider resilience、smoke tests |
-| **Sprint 5（pivot）** ✨ | **2026-05-26 ~ 06-03（8 天）** | **Agent Runtime Pivot：External + Builtin + Workspace** | Day 3：Claude Code 真实写 HTML → iframe 预览；Day 5：BuiltinAgent MVP；Day 6：Codex + Orchestrator 接通真 Agent；Day 8：Demo 视频 + 答辩材料 |
+| **Sprint 5（pivot）** ✨ | **2026-05-26 ~ 06-03（8 天）** | **Agent Runtime Pivot：External + Builtin + Workspace** | Day 3：Claude Code 真实写 HTML → iframe 预览；Day 5：BuiltinAgent MVP；Day 6：Codex / OpenCode + Orchestrator 接通真 Agent；Day 8：Demo 视频 + 答辩材料 |
 
 ### 13.1.1 Sprint 5 — Pivot 8 天详细计划
 
@@ -1360,7 +1360,7 @@ feat(B1/api): add SSE stream endpoint for messages
 | **3** | SSE handler tool_* 配对 + Workspace 文件树 | 联调 + bug fix | **里程碑：真 Agent 写 HTML → iframe 预览端到端** |
 | **4** | Monaco 编辑器 + 二次编辑回写 | PUT 文件接口 + AgentRegistry v2 配合 | BuiltinAgent AgentLoop + ToolRegistry 三件套 |
 | **5** | 错误态 / 空态 / 加载态 | 收尾 + 性能验证 | BuiltinAgent MemoryManager + MCP filesystem server |
-| **6** | Orchestrator 任务卡升级 | — | ExternalAgentAdapter (Codex)；Orchestrator 接通真 Agent |
+| **6** | Orchestrator 任务卡升级 | — | ExternalAgentAdapter (Codex / OpenCode)；Orchestrator 接通真 Agent |
 | **7** | Demo 视频脚本 + 关键交互预录制 | Bug fix + 文档同步 | 全链路 smoke + 失败降级回归 + 文档 |
 | **8** | Demo 视频录制 + 答辩讲稿 | 答辩讲稿 | 答辩讲稿 + ADR 收尾 |
 
