@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     context_summary_max_tokens: int = Field(default=1200)
     context_recent_raw_keep: int = Field(default=12)
 
+    # Workspaces
+    workspace_base_dir: str = Field(default="/workspaces")
+    workspace_max_read_bytes: int = Field(default=1_048_576)
+
     # ─── CORS ───
     cors_origins: str = Field(default="http://localhost:5173")
 

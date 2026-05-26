@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
-from app.agents.types import ChatMessage, StreamChunk
+from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 
 class BaseAgentAdapter(ABC):
@@ -42,8 +43,11 @@ class BaseAgentAdapter(ABC):
     def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[ToolSpec] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         """
         Stream a normalized response.
@@ -52,9 +56,12 @@ class BaseAgentAdapter(ABC):
             messages: Conversation history already assembled by ContextBuilder.
             system_prompt: Optional override of `self.system_prompt`.
             config: Optional override of `self.default_config`.
+            workspace_path: Optional conversation workspace root.
+            tool_specs: Optional tool whitelist/schema.
 
         Yields:
-            StreamChunk events (start, block_start, delta, block_end, done, error).
+            StreamChunk events (start, block_start, delta, block_end, tool_*,
+            done, error).
 
         Implementation note:
             Adapters should ALWAYS yield a `start` first and a `done` (or `error`) last.

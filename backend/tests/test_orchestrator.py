@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 from app.agents.base import BaseAgentAdapter
@@ -57,8 +58,11 @@ class FakeSubAdapter(BaseAgentAdapter):
     async def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         self.received_messages = messages
         self.received_system_prompt = system_prompt
@@ -80,8 +84,11 @@ class FakePartialThenExceptionAdapter(BaseAgentAdapter):
     async def stream(
         self,
         messages: list[ChatMessage],
+        *,
         system_prompt: str | None = None,
         config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
     ) -> AsyncIterator[StreamChunk]:
         for chunk in self._chunks:
             yield chunk
