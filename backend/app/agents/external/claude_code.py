@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.external.cli_runtime import run_cli_text
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "claude_agent_sdk"
+DEFAULT_CLI_TIMEOUT_SECONDS = 120.0
 TEXT_EVENT_NAMES = {"text", "text_block", "text_delta", "content_block_delta"}
 TOOL_CALL_EVENT_NAMES = {"tool_call", "tool_use", "tool_start", "tooluseblock"}
 TOOL_RESULT_EVENT_NAMES = {"tool_result", "tool_finish", "tool_end", "toolresultblock"}
@@ -42,6 +44,18 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             sdk = self._load_sdk()
             prompt = self._format_prompt(messages, system_prompt)
             stream = await self._open_sdk_stream(sdk, prompt, workspace_path, config)
+        except ModuleNotFoundError as exc:
+            if exc.name == SDK_MODULE_NAME:
+                async for chunk in self._stream_cli(
+                    messages,
+                    system_prompt,
+                    config,
+                    workspace_path,
+                ):
+                    yield chunk
+                return
+            yield self._error_chunk(self._classify_exception(exc), self._safe_error_message(exc))
+            return
         except Exception as exc:  # noqa: BLE001
             yield self._error_chunk(self._classify_exception(exc), self._safe_error_message(exc))
             return
@@ -88,6 +102,59 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
 
     def _load_sdk(self) -> Any:
         return importlib.import_module(SDK_MODULE_NAME)
+
+    async def _stream_cli(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        config: dict[str, Any] | None,
+        workspace_path: Path,
+    ) -> AsyncIterator[StreamChunk]:
+        merged = self.merged_config(config)
+        timeout_seconds = self._float_config(
+            merged.get("timeout_seconds"),
+            DEFAULT_CLI_TIMEOUT_SECONDS,
+        )
+        prompt = self._format_prompt(messages, system_prompt)
+        command = [
+            "claude",
+            "-p",
+            "--output-format",
+            "text",
+            "--permission-mode",
+            "acceptEdits",
+            "--no-session-persistence",
+            prompt,
+        ]
+        try:
+            result = await run_cli_text(
+                command,
+                cwd=workspace_path,
+                timeout_seconds=timeout_seconds,
+            )
+        except TimeoutError:
+            yield self._error_chunk("timeout", "Claude Code CLI timed out")
+            return
+        except Exception as exc:  # noqa: BLE001
+            yield self._error_chunk("external_runtime_error", self._safe_error_message(exc))
+            return
+
+        if result.return_code != 0:
+            output = self._safe_runtime_output(result.stderr or result.stdout)
+            yield self._error_chunk(
+                "external_runtime_error",
+                f"Claude Code CLI exited with code {result.return_code}: {output}",
+            )
+            return
+
+        text = result.stdout.strip()
+        total_blocks = 0
+        if text:
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(event_type="delta", block_index=0, text_delta=text)
+            yield StreamChunk(event_type="block_end", block_index=0)
+            total_blocks = 1
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=total_blocks)
 
     async def _open_sdk_stream(
         self,
@@ -262,3 +329,19 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
 
     def _safe_error_message(self, exc: BaseException) -> str:
         return str(exc) or exc.__class__.__name__
+
+    @staticmethod
+    def _float_config(value: object, default: float) -> float:
+        if value is None:
+            return default
+        if not isinstance(value, str | int | float):
+            return default
+        try:
+            parsed = float(value)
+        except ValueError:
+            return default
+        return parsed if parsed > 0 else default
+
+    @staticmethod
+    def _safe_runtime_output(output: str) -> str:
+        return output.strip()[:500] or "no output"
