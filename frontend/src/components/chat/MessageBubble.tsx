@@ -1,7 +1,8 @@
 import { ContentRenderer } from '@/components/blocks/ContentRenderer';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { DemoMessage } from '@/lib/mockData';
-import { getAgent } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
 import { Pin, RotateCcw } from 'lucide-react';
 
@@ -10,14 +11,16 @@ export function MessageBubble({
   highlighted = false,
   onTogglePin,
   onRetry,
+  agents = mockAgents,
 }: {
   message: DemoMessage;
   highlighted?: boolean;
   onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
+  agents?: Agent[];
 }) {
   const isUser = message.role === 'user';
-  const agent = getAgent(message.agent_id);
+  const agent = agents.find((item) => item.id === message.agent_id);
 
   return (
     <article
@@ -63,7 +66,11 @@ export function MessageBubble({
                 : 'border border-slate-800 bg-slate-900/75 text-slate-100 shadow-black/10',
           )}
         >
-          <ContentRenderer blocks={message.content} streaming={message.status === 'streaming'} />
+          <ContentRenderer
+            blocks={message.content}
+            agents={agents}
+            streaming={message.status === 'streaming'}
+          />
           {message.status === 'error' && onRetry && (
             <button
               type="button"
