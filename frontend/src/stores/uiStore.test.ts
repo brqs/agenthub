@@ -8,6 +8,7 @@ describe('uiStore', () => {
       settingsOpen: false,
       userMenuOpen: false,
       rightPanelOpen: true,
+      rightPanelWidth: 380,
       conversationSidebarCollapsed: false,
     });
     useUiStore.getState().setTheme('dark');
@@ -41,5 +42,16 @@ describe('uiStore', () => {
     useUiStore.getState().toggleConversationSidebar();
 
     expect(useUiStore.getState().conversationSidebarCollapsed).toBe(false);
+  });
+
+  it('clamps right panel width', () => {
+    useUiStore.getState().setRightPanelWidth(900);
+    expect(useUiStore.getState().rightPanelWidth).toBe(560);
+
+    useUiStore.getState().setRightPanelWidth(100);
+    expect(useUiStore.getState().rightPanelWidth).toBe(320);
+
+    useUiStore.getState().setRightPanelWidth(421);
+    expect(useUiStore.getState().rightPanelWidth).toBe(421);
   });
 });

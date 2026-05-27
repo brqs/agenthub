@@ -1,5 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Activity, Box, ChevronRight, Files, PanelRight, Pin, ShieldCheck } from 'lucide-react';
+import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  Activity,
+  Box,
+  ChevronRight,
+  Files,
+  GripVertical,
+  PanelRight,
+  PanelRightClose,
+  Pin,
+  ShieldCheck,
+} from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact/ArtifactPreview';
 import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/WorkspaceFileTree';
@@ -15,6 +25,7 @@ import { env } from '@/lib/env';
 import { useWorkspaceFile, useWorkspaceTree } from '@/hooks/useWorkspace';
 import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
 
 type AgentWorkStatus = 'active' | 'done' | 'idle';
 
@@ -56,11 +67,17 @@ export function RightAgentPanel({
   conversation,
   messages,
   agents = mockAgents,
+  width = RIGHT_PANEL_DEFAULT_WIDTH,
+  onWidthChange = () => undefined,
+  onCollapse = () => undefined,
   onSelectPinnedMessage,
 }: {
   conversation: DemoConversation;
   messages: DemoMessage[];
   agents?: Agent[];
+  width?: number;
+  onWidthChange?: (width: number) => void;
+  onCollapse?: () => void;
   onSelectPinnedMessage?: (messageId: string) => void;
 }) {
   const conversationAgents = conversation.agent_ids
@@ -85,16 +102,31 @@ export function RightAgentPanel({
   }, [mockWorkspace]);
 
   return (
-    <aside className="hidden h-screen w-80 shrink-0 flex-col border-l border-slate-800 bg-slate-900 xl:flex 2xl:w-[22rem]">
-      <div className="border-b border-slate-800 p-4 pb-3 max-[800px]:p-3 [@media(max-height:800px)]:p-3">
+    <aside
+      className="relative hidden h-screen shrink-0 flex-col border-l border-slate-800 bg-slate-900 xl:flex"
+      style={{ width }}
+    >
+      <ResizeHandle width={width} onWidthChange={onWidthChange} />
+      <div className="p-4 pb-3 max-[800px]:p-3 [@media(max-height:800px)]:p-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <PanelRight className="h-4 w-4 shrink-0 text-slate-500" />
             <h2 className="truncate text-sm font-semibold text-white">工作台</h2>
           </div>
-          <span className="shrink-0 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-xs text-slate-500" title={conversation.title}>
-            {conversation.mode === 'group' ? 'Group' : 'Single'}
-          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-xs text-slate-500" title={conversation.title}>
+              {conversation.mode === 'group' ? 'Group' : 'Single'}
+            </span>
+            <button
+              type="button"
+              onClick={onCollapse}
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-800 bg-slate-950 text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand"
+              title="收起工作台"
+              aria-label="收起工作台"
+            >
+              <PanelRightClose className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1">
@@ -148,6 +180,48 @@ export function RightAgentPanel({
         )}
       </div>
     </aside>
+  );
+}
+
+function ResizeHandle({
+  width,
+  onWidthChange,
+}: {
+  width: number;
+  onWidthChange: (width: number) => void;
+}) {
+  function startResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = width;
+
+    function handleMove(moveEvent: PointerEvent) {
+      onWidthChange(startWidth - (moveEvent.clientX - startX));
+    }
+
+    function stopResize() {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', stopResize);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', stopResize, { once: true });
+  }
+
+  return (
+    <button
+      type="button"
+      onPointerDown={startResize}
+      className="group absolute inset-y-0 left-0 z-10 hidden w-2 -translate-x-1 cursor-col-resize items-center justify-center text-slate-600 transition hover:bg-brand/10 hover:text-brand-light xl:flex"
+      title="调整工作台宽度"
+      aria-label="调整工作台宽度"
+    >
+      <GripVertical className="h-4 w-4 opacity-0 transition group-hover:opacity-100" />
+    </button>
   );
 }
 
