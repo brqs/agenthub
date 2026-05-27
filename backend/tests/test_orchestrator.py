@@ -286,6 +286,55 @@ async def test_orchestrator_derives_tasks_from_managed_agents() -> None:
     assert "Build a calendar app" in adapter_b.received_messages[-1].content
 
 
+async def test_orchestrator_derives_direct_tasks_for_named_agents() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("claude response"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("opencode response"))
+    codex = FakeSubAdapter("codex-helper", _text_chunks("codex response"))
+    messages = [
+        ChatMessage(
+            role="user",
+            content=(
+                "@orchestrator 你分别向claude code，opencode，codex发送一条信息"
+                "“你好，你是什么模型”并且返回它们输出的内容"
+            ),
+        )
+    ]
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=messages,
+        config={
+            "managed_agent_ids": [
+                "claude-code",
+                "codex-helper",
+                "opencode-helper",
+            ],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code", "opencode-helper", "codex-helper"]
+    assert all(
+        chunk.event_type != "delta" or "Analyze request" not in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+
+    for adapter in (claude, opencode, codex):
+        assert len(adapter.received_messages) == 1
+        instruction = adapter.received_messages[0].content
+        assert "Message:\n你好，你是什么模型" in instruction
+        assert "@orchestrator" not in instruction
+        assert "Do not contact, invoke, or simulate other agents" in instruction
+
+
 async def test_orchestrator_forwards_tool_events_with_remapped_call_ids() -> None:
     adapter_a = FakeSubAdapter(
         "agent-a",
