@@ -3,9 +3,11 @@ import { isValidElement, type ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
+import type { Agent } from '@/lib/types';
 
 const FENCED_CODE_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 const INLINE_CODE_PATTERN = /(`+[^`\n]*?`+)/g;
+const AGENT_MENTION_HASH_PREFIX = '#agent-mention-';
 
 function normalizeMathOutsideCode(text: string, streaming: boolean): string {
   return stabilizeStreamingMath(text, streaming)
@@ -15,22 +17,45 @@ function normalizeMathOutsideCode(text: string, streaming: boolean): string {
     .replace(/\\\(((?:.|\n)*?)\\\)/g, (_match, content: string) => `$${content}$`);
 }
 
-function normalizeInlineSegments(text: string, streaming: boolean): string {
+function normalizeAgentMentionsOutsideCode(text: string, mentionableAgentIds: Set<string>): string {
+  if (mentionableAgentIds.size === 0) return text;
+
+  return text.replace(
+    /(^|[^\w-])@([A-Za-z0-9][A-Za-z0-9_-]*)/g,
+    (match, prefix: string, agentId: string) => {
+      if (!mentionableAgentIds.has(agentId)) return match;
+      return `${prefix}[@${agentId}](${AGENT_MENTION_HASH_PREFIX}${agentId})`;
+    },
+  );
+}
+
+function normalizeInlineSegments(
+  text: string,
+  streaming: boolean,
+  mentionableAgentIds: Set<string>,
+): string {
   return text
     .split(INLINE_CODE_PATTERN)
     .map((segment, index) => {
       if (index % 2 === 1) return segment;
-      return normalizeMathOutsideCode(segment, streaming);
+      return normalizeAgentMentionsOutsideCode(
+        normalizeMathOutsideCode(segment, streaming),
+        mentionableAgentIds,
+      );
     })
     .join('');
 }
 
-function normalizeMarkdownForChat(text: string, streaming: boolean): string {
+function normalizeMarkdownForChat(
+  text: string,
+  streaming: boolean,
+  mentionableAgentIds: Set<string>,
+): string {
   return text
     .split(FENCED_CODE_PATTERN)
     .map((segment, index) => {
       if (index % 2 === 1) return segment;
-      return normalizeInlineSegments(segment, streaming);
+      return normalizeInlineSegments(segment, streaming, mentionableAgentIds);
     })
     .join('');
 }
@@ -201,21 +226,50 @@ const components: Components = {
       </code>
     );
   },
-  a: ({ node: _node, ...props }) => (
-    <a
-      className="text-brand-light underline-offset-2 hover:underline"
-      target="_blank"
-      rel="noreferrer"
-      {...props}
-    />
-  ),
+  a: ({ node: _node, href, children, ...props }) => {
+    if (href?.startsWith(AGENT_MENTION_HASH_PREFIX)) {
+      return (
+        <span
+          className="inline font-semibold text-current underline decoration-current/45 decoration-2 underline-offset-4"
+          data-agent-mention={href.slice(AGENT_MENTION_HASH_PREFIX.length)}
+          {...props}
+        >
+          {children}
+        </span>
+      );
+    }
+
+    return (
+      <a
+        className="text-brand-light underline-offset-2 hover:underline"
+        target="_blank"
+        rel="noreferrer"
+        href={href}
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  },
   strong: ({ node: _node, ...props }) => (
     <strong className="font-semibold text-white" {...props} />
   ),
 };
 
-export function TextBlock({ text, streaming = false }: { text: string; streaming?: boolean }) {
-  const normalizedText = normalizeMarkdownForChat(text, streaming);
+export function TextBlock({
+  text,
+  streaming = false,
+  agents = [],
+}: {
+  text: string;
+  streaming?: boolean;
+  agents?: Agent[];
+}) {
+  const normalizedText = normalizeMarkdownForChat(
+    text,
+    streaming,
+    new Set(agents.map((agent) => agent.id)),
+  );
 
   return (
     <div className={`agent-markdown min-w-0 text-slate-100${streaming ? ' streaming-cursor' : ''}`}>

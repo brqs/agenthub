@@ -27,6 +27,7 @@ export function ContentRenderer({
             <TextBlock
               key={`${block.type}-${index}`}
               text={block.text}
+              agents={agents}
               streaming={streaming && index === blocks.length - 1}
             />
           );

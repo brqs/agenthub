@@ -12,6 +12,7 @@ export function MessageList({
   isLoading = false,
   onTogglePin,
   onRetry,
+  onMentionAgent,
   agents = mockAgents,
 }: {
   messages: DemoMessage[];
@@ -19,6 +20,7 @@ export function MessageList({
   isLoading?: boolean;
   onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
+  onMentionAgent?: (agent: Agent) => void;
   agents?: Agent[];
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -69,6 +71,7 @@ export function MessageList({
             highlighted={message.id === highlightedMessageId}
             onTogglePin={onTogglePin}
             onRetry={onRetry}
+            onMentionAgent={onMentionAgent}
           />
         ))}
         <div ref={endRef} />

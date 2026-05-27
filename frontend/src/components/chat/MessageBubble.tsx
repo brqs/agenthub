@@ -5,22 +5,60 @@ import { mockAgents } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
 import { Pin, RotateCcw } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 export function MessageBubble({
   message,
   highlighted = false,
   onTogglePin,
   onRetry,
+  onMentionAgent,
   agents = mockAgents,
 }: {
   message: DemoMessage;
   highlighted?: boolean;
   onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
+  onMentionAgent?: (agent: Agent) => void;
   agents?: Agent[];
 }) {
   const isUser = message.role === 'user';
   const agent = agents.find((item) => item.id === message.agent_id);
+  const [mentionMenuPosition, setMentionMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const canMentionAgent = !isUser && agent !== undefined && onMentionAgent !== undefined;
+
+  useEffect(() => {
+    if (!mentionMenuPosition) return undefined;
+
+    function closeMenu() {
+      setMentionMenuPosition(null);
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') closeMenu();
+    }
+
+    window.addEventListener('click', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mentionMenuPosition]);
+
+  function openMentionMenu(event: React.MouseEvent<HTMLDivElement>) {
+    if (!canMentionAgent) return;
+    event.preventDefault();
+    setMentionMenuPosition({ x: event.clientX, y: event.clientY });
+  }
+
+  function mentionAgent() {
+    if (!agent || !onMentionAgent) return;
+    onMentionAgent(agent);
+    setMentionMenuPosition(null);
+  }
 
   return (
     <article
@@ -31,7 +69,11 @@ export function MessageBubble({
       )}
     >
       {!isUser && (
-        <div className="pt-6">
+        <div
+          className={cn('pt-6', canMentionAgent && 'cursor-context-menu')}
+          onContextMenu={openMentionMenu}
+          title={canMentionAgent ? `右键 @${agent.name}` : undefined}
+        >
           <AgentAvatar agent={agent} />
         </div>
       )}
@@ -83,6 +125,23 @@ export function MessageBubble({
           )}
         </div>
       </div>
+      {mentionMenuPosition && agent && (
+        <div
+          role="menu"
+          className="fixed z-50 min-w-40 overflow-hidden rounded-md border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/30"
+          style={{ left: mentionMenuPosition.x, top: mentionMenuPosition.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={mentionAgent}
+            className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-brand/15 hover:text-brand-light"
+          >
+            @ {agent.name}
+          </button>
+        </div>
+      )}
     </article>
   );
 }
