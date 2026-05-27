@@ -6,16 +6,41 @@ import type { Agent } from '@/lib/types';
 import { useAgentStore, type CreateAgentInput } from '@/stores/agentStore';
 
 const DEFAULT_MODELS: Record<CreateAgentInput['provider'], string> = {
-  claude: 'claude-sonnet-4-6',
-  openai: 'gpt-4o',
-  deepseek: 'deepseek-v4-flash',
-  custom: 'claude-sonnet-4-6',
+  builtin: 'deepseek',
+  claude_code: 'claude-sonnet-4-6',
+  codex: 'gpt-4o',
+  opencode: 'opencode',
 };
 
-function inferUpstreamProvider(model: string): 'claude' | 'openai' | 'deepseek' {
+function inferModelBackend(model: string): 'claude' | 'openai' | 'deepseek' {
   if (model.startsWith('gpt-')) return 'openai';
-  if (model.startsWith('deepseek-')) return 'deepseek';
+  if (model === 'deepseek' || model.startsWith('deepseek-')) return 'deepseek';
   return 'claude';
+}
+
+function buildAgentConfig(input: CreateAgentInput): Record<string, unknown> {
+  const value = input.model.trim() || DEFAULT_MODELS[input.provider];
+
+  if (input.provider === 'builtin') {
+    return {
+      model_backend: inferModelBackend(value),
+      max_iterations: 10,
+      mcp_servers: [],
+    };
+  }
+
+  if (input.provider === 'opencode') {
+    return {
+      command: value,
+      args: [],
+      timeout_seconds: 120,
+    };
+  }
+
+  return {
+    model: value,
+    timeout_seconds: 120,
+  };
 }
 
 export function useCreateAgent() {
@@ -32,17 +57,7 @@ export function useCreateAgent() {
         avatar_url: '',
         capabilities: input.capabilities,
         system_prompt: input.systemPrompt.trim() || null,
-        config: {
-          model: input.model.trim() || DEFAULT_MODELS[input.provider],
-          temperature: 0.4,
-          ...(input.provider === 'custom'
-            ? {
-                upstream_provider: inferUpstreamProvider(
-                  input.model.trim() || DEFAULT_MODELS.custom,
-                ),
-              }
-            : {}),
-        },
+        config: buildAgentConfig(input),
       }),
     onSuccess: (created) => {
       addAgent(created);

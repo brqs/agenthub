@@ -8,7 +8,8 @@ describe('SettingsDialog', () => {
 
     expect(screen.getByText('API 模式')).toBeInTheDocument();
     expect(screen.getByText('SSE 模式')).toBeInTheDocument();
-    expect(screen.getByText('Vite /api proxy')).toBeInTheDocument();
+    expect(screen.getByText('Base URL')).toBeInTheDocument();
+    expect(screen.getByText('http://localhost:8000')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 

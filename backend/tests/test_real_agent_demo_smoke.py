@@ -17,6 +17,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.builtin.adapter import BuiltinAgentAdapter
 from app.agents.external.claude_code import ClaudeCodeAdapter
 from app.agents.external.codex import CodexAdapter
 from app.agents.external.opencode import OpenCodeAdapter
@@ -92,6 +93,23 @@ class FakeRuntimeAdapter(BaseAgentAdapter):
         yield StreamChunk(event_type="done", agent_id=self.agent_id)
 
 
+class FakeBuiltinModelGateway:
+    def __init__(self, streams: list[list[StreamChunk]]) -> None:
+        self.streams = streams
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        tools: list[ToolSpec] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        _ = messages, system_prompt, config, tools
+        for chunk in self.streams.pop(0):
+            yield chunk
+
+
 async def _register(client: AsyncClient) -> tuple[dict[str, Any], dict[str, str]]:
     username = f"demo_{uuid4().hex[:16]}"
     response = await client.post(
@@ -112,6 +130,22 @@ async def _insert_orchestrator_agent(agent_id: str) -> None:
                 provider="builtin",
                 avatar_url="/avatars/orchestrator.png",
                 capabilities=["task_decomposition", "coordination"],
+                config={"model_backend": "claude"},
+                is_builtin=True,
+            )
+        )
+        await db.commit()
+
+
+async def _insert_builtin_agent(agent_id: str) -> None:
+    async with SessionFactory() as db:
+        db.add(
+            Agent(
+                id=agent_id,
+                name="Builtin Demo Agent",
+                provider="builtin",
+                avatar_url="/avatars/builtin.png",
+                capabilities=["workspace", "tools"],
                 config={"model_backend": "claude"},
                 is_builtin=True,
             )
@@ -206,6 +240,148 @@ async def test_fake_real_agent_demo_smoke_writes_hello_html(
             "output_truncated": False,
         }
     ]
+
+
+async def test_builtin_agent_e2e_writes_workspace_artifact(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    ensure_tables: None,
+) -> None:
+    _ = ensure_tables
+    agent_id = f"demo-smoke-builtin-{uuid4().hex}"
+    await _insert_builtin_agent(agent_id)
+    _, headers = await _register(client)
+    conversation_response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={"title": "Builtin smoke", "mode": "single", "agent_ids": [agent_id]},
+    )
+    assert conversation_response.status_code == 201, conversation_response.text
+    conversation = conversation_response.json()
+    message_response = await client.post(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "write hello.html"}]},
+    )
+    assert message_response.status_code == 201, message_response.text
+    agent_message_id = message_response.json()["agent_message"]["id"]
+    html = "<html><body><h1>Hello BuiltinAgent</h1></body></html>"
+
+    gateway = FakeBuiltinModelGateway(
+        [
+            [
+                StreamChunk(
+                    event_type="tool_call",
+                    call_id="c-1",
+                    tool_name="write_file",
+                    tool_arguments={"path": "hello.html", "content": html},
+                ),
+                StreamChunk(event_type="done", agent_id="fake-model"),
+            ],
+            [
+                StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+                StreamChunk(
+                    event_type="delta",
+                    block_index=0,
+                    text_delta="Created hello.html with BuiltinAgent.",
+                ),
+                StreamChunk(event_type="block_end", block_index=0),
+                StreamChunk(event_type="done", agent_id="fake-model"),
+            ],
+        ]
+    )
+
+    async def fake_get_adapter(agent_id_arg: str, db: Any) -> BuiltinAgentAdapter:
+        _ = db
+        assert agent_id_arg == agent_id
+        return BuiltinAgentAdapter(agent_id=agent_id, model_gateway=gateway)
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", fake_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        body = (await response.aread()).decode()
+
+    file_response = await client.get(
+        f"/api/v1/workspaces/{conversation['id']}/files/hello.html",
+        headers=headers,
+    )
+    message = await _stored_message(agent_message_id)
+
+    assert response.status_code == 200
+    assert "event: tool_call" in body
+    assert "event: tool_result" in body
+    assert file_response.status_code == 200, file_response.text
+    assert b"Hello BuiltinAgent" in file_response.content
+    assert message.status == "done"
+    assert [block["type"] for block in message.content] == ["tool_call", "text"]
+    assert message.content[0]["status"] == "ok"
+
+
+async def test_builtin_agent_workspace_violation_preserves_tool_error_code(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    ensure_tables: None,
+) -> None:
+    _ = ensure_tables
+    agent_id = f"demo-smoke-builtin-{uuid4().hex}"
+    await _insert_builtin_agent(agent_id)
+    _, headers = await _register(client)
+    conversation_response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={"title": "Builtin violation", "mode": "single", "agent_ids": [agent_id]},
+    )
+    assert conversation_response.status_code == 201, conversation_response.text
+    conversation = conversation_response.json()
+    message_response = await client.post(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "write outside workspace"}]},
+    )
+    assert message_response.status_code == 201, message_response.text
+    agent_message_id = message_response.json()["agent_message"]["id"]
+    gateway = FakeBuiltinModelGateway(
+        [
+            [
+                StreamChunk(
+                    event_type="tool_call",
+                    call_id="c-1",
+                    tool_name="write_file",
+                    tool_arguments={"path": "../escape.html", "content": "bad"},
+                ),
+                StreamChunk(event_type="done", agent_id="fake-model"),
+            ],
+        ]
+    )
+
+    async def fake_get_adapter(agent_id_arg: str, db: Any) -> BuiltinAgentAdapter:
+        _ = db
+        assert agent_id_arg == agent_id
+        return BuiltinAgentAdapter(agent_id=agent_id, model_gateway=gateway)
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", fake_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        body = (await response.aread()).decode()
+
+    message = await _stored_message(agent_message_id)
+    escaped_path = Path(settings.workspace_base_dir) / "escape.html"
+
+    assert response.status_code == 200
+    assert "workspace_violation" in body
+    assert not escaped_path.exists()
+    assert message.status == "error"
+    assert message.content[0]["type"] == "tool_call"
+    assert message.content[0]["status"] == "error"
+    assert message.content[0]["error_code"] == "workspace_violation"
 
 
 @pytest.mark.slow

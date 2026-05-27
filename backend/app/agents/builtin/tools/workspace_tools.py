@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from app.agents.builtin.tools.exceptions import ToolExecutionError, WorkspaceViolation
+from app.core.config import settings
 
-MAX_FILE_BYTES = 1_000_000
 FORBIDDEN_PARTS = {".agenthub", ".git", ".env", ".ssh", "secrets"}
 
 
@@ -19,7 +19,7 @@ async def read_file(workspace_root: Path, user_path: str) -> str:
 async def write_file(workspace_root: Path, user_path: str, content: str) -> str:
     path = _validate_write_path(workspace_root, user_path)
     encoded = content.encode("utf-8")
-    if len(encoded) > MAX_FILE_BYTES:
+    if len(encoded) > settings.workspace_max_read_bytes:
         raise ToolExecutionError("file content exceeds 1 MB")
     await asyncio.to_thread(_write_text_file, path, content)
     return f"wrote {user_path} ({len(encoded)} bytes)"
@@ -27,34 +27,53 @@ async def write_file(workspace_root: Path, user_path: str, content: str) -> str:
 
 def _validate_read_path(workspace_root: Path, user_path: str) -> Path:
     candidate = _resolve_workspace_path(workspace_root, user_path)
-    if ".agenthub" in candidate.parts:
-        raise WorkspaceViolation("cannot read .agenthub/")
     if not candidate.exists() or not candidate.is_file():
         raise ToolExecutionError(f"file not found: {user_path}")
-    if candidate.stat().st_size > MAX_FILE_BYTES:
+    if candidate.stat().st_size > settings.workspace_max_read_bytes:
         raise ToolExecutionError("file exceeds 1 MB")
     return candidate
 
 
 def _validate_write_path(workspace_root: Path, user_path: str) -> Path:
     candidate = _resolve_workspace_path(workspace_root, user_path)
-    if any(part in FORBIDDEN_PARTS for part in candidate.parts):
-        raise WorkspaceViolation(f"forbidden path component: {user_path}")
+    if candidate.exists() and candidate.is_dir():
+        raise WorkspaceViolation(f"cannot write to directory: {user_path}")
     return candidate
 
 
 def _resolve_workspace_path(workspace_root: Path, user_path: str) -> Path:
-    if not user_path or Path(user_path).is_absolute():
-        raise WorkspaceViolation(f"path escapes workspace: {user_path}")
+    if not user_path or not user_path.strip():
+        raise WorkspaceViolation("workspace path is empty")
+    normalized_user_path = user_path.replace("\\", "/").strip()
+    raw_path = Path(normalized_user_path)
+    if raw_path.is_absolute() or PureWindowsPath(user_path).is_absolute():
+        raise WorkspaceViolation(f"absolute path is not allowed: {user_path}")
+    if PureWindowsPath(user_path).drive:
+        raise WorkspaceViolation(f"drive path is not allowed: {user_path}")
+
+    parts = [part for part in raw_path.parts if part not in {"", "."}]
+    if any(part == ".." for part in parts):
+        raise WorkspaceViolation(f"path traversal is not allowed: {user_path}")
+    if any(part in FORBIDDEN_PARTS for part in parts):
+        raise WorkspaceViolation(f"forbidden path component: {user_path}")
+
     workspace = workspace_root.resolve()
-    candidate = (workspace / user_path).resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+    _reject_symlink_in_existing_path(workspace, parts)
+    candidate = (workspace / Path(*parts)).resolve(strict=False)
     try:
         candidate.relative_to(workspace)
     except ValueError as exc:
         raise WorkspaceViolation(f"path escapes workspace: {user_path}") from exc
-    if candidate.is_symlink():
-        raise WorkspaceViolation("symlinks not allowed")
     return candidate
+
+
+def _reject_symlink_in_existing_path(root: Path, parts: list[str]) -> None:
+    current = root
+    for part in parts:
+        current = current / part
+        if current.exists() and current.is_symlink():
+            raise WorkspaceViolation(f"symlink path component is not allowed: {part}")
 
 
 def _read_text_file(path: Path) -> str:
