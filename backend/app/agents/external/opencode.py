@@ -17,6 +17,11 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 DEFAULT_COMMAND = "opencode"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+TEXT_EVENT_TYPES = {"text", "text_delta", "reasoning"}
+TOOL_CALL_EVENT_TYPES = {"tool_call"}
+TOOL_RESULT_EVENT_TYPES = {"tool_result"}
+TOOL_USE_EVENT_TYPES = {"tool_use"}
+TOOL_EVENT_TYPES = TOOL_CALL_EVENT_TYPES | TOOL_RESULT_EVENT_TYPES | TOOL_USE_EVENT_TYPES
 ENV_ALLOWLIST = {
     "PATH",
     "LANG",
@@ -191,7 +196,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     )
                     return
 
-                if event_type not in {"text", "text_delta", "tool_call", "tool_result"}:
+                if event_type not in TEXT_EVENT_TYPES | TOOL_EVENT_TYPES:
                     if text_block_open:
                         yield StreamChunk(event_type="block_end", block_index=next_block_index)
                     await self._terminate_process(process)
@@ -210,12 +215,12 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     yield chunk
 
                 if (
-                    event_type in {"text", "text_delta"}
+                    event_type in TEXT_EVENT_TYPES
                     and not text_block_open
                     and self._event_text(event)
                 ):
                     text_block_open = True
-                elif event_type in {"tool_call", "tool_result"} and text_block_open:
+                elif event_type in TOOL_EVENT_TYPES and text_block_open:
                     text_block_open = False
                     next_block_index += 1
 
@@ -254,7 +259,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
             return
 
         event_type = event.get("type")
-        if event_type in {"text", "text_delta"}:
+        if event_type in TEXT_EVENT_TYPES:
             text = self._event_text(event)
             if not text:
                 return
@@ -274,25 +279,14 @@ class OpenCodeAdapter(BaseAgentAdapter):
         if text_block_open:
             yield StreamChunk(event_type="block_end", block_index=block_index)
 
-        if event_type == "tool_call":
-            yield StreamChunk(
-                event_type="tool_call",
-                call_id=self._string_field(event, "call_id"),
-                tool_name=self._string_field(event, "tool_name"),
-                tool_arguments=self._dict_field(event, "arguments"),
-            )
+        if event_type in TOOL_CALL_EVENT_TYPES | TOOL_USE_EVENT_TYPES:
+            yield self._tool_call_chunk(event)
+            if event_type in TOOL_USE_EVENT_TYPES:
+                yield self._tool_result_chunk(event, output_max_chars)
             return
 
-        if event_type == "tool_result":
-            output = self._string_field(event, "output") or ""
-            truncated_output = self._truncate(output, output_max_chars)
-            yield StreamChunk(
-                event_type="tool_result",
-                call_id=self._string_field(event, "call_id"),
-                tool_status=self._tool_status(event.get("status")),
-                tool_output=truncated_output,
-                tool_output_truncated=len(output) > len(truncated_output),
-            )
+        if event_type in TOOL_RESULT_EVENT_TYPES:
+            yield self._tool_result_chunk(event, output_max_chars)
             return
 
         return
@@ -338,10 +332,43 @@ class OpenCodeAdapter(BaseAgentAdapter):
         if isinstance(text, str):
             return text
         part = event.get("part")
-        if not isinstance(part, dict) or part.get("type") != "text":
+        if not isinstance(part, dict) or part.get("type") not in {"text", "reasoning"}:
             return None
         part_text = part.get("text")
         return part_text if isinstance(part_text, str) else None
+
+    def _tool_call_chunk(self, event: dict[Any, Any]) -> StreamChunk:
+        return StreamChunk(
+            event_type="tool_call",
+            call_id=self._string_field_deep(
+                event,
+                ("call_id", "callID", "id", "tool_call_id", "tool_use_id"),
+            ),
+            tool_name=self._string_field_deep(event, ("tool_name", "tool", "name")),
+            tool_arguments=self._dict_field_deep(
+                event,
+                ("arguments", "tool_arguments", "input", "args"),
+                include_state=True,
+            ),
+        )
+
+    def _tool_result_chunk(
+        self,
+        event: dict[Any, Any],
+        output_max_chars: int,
+    ) -> StreamChunk:
+        output = self._tool_output(event) or ""
+        truncated_output = self._truncate(output, output_max_chars)
+        return StreamChunk(
+            event_type="tool_result",
+            call_id=self._string_field_deep(
+                event,
+                ("call_id", "callID", "tool_call_id", "tool_use_id", "id"),
+            ),
+            tool_status=self._tool_status(event),
+            tool_output=truncated_output,
+            tool_output_truncated=len(output) > len(truncated_output),
+        )
 
     @staticmethod
     def _argv(value: object) -> list[str]:
@@ -412,9 +439,76 @@ class OpenCodeAdapter(BaseAgentAdapter):
         value = event.get(key)
         return value if isinstance(value, dict) else {}
 
+    def _string_field_deep(
+        self,
+        event: dict[Any, Any],
+        keys: tuple[str, ...],
+    ) -> str | None:
+        for candidate in self._field_candidates(event):
+            for key in keys:
+                value = candidate.get(key)
+                if value is None:
+                    continue
+                return value if isinstance(value, str) else str(value)
+        return None
+
+    def _dict_field_deep(
+        self,
+        event: dict[Any, Any],
+        keys: tuple[str, ...],
+        *,
+        include_state: bool = False,
+    ) -> dict[str, Any]:
+        for candidate in self._field_candidates(event, include_state=include_state):
+            for key in keys:
+                value = candidate.get(key)
+                if isinstance(value, dict):
+                    return value
+        return {}
+
+    def _field_deep(self, event: dict[Any, Any], keys: tuple[str, ...]) -> Any:
+        for candidate in self._field_candidates(event, include_state=True):
+            for key in keys:
+                value = candidate.get(key)
+                if value is not None:
+                    return value
+        return None
+
     @staticmethod
-    def _tool_status(value: object) -> Literal["ok", "error"]:
-        return "error" if value == "error" else "ok"
+    def _field_candidates(
+        event: dict[Any, Any],
+        *,
+        include_state: bool = False,
+    ) -> list[dict[Any, Any]]:
+        candidates = [event]
+        for first_level in ("part", "item", "data"):
+            value = event.get(first_level)
+            if isinstance(value, dict):
+                candidates.append(value)
+                state = value.get("state")
+                if include_state and isinstance(state, dict):
+                    candidates.append(state)
+        state = event.get("state")
+        if include_state and isinstance(state, dict):
+            candidates.append(state)
+        return candidates
+
+    def _tool_status(self, event: dict[Any, Any]) -> Literal["ok", "error"]:
+        status = self._field_deep(event, ("tool_status", "status"))
+        if status == "error":
+            return "error"
+        return "error" if self._field_deep(event, ("error", "is_error")) is True else "ok"
+
+    def _tool_output(self, event: dict[Any, Any]) -> str | None:
+        value = self._field_deep(event, ("tool_output", "output", "result", "content", "error"))
+        if value is None:
+            metadata = self._dict_field_deep(event, ("metadata",))
+            value = metadata.get("output") or metadata.get("error")
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False)
 
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:

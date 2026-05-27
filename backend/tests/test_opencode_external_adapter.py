@@ -235,6 +235,45 @@ class TestOpenCodeAdapterStream:
         assert tool_result.tool_status == "ok"
         assert tool_result.tool_output == "wrote index.html"
 
+    async def test_tool_use_event_is_mapped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess(
+            [
+                _json_line(
+                    {
+                        "type": "tool_use",
+                        "part": {
+                            "type": "tool",
+                            "id": "tool-1",
+                            "tool": "write",
+                            "state": {
+                                "status": "completed",
+                                "input": {"filePath": "index.html"},
+                                "output": "wrote index.html",
+                            },
+                        },
+                    }
+                ),
+                _json_line({"type": "done"}),
+            ]
+        )
+        _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert chunks[-1].event_type == "done"
+        tool_call = next(chunk for chunk in chunks if chunk.event_type == "tool_call")
+        tool_result = next(chunk for chunk in chunks if chunk.event_type == "tool_result")
+        assert tool_call.call_id == "tool-1"
+        assert tool_call.tool_name == "write"
+        assert tool_call.tool_arguments == {"filePath": "index.html"}
+        assert tool_result.call_id == "tool-1"
+        assert tool_result.tool_status == "ok"
+        assert tool_result.tool_output == "wrote index.html"
+
     async def test_workspace_path_is_subprocess_cwd_and_env_is_allowlisted(
         self,
         monkeypatch: pytest.MonkeyPatch,
