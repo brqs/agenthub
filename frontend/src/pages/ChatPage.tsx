@@ -38,7 +38,11 @@ export function ChatPage() {
   const applyStreamEvent = useChatStore((state) => state.applyStreamEvent);
   const setHighlightedMessageId = useChatStore((state) => state.setHighlightedMessageId);
   const conversationSidebarCollapsed = useUiStore((state) => state.conversationSidebarCollapsed);
+  const rightPanelOpen = useUiStore((state) => state.rightPanelOpen);
+  const rightPanelWidth = useUiStore((state) => state.rightPanelWidth);
   const setConversationSidebarCollapsed = useUiStore((state) => state.setConversationSidebarCollapsed);
+  const setRightPanelOpen = useUiStore((state) => state.setRightPanelOpen);
+  const setRightPanelWidth = useUiStore((state) => state.setRightPanelWidth);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
 
   const visibleConversations = conversations.filter((item) => !item.is_archived);
@@ -121,6 +125,8 @@ export function ChatPage() {
               conversation={conversation}
               sidebarCollapsed={conversationSidebarCollapsed}
               onExpandSidebar={() => setConversationSidebarCollapsed(false)}
+              rightPanelOpen={rightPanelOpen}
+              onOpenRightPanel={() => setRightPanelOpen(true)}
             />
             <StreamingStatusBar messages={messages} agents={agents} />
             <MessageList
@@ -150,11 +156,14 @@ export function ChatPage() {
           <EmptyChatPlaceholder onNew={() => setNewConversationOpen(true)} />
         )}
       </section>
-      {conversation && (
+      {conversation && rightPanelOpen && (
         <RightAgentPanel
           conversation={conversation}
           messages={messages}
           agents={agents}
+          width={rightPanelWidth}
+          onWidthChange={setRightPanelWidth}
+          onCollapse={() => setRightPanelOpen(false)}
           onSelectPinnedMessage={setHighlightedMessageId}
         />
       )}

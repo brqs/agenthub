@@ -1,4 +1,13 @@
-import { GitBranch, MoreHorizontal, PanelLeftOpen, Pin, Search, UserRound, Users } from 'lucide-react';
+import {
+  GitBranch,
+  MoreHorizontal,
+  PanelLeftOpen,
+  PanelRightOpen,
+  Pin,
+  Search,
+  UserRound,
+  Users,
+} from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { DemoConversation } from '@/lib/mockData';
 import { getAgent } from '@/lib/mockData';
@@ -7,10 +16,14 @@ export function ChatHeader({
   conversation,
   sidebarCollapsed = false,
   onExpandSidebar,
+  rightPanelOpen = true,
+  onOpenRightPanel,
 }: {
   conversation: DemoConversation;
   sidebarCollapsed?: boolean;
   onExpandSidebar?: () => void;
+  rightPanelOpen?: boolean;
+  onOpenRightPanel?: () => void;
 }) {
   const agents = conversation.agent_ids.map(getAgent).filter((agent) => agent !== undefined);
   const visibleAgents = agents.slice(0, 3);
@@ -78,6 +91,17 @@ export function ChatHeader({
         <button type="button" className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white" title="搜索消息" aria-label="搜索消息">
           <Search className="h-4 w-4" />
         </button>
+        {!rightPanelOpen && onOpenRightPanel && (
+          <button
+            type="button"
+            onClick={onOpenRightPanel}
+            className="hidden rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white xl:inline-flex"
+            title="展开工作台"
+            aria-label="展开工作台"
+          >
+            <PanelRightOpen className="h-4 w-4" />
+          </button>
+        )}
         <button type="button" className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white" title="更多操作" aria-label="更多操作">
           <MoreHorizontal className="h-4 w-4" />
         </button>

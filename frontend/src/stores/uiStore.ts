@@ -3,17 +3,23 @@ import { persist } from 'zustand/middleware';
 
 export type ThemeMode = 'dark' | 'light';
 
+export const RIGHT_PANEL_MIN_WIDTH = 320;
+export const RIGHT_PANEL_DEFAULT_WIDTH = 380;
+export const RIGHT_PANEL_MAX_WIDTH = 560;
+
 interface UiState {
   theme: ThemeMode;
   settingsOpen: boolean;
   userMenuOpen: boolean;
   rightPanelOpen: boolean;
+  rightPanelWidth: number;
   conversationSidebarCollapsed: boolean;
   setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
   setSettingsOpen: (open: boolean) => void;
   setUserMenuOpen: (open: boolean) => void;
   setRightPanelOpen: (open: boolean) => void;
+  setRightPanelWidth: (width: number) => void;
   setConversationSidebarCollapsed: (collapsed: boolean) => void;
   toggleConversationSidebar: () => void;
 }
@@ -30,6 +36,7 @@ export const useUiStore = create<UiState>()(
       settingsOpen: false,
       userMenuOpen: false,
       rightPanelOpen: true,
+      rightPanelWidth: RIGHT_PANEL_DEFAULT_WIDTH,
       conversationSidebarCollapsed: false,
       setTheme: (theme) => {
         applyTheme(theme);
@@ -43,6 +50,13 @@ export const useUiStore = create<UiState>()(
       setSettingsOpen: (open) => set({ settingsOpen: open }),
       setUserMenuOpen: (open) => set({ userMenuOpen: open }),
       setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+      setRightPanelWidth: (width) =>
+        set({
+          rightPanelWidth: Math.min(
+            RIGHT_PANEL_MAX_WIDTH,
+            Math.max(RIGHT_PANEL_MIN_WIDTH, Math.round(width)),
+          ),
+        }),
       setConversationSidebarCollapsed: (collapsed) => set({ conversationSidebarCollapsed: collapsed }),
       toggleConversationSidebar: () =>
         set((state) => ({ conversationSidebarCollapsed: !state.conversationSidebarCollapsed })),
@@ -52,6 +66,7 @@ export const useUiStore = create<UiState>()(
       partialize: (state) => ({
         theme: state.theme,
         rightPanelOpen: state.rightPanelOpen,
+        rightPanelWidth: state.rightPanelWidth,
         conversationSidebarCollapsed: state.conversationSidebarCollapsed,
       }),
       onRehydrateStorage: () => (state) => {
