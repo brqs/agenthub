@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.external.cli_runtime import cli_env, resolve_command
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_COMMAND = "opencode"
@@ -61,6 +62,17 @@ class OpenCodeAdapter(BaseAgentAdapter):
         output_max_chars = int(
             merged.get("tool_output_max_chars", DEFAULT_TOOL_OUTPUT_MAX_CHARS)
         )
+        write_stdin_payload = True
+        if not args:
+            args = [
+                "run",
+                "--format",
+                "json",
+                "--dir",
+                str(workspace_path),
+                self._format_prompt(messages, system_prompt),
+            ]
+            write_stdin_payload = False
 
         if not command:
             yield self._error("external_runtime_error", "OpenCode command is empty")
@@ -68,24 +80,28 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
         try:
             process = await asyncio.create_subprocess_exec(
-                *command,
+                *resolve_command(command),
                 *args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace_path),
-                env=self._subprocess_env(),
+                env=cli_env(),
             )
         except Exception as exc:
             yield self._error("external_runtime_error", self._safe_message(exc))
             return
 
-        try:
-            await self._write_stdin(process, messages, system_prompt, tool_specs)
-        except Exception as exc:
-            await self._terminate_process(process)
-            yield self._error("external_runtime_error", self._safe_message(exc))
-            return
+        if write_stdin_payload:
+            try:
+                await self._write_stdin(process, messages, system_prompt, tool_specs)
+            except Exception as exc:
+                await self._terminate_process(process)
+                yield self._error("external_runtime_error", self._safe_message(exc))
+                return
+        elif process.stdin is not None:
+            process.stdin.close()
+            await process.stdin.wait_closed()
 
         text_block_open = False
         next_block_index = 0
@@ -162,6 +178,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     )
                     return
 
+                if event_type in {"step_start", "step_finish"}:
+                    continue
+
                 if event_type == "error":
                     if text_block_open:
                         yield StreamChunk(event_type="block_end", block_index=next_block_index)
@@ -172,7 +191,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     )
                     return
 
-                if event_type not in {"text_delta", "tool_call", "tool_result"}:
+                if event_type not in {"text", "text_delta", "tool_call", "tool_result"}:
                     if text_block_open:
                         yield StreamChunk(event_type="block_end", block_index=next_block_index)
                     await self._terminate_process(process)
@@ -191,10 +210,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     yield chunk
 
                 if (
-                    event_type == "text_delta"
+                    event_type in {"text", "text_delta"}
                     and not text_block_open
-                    and isinstance(event.get("text"), str)
-                    and event.get("text")
+                    and self._event_text(event)
                 ):
                     text_block_open = True
                 elif event_type in {"tool_call", "tool_result"} and text_block_open:
@@ -236,9 +254,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
             return
 
         event_type = event.get("type")
-        if event_type == "text_delta":
-            text = event.get("text")
-            if not isinstance(text, str) or not text:
+        if event_type in {"text", "text_delta"}:
+            text = self._event_text(event)
+            if not text:
                 return
             if not text_block_open:
                 yield StreamChunk(
@@ -298,6 +316,33 @@ class OpenCodeAdapter(BaseAgentAdapter):
         process.stdin.close()
         await process.stdin.wait_closed()
 
+    def _format_prompt(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+    ) -> str:
+        lines: list[str] = []
+        effective_system = self.effective_system_prompt(system_prompt)
+        if effective_system:
+            lines.append(f"System: {effective_system}")
+        for message in messages:
+            if message.role == "system":
+                lines.append(f"System: {message.content}")
+            elif message.content:
+                lines.append(f"{message.role.title()}: {message.content}")
+        return "\n\n".join(lines)
+
+    @staticmethod
+    def _event_text(event: dict[Any, Any]) -> str | None:
+        text = event.get("text")
+        if isinstance(text, str):
+            return text
+        part = event.get("part")
+        if not isinstance(part, dict) or part.get("type") != "text":
+            return None
+        part_text = part.get("text")
+        return part_text if isinstance(part_text, str) else None
+
     @staticmethod
     def _argv(value: object) -> list[str]:
         if value is None:
@@ -319,10 +364,6 @@ class OpenCodeAdapter(BaseAgentAdapter):
         except ValueError:
             return default
         return parsed if parsed > 0 else default
-
-    @staticmethod
-    def _subprocess_env() -> dict[str, str]:
-        return {key: value for key, value in os.environ.items() if key in ENV_ALLOWLIST}
 
     @staticmethod
     def _remaining_seconds(deadline: float) -> float:

@@ -222,8 +222,9 @@ async def test_live_runtime_smoke_is_opt_in(provider: str, tmp_path: Path) -> No
     chunks = await _collect_live_runtime_chunks(adapter, tmp_path / provider, config)
 
     assert chunks[0].event_type == "start"
-    assert chunks[-1].event_type in {"done", "error"}
-    assert chunks[-1].error_code != "workspace_violation"
+    assert chunks[-1].event_type == "done"
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert any(chunk.text_delta for chunk in chunks)
 
 
 def _selected_live_runtime_providers() -> set[str]:
