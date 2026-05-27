@@ -168,7 +168,7 @@ class _ContentAccumulator:
         elif chunk.tool_output_truncated is not None:
             block["output_truncated"] = chunk.tool_output_truncated
         if status == "error":
-            block["error_code"] = chunk.error_code or "tool_call_failed"
+            block["error_code"] = _tool_result_error_code(chunk)
         return None
 
     def finalize_orphaned_tools(self) -> bool:
@@ -212,6 +212,13 @@ def _preview_jsonish(value: Any) -> Any:
 
 def _tool_call_orphan_error(message: str) -> StreamChunk:
     return StreamChunk(event_type="error", error_code="tool_call_orphan", error=message)
+
+
+def _tool_result_error_code(chunk: StreamChunk) -> str:
+    metadata_error_code = (chunk.metadata or {}).get("error_code")
+    if isinstance(metadata_error_code, str) and metadata_error_code:
+        return metadata_error_code
+    return chunk.error_code or "tool_call_failed"
 
 
 async def _event_generator(

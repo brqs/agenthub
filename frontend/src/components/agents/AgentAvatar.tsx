@@ -8,14 +8,20 @@ import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const PROVIDER_STYLES: Record<Agent['provider'], string> = {
+  claude_code: 'bg-agent-claude text-white',
+  codex: 'bg-agent-openai text-white',
+  opencode: 'bg-emerald-700 text-white',
+  builtin: 'bg-agent-orchestrator text-white',
+  mock: 'bg-slate-700 text-slate-100',
   claude: 'bg-agent-claude text-white',
   deepseek: 'bg-agent-deepseek text-white',
   openai: 'bg-agent-openai text-white',
   custom: 'bg-agent-orchestrator text-white',
-  mock: 'bg-slate-700 text-slate-100',
 };
 
 const PROVIDER_LOGOS: Partial<Record<Agent['provider'], string>> = {
+  claude_code: anthropicLogo,
+  codex: openaiLogo,
   claude: anthropicLogo,
   deepseek: deepseekLogo,
   openai: openaiLogo,
@@ -50,7 +56,10 @@ export function AgentAvatar({
   const shouldInvertLogo =
     agent !== undefined &&
     AgentIcon === undefined &&
-    (agent.provider === 'claude' || agent.provider === 'openai');
+    (agent.provider === 'claude' ||
+      agent.provider === 'claude_code' ||
+      agent.provider === 'openai' ||
+      agent.provider === 'codex');
 
   useEffect(() => {
     setLogoFailed(false);

@@ -318,6 +318,162 @@ export interface paths {
         };
         trace?: never;
     };
+    "/api/v1/conversations/{id}/memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get compressed conversation memory
+         * @description Development-only endpoint for B1 memory debugging.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ConversationMemory"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/context-compression/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get context compression config
+         * @description Returns active summarizer settings without exposing API keys.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ContextCompressionConfig"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update context compression config
+         * @description Development-only runtime update for compression model settings.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["UpdateContextCompressionConfigRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ContextCompressionConfig"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+                422: components["responses"]["ValidationError"];
+            };
+        };
+        trace?: never;
+    };
+    "/api/v1/context-compression/config/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test context compression config
+         * @description Development-only connection test for a compression model config.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ContextCompressionTestRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ContextCompressionTestResult"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations/{id}/messages": {
         parameters: {
             query?: never;
@@ -536,6 +692,149 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{conversation_id}/tree": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        /** Get workspace file tree */
+        get: {
+            parameters: {
+                query?: {
+                    max_depth?: number;
+                };
+                header?: never;
+                path: {
+                    conversation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspaceTreeResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{conversation_id}/files/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                path: string;
+            };
+            cookie?: never;
+        };
+        /** Read workspace file */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                    path: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description File content */
+                200: {
+                    headers: {
+                        "X-Content-Type-Options"?: string;
+                        /** @description Present for text/html responses. */
+                        "Content-Security-Policy"?: string;
+                        /** @description Present for text/html responses. */
+                        "X-Frame-Options"?: string;
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/octet-stream": string;
+                        "text/plain": string;
+                        "text/html": string;
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /** @description File too large */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /** Write workspace file */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                    path: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/octet-stream": string;
+                    "text/plain": string;
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /** @description File too large */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents": {
         parameters: {
             query?: never;
@@ -568,7 +867,7 @@ export interface paths {
             };
         };
         put?: never;
-        /** Create custom agent */
+        /** Create agent */
         post: {
             parameters: {
                 query?: never;
@@ -761,7 +1060,24 @@ export interface components {
             size: number;
             mime_type: string;
         };
-        ContentBlock: components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"];
+        ToolCallBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "tool_call";
+            call_id: string;
+            tool_name: string;
+            arguments: {
+                [key: string]: unknown;
+            };
+            /** @enum {string} */
+            status: "pending" | "ok" | "error";
+            output_preview?: string | null;
+            output_truncated?: boolean | null;
+            error_code?: string | null;
+        };
+        ContentBlock: components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["ToolCallBlock"];
         User: {
             /** Format: uuid */
             id: string;
@@ -815,6 +1131,71 @@ export interface components {
         ConversationList: components["schemas"]["OffsetPagination"] & {
             items?: components["schemas"]["Conversation"][];
         };
+        ConversationMemory: {
+            /** Format: uuid */
+            conversation_id: string;
+            summary_text: string;
+            /** Format: uuid */
+            summarized_until_message_id?: string | null;
+            source_message_count: number;
+            source_token_estimate: number;
+            summary_token_estimate: number;
+            /** @example rules-v1 */
+            algorithm_version: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        ContextCompressionConfig: {
+            /** @enum {string} */
+            mode: "hybrid" | "rules";
+            /** @enum {string} */
+            provider: "deepseek" | "openai" | "openai_compatible" | "anthropic";
+            /** @example deepseek-v4-flash */
+            model: string;
+            /** @example 1200 */
+            summary_max_tokens: number;
+            /** @example 12 */
+            recent_raw_keep: number;
+            api_key_configured: boolean;
+            /** @enum {string} */
+            api_key_source: "context_compression_api_key" | "missing";
+            /** @example sk-***f0cb */
+            api_key_preview?: string | null;
+            /** @example https://api.deepseek.com */
+            base_url: string;
+            supported_models: string[];
+        };
+        UpdateContextCompressionConfigRequest: {
+            /** @enum {string} */
+            mode?: "hybrid" | "rules";
+            /** @enum {string} */
+            provider?: "deepseek" | "openai" | "openai_compatible" | "anthropic" | "claude";
+            /** @example deepseek-v4-flash */
+            model?: string;
+            api_key?: string;
+            /** @example https://api.deepseek.com */
+            base_url?: string;
+            summary_max_tokens?: number;
+            recent_raw_keep?: number;
+        };
+        ContextCompressionTestRequest: {
+            /** @enum {string} */
+            provider?: "deepseek" | "openai" | "openai_compatible" | "anthropic" | "claude";
+            /** @example deepseek-v4-flash */
+            model?: string;
+            api_key?: string;
+            /** @example https://api.deepseek.com */
+            base_url?: string;
+        };
+        ContextCompressionTestResult: {
+            ok: boolean;
+            provider: string;
+            model: string;
+            error_code?: string | null;
+            message?: string | null;
+        };
         /** @enum {string} */
         MessageRole: "user" | "agent" | "system";
         /** @enum {string} */
@@ -851,19 +1232,22 @@ export interface components {
             items?: components["schemas"]["Message"][];
         };
         /** @enum {string} */
-        AgentProvider: "claude" | "deepseek" | "openai" | "custom" | "mock";
+        AgentProvider: "claude_code" | "codex" | "opencode" | "builtin" | "mock" | "claude" | "deepseek" | "openai" | "custom";
         /** @enum {string} */
-        CreatableAgentProvider: "claude" | "deepseek" | "openai" | "custom";
+        CreatableAgentProvider: "claude_code" | "codex" | "opencode" | "builtin";
         AgentConfig: {
-            model?: string;
-            temperature?: number;
-            max_tokens?: number;
-            top_p?: number;
             /**
-             * @description Upstream provider for custom agents. Only used when provider is custom.
+             * @description ModelGateway backend for builtin agents.
              * @enum {string}
              */
-            upstream_provider?: "claude" | "deepseek" | "openai";
+            model_backend?: "claude" | "deepseek" | "openai";
+            max_iterations?: number;
+            mcp_servers?: {
+                [key: string]: unknown;
+            }[];
+            command?: string | string[];
+            args?: string[];
+            timeout_seconds?: number;
         } & {
             [key: string]: unknown;
         };
@@ -898,6 +1282,21 @@ export interface components {
         };
         AgentList: components["schemas"]["OffsetPagination"] & {
             items?: components["schemas"]["Agent"][];
+        };
+        WorkspaceTreeNode: {
+            name: string;
+            /** @description Path relative to workspace root */
+            path: string;
+            /** @enum {string} */
+            type: "directory" | "file";
+            children?: components["schemas"]["WorkspaceTreeNode"][];
+            size?: number | null;
+            mime_type?: string | null;
+        };
+        WorkspaceTreeResponse: {
+            /** @example /workspaces/00000000-0000-0000-0000-000000000000 */
+            root: string;
+            tree: components["schemas"]["WorkspaceTreeNode"];
         };
     };
     responses: {

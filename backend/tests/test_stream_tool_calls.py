@@ -259,6 +259,54 @@ async def test_stream_persists_tool_call_block_error(
     assert message.content[0]["output_preview"] == "path escapes workspace"
 
 
+async def test_stream_persists_tool_result_error_code_from_metadata(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(
+                event_type="tool_call",
+                call_id="c-1",
+                tool_name="bash",
+                tool_arguments={"command": "cat ../outside.txt"},
+            )
+            yield StreamChunk(
+                event_type="tool_result",
+                call_id="c-1",
+                tool_status="error",
+                tool_output="bash path escapes workspace",
+                metadata={"error_code": "workspace_violation"},
+            )
+            yield StreamChunk(event_type="done")
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter()
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    status_code, _ = await _stream_message(client, headers, agent_message_id)
+    message = await _stored_message(agent_message_id)
+
+    assert status_code == 200
+    assert message.content[0]["status"] == "error"
+    assert message.content[0]["error_code"] == "workspace_violation"
+
+
 async def test_stream_truncates_tool_output_and_arguments(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
