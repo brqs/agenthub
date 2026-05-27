@@ -203,8 +203,10 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
     def _sdk_options(self, config: dict[str, Any]) -> dict[str, Any]:
         options = config.get("sdk_options", {})
         if not isinstance(options, dict):
-            return {}
-        return dict(options)
+            options = {}
+        sdk_options = dict(options)
+        sdk_options.setdefault("permission_mode", "acceptEdits")
+        return sdk_options
 
     def _format_prompt(
         self,

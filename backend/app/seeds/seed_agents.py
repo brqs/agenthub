@@ -24,7 +24,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "avatar_url": "/avatars/claude.png",
         "capabilities": ["coding", "files", "analysis"],
         "system_prompt": "You are Claude Code, a coding agent running inside the workspace.",
-        "config": {"sdk_options": {}},
+        "config": {"sdk_options": {"permission_mode": "acceptEdits"}},
     },
     {
         "id": "codex-helper",
@@ -33,7 +33,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "avatar_url": "/avatars/openai.png",
         "capabilities": ["coding", "sandbox"],
         "system_prompt": "You are Codex Helper, a code-focused agent runtime.",
-        "config": {"model": "gpt-4.1", "timeout_seconds": 120},
+        "config": {"timeout_seconds": 120},
     },
     {
         "id": "opencode-helper",
