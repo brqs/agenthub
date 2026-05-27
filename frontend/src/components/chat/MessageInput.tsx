@@ -1,23 +1,32 @@
 import { AtSign, Paperclip, Send } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentMentionPicker } from './AgentMentionPicker';
 import { DemoPromptBar } from './DemoPromptBar';
 import type { DemoConversation } from '@/lib/mockData';
 import { mockAgents } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 
+export interface MentionInsertRequest {
+  agentId: string;
+  requestId: number;
+}
+
 export function MessageInput({
   conversation,
   onSend,
   isSending = false,
   agents = mockAgents,
+  mentionInsertRequest = null,
 }: {
   conversation: DemoConversation;
   onSend: (text: string) => void;
   isSending?: boolean;
   agents?: Agent[];
+  mentionInsertRequest?: MentionInsertRequest | null;
 }) {
   const [text, setText] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const handledMentionRequestId = useRef<number | null>(null);
   const mentionQuery = useMemo(() => {
     if (conversation.mode !== 'group') return null;
     const match = text.match(/@([\w-]*)$/);
@@ -31,6 +40,29 @@ export function MessageInput({
     onSend(value);
     setText('');
   }
+
+  useEffect(() => {
+    if (!mentionInsertRequest || conversation.mode !== 'group') return;
+    if (handledMentionRequestId.current === mentionInsertRequest.requestId) return;
+    handledMentionRequestId.current = mentionInsertRequest.requestId;
+
+    const mention = `@${mentionInsertRequest.agentId}`;
+    const textarea = textareaRef.current;
+    const selectionStart = textarea?.selectionStart ?? text.length;
+    const selectionEnd = textarea?.selectionEnd ?? selectionStart;
+    const prefix = selectionStart > 0 && !/\s/.test(text[selectionStart - 1] ?? '') ? ' ' : '';
+    const suffix =
+      selectionEnd < text.length && !/\s/.test(text[selectionEnd] ?? '') ? ' ' : ' ';
+    const insertedText = `${prefix}${mention}${suffix}`;
+    const nextText = `${text.slice(0, selectionStart)}${insertedText}${text.slice(selectionEnd)}`;
+    const nextCaret = selectionStart + insertedText.length;
+
+    setText(nextText);
+    window.requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }, [conversation.mode, mentionInsertRequest, text]);
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -67,6 +99,7 @@ export function MessageInput({
           <Paperclip className="h-4 w-4" />
         </button>
         <textarea
+          ref={textareaRef}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
