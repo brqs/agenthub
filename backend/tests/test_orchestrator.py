@@ -414,6 +414,7 @@ async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
     assert adapter_a.received_messages[-1].content == "Reply from agent-a."
     assert adapter_b.received_messages[-1].content == "Reply from agent-b."
     assert planner.calls[0]["tools"][0].name == "submit_task_plan"
+    assert planner.calls[0]["config"]["tool_choice"] == {"type": "auto"}
     assert "Ask both agents who they are" in planner.calls[0]["messages"][0].content
 
 

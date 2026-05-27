@@ -141,7 +141,7 @@ def _planner_config(config: Mapping[str, Any]) -> dict[str, Any]:
     planner_config: dict[str, Any] = {
         "temperature": 0,
         "max_tokens": DEFAULT_PLANNER_MAX_TOKENS,
-        "tool_choice": {"type": "tool", "name": TASK_PLAN_TOOL_NAME},
+        "tool_choice": {"type": "auto"},
     }
     planner_config.update(dict(raw_config))
     for key in ("model", "max_retries", "request_timeout_seconds"):
