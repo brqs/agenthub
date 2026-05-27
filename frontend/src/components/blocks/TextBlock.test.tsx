@@ -96,4 +96,30 @@ x \equiv 3 \pmod{5}
     expect(container.querySelector('.katex .pstrut')).toHaveAttribute('style');
     expect(container.querySelector('.katex .vlist > span')).toHaveAttribute('style');
   });
+
+  it('highlights valid agent mentions outside code spans', () => {
+    const { container } = render(
+      <TextBlock
+        text={'@codex-helper 请处理，`@codex-helper` 保持代码样式，@unknown 不高亮。'}
+        agents={[
+          {
+            id: 'codex-helper',
+            name: 'Codex Helper',
+            provider: 'codex',
+            avatar_url: '',
+            capabilities: [],
+            config: {},
+            is_builtin: false,
+            created_at: new Date().toISOString(),
+          },
+        ]}
+      />,
+    );
+
+    expect(container.querySelector('[data-agent-mention="codex-helper"]')).toHaveTextContent(
+      '@codex-helper',
+    );
+    expect(container.querySelectorAll('[data-agent-mention="codex-helper"]')).toHaveLength(1);
+    expect(screen.getByText(/@unknown 不高亮/)).toBeInTheDocument();
+  });
 });
