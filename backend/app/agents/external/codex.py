@@ -102,10 +102,12 @@ class CodexAdapter(BaseAgentAdapter):
         block_open = False
         block_index = 0
         total_blocks = 0
+        saw_runtime_chunk = False
         try:
             async with asyncio.timeout(timeout_seconds):
                 async for sdk_event in sdk_stream:
                     for chunk in self._map_sdk_event(sdk_event, output_max_chars):
+                        saw_runtime_chunk = True
                         if chunk.event_type == "delta":
                             if not block_open:
                                 yield StreamChunk(
@@ -132,6 +134,16 @@ class CodexAdapter(BaseAgentAdapter):
         except Exception as exc:  # noqa: BLE001
             if block_open:
                 yield StreamChunk(event_type="block_end", block_index=block_index)
+            if not saw_runtime_chunk and self._should_fallback_to_cli(exc):
+                async for chunk in self._stream_cli(
+                    messages,
+                    system_prompt,
+                    merged,
+                    workspace_path,
+                    timeout_seconds,
+                ):
+                    yield chunk
+                return
             yield self._error(self._classify_exception(exc), self._safe_message(exc))
             return
 
@@ -217,6 +229,13 @@ class CodexAdapter(BaseAgentAdapter):
 
     def _should_fallback_to_cli(self, exc: BaseException) -> bool:
         if isinstance(exc, ModuleNotFoundError) and exc.name == SDK_MODULE_NAME:
+            return True
+        lowered = f"{exc.__class__.__name__}: {exc}".lower()
+        if (
+            "missing credentials" in lowered
+            or "openai_api_key" in lowered
+            or "openai_admin_key" in lowered
+        ):
             return True
         return (
             isinstance(exc, RuntimeError)
@@ -597,7 +616,13 @@ class CodexAdapter(BaseAgentAdapter):
 
     def _classify_exception(self, exc: BaseException) -> str:
         lowered = f"{exc.__class__.__name__}: {exc}".lower()
-        if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
+        if (
+            "api key" in lowered
+            or "api_key" in lowered
+            or "credentials" in lowered
+            or "authentication" in lowered
+            or "unauthorized" in lowered
+        ):
             return "missing_api_key"
         return "external_runtime_error"
 

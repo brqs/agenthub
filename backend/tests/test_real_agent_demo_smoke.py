@@ -417,7 +417,14 @@ def _selected_live_runtime_providers() -> set[str]:
 
 def _live_runtime_adapter(provider: str) -> tuple[BaseAgentAdapter, dict[str, Any]]:
     if provider == "claude_code":
-        return ClaudeCodeAdapter(agent_id="claude-code-live"), {}
+        return ClaudeCodeAdapter(agent_id="claude-code-live"), {
+            "timeout_seconds": 30,
+            "sdk_options": {
+                "allowed_tools": [],
+                "max_turns": 1,
+                "permission_mode": "acceptEdits",
+            },
+        }
     if provider == "codex":
         return CodexAdapter(agent_id="codex-live"), {"timeout_seconds": 30}
     if provider == "opencode":

@@ -324,6 +324,82 @@ class TestCodexAdapterErrors:
         ]
         assert chunks[2].text_delta == "codex cli ok"
 
+    async def test_sdk_missing_credentials_falls_back_to_logged_in_cli(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        runner = FakeRunner(
+            exc=RuntimeError(
+                "Missing credentials. Please set the OPENAI_API_KEY environment variable."
+            )
+        )
+
+        async def fake_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = cwd, timeout_seconds
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_text("codex cli credentials fallback ok\n", encoding="utf-8")
+            return CliResult(return_code=0, stdout="ignored", stderr="")
+
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
+        monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "codex cli credentials fallback ok"
+
+    async def test_sdk_stream_missing_credentials_falls_back_to_logged_in_cli(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        runner = FakeRunner(
+            events=[
+                RuntimeError(
+                    "Missing credentials. Please set the OPENAI_API_KEY environment variable."
+                )
+            ]
+        )
+
+        async def fake_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = cwd, timeout_seconds
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_text("codex cli stream fallback ok\n", encoding="utf-8")
+            return CliResult(return_code=0, stdout="ignored", stderr="")
+
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
+        monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "codex cli stream fallback ok"
+
     async def test_missing_workspace_path_does_not_load_sdk(
         self,
         adapter: CodexAdapter,

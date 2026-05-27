@@ -354,7 +354,7 @@ class TestOpenAIAdapterConfig:
         )
 
         kwargs = fake_client.chat.completions.last_call_kwargs
-        assert kwargs["model"] == "gpt-4o"
+        assert kwargs["model"] == "mimo-v2.5-pro"
         assert kwargs["temperature"] == 0.7
         assert kwargs["max_tokens"] == 4096
 
