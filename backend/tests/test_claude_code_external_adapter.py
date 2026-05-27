@@ -8,7 +8,9 @@ from typing import Any
 
 import pytest
 
+import app.agents.external.claude_code as claude_code_module
 from app.agents.external.claude_code import ClaudeCodeAdapter
+from app.agents.external.cli_runtime import CliResult
 from app.agents.types import ChatMessage, StreamChunk
 
 
@@ -165,6 +167,41 @@ class TestClaudeCodeAdapterStream:
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[1].error_code == "external_runtime_error"
         assert "runtime crashed" in (chunks[1].error or "")
+
+    async def test_missing_sdk_falls_back_to_logged_in_cli(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        def missing_sdk() -> Any:
+            raise ModuleNotFoundError(
+                "No module named 'claude_agent_sdk'",
+                name="claude_agent_sdk",
+            )
+
+        async def fake_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = command, cwd, timeout_seconds
+            return CliResult(return_code=0, stdout="cli ok\n", stderr="")
+
+        monkeypatch.setattr(adapter, "_load_sdk", missing_sdk)
+        monkeypatch.setattr(claude_code_module, "run_cli_text", fake_run_cli_text)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "cli ok"
 
     async def test_missing_workspace_path_does_not_load_sdk(
         self,

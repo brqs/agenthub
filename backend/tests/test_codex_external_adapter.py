@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 import app.agents.external.codex as codex_module
+from app.agents.external.cli_runtime import CliResult
 from app.agents.external.codex import CodexAdapter
 from app.agents.types import ChatMessage, StreamChunk
 
@@ -288,6 +289,40 @@ class TestCodexAdapterErrors:
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[1].error_code == "external_runtime_error"
         assert "runtime crashed" in (chunks[1].error or "")
+
+    async def test_missing_sdk_falls_back_to_logged_in_cli(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        def missing_sdk() -> Any:
+            raise ModuleNotFoundError("No module named 'agents'", name="agents")
+
+        async def fake_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = cwd, timeout_seconds
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_text("codex cli ok\n", encoding="utf-8")
+            return CliResult(return_code=0, stdout="ignored", stderr="")
+
+        monkeypatch.setattr(adapter, "_load_sdk", missing_sdk)
+        monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "codex cli ok"
 
     async def test_missing_workspace_path_does_not_load_sdk(
         self,

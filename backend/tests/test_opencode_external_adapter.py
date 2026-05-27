@@ -162,6 +162,40 @@ class TestOpenCodeAdapterStream:
         assert "".join(chunk.text_delta or "" for chunk in chunks) == "hello world"
         assert chunks[-1].total_blocks == 1
 
+    async def test_json_format_text_event_completes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess(
+            [
+                _json_line({"type": "step_start", "part": {"type": "step-start"}}),
+                _json_line(
+                    {
+                        "type": "text",
+                        "part": {"type": "text", "text": "hello from opencode"},
+                    }
+                ),
+                _json_line({"type": "step_finish", "part": {"type": "step-finish"}}),
+            ]
+        )
+        factory = _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        argv = factory.calls[0]["argv"]
+        assert Path(argv[0]).stem.lower() == "opencode"
+        assert argv[1:4] == ["run", "--format", "json"]
+        assert "--dir" in argv
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert "".join(chunk.text_delta or "" for chunk in chunks) == "hello from opencode"
+
     async def test_tool_call_and_result_are_mapped(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -293,7 +327,11 @@ class TestOpenCodeAdapterErrors:
         process.stdin = BrokenStdin()
         _patch_subprocess(monkeypatch, process)
 
-        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+        chunks = await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            config={"args": ["run", "--jsonl"]},
+        )
 
         assert process.killed is True
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
@@ -353,4 +391,5 @@ async def test_live_opencode_cli_smoke_is_opt_in(tmp_path: Path) -> None:
     )
 
     assert chunks[0].event_type == "start"
-    assert chunks[-1].event_type in {"done", "error"}
+    assert chunks[-1].event_type == "done"
+    assert any(chunk.text_delta for chunk in chunks)
