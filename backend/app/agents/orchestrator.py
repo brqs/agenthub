@@ -30,6 +30,7 @@ class SubTask:
     depends_on: tuple[str, ...] = ()
     priority: int = 0
     expected_output: str | None = None
+    include_history: bool = True
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> SubTask:
@@ -41,6 +42,7 @@ class SubTask:
             depends_on=_depends_on(raw),
             priority=_priority(raw),
             expected_output=_optional_str(raw, "expected_output"),
+            include_history=_include_history(raw),
         )
 
 
@@ -174,6 +176,13 @@ def _priority(raw: Mapping[str, Any]) -> int:
     return value
 
 
+def _include_history(raw: Mapping[str, Any]) -> bool:
+    value = raw.get("include_history", True)
+    if not isinstance(value, bool):
+        raise ValueError("invalid_task_plan: task.include_history must be a boolean")
+    return value
+
+
 def _parse_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
     raw_tasks = config.get("tasks")
     if raw_tasks is None:
@@ -200,6 +209,10 @@ def _derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> lis
         )
 
     user_request = _latest_user_request(messages)
+    direct_tasks = _derive_direct_agent_tasks(agent_ids, user_request)
+    if direct_tasks:
+        return direct_tasks
+
     titles = (
         "Analyze request",
         "Produce solution",
@@ -228,6 +241,92 @@ def _derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> lis
             )
         )
     return tasks
+
+
+def _derive_direct_agent_tasks(agent_ids: list[str], user_request: str) -> list[SubTask]:
+    targets = _explicit_agent_mentions(agent_ids, user_request)
+    if len(targets) < 2:
+        return []
+
+    message = _extract_quoted_message(user_request) or user_request
+    return [
+        SubTask(
+            task_id=f"direct-{index + 1}",
+            agent_id=agent_id,
+            title="Direct request",
+            instruction=_direct_agent_instruction(message),
+            priority=index,
+            include_history=False,
+        )
+        for index, agent_id in enumerate(targets)
+    ]
+
+
+def _explicit_agent_mentions(agent_ids: list[str], user_request: str) -> list[str]:
+    normalized = user_request.lower()
+    available = set(agent_ids)
+    positions: list[tuple[int, int, str]] = []
+
+    for order, agent_id in enumerate(agent_ids):
+        if agent_id not in available:
+            continue
+        position = _first_alias_position(normalized, _agent_aliases(agent_id))
+        if position is not None:
+            positions.append((position, order, agent_id))
+
+    positions.sort()
+    return [agent_id for _, _, agent_id in positions]
+
+
+def _agent_aliases(agent_id: str) -> tuple[str, ...]:
+    if agent_id == "claude-code":
+        return ("@claude-code", "claude-code", "claude code", "claudecode")
+    if agent_id == "codex-helper":
+        return ("@codex-helper", "codex-helper", "codex helper", "codex")
+    if agent_id == "opencode-helper":
+        return (
+            "@opencode-helper",
+            "opencode-helper",
+            "opencode helper",
+            "open code",
+            "opencode",
+        )
+    if agent_id == "web-designer":
+        return ("@web-designer", "web-designer", "web designer")
+    return (f"@{agent_id}", agent_id)
+
+
+def _first_alias_position(text: str, aliases: tuple[str, ...]) -> int | None:
+    positions = [text.find(alias) for alias in aliases]
+    matches = [position for position in positions if position >= 0]
+    return min(matches) if matches else None
+
+
+def _extract_quoted_message(user_request: str) -> str | None:
+    quote_pairs = (("“", "”"), ('"', '"'), ("'", "'"))
+    for open_quote, close_quote in quote_pairs:
+        start = user_request.find(open_quote)
+        if start < 0:
+            continue
+        end = user_request.find(close_quote, start + 1)
+        if end <= start:
+            continue
+        quoted = user_request[start + 1 : end].strip()
+        if quoted:
+            return quoted
+    return None
+
+
+def _direct_agent_instruction(message: str) -> str:
+    return (
+        "You are receiving a direct request from AgentHub Orchestrator.\n"
+        "Answer the message yourself only. Do not contact, invoke, or simulate "
+        "other agents, CLIs, or APIs.\n"
+        "If the message asks what model or runtime you are, answer from your own "
+        "runtime identity.\n\n"
+        f"Message:\n{message}\n\n"
+        "Keep the response concise."
+    )
 
 
 def _agent_id_list(value: object) -> list[str]:
@@ -560,7 +659,8 @@ async def _run_task(
             yield chunk, updated_block_index
         return
 
-    sub_messages = [*messages, ChatMessage(role="user", content=task.instruction)]
+    task_message = ChatMessage(role="user", content=task.instruction)
+    sub_messages = [*messages, task_message] if task.include_history else [task_message]
     task_failed = False
     async for chunk, updated_block_index, subtask_failed in _remapped_sub_stream(
         sub_adapter,
