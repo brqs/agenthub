@@ -5,10 +5,17 @@ import type { CreatableAgentProvider } from '@/lib/types';
 
 const DEFAULT_CAPABILITIES = ['需求分析', '代码生成', '测试补齐'];
 const DEFAULT_MODELS: Record<CreatableAgentProvider, string> = {
-  claude: 'claude-sonnet-4-6',
-  openai: 'gpt-4o',
-  deepseek: 'deepseek-v4-flash',
-  custom: 'claude-sonnet-4-6',
+  builtin: 'deepseek',
+  claude_code: 'claude-sonnet-4-6',
+  codex: 'gpt-4o',
+  opencode: 'opencode',
+};
+
+const PROVIDER_LABELS: Record<CreatableAgentProvider, string> = {
+  builtin: 'Builtin Agent',
+  claude_code: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
 };
 
 export function AgentCreateDialog({
@@ -21,8 +28,8 @@ export function AgentCreateDialog({
   onCreate: (input: CreateAgentInput) => void;
 }) {
   const [name, setName] = useState('Frontend Reviewer');
-  const [provider, setProvider] = useState<CreatableAgentProvider>('claude');
-  const [model, setModel] = useState(DEFAULT_MODELS.claude);
+  const [provider, setProvider] = useState<CreatableAgentProvider>('builtin');
+  const [model, setModel] = useState(DEFAULT_MODELS.builtin);
   const [capabilities, setCapabilities] = useState(DEFAULT_CAPABILITIES.join(', '));
   const [systemPrompt, setSystemPrompt] = useState('你负责审查前端交互、视觉一致性和可演示性。');
 
@@ -87,10 +94,11 @@ export function AgentCreateDialog({
                 }}
                 className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
               >
-                <option value="claude">claude</option>
-                <option value="openai">openai</option>
-                <option value="deepseek">deepseek</option>
-                <option value="custom">custom</option>
+                {Object.entries(PROVIDER_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="block">
