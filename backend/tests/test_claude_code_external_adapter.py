@@ -153,6 +153,20 @@ class TestClaudeCodeAdapterStream:
         assert fake_sdk.last_options is not None
         assert fake_sdk.last_options.kwargs["cwd"] == tmp_path
 
+    async def test_sdk_defaults_to_accept_edits_permission_mode(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        await _collect(adapter, workspace_path=tmp_path)
+
+        assert fake_sdk.last_options is not None
+        assert fake_sdk.last_options.kwargs["permission_mode"] == "acceptEdits"
+
     async def test_sdk_exception_maps_to_external_runtime_error(
         self,
         adapter: ClaudeCodeAdapter,
