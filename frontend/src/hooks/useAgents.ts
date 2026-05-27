@@ -2,8 +2,10 @@ import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as agentsAdapter from '@/lib/adapters/agents';
 import { env } from '@/lib/env';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Agent } from '@/lib/types';
 import { useAgentStore } from '@/stores/agentStore';
+import { useAuthStore } from '@/stores/authStore';
 
 interface UseAgentsResult {
   data: Agent[];
@@ -17,13 +19,14 @@ interface UseAgentsResult {
  * keep working uniformly against the same render path.
  */
 export function useAgents(): UseAgentsResult {
+  const userId = useAuthStore((state) => state.user?.id);
   const agents = useAgentStore((state) => state.agents);
   const hydrateAgents = useAgentStore((state) => state.hydrateAgents);
 
   const query = useQuery({
-    queryKey: ['agents'],
+    queryKey: queryKeys.agents(userId),
     queryFn: () => agentsAdapter.listAgents(),
-    enabled: !env.useMockApi,
+    enabled: !env.useMockApi && Boolean(userId),
   });
 
   useEffect(() => {

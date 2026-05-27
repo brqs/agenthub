@@ -47,6 +47,8 @@ interface ChatState {
   updateConversationLocal: (conversation: Conversation) => void;
   updateMessageLocal: (message: Message) => void;
   replaceMessageLocal: (oldMessageId: string, message: Message) => void;
+  resetChat: () => void;
+  clearChat: () => void;
 }
 
 function createUserMessage(conversationId: string, text: string): DemoMessage {
@@ -477,4 +479,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
   },
+  resetChat: () =>
+    set({
+      conversations: mockConversations,
+      messagesByConversation: structuredClone(mockMessages),
+      selectedConversationId: mockConversations[0]?.id ?? '',
+      search: '',
+      highlightedMessageId: null,
+    }),
+  clearChat: () =>
+    set({
+      conversations: [],
+      messagesByConversation: {},
+      selectedConversationId: '',
+      search: '',
+      highlightedMessageId: null,
+    }),
 }));

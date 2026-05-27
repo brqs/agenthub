@@ -3,6 +3,8 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import * as authAdapter from '@/lib/adapters/auth';
 import { env } from '@/lib/env';
+import { queryKeys } from '@/lib/queryKeys';
+import { resetClientSession } from '@/lib/session';
 import { MOCK_DEMO_TOKEN } from '@/pages/LoginPage';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -18,17 +20,16 @@ import { useAuthStore } from '@/stores/authStore';
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const setUser = useAuthStore((s) => s.setUser);
-  const logout = useAuthStore((s) => s.logout);
   const location = useLocation();
 
   const isZombieDemoToken = !env.useMockApi && token === MOCK_DEMO_TOKEN;
 
   useEffect(() => {
-    if (isZombieDemoToken) logout();
-  }, [isZombieDemoToken, logout]);
+    if (isZombieDemoToken) resetClientSession();
+  }, [isZombieDemoToken]);
 
   const meQuery = useQuery({
-    queryKey: ['auth', 'me'],
+    queryKey: queryKeys.authMe(token),
     queryFn: authAdapter.getCurrentUser,
     enabled: !env.useMockApi && Boolean(token) && !isZombieDemoToken,
     retry: false,
