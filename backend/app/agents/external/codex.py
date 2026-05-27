@@ -9,8 +9,10 @@ import json
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
+from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.external.cli_runtime import run_cli_text
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "agents"
@@ -84,6 +86,16 @@ class CodexAdapter(BaseAgentAdapter):
                 merged,
             )
         except Exception as exc:  # noqa: BLE001
+            if self._should_fallback_to_cli(exc):
+                async for chunk in self._stream_cli(
+                    messages,
+                    system_prompt,
+                    merged,
+                    workspace_path,
+                    timeout_seconds,
+                ):
+                    yield chunk
+                return
             yield self._error(self._classify_exception(exc), self._safe_message(exc))
             return
 
@@ -135,6 +147,81 @@ class CodexAdapter(BaseAgentAdapter):
 
     def _load_sdk(self) -> Any:
         return importlib.import_module(SDK_MODULE_NAME)
+
+    async def _stream_cli(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        config: dict[str, Any],
+        workspace_path: Path,
+        timeout_seconds: float,
+    ) -> AsyncIterator[StreamChunk]:
+        output_path = workspace_path / f".agenthub_codex_{uuid4().hex}.txt"
+        command = [
+            "codex",
+            "--ask-for-approval",
+            "never",
+            "exec",
+            "--cd",
+            str(workspace_path),
+            "--skip-git-repo-check",
+            "--sandbox",
+            "workspace-write",
+            "--ephemeral",
+            "--color",
+            "never",
+            "-o",
+            str(output_path),
+            self._format_cli_prompt(messages, system_prompt),
+        ]
+        model = config.get("model")
+        if isinstance(model, str) and model:
+            command[1:1] = ["-m", model]
+
+        try:
+            result = await run_cli_text(
+                command,
+                cwd=workspace_path,
+                timeout_seconds=timeout_seconds,
+            )
+        except TimeoutError:
+            yield self._error("timeout", "Codex CLI timed out")
+            return
+        except Exception as exc:  # noqa: BLE001
+            yield self._error("external_runtime_error", self._safe_message(exc))
+            return
+
+        try:
+            text = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
+        finally:
+            output_path.unlink(missing_ok=True)
+
+        if result.return_code != 0:
+            output = self._safe_runtime_output(result.stderr or result.stdout or text)
+            yield self._error(
+                "external_runtime_error",
+                f"Codex CLI exited with code {result.return_code}: {output}",
+            )
+            return
+
+        if not text:
+            text = result.stdout.strip()
+
+        total_blocks = 0
+        if text:
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(event_type="delta", block_index=0, text_delta=text)
+            yield StreamChunk(event_type="block_end", block_index=0)
+            total_blocks = 1
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=total_blocks)
+
+    def _should_fallback_to_cli(self, exc: BaseException) -> bool:
+        if isinstance(exc, ModuleNotFoundError) and exc.name == SDK_MODULE_NAME:
+            return True
+        return (
+            isinstance(exc, RuntimeError)
+            and str(exc) == "OpenAI Agents SDK sandbox runtime is unavailable"
+        )
 
     async def _open_sdk_stream(
         self,
@@ -457,6 +544,17 @@ class CodexAdapter(BaseAgentAdapter):
         ]
         return "\n\n".join(lines)
 
+    def _format_cli_prompt(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+    ) -> str:
+        instructions = self._effective_instructions(messages, system_prompt)
+        user_input = self._format_input(messages)
+        if instructions and user_input:
+            return f"System: {instructions}\n\n{user_input}"
+        return instructions or user_input
+
     def _supported_kwargs(
         self,
         callable_obj: Callable[..., Any],
@@ -506,3 +604,7 @@ class CodexAdapter(BaseAgentAdapter):
     @staticmethod
     def _safe_message(exc: BaseException) -> str:
         return (str(exc) or exc.__class__.__name__)[:500]
+
+    @staticmethod
+    def _safe_runtime_output(output: str) -> str:
+        return output.strip()[:500] or "no output"
