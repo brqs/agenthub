@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Activity, Box, ChevronRight, Files, PanelRight, Pin, ShieldCheck } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
-import { ArtifactPreview } from '@/components/artifact/ArtifactPreview';
-import { WorkspaceFileTree } from '@/components/artifact/WorkspaceFileTree';
+import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact/ArtifactPreview';
+import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/WorkspaceFileTree';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
-import { getAgent } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
 import {
-  getFirstWorkspaceFile,
   getMockArtifact,
   getMockWorkspace,
   getWorkspaceFilesFromMessages,
 } from '@/lib/mockWorkspace';
+import { env } from '@/lib/env';
+import { useWorkspaceFile, useWorkspaceTree } from '@/hooks/useWorkspace';
 import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -54,28 +55,34 @@ function getDefaultTab(hasWorkspace: boolean): RightPanelTab {
 export function RightAgentPanel({
   conversation,
   messages,
+  agents = mockAgents,
   onSelectPinnedMessage,
 }: {
   conversation: DemoConversation;
   messages: DemoMessage[];
+  agents?: Agent[];
   onSelectPinnedMessage?: (messageId: string) => void;
 }) {
-  const agents = conversation.agent_ids.map(getAgent).filter((agent) => agent !== undefined);
+  const conversationAgents = conversation.agent_ids
+    .map((agentId) => agents.find((agent) => agent.id === agentId))
+    .filter((agent) => agent !== undefined);
   const pinned = messages.filter((message) => message.is_pinned);
-  const snapshot = getOrchestratorSnapshot(conversation, messages);
-  const workspace = useMemo(() => getMockWorkspace(conversation.id), [conversation.id]);
-  const [activeTab, setActiveTab] = useState<RightPanelTab>(() => getDefaultTab(Boolean(workspace)));
+  const snapshot = getOrchestratorSnapshot(conversation, messages, agents);
+  const mockWorkspace = useMemo(() => getMockWorkspace(conversation.id), [conversation.id]);
+  const [activeTab, setActiveTab] = useState<RightPanelTab>(() =>
+    getDefaultTab(Boolean(mockWorkspace) || !env.useMockApi),
+  );
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
   const touchedFiles = getWorkspaceFilesFromMessages(messages);
   const selectedArtifact = getMockArtifact(conversation.id, selectedArtifactPath);
 
   useEffect(() => {
-    setSelectedArtifactPath(getFirstWorkspaceFile(workspace)?.path ?? null);
-  }, [workspace]);
+    setSelectedArtifactPath(getFirstWorkspacePath(mockWorkspace));
+  }, [mockWorkspace]);
 
   useEffect(() => {
-    setActiveTab(getDefaultTab(Boolean(workspace)));
-  }, [workspace]);
+    setActiveTab(getDefaultTab(Boolean(mockWorkspace) || !env.useMockApi));
+  }, [mockWorkspace]);
 
   return (
     <aside className="hidden h-screen w-80 shrink-0 flex-col border-l border-slate-800 bg-slate-900 xl:flex 2xl:w-[22rem]">
@@ -115,18 +122,25 @@ export function RightAgentPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin max-[800px]:p-3 [@media(max-height:800px)]:p-3">
         {activeTab === 'workspace' && (
-          <WorkspacePanel
-            workspace={workspace}
-            touchedFilesCount={touchedFiles.length}
-            selectedArtifactPath={selectedArtifactPath}
-            selectedArtifact={selectedArtifact}
-            onSelectArtifact={setSelectedArtifactPath}
-          />
+          env.useMockApi ? (
+            <WorkspacePanel
+              workspace={mockWorkspace}
+              isLoading={false}
+              error={null}
+              touchedFilesCount={touchedFiles.length}
+              selectedArtifactPath={selectedArtifactPath}
+              selectedArtifact={selectedArtifact}
+              onSelectArtifact={setSelectedArtifactPath}
+            />
+          ) : (
+            <RealWorkspacePanel conversationId={conversation.id} touchedFilesCount={touchedFiles.length} />
+          )
         )}
         {activeTab === 'context' && (
           <ContextPanel
-            agents={agents}
+            agents={conversationAgents}
             messages={messages}
+            isMockMode={env.useMockApi}
             activeAgentId={snapshot.currentAgentId}
             pinned={pinned}
             onSelectPinnedMessage={onSelectPinnedMessage}
@@ -216,22 +230,34 @@ function AgentsPanel({
 
 function WorkspacePanel({
   workspace,
+  isLoading,
+  error,
   touchedFilesCount,
   selectedArtifactPath,
   selectedArtifact,
   onSelectArtifact,
 }: {
-  workspace: ReturnType<typeof getMockWorkspace>;
+  workspace: { root: string; tree: WorkspaceNode[] } | null;
+  isLoading: boolean;
+  error: unknown;
   touchedFilesCount: number;
   selectedArtifactPath: string | null;
-  selectedArtifact: ReturnType<typeof getMockArtifact>;
+  selectedArtifact: PreviewArtifactFile | null;
   onSelectArtifact: (path: string) => void;
 }) {
   return (
     <section>
       <PanelHeader icon={Box} title="Workspace" meta={`${touchedFilesCount} outputs`} />
 
-      {workspace ? (
+      {isLoading ? (
+        <div className="rounded-md border border-slate-800 p-4 text-sm text-slate-500">
+          正在加载 workspace...
+        </div>
+      ) : error ? (
+        <div className="rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
+          Workspace 加载失败，请稍后重试。
+        </div>
+      ) : workspace ? (
         <div className="space-y-3">
           <div className="rounded-md border border-slate-800 bg-slate-950/60 p-2">
             <div className="mb-1 truncate px-2 py-1 text-[11px] text-slate-600" title={workspace.root}>
@@ -254,17 +280,67 @@ function WorkspacePanel({
   );
 }
 
+function RealWorkspacePanel({
+  conversationId,
+  touchedFilesCount,
+}: {
+  conversationId: string;
+  touchedFilesCount: number;
+}) {
+  const workspaceQuery = useWorkspaceTree(conversationId);
+  const workspace = useMemo(() => {
+    if (!workspaceQuery.data) return null;
+    const rootNode = workspaceQuery.data.tree;
+    return {
+      root: workspaceQuery.data.root,
+      tree: rootNode.type === 'directory' ? rootNode.children : [rootNode],
+    };
+  }, [workspaceQuery.data]);
+  const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
+  const artifactQuery = useWorkspaceFile(conversationId, selectedArtifactPath);
+
+  useEffect(() => {
+    setSelectedArtifactPath(getFirstWorkspacePath(workspace));
+  }, [workspace]);
+
+  return (
+    <WorkspacePanel
+      workspace={workspace}
+      isLoading={workspaceQuery.isLoading}
+      error={workspaceQuery.error ?? artifactQuery.error}
+      touchedFilesCount={touchedFilesCount}
+      selectedArtifactPath={selectedArtifactPath}
+      selectedArtifact={artifactQuery.data ?? null}
+      onSelectArtifact={setSelectedArtifactPath}
+    />
+  );
+}
+
+function flattenFiles(nodes: WorkspaceNode[]): Array<Extract<WorkspaceNode, { type: 'file' }>> {
+  return nodes.flatMap((node) => {
+    if (node.type === 'file') return [node];
+    return flattenFiles(node.children);
+  });
+}
+
+function getFirstWorkspacePath(workspace: { tree: WorkspaceNode[] } | null): string | null {
+  if (!workspace) return null;
+  return flattenFiles(workspace.tree)[0]?.path ?? null;
+}
+
 function ContextPanel({
   agents,
   messages,
   activeAgentId,
   pinned,
+  isMockMode,
   onSelectPinnedMessage,
 }: {
   agents: Agent[];
   messages: DemoMessage[];
   activeAgentId: string;
   pinned: DemoMessage[];
+  isMockMode: boolean;
   onSelectPinnedMessage?: (messageId: string) => void;
 }) {
   return (
@@ -293,15 +369,17 @@ function ContextPanel({
         )}
       </section>
 
-      <section className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
-        <div className="mb-2 flex items-center gap-2 text-sm font-medium text-white">
-          <ShieldCheck className="h-4 w-4 text-emerald-400" />
-          Mock 模式
-        </div>
-        <p className="text-sm leading-6 text-slate-500">
-          当前 UI 使用本地 Mock 数据，后续会从 Hook 层替换为真实 API 与 SSE。
-        </p>
-      </section>
+      {isMockMode && (
+        <section className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-white">
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            Mock 模式
+          </div>
+          <p className="text-sm leading-6 text-slate-500">
+            当前 UI 使用本地 Mock 数据，可切换到真后端模式联调 API 与 SSE。
+          </p>
+        </section>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { Activity, Code2, FileText, GitCompare, Globe2 } from 'lucide-react';
 import type { DemoContentBlock, DemoMessage } from '@/lib/mockData';
-import { getAgent } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 
 const BLOCK_LABEL: Record<string, string> = {
   text: '正在组织回复',
@@ -22,11 +23,11 @@ const BLOCK_ICON: Record<string, React.ComponentType<{ className?: string }>> = 
   agent_switch: Activity,
 };
 
-export function getStreamingStatus(messages: DemoMessage[]) {
+export function getStreamingStatus(messages: DemoMessage[], agents: Agent[] = mockAgents) {
   const streamingMessage = [...messages].reverse().find((message) => message.status === 'streaming');
   if (!streamingMessage) return null;
 
-  const agent = getAgent(streamingMessage.agent_id);
+  const agent = agents.find((item) => item.id === streamingMessage.agent_id);
   const latestBlock = [...streamingMessage.content].reverse().find(Boolean) as
     | DemoContentBlock
     | undefined;

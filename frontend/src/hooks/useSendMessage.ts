@@ -14,6 +14,18 @@ function parseMentionedAgent(
   return agentIds.find((id) => lower.includes(`@${id.toLowerCase()}`)) ?? null;
 }
 
+function resolveTargetAgentId(
+  text: string,
+  mode: 'single' | 'group',
+  agentIds: string[],
+): string | null {
+  if (mode !== 'group') return null;
+  return (
+    parseMentionedAgent(text, mode, agentIds) ??
+    (agentIds.includes('orchestrator') ? 'orchestrator' : agentIds[0] ?? null)
+  );
+}
+
 export function useSendMessage() {
   const [isPending, setIsPending] = useState(false);
   const createPendingExchange = useChatStore((state) => state.createPendingExchange);
@@ -33,7 +45,7 @@ export function useSendMessage() {
 
       const conversation = conversations.find((c) => c.id === conversationId);
       const targetAgentId = conversation
-        ? parseMentionedAgent(text, conversation.mode, conversation.agent_ids)
+        ? resolveTargetAgentId(text, conversation.mode, conversation.agent_ids)
         : null;
 
       const response = await messagesAdapter.sendMessage(conversationId, {

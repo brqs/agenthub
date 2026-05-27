@@ -1,6 +1,7 @@
 import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react';
 import type { TaskCardBlock as TaskCardBlockData, TaskStatus } from '@/lib/mockData';
-import { getAgent } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }>> = {
@@ -17,14 +18,20 @@ const STATUS_CLASS: Record<TaskStatus, string> = {
   error: 'text-red-400',
 };
 
-export function TaskCardBlock({ block }: { block: TaskCardBlockData }) {
+export function TaskCardBlock({
+  block,
+  agents = mockAgents,
+}: {
+  block: TaskCardBlockData;
+  agents?: Agent[];
+}) {
   return (
     <div className="my-3 min-w-0 rounded-md border border-slate-700 bg-slate-900/80 p-4">
       <div className="mb-3 text-sm font-semibold text-white">{block.title}</div>
       <div className="space-y-2">
         {block.tasks.map((task, index) => {
           const Icon = STATUS_ICON[task.status];
-          const agent = getAgent(task.agent_id);
+          const agent = agents.find((item) => item.id === task.agent_id);
           return (
             <div
               key={task.id}

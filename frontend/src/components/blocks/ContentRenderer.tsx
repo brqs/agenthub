@@ -7,13 +7,16 @@ import { ToolCallBlock } from './ToolCallBlock';
 import { UnknownBlock } from './UnknownBlock';
 import { WebPreviewBlock } from './WebPreviewBlock';
 import type { DemoContentBlock } from '@/lib/mockData';
-import { getAgent } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 
 export function ContentRenderer({
   blocks,
+  agents = mockAgents,
   streaming = false,
 }: {
   blocks: DemoContentBlock[];
+  agents?: Agent[];
   streaming?: boolean;
 }) {
   return (
@@ -32,14 +35,14 @@ export function ContentRenderer({
           return <CodeBlock key={`${block.type}-${index}`} language={block.language} code={block.code} />;
         }
         if (block.type === 'task_card') {
-          return <TaskCardBlock key={`${block.type}-${index}`} block={block} />;
+          return <TaskCardBlock key={`${block.type}-${index}`} block={block} agents={agents} />;
         }
         if (block.type === 'tool_call') {
           return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;
         }
         if (block.type === 'agent_switch') {
-          const fromAgent = getAgent(block.from_agent);
-          const toAgent = getAgent(block.to_agent);
+          const fromAgent = agents.find((agent) => agent.id === block.from_agent);
+          const toAgent = agents.find((agent) => agent.id === block.to_agent);
           return (
             <div key={`${block.type}-${index}`} className="agent-switch-enter py-2">
               <div className="flex items-center gap-3 text-xs text-slate-500">

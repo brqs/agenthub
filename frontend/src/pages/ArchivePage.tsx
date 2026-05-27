@@ -2,6 +2,7 @@ import { Archive, ArchiveRestore } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ConversationItem } from '@/components/conversation/ConversationItem';
 import { useConversations } from '@/hooks/useConversations';
+import { useUpdateConversation } from '@/hooks/useUpdateConversation';
 import { useChatStore } from '@/stores/chatStore';
 
 export function ArchivePage() {
@@ -9,8 +10,7 @@ export function ArchivePage() {
   const { data: conversations } = useConversations();
   const selectedConversationId = useChatStore((state) => state.selectedConversationId);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
-  const toggleConversationPin = useChatStore((state) => state.toggleConversationPin);
-  const toggleConversationArchive = useChatStore((state) => state.toggleConversationArchive);
+  const updateConversation = useUpdateConversation();
   const archived = conversations.filter((conversation) => conversation.is_archived);
 
   function openConversation(conversationId: string) {
@@ -42,8 +42,16 @@ export function ArchivePage() {
                 conversation={conversation}
                 active={conversation.id === selectedConversationId}
                 onSelect={() => openConversation(conversation.id)}
-                onTogglePin={() => toggleConversationPin(conversation.id)}
-                onToggleArchive={() => toggleConversationArchive(conversation.id)}
+                onTogglePin={() =>
+                  updateConversation.update(conversation.id, {
+                    is_pinned: !conversation.is_pinned,
+                  })
+                }
+                onToggleArchive={() =>
+                  updateConversation.update(conversation.id, {
+                    is_archived: !conversation.is_archived,
+                  })
+                }
               />
             ))}
           </div>

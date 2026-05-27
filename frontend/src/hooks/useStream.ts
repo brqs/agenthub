@@ -80,6 +80,8 @@ export function useStream(
           case 'block_end':
             // no-op for now
             break;
+          case 'heartbeat':
+            break;
           case 'done':
             setStatus('done');
             optionsRef.current?.onDone?.();
