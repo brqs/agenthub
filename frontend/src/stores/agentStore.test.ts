@@ -13,11 +13,11 @@ describe('agentStore', () => {
     resetAgentStore();
   });
 
-  it('creates a custom agent and selects it', () => {
+  it('creates a builtin agent and selects it', () => {
     const created = useAgentStore.getState().createAgent({
       name: 'Frontend Reviewer',
-      provider: 'custom',
-      model: 'agenthub-demo-v1',
+      provider: 'builtin',
+      model: 'deepseek',
       capabilities: ['UI 审查', '测试补齐'],
       systemPrompt: '你负责审查前端 Demo。',
     });
@@ -26,7 +26,7 @@ describe('agentStore', () => {
     expect(created).toMatchObject({
       id: 'frontend-reviewer',
       name: 'Frontend Reviewer',
-      provider: 'custom',
+      provider: 'builtin',
       is_builtin: false,
       capabilities: ['UI 审查', '测试补齐'],
       system_prompt: '你负责审查前端 Demo。',
@@ -38,15 +38,15 @@ describe('agentStore', () => {
   it('generates unique ids for duplicate agent names', () => {
     const first = useAgentStore.getState().createAgent({
       name: 'Demo Agent',
-      provider: 'custom',
-      model: 'demo',
+      provider: 'builtin',
+      model: 'deepseek',
       capabilities: ['协作'],
       systemPrompt: '',
     });
     const second = useAgentStore.getState().createAgent({
       name: 'Demo Agent',
-      provider: 'custom',
-      model: 'demo',
+      provider: 'builtin',
+      model: 'deepseek',
       capabilities: ['协作'],
       systemPrompt: '',
     });
@@ -65,19 +65,19 @@ describe('agentStore', () => {
     expect(useAgentStore.getState().selectedAgentId).toBeNull();
   });
 
-  it('creates a deepseek agent', () => {
+  it('creates a codex agent', () => {
     const created = useAgentStore.getState().createAgent({
-      name: 'DeepSeek Reviewer',
-      provider: 'deepseek',
-      model: 'deepseek-v4-flash',
+      name: 'Codex Reviewer',
+      provider: 'codex',
+      model: 'gpt-4o',
       capabilities: ['分析'],
       systemPrompt: '',
     });
 
     expect(created).toMatchObject({
-      id: 'deepseek-reviewer',
-      provider: 'deepseek',
-      config: { model: 'deepseek-v4-flash', temperature: 0.4 },
+      id: 'codex-reviewer',
+      provider: 'codex',
+      config: { model: 'gpt-4o' },
     });
   });
 });

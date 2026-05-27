@@ -33,7 +33,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   agents: mockAgents,
   selectedAgentId: mockAgents[0]?.id ?? null,
   createAgent: (input) => {
-    const baseId = slugify(input.name) || 'custom-agent';
+    const baseId = slugify(input.name) || 'user-agent';
     const existingIds = new Set(get().agents.map((agent) => agent.id));
     let id = baseId;
     let suffix = 1;
@@ -50,9 +50,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       capabilities: input.capabilities,
       system_prompt: input.systemPrompt.trim() || null,
       config: {
-        model: input.model.trim() || 'claude-sonnet-4-6',
-        temperature: 0.4,
-        ...(input.provider === 'custom' ? { upstream_provider: 'claude' } : {}),
+        model: input.model.trim() || 'deepseek',
+        ...(input.provider === 'builtin'
+          ? { model_backend: input.model.trim() || 'deepseek', max_iterations: 10 }
+          : {}),
       },
       is_builtin: false,
       created_at: new Date().toISOString(),
