@@ -1,8 +1,19 @@
-import { Bot, CheckCircle2, Code2, MessageSquarePlus, ShieldCheck } from 'lucide-react';
+import { Bot, CheckCircle2, Code2, Edit3, Loader2, MessageSquarePlus, ShieldCheck, Trash2 } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
+import { env } from '@/lib/env';
 import type { Agent } from '@/lib/types';
 
-export function AgentDetailPanel({ agent }: { agent: Agent | null }) {
+export function AgentDetailPanel({
+  agent,
+  onEdit,
+  onDelete,
+  isDeleting = false,
+}: {
+  agent: Agent | null;
+  onEdit?: (agent: Agent) => void;
+  onDelete?: (agent: Agent) => void;
+  isDeleting?: boolean;
+}) {
   if (!agent) {
     return (
       <aside className="hidden w-80 shrink-0 border-l border-slate-800 bg-slate-900 p-5 xl:block">
@@ -37,6 +48,28 @@ export function AgentDetailPanel({ agent }: { agent: Agent | null }) {
             </>
           )}
         </div>
+
+        {!agent.is_builtin && (
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onEdit?.(agent)}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-800 px-3 py-2 text-sm text-slate-300 transition hover:bg-slate-800 hover:text-white"
+            >
+              <Edit3 className="h-4 w-4" />
+              编辑
+            </button>
+            <button
+              type="button"
+              disabled={isDeleting}
+              onClick={() => onDelete?.(agent)}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-rose-500/30 px-3 py-2 text-sm text-rose-300 transition hover:bg-rose-500/10 hover:text-rose-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              删除
+            </button>
+          </div>
+        )}
       </div>
 
       <section className="mt-5">
@@ -75,7 +108,7 @@ export function AgentDetailPanel({ agent }: { agent: Agent | null }) {
         <div className="space-y-2 text-sm text-slate-400">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-            Mock Agent 列表可用
+            {env.useMockApi ? '本地 Agent 列表可用' : '远端 Agent 注册表已连接'}
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
