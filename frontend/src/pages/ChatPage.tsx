@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RightAgentPanel } from '@/components/agents/RightAgentPanel';
 import { ChatHeader } from '@/components/chat/ChatHeader';
@@ -12,14 +13,18 @@ import { useAgents } from '@/hooks/useAgents';
 import { useCreateConversation } from '@/hooks/useCreateConversation';
 import { useConversations } from '@/hooks/useConversations';
 import { useMessages } from '@/hooks/useMessages';
+import { useRegenerateMessage } from '@/hooks/useRegenerateMessage';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useStream } from '@/hooks/useStream';
+import { useUpdateConversation } from '@/hooks/useUpdateConversation';
+import { useUpdateMessage } from '@/hooks/useUpdateMessage';
 import { useChatStore } from '@/stores/chatStore';
 import { useUiStore } from '@/stores/uiStore';
 
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [newConversationOpen, setNewConversationOpen] = useState(false);
   const { data: conversations } = useConversations();
@@ -31,11 +36,7 @@ export function ChatPage() {
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
   const highlightedMessageId = useChatStore((state) => state.highlightedMessageId);
   const applyStreamEvent = useChatStore((state) => state.applyStreamEvent);
-  const resetMessageForRetry = useChatStore((state) => state.resetMessageForRetry);
   const setHighlightedMessageId = useChatStore((state) => state.setHighlightedMessageId);
-  const toggleMessagePin = useChatStore((state) => state.toggleMessagePin);
-  const toggleConversationPin = useChatStore((state) => state.toggleConversationPin);
-  const toggleConversationArchive = useChatStore((state) => state.toggleConversationArchive);
   const conversationSidebarCollapsed = useUiStore((state) => state.conversationSidebarCollapsed);
   const setConversationSidebarCollapsed = useUiStore((state) => state.setConversationSidebarCollapsed);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
@@ -45,12 +46,21 @@ export function ChatPage() {
   const conversation =
     conversations.find((item) => item.id === activeConversationId) ?? visibleConversations[0];
   const { data: messages, isLoading: messagesLoading } = useMessages(conversation?.id);
+  const updateConversation = useUpdateConversation();
+  const updateMessage = useUpdateMessage();
+  const regenerateMessage = useRegenerateMessage();
 
   useStream(streamingMessageId, {
     onEvent: (event) => {
       if (streamingMessageId) applyStreamEvent(streamingMessageId, event);
     },
-    onDone: () => setStreamingMessageId(null),
+    onDone: () => {
+      if (conversation?.id) {
+        void queryClient.invalidateQueries({ queryKey: ['messages', conversation.id] });
+        void queryClient.invalidateQueries({ queryKey: ['workspace-tree', conversation.id] });
+      }
+      setStreamingMessageId(null);
+    },
     onError: () => setStreamingMessageId(null),
   });
 
@@ -71,6 +81,24 @@ export function ChatPage() {
     navigate(`/chat/${nextConversationId}`);
   }
 
+  async function toggleConversationPinRemote(conversationId: string) {
+    const target = conversations.find((item) => item.id === conversationId);
+    if (!target) return;
+    await updateConversation.update(conversationId, { is_pinned: !target.is_pinned });
+  }
+
+  async function toggleConversationArchiveRemote(conversationId: string) {
+    const target = conversations.find((item) => item.id === conversationId);
+    if (!target) return;
+    await updateConversation.update(conversationId, { is_archived: !target.is_archived });
+  }
+
+  async function toggleMessagePinRemote(messageId: string) {
+    const target = messages.find((item) => item.id === messageId);
+    if (!target) return;
+    await updateMessage.update(target, { is_pinned: !target.is_pinned });
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950">
       {!conversationSidebarCollapsed && (
@@ -82,8 +110,8 @@ export function ChatPage() {
           onSelect={selectConversation}
           onNewConversation={() => setNewConversationOpen(true)}
           onCollapse={() => setConversationSidebarCollapsed(true)}
-          onTogglePin={toggleConversationPin}
-          onToggleArchive={toggleConversationArchive}
+          onTogglePin={toggleConversationPinRemote}
+          onToggleArchive={toggleConversationArchiveRemote}
         />
       )}
       <section className="flex min-w-0 flex-1 flex-col">
@@ -94,19 +122,23 @@ export function ChatPage() {
               sidebarCollapsed={conversationSidebarCollapsed}
               onExpandSidebar={() => setConversationSidebarCollapsed(false)}
             />
-            <StreamingStatusBar messages={messages} />
+            <StreamingStatusBar messages={messages} agents={agents} />
             <MessageList
               messages={messages}
+              agents={agents}
               highlightedMessageId={highlightedMessageId}
               isLoading={messagesLoading}
-              onTogglePin={toggleMessagePin}
-              onRetry={(messageId) => {
-                resetMessageForRetry(messageId);
-                setStreamingMessageId(messageId);
+              onTogglePin={toggleMessagePinRemote}
+              onRetry={async (messageId) => {
+                const target = messages.find((item) => item.id === messageId);
+                if (!target) return;
+                const nextMessage = await regenerateMessage.regenerate(target);
+                setStreamingMessageId(nextMessage.id);
               }}
             />
             <MessageInput
               conversation={conversation}
+              agents={agents}
               isSending={sendingMessage}
               onSend={async (text) => {
                 const result = await sendMessage(conversation.id, text);
@@ -122,6 +154,7 @@ export function ChatPage() {
         <RightAgentPanel
           conversation={conversation}
           messages={messages}
+          agents={agents}
           onSelectPinnedMessage={setHighlightedMessageId}
         />
       )}

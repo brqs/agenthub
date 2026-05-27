@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, extractApiError } from '@/lib/api';
+import { extractApiError } from '@/lib/api';
+import * as authAdapter from '@/lib/adapters/auth';
 import { env } from '@/lib/env';
 import { useAuthStore } from '@/stores/authStore';
-import type { AuthResponse } from '@/lib/types';
 
 export const MOCK_DEMO_TOKEN = 'mock-demo-token';
 
@@ -31,8 +31,10 @@ export function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const url = mode === 'login' ? '/api/v1/auth/login' : '/api/v1/auth/register';
-      const { data } = await api.post<AuthResponse>(url, { username, password });
+      const data =
+        mode === 'login'
+          ? await authAdapter.login({ username, password })
+          : await authAdapter.register({ username, password });
       setAuth(data.access_token, data.user);
       navigate('/chat');
     } catch (err) {
