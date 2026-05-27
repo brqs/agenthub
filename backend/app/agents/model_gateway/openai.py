@@ -29,7 +29,7 @@ class OpenAIBackend:
     """OpenAI-compatible backend used by BuiltinAgent through ModelGateway."""
 
     provider = "openai"
-    default_model = "gpt-4o"
+    default_model = "mimo-v2.5-pro"
     api_key_setting = "openai_api_key"
     base_url_setting = "openai_base_url"
     display_name = "OpenAI"
@@ -216,6 +216,8 @@ class OpenAIBackend:
 
         try:
             async for chunk in stream:
+                if not chunk.choices:
+                    continue
                 delta = chunk.choices[0].delta.content
                 if not delta:
                     continue
