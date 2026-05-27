@@ -14,7 +14,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         <header className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-white">Settings</h2>
-            <p className="mt-1 text-xs text-slate-500">当前 Demo 运行状态</p>
+            <p className="mt-1 text-xs text-slate-500">当前运行状态</p>
           </div>
           <button
             type="button"
@@ -31,7 +31,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           <SettingRow label="API 模式" value={modeLabel(env.useMockApi)} />
           <SettingRow label="SSE 模式" value={modeLabel(env.useMockSse)} />
           <SettingRow label="Base URL" value={env.apiBaseUrl || 'Vite /api proxy'} />
-          <SettingRow label="Demo 数据" value="Enabled" />
+          <SettingRow label="本地演示数据" value={env.useMockApi ? 'Enabled' : 'Disabled'} />
           <SettingRow label="Build" value="frontend-demo" />
         </div>
       </section>

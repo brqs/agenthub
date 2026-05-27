@@ -20,28 +20,39 @@ function inferModelBackend(model: string): 'claude' | 'openai' | 'deepseek' {
   return 'claude';
 }
 
-function buildAgentConfig(input: CreateAgentInput): Record<string, unknown> {
+export function buildAgentConfig(input: CreateAgentInput): Record<string, unknown> {
   const value = input.model.trim() || DEFAULT_MODELS[input.provider];
+  const timeoutSeconds = input.timeoutSeconds ?? 120;
 
   if (input.provider === 'builtin') {
     return {
       model_backend: inferModelBackend(value),
-      max_iterations: 10,
+      max_iterations: input.maxIterations ?? 10,
       mcp_servers: [],
     };
   }
 
   if (input.provider === 'opencode') {
     return {
-      command: value,
-      args: [],
-      timeout_seconds: 120,
+      command: input.command?.trim() || value,
+      args: input.args ?? [],
+      timeout_seconds: timeoutSeconds,
+    };
+  }
+
+  if (input.provider === 'claude_code') {
+    return {
+      sdk_options: {
+        model: value,
+        ...(input.sdkOptions ?? {}),
+      },
+      timeout_seconds: timeoutSeconds,
     };
   }
 
   return {
     model: value,
-    timeout_seconds: 120,
+    timeout_seconds: timeoutSeconds,
   };
 }
 

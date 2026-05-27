@@ -80,4 +80,31 @@ describe('agentStore', () => {
       config: { model: 'gpt-4o' },
     });
   });
+
+  it('updates and removes local agents', () => {
+    const created = useAgentStore.getState().createAgent({
+      name: 'Local Agent',
+      provider: 'builtin',
+      model: 'deepseek',
+      capabilities: ['协作'],
+      systemPrompt: '',
+    });
+
+    useAgentStore.getState().updateAgentLocal({
+      ...created,
+      name: 'Updated Agent',
+      capabilities: ['复核'],
+    });
+
+    expect(useAgentStore.getState().agents[0]).toMatchObject({
+      id: created.id,
+      name: 'Updated Agent',
+      capabilities: ['复核'],
+    });
+
+    useAgentStore.getState().removeAgentLocal(created.id);
+
+    expect(useAgentStore.getState().agents.some((agent) => agent.id === created.id)).toBe(false);
+    expect(useAgentStore.getState().selectedAgentId).not.toBe(created.id);
+  });
 });

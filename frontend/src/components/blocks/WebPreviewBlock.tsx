@@ -1,5 +1,6 @@
 import { ExternalLink, Globe2, Maximize2, X } from 'lucide-react';
 import { useState } from 'react';
+import { env } from '@/lib/env';
 
 function getHostname(url: string): string {
   try {
@@ -93,7 +94,11 @@ export function WebPreviewBlock({
                       {previewTitle ?? title ?? '构建预览'}
                     </h3>
                     <p className="mt-4 max-w-2xl text-base leading-7 text-slate-600">
-                      {previewBody ?? description ?? '该网页预览来自 Agent 产物，当前 Demo 使用 Mock 页面模拟真实构建结果。'}
+                      {previewBody ??
+                        description ??
+                        (env.useMockApi
+                          ? '该网页预览来自本地演示产物，用于模拟真实构建结果。'
+                          : '该网页预览来自 Agent 在 workspace 中生成的产物。')}
                     </p>
                     <div className="mt-6 grid gap-3 sm:grid-cols-3">
                       {['Chat Shell', 'Agent Flow', 'Rich Blocks'].map((item) => (
