@@ -22,7 +22,7 @@ import {
   getWorkspaceFilesFromMessages,
 } from '@/lib/mockWorkspace';
 import { env } from '@/lib/env';
-import { useWorkspaceFile, useWorkspaceTree } from '@/hooks/useWorkspace';
+import { useWorkspaceFile, useWorkspaceTree, useWriteWorkspaceFile } from '@/hooks/useWorkspace';
 import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
@@ -310,6 +310,8 @@ function WorkspacePanel({
   selectedArtifactPath,
   selectedArtifact,
   onSelectArtifact,
+  onSaveArtifact,
+  isSavingArtifact = false,
 }: {
   workspace: { root: string; tree: WorkspaceNode[] } | null;
   isLoading: boolean;
@@ -318,6 +320,8 @@ function WorkspacePanel({
   selectedArtifactPath: string | null;
   selectedArtifact: PreviewArtifactFile | null;
   onSelectArtifact: (path: string) => void;
+  onSaveArtifact?: (path: string, content: string, mimeType: string) => Promise<void> | void;
+  isSavingArtifact?: boolean;
 }) {
   return (
     <section>
@@ -343,7 +347,11 @@ function WorkspacePanel({
               onSelectFile={onSelectArtifact}
             />
           </div>
-          <ArtifactPreview artifact={selectedArtifact} />
+          <ArtifactPreview
+            artifact={selectedArtifact}
+            onSave={onSaveArtifact}
+            isSaving={isSavingArtifact}
+          />
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm leading-6 text-slate-500">
@@ -372,6 +380,7 @@ function RealWorkspacePanel({
   }, [workspaceQuery.data]);
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
   const artifactQuery = useWorkspaceFile(conversationId, selectedArtifactPath);
+  const writeWorkspaceFile = useWriteWorkspaceFile(conversationId);
 
   useEffect(() => {
     setSelectedArtifactPath(getFirstWorkspacePath(workspace));
@@ -386,6 +395,10 @@ function RealWorkspacePanel({
       selectedArtifactPath={selectedArtifactPath}
       selectedArtifact={artifactQuery.data ?? null}
       onSelectArtifact={setSelectedArtifactPath}
+      onSaveArtifact={(path, content, mimeType) =>
+        writeWorkspaceFile.mutateAsync({ path, content, mimeType })
+      }
+      isSavingArtifact={writeWorkspaceFile.isPending}
     />
   );
 }

@@ -12,9 +12,16 @@ export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error';
 
 interface StreamingBlock {
   type: ContentBlock['type'];
+  call_id?: string;
+  tool_name?: string;
+  arguments?: Record<string, unknown>;
+  status?: 'pending' | 'ok' | 'error';
   text?: string;
   code?: string;
   language?: string;
+  output_preview?: string;
+  output_truncated?: boolean;
+  error_code?: string;
   [k: string]: unknown;
 }
 
@@ -30,6 +37,7 @@ export function useStream(
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
+  const completedRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -38,6 +46,7 @@ export function useStream(
     setBlocks([]);
     setStatus('idle');
     setError(null);
+    completedRef.current = false;
 
     const ctrl = subscribeMessageStream(messageId, {
       onEvent: (ev: StreamEvent) => {
@@ -80,14 +89,43 @@ export function useStream(
           case 'block_end':
             // no-op for now
             break;
+          case 'tool_call':
+            setBlocks((prev) => [
+              ...prev,
+              {
+                type: 'tool_call',
+                call_id: ev.data.call_id,
+                tool_name: ev.data.tool_name,
+                arguments: ev.data.tool_arguments,
+                status: 'pending',
+              },
+            ]);
+            break;
+          case 'tool_result':
+            setBlocks((prev) =>
+              prev.map((block) =>
+                block.type === 'tool_call' && block.call_id === ev.data.call_id
+                  ? {
+                      ...block,
+                      status: ev.data.tool_status,
+                      output_preview: ev.data.tool_output,
+                      output_truncated: ev.data.tool_output_truncated,
+                      error_code: ev.data.error_code,
+                    }
+                  : block,
+              ),
+            );
+            break;
           case 'heartbeat':
             break;
           case 'done':
+            completedRef.current = true;
             setStatus('done');
             optionsRef.current?.onDone?.();
             ctrl.abort();
             break;
           case 'error':
+            completedRef.current = true;
             setStatus('error');
             setError(ev.data.error || 'unknown error');
             optionsRef.current?.onError?.(ev.data.error || 'unknown error');
@@ -96,14 +134,26 @@ export function useStream(
         }
       },
       onError: (err) => {
+        completedRef.current = true;
         setStatus('error');
         setError(String(err));
         optionsRef.current?.onError?.(String(err));
       },
+      onClose: () => {
+        if (completedRef.current) return;
+        const message = 'stream closed before done';
+        completedRef.current = true;
+        setStatus('error');
+        setError(message);
+        optionsRef.current?.onError?.(message);
+      },
     });
     ctrlRef.current = ctrl;
 
-    return () => ctrl.abort();
+    return () => {
+      completedRef.current = true;
+      ctrl.abort();
+    };
   }, [messageId]);
 
   return { blocks, status, error };

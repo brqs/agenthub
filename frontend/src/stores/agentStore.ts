@@ -6,6 +6,11 @@ export interface CreateAgentInput {
   name: string;
   provider: CreatableAgentProvider;
   model: string;
+  command?: string;
+  args?: string[];
+  sdkOptions?: Record<string, unknown>;
+  maxIterations?: number;
+  timeoutSeconds?: number;
   capabilities: string[];
   systemPrompt: string;
 }
@@ -18,6 +23,8 @@ interface AgentState {
   addAgent: (agent: Agent) => void;
   /** Replace the agent list (used to mirror server state in API mode). */
   hydrateAgents: (agents: Agent[]) => void;
+  updateAgentLocal: (agent: Agent) => void;
+  removeAgentLocal: (agentId: string) => void;
   setSelectedAgentId: (agentId: string | null) => void;
 }
 
@@ -51,8 +58,24 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       system_prompt: input.systemPrompt.trim() || null,
       config: {
         model: input.model.trim() || 'deepseek',
+        timeout_seconds: input.timeoutSeconds ?? 120,
         ...(input.provider === 'builtin'
-          ? { model_backend: input.model.trim() || 'deepseek', max_iterations: 10 }
+          ? {
+              model_backend: input.model.trim() || 'deepseek',
+              max_iterations: input.maxIterations ?? 10,
+              mcp_servers: [],
+            }
+          : {}),
+        ...(input.provider === 'opencode'
+          ? {
+              command: input.command?.trim() || input.model.trim() || 'opencode',
+              args: input.args ?? [],
+            }
+          : {}),
+        ...(input.provider === 'claude_code'
+          ? {
+              sdk_options: input.sdkOptions ?? {},
+            }
           : {}),
       },
       is_builtin: false,
@@ -78,6 +101,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const nextSelected =
         selected && remoteIds.has(selected) ? selected : agents[0]?.id ?? null;
       return { agents, selectedAgentId: nextSelected };
+    }),
+  updateAgentLocal: (agent) =>
+    set((state) => ({
+      agents: state.agents.map((item) => (item.id === agent.id ? agent : item)),
+      selectedAgentId: agent.id,
+    })),
+  removeAgentLocal: (agentId) =>
+    set((state) => {
+      const nextAgents = state.agents.filter((agent) => agent.id !== agentId);
+      return {
+        agents: nextAgents,
+        selectedAgentId:
+          state.selectedAgentId === agentId
+            ? nextAgents[0]?.id ?? null
+            : state.selectedAgentId,
+      };
     }),
   setSelectedAgentId: (agentId) => set({ selectedAgentId: agentId }),
 }));

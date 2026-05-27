@@ -3,18 +3,25 @@ import { useMemo, useState } from 'react';
 import { AgentCard } from '@/components/agents/AgentCard';
 import { AgentCreateDialog } from '@/components/agents/AgentCreateDialog';
 import { AgentDetailPanel } from '@/components/agents/AgentDetailPanel';
+import { AgentEditDialog } from '@/components/agents/AgentEditDialog';
 import { useAgents } from '@/hooks/useAgents';
 import { useCreateAgent } from '@/hooks/useCreateAgent';
+import { useDeleteAgent } from '@/hooks/useDeleteAgent';
+import { useUpdateAgent } from '@/hooks/useUpdateAgent';
 import { env } from '@/lib/env';
+import type { Agent } from '@/lib/types';
 import { useAgentStore } from '@/stores/agentStore';
 
 export function AgentsPage() {
   const { data: agents } = useAgents();
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
   const setSelectedAgentId = useAgentStore((state) => state.setSelectedAgentId);
   const createAgent = useCreateAgent();
+  const updateAgent = useUpdateAgent();
+  const deleteAgent = useDeleteAgent();
 
   const filteredAgents = useMemo(() => {
     const normalized = search.trim().toLowerCase();
@@ -87,7 +94,9 @@ export function AgentsPage() {
           {filteredAgents.length === 0 ? (
             <div className="mt-10 rounded-md border border-dashed border-slate-800 bg-slate-900/60 p-10 text-center">
               <div className="text-sm font-medium text-slate-300">没有找到匹配的 Agent</div>
-              <p className="mt-2 text-sm text-slate-500">换个关键词，或者创建一个新的 Demo Agent。</p>
+              <p className="mt-2 text-sm text-slate-500">
+                换个关键词，或者创建一个新的自建 Agent。
+              </p>
             </div>
           ) : (
             <div className="mt-8 space-y-9">
@@ -110,13 +119,31 @@ export function AgentsPage() {
         </div>
       </div>
 
-      <AgentDetailPanel agent={selectedAgent} />
+      <AgentDetailPanel
+        agent={selectedAgent}
+        onEdit={setEditingAgent}
+        onDelete={async (agent) => {
+          if (!window.confirm(`确认删除 ${agent.name}？`)) return;
+          await deleteAgent.mutateAsync(agent.id);
+        }}
+        isDeleting={deleteAgent.isPending}
+      />
       <AgentCreateDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreate={async (input) => {
           await createAgent.mutateAsync(input);
           setCreateOpen(false);
+        }}
+      />
+      <AgentEditDialog
+        open={editingAgent !== null}
+        agent={editingAgent}
+        isPending={updateAgent.isPending}
+        onClose={() => setEditingAgent(null)}
+        onUpdate={async (agentId, input) => {
+          await updateAgent.mutateAsync({ agentId, input });
+          setEditingAgent(null);
         }}
       />
     </div>
