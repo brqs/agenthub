@@ -2,11 +2,11 @@ import { Outlet } from 'react-router-dom';
 import { ModuleRail } from './ModuleRail';
 import { SettingsDialog } from './SettingsDialog';
 import { UserMenu } from './UserMenu';
+import { resetClientSession } from '@/lib/session';
 import { useAuthStore } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
 
 export function AppLayout() {
-  const logout = useAuthStore((s) => s.logout);
   const user = useAuthStore((s) => s.user);
   const theme = useUiStore((s) => s.theme);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
@@ -27,7 +27,11 @@ export function AppLayout() {
         <Outlet />
       </main>
       {userMenuOpen && (
-        <UserMenu user={user} onLogout={logout} onClose={() => setUserMenuOpen(false)} />
+        <UserMenu
+          user={user}
+          onLogout={resetClientSession}
+          onClose={() => setUserMenuOpen(false)}
+        />
       )}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>

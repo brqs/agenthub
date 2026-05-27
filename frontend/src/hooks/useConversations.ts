@@ -2,7 +2,9 @@ import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as conversationsAdapter from '@/lib/adapters/conversations';
 import { env } from '@/lib/env';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Conversation } from '@/lib/types';
+import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import type { ListConversationsParams } from '@/lib/adapters/conversations';
 
@@ -20,6 +22,7 @@ interface UseConversationsResult {
  *   streaming/send mutations keep updating the store, so the UI shape is identical.
  */
 export function useConversations(params: ListConversationsParams = {}): UseConversationsResult {
+  const userId = useAuthStore((state) => state.user?.id);
   const conversations = useChatStore((state) => state.conversations);
   const hydrate = useChatStore((state) => state.hydrateConversations);
   const queryParams = useMemo(
@@ -34,9 +37,9 @@ export function useConversations(params: ListConversationsParams = {}): UseConve
   );
 
   const query = useQuery({
-    queryKey: ['conversations', queryParams],
+    queryKey: [...queryKeys.conversations(userId), queryParams],
     queryFn: () => conversationsAdapter.listConversations(queryParams),
-    enabled: !env.useMockApi,
+    enabled: !env.useMockApi && Boolean(userId),
   });
 
   useEffect(() => {

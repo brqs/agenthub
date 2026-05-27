@@ -19,6 +19,8 @@ interface AgentState {
   /** Replace the agent list (used to mirror server state in API mode). */
   hydrateAgents: (agents: Agent[]) => void;
   setSelectedAgentId: (agentId: string | null) => void;
+  resetAgents: () => void;
+  clearAgents: () => void;
 }
 
 function slugify(value: string): string {
@@ -80,4 +82,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return { agents, selectedAgentId: nextSelected };
     }),
   setSelectedAgentId: (agentId) => set({ selectedAgentId: agentId }),
+  resetAgents: () => set({ agents: mockAgents, selectedAgentId: mockAgents[0]?.id ?? null }),
+  clearAgents: () => set({ agents: [], selectedAgentId: null }),
 }));

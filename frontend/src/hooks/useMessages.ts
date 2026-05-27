@@ -2,6 +2,8 @@ import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as messagesAdapter from '@/lib/adapters/messages';
 import { env } from '@/lib/env';
+import { queryKeys } from '@/lib/queryKeys';
+import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import type { DemoMessage } from '@/lib/mockData';
 
@@ -22,16 +24,17 @@ interface UseMessagesResult {
  * and do not invalidate during streaming.
  */
 export function useMessages(conversationId: string | null | undefined): UseMessagesResult {
+  const userId = useAuthStore((state) => state.user?.id);
   const messagesByConversation = useChatStore((state) => state.messagesByConversation);
   const hydrateMessages = useChatStore((state) => state.hydrateMessages);
 
   const query = useQuery({
-    queryKey: ['messages', conversationId],
+    queryKey: queryKeys.messages(userId, conversationId),
     queryFn: () =>
       conversationId
         ? messagesAdapter.listMessages(conversationId, { limit: 50, direction: 'before' })
         : Promise.resolve({ items: [], nextCursor: null, hasMore: false }),
-    enabled: Boolean(conversationId) && !env.useMockApi,
+    enabled: Boolean(conversationId) && Boolean(userId) && !env.useMockApi,
   });
 
   useEffect(() => {
