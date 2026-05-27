@@ -10,10 +10,12 @@ export function MessageInput({
   conversation,
   onSend,
   isSending = false,
+  agents = mockAgents,
 }: {
   conversation: DemoConversation;
   onSend: (text: string) => void;
   isSending?: boolean;
+  agents?: Agent[];
 }) {
   const [text, setText] = useState('');
   const mentionQuery = useMemo(() => {
@@ -21,7 +23,7 @@ export function MessageInput({
     const match = text.match(/@([\w-]*)$/);
     return match?.[1] ?? null;
   }, [conversation.mode, text]);
-  const availableAgents = mockAgents.filter((agent) => conversation.agent_ids.includes(agent.id));
+  const availableAgents = agents.filter((agent) => conversation.agent_ids.includes(agent.id));
 
   function submit() {
     const value = text.trim();

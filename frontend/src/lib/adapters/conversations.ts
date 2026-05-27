@@ -3,7 +3,9 @@ import type {
   Conversation,
   ConversationList,
   CreateConversationRequest,
+  UpdateConversationRequest,
 } from '@/lib/types';
+import { normalizeConversation } from './normalizers';
 
 export interface ListConversationsParams {
   archived?: boolean;
@@ -25,12 +27,27 @@ export async function listConversations(
       page_size: params.pageSize,
     },
   });
-  return data.items;
+  return data.items.map(normalizeConversation);
 }
 
 export async function createConversation(
   input: CreateConversationRequest,
 ): Promise<Conversation> {
   const { data } = await api.post<Conversation>('/api/v1/conversations', input);
-  return data;
+  return normalizeConversation(data);
+}
+
+export async function updateConversation(
+  conversationId: string,
+  input: UpdateConversationRequest,
+): Promise<Conversation> {
+  const { data } = await api.patch<Conversation>(
+    `/api/v1/conversations/${conversationId}`,
+    input,
+  );
+  return normalizeConversation(data);
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  await api.delete(`/api/v1/conversations/${conversationId}`);
 }

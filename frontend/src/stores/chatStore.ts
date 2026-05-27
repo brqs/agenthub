@@ -44,6 +44,9 @@ interface ChatState {
     userMessage: Message,
     agentMessage: Message,
   ) => void;
+  updateConversationLocal: (conversation: Conversation) => void;
+  updateMessageLocal: (message: Message) => void;
+  replaceMessageLocal: (oldMessageId: string, message: Message) => void;
 }
 
 function createUserMessage(conversationId: string, text: string): DemoMessage {
@@ -441,5 +444,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
           : item,
       ),
     }));
+  },
+  updateConversationLocal: (conversation) => {
+    set((state) => ({
+      conversations: state.conversations.map((item) =>
+        item.id === conversation.id ? (conversation as DemoConversation) : item,
+      ),
+    }));
+  },
+  updateMessageLocal: (message) => {
+    set((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [message.conversation_id]: (state.messagesByConversation[message.conversation_id] ?? []).map(
+          (item) => (item.id === message.id ? (message as DemoMessage) : item),
+        ),
+      },
+    }));
+  },
+  replaceMessageLocal: (oldMessageId, message) => {
+    set((state) => {
+      const current = state.messagesByConversation[message.conversation_id] ?? [];
+      const replaced = current.some((item) => item.id === oldMessageId);
+      const next = replaced
+        ? current.map((item) => (item.id === oldMessageId ? (message as DemoMessage) : item))
+        : [...current, message as DemoMessage];
+      return {
+        messagesByConversation: {
+          ...state.messagesByConversation,
+          [message.conversation_id]: next,
+        },
+      };
+    });
   },
 }));

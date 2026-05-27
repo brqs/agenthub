@@ -5,6 +5,7 @@ import type {
   CreateAgentRequest,
   UpdateAgentRequest,
 } from '@/lib/types';
+import { normalizeAgent } from './normalizers';
 
 export interface ListAgentsParams {
   builtin?: boolean;
@@ -22,12 +23,12 @@ export async function listAgents(params: ListAgentsParams = {}): Promise<Agent[]
       page_size: params.pageSize,
     },
   });
-  return data.items;
+  return data.items.map(normalizeAgent);
 }
 
 export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
   const { data } = await api.post<Agent>('/api/v1/agents', input);
-  return data;
+  return normalizeAgent(data);
 }
 
 export async function updateAgent(
@@ -35,7 +36,7 @@ export async function updateAgent(
   input: UpdateAgentRequest,
 ): Promise<Agent> {
   const { data } = await api.patch<Agent>(`/api/v1/agents/${agentId}`, input);
-  return data;
+  return normalizeAgent(data);
 }
 
 export async function deleteAgent(agentId: string): Promise<void> {

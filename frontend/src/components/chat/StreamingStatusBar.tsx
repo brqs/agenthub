@@ -1,9 +1,17 @@
 import { Loader2 } from 'lucide-react';
 import { getStreamingStatus } from './streamingStatus';
 import type { DemoMessage } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 
-export function StreamingStatusBar({ messages }: { messages: DemoMessage[] }) {
-  const status = getStreamingStatus(messages);
+export function StreamingStatusBar({
+  messages,
+  agents = mockAgents,
+}: {
+  messages: DemoMessage[];
+  agents?: Agent[];
+}) {
+  const status = getStreamingStatus(messages, agents);
   if (!status) return null;
 
   const Icon = status.Icon;

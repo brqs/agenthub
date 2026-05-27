@@ -1,5 +1,5 @@
 import type { AgentSwitchBlock, DemoConversation, DemoMessage, TaskCardBlock } from '@/lib/mockData';
-import { getAgent } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 
 export interface OrchestratorSnapshot {
   modeLabel: string;
@@ -31,9 +31,10 @@ function findLatestAgentSwitch(messages: DemoMessage[]): AgentSwitchBlock | null
 export function getOrchestratorSnapshot(
   conversation: DemoConversation,
   messages: DemoMessage[],
+  agents: Agent[],
 ): OrchestratorSnapshot {
   if (conversation.mode !== 'group') {
-    const agent = getAgent(conversation.agent_ids[0]);
+    const agent = agents.find((item) => item.id === conversation.agent_ids[0]);
     return {
       modeLabel: '单 Agent 模式',
       stage: 'Single Agent',
@@ -52,15 +53,15 @@ export function getOrchestratorSnapshot(
   const doneTasks = taskCard?.tasks.filter((task) => task.status === 'done').length ?? 0;
   const totalTasks = taskCard?.tasks.length ?? 0;
   const activeAgentId = runningTask?.agent_id ?? agentSwitch?.to_agent ?? 'orchestrator';
-  const fromAgent = getAgent(agentSwitch?.from_agent);
-  const toAgent = getAgent(agentSwitch?.to_agent);
+  const fromAgent = agents.find((item) => item.id === agentSwitch?.from_agent);
+  const toAgent = agents.find((item) => item.id === agentSwitch?.to_agent);
   const allDone = totalTasks > 0 && doneTasks === totalTasks;
 
   return {
     modeLabel: 'Orchestrated 群聊',
     stage: allDone ? 'Done' : runningTask ? 'Generating' : 'Planning',
     currentAgentId: activeAgentId,
-    currentAgentName: getAgent(activeAgentId)?.name ?? activeAgentId,
+    currentAgentName: agents.find((item) => item.id === activeAgentId)?.name ?? activeAgentId,
     switchLabel: agentSwitch
       ? `${fromAgent?.name ?? agentSwitch.from_agent} -> ${toAgent?.name ?? agentSwitch.to_agent}`
       : null,

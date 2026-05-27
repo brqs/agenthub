@@ -1,7 +1,23 @@
 import { ChevronDown, ChevronRight, FileCode2, Folder } from 'lucide-react';
 import { useState } from 'react';
-import type { WorkspaceNode } from '@/lib/mockWorkspace';
 import { cn } from '@/lib/utils';
+
+export type WorkspaceNode = WorkspaceFileNode | WorkspaceDirectoryNode;
+
+export interface WorkspaceFileNode {
+  type: 'file';
+  name: string;
+  path: string;
+  size: number;
+  mime_type: string;
+}
+
+export interface WorkspaceDirectoryNode {
+  type: 'dir' | 'directory';
+  name: string;
+  path: string;
+  children: WorkspaceNode[];
+}
 
 function formatSize(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -21,7 +37,7 @@ function TreeNode({
 }) {
   const [open, setOpen] = useState(true);
 
-  if (node.type === 'dir') {
+  if (node.type === 'dir' || node.type === 'directory') {
     return (
       <div>
         <button
@@ -50,6 +66,8 @@ function TreeNode({
       </div>
     );
   }
+
+  if (node.type !== 'file') return null;
 
   return (
     <button

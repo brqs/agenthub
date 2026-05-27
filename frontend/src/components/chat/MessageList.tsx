@@ -2,6 +2,9 @@ import { Bot, Loader2, MessageSquarePlus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
 import type { DemoMessage } from '@/lib/mockData';
+import { mockAgents } from '@/lib/mockData';
+import { env } from '@/lib/env';
+import type { Agent } from '@/lib/types';
 
 export function MessageList({
   messages,
@@ -9,12 +12,14 @@ export function MessageList({
   isLoading = false,
   onTogglePin,
   onRetry,
+  agents = mockAgents,
 }: {
   messages: DemoMessage[];
   highlightedMessageId?: string | null;
   isLoading?: boolean;
   onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
+  agents?: Agent[];
 }) {
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -46,7 +51,7 @@ export function MessageList({
           </p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-xs text-slate-500">
             <Bot className="h-3.5 w-3.5" />
-            Mock SSE 会模拟流式回复
+            {env.useMockSse ? 'Mock SSE 会模拟流式回复' : '真后端 SSE 会流式返回 Agent 回复'}
           </div>
         </div>
       </div>
@@ -60,6 +65,7 @@ export function MessageList({
           <MessageBubble
             key={message.id}
             message={message}
+            agents={agents}
             highlighted={message.id === highlightedMessageId}
             onTogglePin={onTogglePin}
             onRetry={onRetry}

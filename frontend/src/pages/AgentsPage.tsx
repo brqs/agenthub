@@ -5,6 +5,7 @@ import { AgentCreateDialog } from '@/components/agents/AgentCreateDialog';
 import { AgentDetailPanel } from '@/components/agents/AgentDetailPanel';
 import { useAgents } from '@/hooks/useAgents';
 import { useCreateAgent } from '@/hooks/useCreateAgent';
+import { env } from '@/lib/env';
 import { useAgentStore } from '@/stores/agentStore';
 
 export function AgentsPage() {
@@ -43,7 +44,9 @@ export function AgentsPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold text-white">Agent 管理</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                管理内置 Agent 与自建 Agent。当前为 Mock 创建流程，后续从 Hook 层切换到真实 Agent CRUD API。
+                {env.useMockApi
+                  ? '管理内置 Agent 与自建 Agent。当前为 Mock 创建流程。'
+                  : '管理远端后端中的内置 Agent 与自建 Agent。'}
               </p>
             </div>
             <button
