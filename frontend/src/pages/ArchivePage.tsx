@@ -7,7 +7,7 @@ import { useChatStore } from '@/stores/chatStore';
 
 export function ArchivePage() {
   const navigate = useNavigate();
-  const { data: conversations } = useConversations();
+  const { data: conversations, isLoading } = useConversations({ archived: true });
   const selectedConversationId = useChatStore((state) => state.selectedConversationId);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
   const updateConversation = useUpdateConversation();
@@ -34,7 +34,11 @@ export function ArchivePage() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto p-8 scrollbar-thin">
-        {archived.length ? (
+        {isLoading ? (
+          <div className="flex min-h-full items-center justify-center text-sm text-slate-500">
+            正在加载归档会话
+          </div>
+        ) : archived.length ? (
           <div className="mx-auto max-w-3xl space-y-2">
             {archived.map((conversation) => (
               <ConversationItem
