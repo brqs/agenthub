@@ -199,7 +199,12 @@ async def _resolve_tasks(
         if direct_tasks:
             return direct_tasks
         if llm_planning_enabled(config):
-            return await _plan_tasks_with_model(config, messages, system_prompt)
+            try:
+                return await _plan_tasks_with_model(config, messages, system_prompt)
+            except ValueError:
+                if _planner_fallback_to_template(config):
+                    return _derive_tasks(config, messages)
+                raise
         return _derive_tasks(config, messages)
 
     return _parse_task_list(raw_tasks)
@@ -262,6 +267,10 @@ def _direct_tasks_from_request(
     if not agent_ids:
         return []
     return _derive_direct_agent_tasks(agent_ids, _latest_user_request(messages))
+
+
+def _planner_fallback_to_template(config: Mapping[str, Any]) -> bool:
+    return config.get("planner_fallback_to_template") is True
 
 
 def _derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
@@ -610,10 +619,18 @@ def _text_block_with_next(
 
 
 def _planning_text(tasks: list[SubTask]) -> str:
-    lines = [f"Planned {len(tasks)} sub-task(s):"]
+    lines = [f"Planned {len(tasks)} sub-task(s) via {_plan_source(tasks)}:"]
     for index, task in enumerate(tasks, 1):
         lines.append(f"{index}. @{task.agent_id} - {task.title}")
     return "\n".join(lines) + "\n"
+
+
+def _plan_source(tasks: list[SubTask]) -> str:
+    if all(task.task_id.startswith("auto-") for task in tasks):
+        return "legacy template"
+    if all(task.task_id.startswith("direct-") for task in tasks):
+        return "direct routing"
+    return "LLM planner/config"
 
 
 def _agent_header_text(task: SubTask) -> str:
