@@ -217,6 +217,11 @@ class TestBuiltinAgents:
             )
             assert isinstance(result, dict)
 
+    def test_seed_codex_uses_cli_default_model(self) -> None:
+        codex_agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "codex-helper")
+
+        assert "model" not in codex_agent["config"]
+
 
 class TestCreateAgentRequestSchema:
     def test_capabilities_max_10_rejected(self) -> None:
