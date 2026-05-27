@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.orchestrator_planner import llm_planning_enabled, plan_task_payload
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 AdapterFactory = Callable[[str], BaseAgentAdapter | Awaitable[BaseAgentAdapter]]
@@ -70,7 +71,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
         merged_config = self.merged_config(config)
         next_block_index = 0
         try:
-            tasks = _parse_tasks(merged_config, messages)
+            tasks = await _resolve_tasks(
+                merged_config,
+                messages,
+                self.effective_system_prompt(system_prompt),
+            )
         except ValueError as exc:
             if _has_fallback(merged_config):
                 async for chunk, updated_block_index in _run_fallback(
@@ -183,10 +188,24 @@ def _include_history(raw: Mapping[str, Any]) -> bool:
     return value
 
 
-def _parse_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
+async def _resolve_tasks(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    system_prompt: str | None,
+) -> list[SubTask]:
     raw_tasks = config.get("tasks")
     if raw_tasks is None:
+        direct_tasks = _direct_tasks_from_request(config, messages)
+        if direct_tasks:
+            return direct_tasks
+        if llm_planning_enabled(config):
+            return await _plan_tasks_with_model(config, messages, system_prompt)
         return _derive_tasks(config, messages)
+
+    return _parse_task_list(raw_tasks)
+
+
+def _parse_task_list(raw_tasks: object) -> list[SubTask]:
     if not isinstance(raw_tasks, list) or not raw_tasks:
         raise ValueError("missing_task_plan: config.tasks must be a non-empty list")
 
@@ -197,6 +216,52 @@ def _parse_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list
         tasks.append(SubTask.from_mapping(cast(Mapping[str, Any], raw_task)))
     _ensure_unique_task_ids(tasks)
     return sorted(tasks, key=lambda task: task.priority)
+
+
+async def _plan_tasks_with_model(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    system_prompt: str | None,
+) -> list[SubTask]:
+    planner_output = await plan_task_payload(
+        config,
+        messages,
+        system_prompt,
+        _latest_user_request(messages),
+    )
+    tasks = _tasks_from_planner_payload(planner_output.payload)
+    _validate_planned_tasks(tasks, planner_output.allowed_agent_ids)
+    return tasks
+
+
+def _tasks_from_planner_payload(payload: Any) -> list[SubTask]:
+    raw_tasks = payload.get("tasks") if isinstance(payload, Mapping) else payload
+    return _parse_task_list(raw_tasks)
+
+
+def _validate_planned_tasks(tasks: list[SubTask], allowed_agent_ids: set[str]) -> None:
+    task_ids = {task.task_id for task in tasks}
+    for task in tasks:
+        if task.agent_id not in allowed_agent_ids:
+            raise ValueError(
+                f"invalid_task_plan: unknown agent_id {task.agent_id!r}"
+            )
+        missing_deps = [dep for dep in task.depends_on if dep not in task_ids]
+        if missing_deps:
+            raise ValueError(
+                f"invalid_task_plan: unknown depends_on task_id {missing_deps[0]!r}"
+            )
+
+
+def _direct_tasks_from_request(
+    config: Mapping[str, Any], messages: list[ChatMessage]
+) -> list[SubTask]:
+    agent_ids = _agent_id_list(
+        config.get("managed_agent_ids", config.get("default_sub_agents"))
+    )
+    if not agent_ids:
+        return []
+    return _derive_direct_agent_tasks(agent_ids, _latest_user_request(messages))
 
 
 def _derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:

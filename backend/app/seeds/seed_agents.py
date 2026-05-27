@@ -57,6 +57,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         ),
         "config": {
             "model_backend": "claude",
+            "llm_planning": True,
             "max_iterations": 10,
             "mcp_servers": [],
             "managed_agent_ids": [

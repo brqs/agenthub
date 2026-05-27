@@ -704,3 +704,42 @@ Registry provider cutover 不能只改 seed；需要同步 Pydantic schema、Ope
 
 ### 经验
 B2-20 复审通过后，B2-14 至 B2-20 的真实 Agent Runtime 接入线可以进入 Git/PR 阶段；但 OpenAPI/schema 已变更，前端生成类型与 Agent 创建 UI 必须作为后续协同项跟进。
+
+## 2026-05-27 — Codex 增强 Orchestrator LLM 任务规划
+
+### 任务
+将 Orchestrator 从默认三段式规则拆任务升级为可选 LLM/tool-call 任务规划，同时保留显式 `config.tasks` 和原有顺序调度路径。
+
+### 关键 Prompt
+> Orchestrator 通过 LLM function calling / tool use 拆解任务是我要实现的目标
+
+### AI 输出摘要
+1. 新增 `backend/app/agents/orchestrator_planner.py`，通过 `ModelGateway` 调用 planner，并向模型提供 `submit_task_plan` 工具；若 backend 暂未产生 tool_call，则支持解析纯 JSON 文本作为兼容路径。
+2. `backend/app/agents/orchestrator.py` 在没有显式 `tasks` 且配置开启 `llm_planning` / 注入 `planner_gateway` 时调用 planner，随后校验 `agent_id` 白名单、`task_id` 唯一性和依赖引用，再复用既有调度、`agent_switch`、block_index 重映射和失败降级。
+3. `backend/app/seeds/seed_agents.py` 为 seed `orchestrator` 开启 `llm_planning`，使真实会话默认走模型规划路径。
+4. `backend/tests/test_orchestrator.py` 补充 planner tool_call、JSON 文本 fallback、未知 Agent 拒绝三类测试。
+
+### 人工调整
+未修改 `BaseAgentAdapter`、`StreamChunk`、`ContentBlock`、OpenAPI 或前端。全量后端 pytest 仅在 Windows symlink 权限测试 `tests/test_workspace_service.py::test_rejects_symlink_escape` 失败；B2 相关测试、`ruff`、`mypy app/agents` 均通过。
+
+### 经验
+Orchestrator 的智能规划应和调度执行分层：planner 只产出结构化 task plan，Orchestrator 代码负责白名单校验、排序、依赖检查和流式调度。这样可以升级规划能力，同时不破坏 B1 SSE 和前端既有 StreamChunk 契约。
+
+## 2026-05-27 — Codex 修复 OpenCode tool_use 事件映射
+
+### 任务
+修复 OpenCode CLI 输出 `tool_use` JSON 事件时被 `OpenCodeAdapter` 当作 unsupported event 终止的问题。
+
+### 关键 Prompt
+> 在调用openco的时候出现错误
+
+### AI 输出摘要
+1. `backend/app/agents/external/opencode.py` 新增 `tool_use` 事件兼容，将 OpenCode 的 `part.tool` / `part.callID` / `part.state.input` / `part.state.output` 映射为标准 `tool_call` / `tool_result`。
+2. `backend/tests/test_opencode_external_adapter.py` 补充真实 OpenCode JSON 形态的 `tool_use` 测试，避免再次退化为 unsupported event。
+3. 本机真实 `opencode run --format json --dir <tmp>` 已确认会输出 `tool_use`，字段形态与新增映射一致。
+
+### 人工调整
+未修改 OpenAPI、BaseAgentAdapter、StreamChunk 或前端。集成测试 `test_real_agent_demo_smoke.py` / `test_stream_tool_calls.py` 在本地因 PostgreSQL hostname 解析失败无法运行；OpenCode adapter 单测、ruff、mypy 和 Orchestrator 测试均通过。
+
+### 经验
+External runtime 的 JSON 事件类型需要按真实 CLI 输出持续兼容，不能只锁定任务文档里的理想事件名。OpenCode 1.15.x 的工具事件是 `tool_use`，而不是早期假设的 `tool_call`。
