@@ -21,7 +21,7 @@ export function useUpdateConversation() {
     }) => conversationsAdapter.updateConversation(conversationId, input),
     onSuccess: (conversation) => {
       updateConversationLocal(conversation);
-      void queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      void queryClient.invalidateQueries({ queryKey: ['conversations'], exact: false });
     },
   });
 
