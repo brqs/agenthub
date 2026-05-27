@@ -484,6 +484,122 @@ async def test_orchestrator_rejects_planner_unknown_agent() -> None:
     assert "unknown agent_id" in (chunks[1].error or "")
 
 
+async def test_orchestrator_planner_error_does_not_use_template_by_default() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(
+                event_type="error",
+                error_code="timeout",
+                error="planner timeout",
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a launch plan")],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["agent-a"],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[1].error_code == "missing_task_plan"
+    assert "timeout: planner timeout" in (chunks[1].error or "")
+    assert adapter_a.received_messages == []
+
+
+async def test_orchestrator_planner_empty_output_is_visible_error() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
+    planner = FakePlannerGateway([])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a launch plan")],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["agent-a"],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[1].error_code == "missing_task_plan"
+    assert "empty_planner_output" in (chunks[1].error or "")
+    assert adapter_a.received_messages == []
+
+
+async def test_orchestrator_planner_invalid_json_is_visible_error() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+            StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta="not a task plan",
+            ),
+            StreamChunk(event_type="block_end", block_index=0),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a launch plan")],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["agent-a"],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[1].error_code == "invalid_task_plan"
+    assert "invalid_json" in (chunks[1].error or "")
+    assert adapter_a.received_messages == []
+
+
+async def test_orchestrator_planner_template_fallback_requires_flag() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(
+                event_type="error",
+                error_code="timeout",
+                error="planner timeout",
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a launch plan")],
+        config={
+            "planner_gateway": planner,
+            "planner_fallback_to_template": True,
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert any(
+        "via legacy template" in (chunk.text_delta or "") for chunk in chunks
+    )
+    assert adapter_a.received_messages[-1].content.startswith("Analyze the user's request")
+
+
 async def test_orchestrator_forwards_tool_events_with_remapped_call_ids() -> None:
     adapter_a = FakeSubAdapter(
         "agent-a",

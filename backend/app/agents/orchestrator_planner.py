@@ -15,7 +15,9 @@ DEFAULT_PLANNER_MAX_TOKENS = 2048
 
 PLANNER_SYSTEM_PROMPT = """You are AgentHub's Orchestrator planner.
 Create a concise task plan for the available agents only.
-Use the submit_task_plan tool when available. If tools are unavailable, output only JSON.
+You must call submit_task_plan exactly once when the tool is available.
+If tools are unavailable, output only JSON in the same shape as the tool input.
+Each task must target exactly one available agent_id.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
 """
@@ -83,11 +85,16 @@ async def _collect_planner_payload(
         elif chunk.event_type == "delta":
             planner_text.append(chunk.text_delta or chunk.code_delta or "")
         elif chunk.event_type == "error":
-            raise ValueError(f"missing_task_plan: planner failed: {_error_reason(chunk)}")
+            raise ValueError(
+                f"missing_task_plan: planner failed: {_planner_error_detail(chunk)}"
+            )
 
     if tool_payload is not None:
         return tool_payload
-    return _json_payload_from_text("".join(planner_text))
+    text = "".join(planner_text)
+    if not text.strip():
+        raise ValueError("missing_task_plan: empty_planner_output")
+    return _json_payload_from_text(text)
 
 
 async def _planner_stream(
@@ -134,6 +141,7 @@ def _planner_config(config: Mapping[str, Any]) -> dict[str, Any]:
     planner_config: dict[str, Any] = {
         "temperature": 0,
         "max_tokens": DEFAULT_PLANNER_MAX_TOKENS,
+        "tool_choice": {"type": "tool", "name": TASK_PLAN_TOOL_NAME},
     }
     planner_config.update(dict(raw_config))
     for key in ("model", "max_retries", "request_timeout_seconds"):
@@ -295,7 +303,7 @@ def _json_payload_from_text(text: str) -> Any:
             return payload
         except json.JSONDecodeError:
             continue
-    raise ValueError("invalid_task_plan: planner did not return valid JSON")
+    raise ValueError("invalid_task_plan: invalid_json: planner did not return valid JSON")
 
 
 def _strip_json_fence(text: str) -> str:
@@ -318,3 +326,9 @@ def _json_start_positions(text: str) -> list[int]:
 
 def _error_reason(chunk: StreamChunk) -> str:
     return chunk.error or chunk.error_code or "unknown error"
+
+
+def _planner_error_detail(chunk: StreamChunk) -> str:
+    if chunk.error_code and chunk.error:
+        return f"{chunk.error_code}: {chunk.error}"
+    return _error_reason(chunk)
