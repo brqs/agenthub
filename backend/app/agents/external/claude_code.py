@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import inspect
 from collections.abc import AsyncIterator, Iterable, Mapping
@@ -40,6 +41,11 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             yield self._error_chunk("workspace_violation", "workspace_path is required")
             return
 
+        timeout_seconds = self._float_config(
+            self.merged_config(config).get("timeout_seconds"),
+            DEFAULT_CLI_TIMEOUT_SECONDS,
+        )
+
         try:
             sdk = self._load_sdk()
             prompt = self._format_prompt(messages, system_prompt)
@@ -64,26 +70,32 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         block_index = 0
         total_blocks = 0
         try:
-            async for sdk_event in stream:
-                for chunk in self._map_sdk_event(sdk_event):
-                    if chunk.event_type == "delta":
-                        if not block_open:
-                            yield StreamChunk(
-                                event_type="block_start",
-                                block_index=block_index,
-                                block_type="text",
-                            )
-                            block_open = True
-                        chunk.block_index = block_index
-                        yield chunk
-                        continue
+            async with asyncio.timeout(timeout_seconds):
+                async for sdk_event in stream:
+                    for chunk in self._map_sdk_event(sdk_event):
+                        if chunk.event_type == "delta":
+                            if not block_open:
+                                yield StreamChunk(
+                                    event_type="block_start",
+                                    block_index=block_index,
+                                    block_type="text",
+                                )
+                                block_open = True
+                            chunk.block_index = block_index
+                            yield chunk
+                            continue
 
-                    if block_open:
-                        yield StreamChunk(event_type="block_end", block_index=block_index)
-                        total_blocks += 1
-                        block_index += 1
-                        block_open = False
-                    yield chunk
+                        if block_open:
+                            yield StreamChunk(event_type="block_end", block_index=block_index)
+                            total_blocks += 1
+                            block_index += 1
+                            block_open = False
+                        yield chunk
+        except TimeoutError:
+            if block_open:
+                yield StreamChunk(event_type="block_end", block_index=block_index)
+            yield self._error_chunk("timeout", "Claude Code runtime timed out")
+            return
         except Exception as exc:  # noqa: BLE001
             if block_open:
                 yield StreamChunk(event_type="block_end", block_index=block_index)
