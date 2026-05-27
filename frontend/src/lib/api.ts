@@ -7,6 +7,7 @@
  */
 
 import axios, { AxiosError, type AxiosInstance } from 'axios';
+import { resetClientSession } from '@/lib/session';
 import { useAuthStore } from '@/stores/authStore';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
@@ -29,7 +30,7 @@ api.interceptors.response.use(
   (resp) => resp,
   (err: AxiosError<{ error?: { code?: string; message?: string } }>) => {
     if (err.response?.status === 401) {
-      useAuthStore.getState().logout();
+      resetClientSession();
       // Soft redirect — let router pick up
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
