@@ -78,6 +78,41 @@ describe('MessageInput', () => {
     expect(input).toHaveValue('@codex-helper ');
   });
 
+  it('inserts requested mentions from external agent actions', () => {
+    const { rerender } = render(
+      <MessageInput
+        conversation={groupConversation}
+        onSend={vi.fn()}
+        mentionInsertRequest={{ agentId: 'codex-helper', requestId: 1 }}
+      />,
+    );
+    const input = screen.getByPlaceholderText('发消息到 群聊测试');
+
+    expect(input).toHaveValue('@codex-helper ');
+
+    rerender(
+      <MessageInput
+        conversation={groupConversation}
+        onSend={vi.fn()}
+        mentionInsertRequest={{ agentId: 'orchestrator', requestId: 2 }}
+      />,
+    );
+
+    expect(input).toHaveValue('@codex-helper @orchestrator ');
+  });
+
+  it('ignores external mention requests in single conversations', () => {
+    render(
+      <MessageInput
+        conversation={singleConversation}
+        onSend={vi.fn()}
+        mentionInsertRequest={{ agentId: 'claude-code', requestId: 1 }}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText('发消息到 单聊测试')).toHaveValue('');
+  });
+
   it('fills the demo prompt in group conversations', () => {
     render(<MessageInput conversation={groupConversation} onSend={vi.fn()} />);
     const input = screen.getByPlaceholderText('发消息到 群聊测试');

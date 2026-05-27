@@ -18,6 +18,7 @@ import { useSendMessage } from '@/hooks/useSendMessage';
 import { useStream } from '@/hooks/useStream';
 import { useUpdateConversation } from '@/hooks/useUpdateConversation';
 import { useUpdateMessage } from '@/hooks/useUpdateMessage';
+import type { Agent } from '@/lib/types';
 import { useChatStore } from '@/stores/chatStore';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -27,6 +28,10 @@ export function ChatPage() {
   const queryClient = useQueryClient();
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [newConversationOpen, setNewConversationOpen] = useState(false);
+  const [mentionInsertRequest, setMentionInsertRequest] = useState<{
+    agentId: string;
+    requestId: number;
+  } | null>(null);
   const { data: conversations } = useConversations();
   const { data: agents } = useAgents();
   const createConversation = useCreateConversation();
@@ -103,6 +108,10 @@ export function ChatPage() {
     await updateMessage.update(target, { is_pinned: !target.is_pinned });
   }
 
+  function mentionAgent(agent: Agent) {
+    setMentionInsertRequest({ agentId: agent.id, requestId: Date.now() });
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-950">
       {!conversationSidebarCollapsed && (
@@ -135,6 +144,7 @@ export function ChatPage() {
               highlightedMessageId={highlightedMessageId}
               isLoading={messagesLoading}
               onTogglePin={toggleMessagePinRemote}
+              onMentionAgent={conversation.mode === 'group' ? mentionAgent : undefined}
               onRetry={async (messageId) => {
                 const target = messages.find((item) => item.id === messageId);
                 if (!target) return;
@@ -146,6 +156,7 @@ export function ChatPage() {
               conversation={conversation}
               agents={agents}
               isSending={sendingMessage}
+              mentionInsertRequest={mentionInsertRequest}
               onSend={async (text) => {
                 const result = await sendMessage(conversation.id, text);
                 if (result?.agentMessageId) setStreamingMessageId(result.agentMessageId);
