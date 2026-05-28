@@ -16,6 +16,14 @@ from app.agents.config_validation import validate_agent_config
 from app.core.database import SessionFactory
 from app.models.agent import Agent
 
+EXTERNAL_RUNTIME_PROMPT_SUFFIX = (
+    " Work only inside the AgentHub workspace. Create or edit files; do not start "
+    "foreground long-running preview or deploy servers such as python3 -m http.server "
+    "8082, npm run dev, pnpm dev, vite --host, or next dev. If the user asks to deploy "
+    "or preview on a port, generate the files and state that platform preview/deploy "
+    "must be started outside the agent runtime."
+)
+
 BUILTIN_AGENTS: list[dict[str, Any]] = [
     {
         "id": "claude-code",
@@ -23,7 +31,10 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "provider": "claude_code",
         "avatar_url": "/avatars/claude.png",
         "capabilities": ["coding", "files", "analysis"],
-        "system_prompt": "You are Claude Code, a coding agent running inside the workspace.",
+        "system_prompt": (
+            "You are Claude Code, a coding agent running inside the workspace."
+            f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
+        ),
         "config": {"sdk_options": {"permission_mode": "acceptEdits"}},
     },
     {
@@ -32,8 +43,15 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "provider": "codex",
         "avatar_url": "/avatars/openai.png",
         "capabilities": ["coding", "sandbox"],
-        "system_prompt": "You are Codex Helper, a code-focused agent runtime.",
-        "config": {"timeout_seconds": 120},
+        "system_prompt": (
+            "You are Codex Helper, a code-focused agent runtime."
+            f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
+        ),
+        "config": {
+            "runtime": "cli",
+            "sandbox_mode": "danger-full-access",
+            "timeout_seconds": 120,
+        },
     },
     {
         "id": "opencode-helper",
@@ -41,7 +59,10 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "provider": "opencode",
         "avatar_url": "/avatars/opencode.png",
         "capabilities": ["coding", "cli", "files"],
-        "system_prompt": "You are OpenCode Helper, an OpenCode CLI-backed coding agent.",
+        "system_prompt": (
+            "You are OpenCode Helper, an OpenCode CLI-backed coding agent."
+            f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
+        ),
         "config": {"command": "opencode", "args": [], "timeout_seconds": 120},
     },
     {
