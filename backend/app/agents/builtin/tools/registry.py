@@ -21,6 +21,10 @@ TOOLS: dict[str, ToolSpec] = {
                     "type": "string",
                     "description": "Path relative to workspace root",
                 },
+                "file_path": {
+                    "type": "string",
+                    "description": "Compatibility alias for path",
+                },
             },
             "required": ["path"],
         },
@@ -32,6 +36,10 @@ TOOLS: dict[str, ToolSpec] = {
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
+                "file_path": {
+                    "type": "string",
+                    "description": "Compatibility alias for path",
+                },
                 "content": {"type": "string"},
             },
             "required": ["path", "content"],
@@ -68,11 +76,11 @@ class ToolRegistry:
         config: dict[str, Any],
     ) -> str:
         if tool_name == "read_file":
-            return await read_file(workspace_path, _str_arg(arguments, "path"))
+            return await read_file(workspace_path, _str_arg(arguments, "path", "file_path"))
         if tool_name == "write_file":
             return await write_file(
                 workspace_path,
-                _str_arg(arguments, "path"),
+                _str_arg(arguments, "path", "file_path"),
                 _str_arg(arguments, "content"),
             )
         if tool_name == "bash":
@@ -84,11 +92,12 @@ class ToolRegistry:
         raise ToolExecutionError(f"unknown tool: {tool_name}")
 
 
-def _str_arg(arguments: dict[str, Any], key: str) -> str:
-    value = arguments.get(key)
-    if not isinstance(value, str):
-        raise ToolExecutionError(f"missing or invalid argument: {key}")
-    return value
+def _str_arg(arguments: dict[str, Any], key: str, *aliases: str) -> str:
+    for candidate in (key, *aliases):
+        value = arguments.get(candidate)
+        if isinstance(value, str):
+            return value
+    raise ToolExecutionError(f"missing or invalid argument: {key}")
 
 
 def _float_config(config: dict[str, Any], key: str, default: float) -> float:

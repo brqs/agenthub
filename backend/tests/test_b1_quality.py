@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
@@ -210,6 +210,38 @@ async def test_send_message_rejects_agent_outside_conversation(
 
     assert response.status_code == 404
     assert response.json()["detail"]["error"]["code"] == "AGENT_NOT_FOUND"
+
+
+async def test_send_message_rejects_when_agent_response_pending(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    first = await _send_message(client, headers, conversation["id"])
+
+    response = await client.post(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "你是什么模型"}]},
+    )
+
+    body = response.json()
+    assert response.status_code == 409
+    assert body["detail"]["error"]["code"] == "CONVERSATION_BUSY"
+    assert body["detail"]["error"]["details"]["message_id"] == first["agent_message"]["id"]
+    assert body["detail"]["error"]["details"]["status"] == "pending"
+
+    async with SessionFactory() as db:
+        messages = (
+            await db.execute(
+                select(Message).where(
+                    Message.conversation_id == UUID(conversation["id"])
+                )
+            )
+        ).scalars().all()
+
+    assert [message.role for message in messages] == ["user", "agent"]
 
 
 async def test_password_over_bcrypt_limit_returns_422(client: AsyncClient) -> None:

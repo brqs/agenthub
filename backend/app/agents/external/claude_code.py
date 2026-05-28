@@ -11,7 +11,11 @@ from typing import Any, Literal, cast
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.cli_runtime import run_cli_text
-from app.agents.external.workspace_prompt import workspace_guard_prompt
+from app.agents.external.workspace_prompt import (
+    direct_identity_response,
+    format_runtime_messages,
+    workspace_guard_prompt,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "claude_agent_sdk"
@@ -40,6 +44,14 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
 
         if workspace_path is None:
             yield self._error_chunk("workspace_violation", "workspace_path is required")
+            return
+
+        direct_response = direct_identity_response(messages, agent_id=self.agent_id)
+        if direct_response:
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(event_type="delta", block_index=0, text_delta=direct_response)
+            yield StreamChunk(event_type="block_end", block_index=0)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
             return
 
         timeout_seconds = self._float_config(
@@ -219,11 +231,9 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         lines: list[str] = [f"System: {workspace_guard_prompt(workspace_path)}"]
         if effective_system:
             lines.append(f"System: {effective_system}")
-        for message in messages:
-            if message.role == "system":
-                lines.append(f"System: {message.content}")
-            elif message.content:
-                lines.append(f"{message.role.title()}: {message.content}")
+        conversation = format_runtime_messages(messages)
+        if conversation:
+            lines.append(conversation)
         return "\n\n".join(lines)
 
     def _map_sdk_event(self, event: Any) -> list[StreamChunk]:

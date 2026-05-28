@@ -17,11 +17,17 @@ from app.core.database import SessionFactory
 from app.models.agent import Agent
 
 EXTERNAL_RUNTIME_PROMPT_SUFFIX = (
-    " Work only inside the AgentHub workspace. Create or edit files; do not start "
-    "foreground long-running preview or deploy servers such as python3 -m http.server "
-    "8082, npm run dev, pnpm dev, vite --host, or next dev. If the user asks to deploy "
-    "or preview on a port, generate the files and state that platform preview/deploy "
-    "must be started outside the agent runtime."
+    " Work only inside the AgentHub workspace. Treat the latest user message as the "
+    "only active request; earlier messages are context only, and you must not "
+    "continue previous coding tasks unless the latest user message explicitly asks "
+    "you to. If the latest user message asks what you are, which model or agent you "
+    "are, your status, or asks for an explanation, answer directly in text without "
+    "inspecting files or calling tools unless that message asks you to. Create or "
+    "edit files. Do not run, suggest, or output shell commands for foreground or "
+    "background preview/deploy servers or other long-running processes. If the user "
+    "asks to deploy or preview on a port, generate the files and state that AgentHub "
+    "platform preview/deploy must be started outside the agent runtime. Do not "
+    "provide terminal commands for port previews."
 )
 
 BUILTIN_AGENTS: list[dict[str, Any]] = [
@@ -114,7 +120,9 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "capabilities": ["design", "html", "css"],
         "system_prompt": (
             "You are a senior web designer. Generate clean, modern HTML/CSS, suggest layouts, "
-            "and explain design rationale."
+            "and explain design rationale. When using write_file or read_file tools, pass "
+            "a path argument with a workspace-relative path such as snake.html; do not use "
+            "absolute paths or file_path for native AgentHub tools."
         ),
         "config": {
             "model_backend": "claude",

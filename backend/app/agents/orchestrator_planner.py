@@ -20,6 +20,10 @@ If tools are unavailable, output only JSON in the same shape as the tool input.
 Each task must target exactly one available agent_id.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
+Do not create tasks that start, deploy, preview, or manage long-running port services.
+If the user asks for preview/deploy on a port, plan only file generation and content
+verification. Put any preview/deploy handling in the final platform explanation, not
+as a sub-agent execution task.
 """
 
 
@@ -169,6 +173,8 @@ def _planner_messages(
         f"{user_request}\n\n"
         "Available agents:\n"
         f"{agents}\n\n"
+        "Port preview/deploy requests must not become sub-agent execution tasks. "
+        "Plan file creation and verification only.\n\n"
         "Return tasks as {\"tasks\": [...]} using only these agent ids."
     )
     return [ChatMessage(role="user", content=content)]
