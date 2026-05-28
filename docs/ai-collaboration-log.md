@@ -782,3 +782,23 @@ Planner 不能只把 tool schema 传到 Orchestrator helper 层；ModelGateway b
 
 ### 经验
 真实 provider proxy 的 tool calling 能力可能受 thinking mode 等上游策略影响；planner 默认应优先保持兼容性，同时通过 prompt 和 tool schema 引导模型调用 `submit_task_plan`，并依靠显式错误与测试避免静默回退旧模板。
+
+## 2026-05-28 — Codex 增加 Orchestrator 混合问答与任务调度
+
+### 任务
+修复 `@orchestrator 你是什么模型` 这类元信息问题误进 planner 后暴露 `invalid_task_plan` 的问题，同时保留复杂任务的 LLM planning 与子 Agent 调度路径。
+
+### 关键 Prompt
+> 开始执行 Orchestrator 混合问答与任务调度修正：简单元信息问题直接回答，复杂任务继续 planner，planner 协议失败可按配置 fallback 到 direct answer，保持默认 `tool_choice=auto`。
+
+### AI 输出摘要
+1. `OrchestratorAdapter` 新增 direct-answer 路径：身份、模型、能力类问题直接经 `ModelGateway` 回答，不调用 planner、不要求 sub adapters、不产生 `agent_switch`。
+2. planner 协议失败时，`direct_answer_on_planner_failure=true` 可降级为 direct answer；`planner_fallback_to_template=true` 仍保留 legacy template fallback。
+3. OpenAI-compatible `ModelGateway` 补齐 `ToolSpec` 到 function tools 的转换，并把 streamed tool call 聚合为标准 `StreamChunk(tool_call)`。
+4. `seed_agents.py` 中 Orchestrator config 增加 `direct_answer_on_planner_failure=true`，system prompt 明确简单问答和复杂任务调度的混合职责。
+
+### 人工调整
+未修改 OpenAPI、BaseAgentAdapter、StreamChunk、ContentBlock 或前端。验证通过：`tests/test_orchestrator.py tests/test_model_gateway.py tests/test_registry.py`、`tests/test_builtin_agent.py`、`ruff`、`mypy app/agents`。`tests/test_real_agent_demo_smoke.py` 在本地因 PostgreSQL hostname 解析失败未能运行，需在服务器环境复验。
+
+### 经验
+Orchestrator 的 planner 不应承担所有对话形态；简单元信息问答应在调度前短路，复杂任务才进入结构化 planner。seed 中的 Orchestrator 配置变更必须部署后重新执行 seed，否则运行服务仍读取数据库里的旧配置。

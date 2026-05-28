@@ -78,51 +78,90 @@ class FakeClaudeClient:
 
 
 class FakeOpenAIDelta:
-    def __init__(self, content: str | None) -> None:
+    def __init__(
+        self,
+        content: str | None,
+        tool_calls: list[SimpleNamespace] | None = None,
+    ) -> None:
         self.content = content
+        self.tool_calls = tool_calls
 
 
 class FakeOpenAIChoice:
-    def __init__(self, content: str | None) -> None:
-        self.delta = FakeOpenAIDelta(content)
+    def __init__(
+        self,
+        content: str | None,
+        tool_calls: list[SimpleNamespace] | None = None,
+    ) -> None:
+        self.delta = FakeOpenAIDelta(content, tool_calls)
 
 
 class FakeOpenAIChunk:
-    def __init__(self, content: str | None) -> None:
-        self.choices = [FakeOpenAIChoice(content)]
+    def __init__(
+        self,
+        content: str | None = None,
+        tool_calls: list[SimpleNamespace] | None = None,
+    ) -> None:
+        self.choices = [FakeOpenAIChoice(content, tool_calls)]
 
 
 class FakeOpenAIStream:
-    def __init__(self, contents: list[str | None]) -> None:
-        self._contents = contents
+    def __init__(self, chunks: list[FakeOpenAIChunk]) -> None:
+        self._chunks = chunks
 
     async def __aiter__(self) -> AsyncIterator[FakeOpenAIChunk]:
-        for content in self._contents:
-            yield FakeOpenAIChunk(content)
+        for chunk in self._chunks:
+            yield chunk
 
 
 class FakeOpenAICompletions:
-    def __init__(self, contents: list[str | None]) -> None:
-        self._contents = contents
+    def __init__(
+        self,
+        contents: list[str | None] | None = None,
+        chunks: list[FakeOpenAIChunk] | None = None,
+    ) -> None:
+        self._chunks = chunks or [FakeOpenAIChunk(content) for content in contents or []]
         self.last_call_kwargs: dict[str, Any] = {}
 
     async def create(self, **kwargs: Any) -> FakeOpenAIStream:
         self.last_call_kwargs = kwargs
-        return FakeOpenAIStream(self._contents)
+        return FakeOpenAIStream(self._chunks)
 
 
 class FakeOpenAIChat:
-    def __init__(self, contents: list[str | None]) -> None:
-        self.completions = FakeOpenAICompletions(contents)
+    def __init__(
+        self,
+        contents: list[str | None] | None = None,
+        chunks: list[FakeOpenAIChunk] | None = None,
+    ) -> None:
+        self.completions = FakeOpenAICompletions(contents, chunks)
 
 
 class FakeOpenAIClient:
-    def __init__(self, contents: list[str | None]) -> None:
-        self.chat = FakeOpenAIChat(contents)
+    def __init__(
+        self,
+        contents: list[str | None] | None = None,
+        chunks: list[FakeOpenAIChunk] | None = None,
+    ) -> None:
+        self.chat = FakeOpenAIChat(contents, chunks)
 
 
 def _event(event_type: str, **kwargs: Any) -> SimpleNamespace:
     return SimpleNamespace(type=event_type, **kwargs)
+
+
+def _openai_tool_delta(
+    *,
+    index: int,
+    call_id: str | None = None,
+    name: str | None = None,
+    arguments: str | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        index=index,
+        id=call_id,
+        function=SimpleNamespace(name=name, arguments=arguments),
+    )
 
 
 def _assert_equivalent(
@@ -268,25 +307,74 @@ async def test_model_gateway_claude_passes_tools_and_maps_tool_use(
     assert chunks[-1].event_type == "done"
 
 
-async def test_model_gateway_accepts_tools_without_passing_to_raw_openai(
+async def test_model_gateway_openai_passes_tools_and_maps_tool_calls(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "app.agents.model_gateway.openai.settings",
         type("S", (), {"openai_api_key": "fake-key", "openai_base_url": ""})(),
     )
-    fake_client = FakeOpenAIClient(["ok"])
+    fake_client = FakeOpenAIClient(
+        chunks=[
+            FakeOpenAIChunk(
+                tool_calls=[
+                    _openai_tool_delta(
+                        index=0,
+                        call_id="call-1",
+                        name="read_file",
+                        arguments='{"path"',
+                    )
+                ]
+            ),
+            FakeOpenAIChunk(
+                tool_calls=[
+                    _openai_tool_delta(index=0, arguments=':"notes.txt"}')
+                ]
+            ),
+        ]
+    )
     monkeypatch.setattr(OpenAIBackend, "_create_client", lambda self: fake_client)
 
     chunks = await _collect(
         ModelGateway("openai").stream(
             [ChatMessage(role="user", content="hi")],
-            tools=[ToolSpec(name="read_file", parameters={"type": "object"})],
+            config={"tool_choice": {"type": "tool", "name": "read_file"}},
+            tools=[
+                ToolSpec(
+                    name="read_file",
+                    description="Read a file",
+                    parameters={
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                    },
+                )
+            ],
         )
     )
 
+    kwargs = fake_client.chat.completions.last_call_kwargs
+    assert kwargs["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read a file",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                },
+            },
+        }
+    ]
+    assert kwargs["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "read_file"},
+    }
+    tool_call = next(chunk for chunk in chunks if chunk.event_type == "tool_call")
+    assert tool_call.call_id == "call-1"
+    assert tool_call.tool_name == "read_file"
+    assert tool_call.tool_arguments == {"path": "notes.txt"}
     assert chunks[-1].event_type == "done"
-    assert "tools" not in fake_client.chat.completions.last_call_kwargs
 
 
 async def test_model_gateway_missing_key_preserves_error_mapping(
