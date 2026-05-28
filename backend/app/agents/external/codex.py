@@ -1,4 +1,4 @@
-"""Codex external runtime adapter backed by OpenAI Agents SDK."""
+"""Codex external runtime adapter backed by Codex CLI, with SDK opt-in."""
 
 from __future__ import annotations
 
@@ -13,12 +13,17 @@ from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.cli_runtime import run_cli_text
+from app.agents.external.workspace_prompt import workspace_guard_prompt
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "agents"
 DEFAULT_MODEL = "gpt-4.1"
 DEFAULT_TIMEOUT_SECONDS = 120.0
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+DEFAULT_RUNTIME = "cli"
+DEFAULT_CLI_SANDBOX_MODE = "danger-full-access"
+SUPPORTED_RUNTIMES = {"cli", "sdk"}
+SUPPORTED_CLI_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
 TEXT_EVENT_NAMES = {
     "text_delta",
     "text",
@@ -48,7 +53,7 @@ SKIP_EVENT_NAMES = {
 
 
 class CodexAdapter(BaseAgentAdapter):
-    """Adapter for Codex / OpenAI Agents SDK runtime events."""
+    """Adapter for Codex CLI, with OpenAI Agents SDK as an opt-in runtime."""
 
     provider = "codex"
 
@@ -75,6 +80,28 @@ class CodexAdapter(BaseAgentAdapter):
         output_max_chars = int(
             merged.get("tool_output_max_chars", DEFAULT_TOOL_OUTPUT_MAX_CHARS)
         )
+        runtime = self._string_choice(
+            merged.get("runtime"),
+            DEFAULT_RUNTIME,
+            SUPPORTED_RUNTIMES,
+        )
+        if runtime is None:
+            yield self._error(
+                "external_runtime_error",
+                "Codex runtime must be one of: cli, sdk",
+            )
+            return
+
+        if runtime == "cli":
+            async for chunk in self._stream_cli(
+                messages,
+                system_prompt,
+                merged,
+                workspace_path,
+                timeout_seconds,
+            ):
+                yield chunk
+            return
 
         try:
             sdk = self._load_sdk()
@@ -178,13 +205,13 @@ class CodexAdapter(BaseAgentAdapter):
             str(workspace_path),
             "--skip-git-repo-check",
             "--sandbox",
-            "workspace-write",
+            self._cli_sandbox_mode(config),
             "--ephemeral",
             "--color",
             "never",
             "-o",
             str(output_path),
-            self._format_cli_prompt(messages, system_prompt),
+            self._format_cli_prompt(messages, system_prompt, workspace_path),
         ]
         model = config.get("model")
         if isinstance(model, str) and model:
@@ -274,7 +301,13 @@ class CodexAdapter(BaseAgentAdapter):
         run_config = self._build_run_config(sdk, workspace_path, config)
 
         if runner is not None and agent_cls is not None:
-            agent = self._build_agent(agent_cls, messages, system_prompt, config)
+            agent = self._build_agent(
+                agent_cls,
+                messages,
+                system_prompt,
+                workspace_path,
+                config,
+            )
             run_streamed = runner.run_streamed
             kwargs = self._supported_kwargs(
                 run_streamed,
@@ -295,7 +328,11 @@ class CodexAdapter(BaseAgentAdapter):
                 {
                     "input": prompt,
                     "messages": [message.model_dump() for message in messages],
-                    "system_prompt": self._effective_instructions(messages, system_prompt),
+                    "system_prompt": self._effective_instructions(
+                        messages,
+                        system_prompt,
+                        workspace_path,
+                    ),
                     "model": str(config.get("model") or DEFAULT_MODEL),
                     "run_config": run_config,
                 },
@@ -312,13 +349,18 @@ class CodexAdapter(BaseAgentAdapter):
         agent_cls: Callable[..., Any],
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
         config: dict[str, Any],
     ) -> Any:
         kwargs = self._supported_kwargs(
             agent_cls,
             {
                 "name": self.agent_id,
-                "instructions": self._effective_instructions(messages, system_prompt),
+                "instructions": self._effective_instructions(
+                    messages,
+                    system_prompt,
+                    workspace_path,
+                ),
                 "model": str(config.get("model") or DEFAULT_MODEL),
             },
         )
@@ -547,8 +589,9 @@ class CodexAdapter(BaseAgentAdapter):
         self,
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
     ) -> str:
-        lines: list[str] = []
+        lines: list[str] = [workspace_guard_prompt(workspace_path)]
         effective_system = self.effective_system_prompt(system_prompt)
         if effective_system:
             lines.append(effective_system)
@@ -567,8 +610,13 @@ class CodexAdapter(BaseAgentAdapter):
         self,
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
     ) -> str:
-        instructions = self._effective_instructions(messages, system_prompt)
+        instructions = self._effective_instructions(
+            messages,
+            system_prompt,
+            workspace_path,
+        )
         user_input = self._format_input(messages)
         if instructions and user_input:
             return f"System: {instructions}\n\n{user_input}"
@@ -598,6 +646,27 @@ class CodexAdapter(BaseAgentAdapter):
         except (TypeError, ValueError):
             return default
         return parsed if parsed > 0 else default
+
+    @staticmethod
+    def _string_choice(
+        value: object,
+        default: str,
+        allowed: set[str],
+    ) -> str | None:
+        if value is None:
+            return default
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        return normalized if normalized in allowed else None
+
+    def _cli_sandbox_mode(self, config: dict[str, Any]) -> str:
+        mode = self._string_choice(
+            config.get("sandbox_mode"),
+            DEFAULT_CLI_SANDBOX_MODE,
+            SUPPORTED_CLI_SANDBOX_MODES,
+        )
+        return mode or DEFAULT_CLI_SANDBOX_MODE
 
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:

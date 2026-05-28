@@ -11,6 +11,7 @@ from typing import Any, Literal, cast
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.cli_runtime import run_cli_text
+from app.agents.external.workspace_prompt import workspace_guard_prompt
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "claude_agent_sdk"
@@ -48,7 +49,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
 
         try:
             sdk = self._load_sdk()
-            prompt = self._format_prompt(messages, system_prompt)
+            prompt = self._format_prompt(messages, system_prompt, workspace_path)
             stream = await self._open_sdk_stream(sdk, prompt, workspace_path, config)
         except ModuleNotFoundError as exc:
             if exc.name == SDK_MODULE_NAME:
@@ -127,7 +128,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             merged.get("timeout_seconds"),
             DEFAULT_CLI_TIMEOUT_SECONDS,
         )
-        prompt = self._format_prompt(messages, system_prompt)
+        prompt = self._format_prompt(messages, system_prompt, workspace_path)
         command = [
             "claude",
             "-p",
@@ -212,9 +213,10 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         self,
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
     ) -> str:
         effective_system = self.effective_system_prompt(system_prompt)
-        lines: list[str] = []
+        lines: list[str] = [f"System: {workspace_guard_prompt(workspace_path)}"]
         if effective_system:
             lines.append(f"System: {effective_system}")
         for message in messages:

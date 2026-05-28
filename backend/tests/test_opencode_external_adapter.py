@@ -274,6 +274,81 @@ class TestOpenCodeAdapterStream:
         assert tool_result.tool_status == "ok"
         assert tool_result.tool_output == "wrote index.html"
 
+    @pytest.mark.parametrize("status", ["error", "failed"])
+    async def test_tool_use_terminal_error_maps_result(
+        self,
+        status: str,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess(
+            [
+                _json_line(
+                    {
+                        "type": "tool_use",
+                        "part": {
+                            "type": "tool",
+                            "id": "tool-1",
+                            "tool": "bash",
+                            "state": {
+                                "status": status,
+                                "input": {"command": "python3 -m http.server 8082"},
+                                "error": "long-running command rejected",
+                            },
+                        },
+                    }
+                ),
+                _json_line({"type": "done"}),
+            ]
+        )
+        _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        tool_call = next(chunk for chunk in chunks if chunk.event_type == "tool_call")
+        tool_result = next(chunk for chunk in chunks if chunk.event_type == "tool_result")
+        assert tool_call.call_id == "tool-1"
+        assert tool_call.tool_name == "bash"
+        assert tool_result.call_id == "tool-1"
+        assert tool_result.tool_status == "error"
+        assert tool_result.tool_output == "long-running command rejected"
+
+    @pytest.mark.parametrize("status", ["running", "pending", "started", None])
+    async def test_tool_use_non_terminal_status_does_not_emit_result(
+        self,
+        status: str | None,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        state: dict[str, Any] = {
+            "input": {"command": "python3 -m http.server 8082"},
+        }
+        if status is not None:
+            state["status"] = status
+        process = FakeProcess(
+            [
+                _json_line(
+                    {
+                        "type": "tool_use",
+                        "part": {
+                            "type": "tool",
+                            "id": "tool-1",
+                            "tool": "bash",
+                            "state": state,
+                        },
+                    }
+                ),
+                _json_line({"type": "done"}),
+            ]
+        )
+        _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert chunks[-1].event_type == "done"
+        assert [chunk.event_type for chunk in chunks].count("tool_call") == 1
+        assert not any(chunk.event_type == "tool_result" for chunk in chunks)
+
     async def test_workspace_path_is_subprocess_cwd_and_env_is_allowlisted(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -297,6 +372,41 @@ class TestOpenCodeAdapterStream:
         assert "OPENAI_API_KEY" not in call["env"]
         assert process.stdin.closed is True
 
+    async def test_default_prompt_includes_workspace_rules(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess([_json_line({"type": "done"})])
+        factory = _patch_subprocess(monkeypatch, process)
+
+        await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        prompt = factory.calls[0]["argv"][-1]
+        assert str(tmp_path) in prompt
+        assert "Workspace root:" in prompt
+        assert "Never write to /home/user" in prompt
+        assert "Do not start long-running or background servers" in prompt
+
+    async def test_stdin_payload_includes_workspace_rules(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess([_json_line({"type": "done"})])
+        _patch_subprocess(monkeypatch, process)
+
+        await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            config={"args": ["run", "--jsonl"]},
+        )
+
+        payload = json.loads(process.stdin.data.decode())
+        assert str(tmp_path) in payload["system_prompt"]
+        assert "Workspace root:" in payload["system_prompt"]
+        assert "Never write to /home/user" in payload["system_prompt"]
+
 
 class TestOpenCodeAdapterErrors:
     async def test_missing_workspace_yields_workspace_violation(self) -> None:
@@ -319,7 +429,7 @@ class TestOpenCodeAdapterErrors:
         assert chunks[-1].error_code == "external_runtime_error"
         assert "runtime failed" in (chunks[-1].error or "")
 
-    async def test_done_then_nonzero_exit_maps_external_runtime_error(
+    async def test_done_then_nonzero_exit_completes(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -333,9 +443,45 @@ class TestOpenCodeAdapterErrors:
 
         chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
 
-        assert [chunk.event_type for chunk in chunks] == ["start", "error"]
-        assert chunks[-1].error_code == "external_runtime_error"
-        assert "done but failed" in (chunks[-1].error or "")
+        assert [chunk.event_type for chunk in chunks] == ["start", "done"]
+
+    async def test_nonzero_exit_after_tool_events_completes(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess(
+            [
+                _json_line(
+                    {
+                        "type": "tool_call",
+                        "call_id": "c-1",
+                        "tool_name": "write_file",
+                        "arguments": {"path": "index.html"},
+                    }
+                ),
+                _json_line(
+                    {
+                        "type": "tool_result",
+                        "call_id": "c-1",
+                        "status": "ok",
+                        "output": "wrote index.html",
+                    }
+                ),
+            ],
+            returncode=2,
+            stderr=b"non-fatal trailer",
+        )
+        _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "tool_call",
+            "tool_result",
+            "done",
+        ]
 
     async def test_unsupported_event_is_terminal_error(
         self,
