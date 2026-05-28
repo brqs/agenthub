@@ -18,20 +18,27 @@ from app.seeds.seed_agents import BUILTIN_AGENTS
 
 class TestValidConfigs:
     def test_valid_claude_code_config(self) -> None:
-        config = {"sdk_options": {}}
+        config = {
+            "sdk_options": {},
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 180,
+            "heartbeat_interval_seconds": 15,
+        }
         result = validate_agent_config(
             provider="claude_code",
             config=config,
             system_prompt=None,
         )
-        assert result == {"sdk_options": {}}
+        assert result == config
 
     def test_valid_codex_config(self) -> None:
         config = {
             "model": "gpt-4.1",
             "runtime": "cli",
             "sandbox_mode": "danger-full-access",
-            "timeout_seconds": 120,
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 240,
+            "heartbeat_interval_seconds": 15,
         }
         result = validate_agent_config(
             provider="codex",
@@ -41,10 +48,18 @@ class TestValidConfigs:
         assert result["model"] == "gpt-4.1"
         assert result["runtime"] == "cli"
         assert result["sandbox_mode"] == "danger-full-access"
-        assert result["timeout_seconds"] == 120
+        assert result["max_runtime_seconds"] == 600
+        assert result["idle_timeout_seconds"] == 240
+        assert result["heartbeat_interval_seconds"] == 15
 
     def test_valid_opencode_config(self) -> None:
-        config = {"command": "opencode", "args": ["run", "--jsonl"], "timeout_seconds": 120}
+        config = {
+            "command": "opencode",
+            "args": ["run", "--jsonl"],
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 180,
+            "heartbeat_interval_seconds": 15,
+        }
         result = validate_agent_config(
             provider="opencode",
             config=config,
@@ -188,6 +203,16 @@ class TestNumericValidation:
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "boolean" in exc_info.value.message
 
+    def test_idle_timeout_cannot_exceed_max_runtime(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="opencode",
+                config={"max_runtime_seconds": 10, "idle_timeout_seconds": 11},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "idle_timeout_seconds" in exc_info.value.message
+
     def test_max_iterations_bool_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
@@ -270,6 +295,9 @@ class TestBuiltinAgents:
         assert "path argument" in prompt
         assert "workspace-relative path such as snake.html" in prompt
         assert "absolute paths" in prompt
+        assert "Treat the latest user message as the only active request" in prompt
+        assert "Do not run, suggest, output, or call tools" in prompt
+        assert "platform preview/deploy must be started outside the agent runtime" in prompt
 
 
 class TestCreateAgentRequestSchema:

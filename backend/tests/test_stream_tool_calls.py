@@ -209,6 +209,52 @@ async def test_stream_persists_tool_call_block_ok(
     ]
 
 
+async def test_stream_heartbeat_is_sse_only_not_persisted(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(
+                event_type="heartbeat",
+                agent_id="tool-agent",
+                metadata={
+                    "elapsed_seconds": 15,
+                    "idle_seconds": 15,
+                    "max_runtime_seconds": 600,
+                    "idle_timeout_seconds": 180,
+                },
+            )
+            yield StreamChunk(event_type="done")
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter()
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    status_code, body = await _stream_message(client, headers, agent_message_id)
+    message = await _stored_message(agent_message_id)
+
+    assert status_code == 200
+    assert "event: heartbeat" in body
+    assert message.status == "done"
+    assert message.content == []
+
+
 async def test_stream_persists_tool_call_block_error(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
