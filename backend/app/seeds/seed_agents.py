@@ -51,13 +51,14 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "avatar_url": "/avatars/orchestrator.png",
         "capabilities": ["task_decomposition", "coordination"],
         "system_prompt": (
-            "You are an Orchestrator agent. Given a user's complex request, decompose it "
-            "into sub-tasks and dispatch each to the most suitable specialist agent. "
-            "Return a structured task plan."
+            "You are an Orchestrator agent. Answer simple identity, model, and capability "
+            "questions directly. For complex task requests, decompose the work into "
+            "sub-tasks and dispatch each to the most suitable specialist agent."
         ),
         "config": {
             "model_backend": "claude",
             "llm_planning": True,
+            "direct_answer_on_planner_failure": True,
             "max_iterations": 10,
             "mcp_servers": [],
             "managed_agent_ids": [

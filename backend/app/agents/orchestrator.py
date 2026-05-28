@@ -9,10 +9,75 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.model_gateway import ModelGateway
 from app.agents.orchestrator_planner import llm_planning_enabled, plan_task_payload
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 AdapterFactory = Callable[[str], BaseAgentAdapter | Awaitable[BaseAgentAdapter]]
+
+DIRECT_ANSWER_SYSTEM_PROMPT = """You are AgentHub's Orchestrator.
+Answer simple questions about your identity, configured model backend, capabilities,
+and coordination role directly. Do not create a task plan for these answers.
+For implementation or artifact-building requests, the backend will use the planner
+and dispatch specialist agents instead.
+"""
+
+META_QUESTION_MARKERS = (
+    "你是谁",
+    "你是什么",
+    "什么模型",
+    "哪个模型",
+    "什么 runtime",
+    "什么runtime",
+    "能做什么",
+    "可以做什么",
+    "介绍一下",
+    "自我介绍",
+    "你的能力",
+    "你的职责",
+    "who are you",
+    "what model",
+    "which model",
+    "what runtime",
+    "what can you do",
+    "your capabilities",
+    "introduce yourself",
+)
+
+TASK_INTENT_MARKERS = (
+    "生成",
+    "创建",
+    "写一个",
+    "写入",
+    "实现",
+    "构建",
+    "修改",
+    "修复",
+    "部署",
+    "复核",
+    "安排",
+    "协调",
+    "调用",
+    "分别",
+    "让 ",
+    "让@",
+    "build",
+    "create",
+    "generate",
+    "write",
+    "implement",
+    "fix",
+    "deploy",
+    "review",
+    "coordinate",
+    "ask ",
+)
+
+PLANNER_PROTOCOL_ERROR_MARKERS = (
+    "invalid_json",
+    "empty_planner_output",
+    "planner failed",
+)
 
 
 class TaskState(StrEnum):
@@ -52,6 +117,10 @@ class TaskRunResult:
     state: TaskState = TaskState.PENDING
 
 
+class PlannerResolutionError(ValueError):
+    """Raised when LLM planner output cannot be used as a task plan."""
+
+
 class OrchestratorAdapter(BaseAgentAdapter):
     """Master agent that coordinates multiple sub-agents in group chat."""
 
@@ -70,12 +139,74 @@ class OrchestratorAdapter(BaseAgentAdapter):
 
         merged_config = self.merged_config(config)
         next_block_index = 0
+        if _should_direct_answer(merged_config, messages):
+            async for chunk, updated_block_index, failed in _run_direct_answer(
+                merged_config,
+                messages,
+                self.effective_system_prompt(system_prompt),
+                next_block_index,
+            ):
+                next_block_index = updated_block_index
+                yield chunk
+                if failed:
+                    return
+            yield StreamChunk(
+                event_type="done",
+                agent_id=self.agent_id,
+                total_blocks=next_block_index,
+            )
+            return
+
         try:
             tasks = await _resolve_tasks(
                 merged_config,
                 messages,
                 self.effective_system_prompt(system_prompt),
             )
+        except PlannerResolutionError as exc:
+            if _should_direct_answer_after_planner_error(merged_config, exc):
+                async for chunk, updated_block_index, failed in _run_direct_answer(
+                    merged_config,
+                    messages,
+                    self.effective_system_prompt(system_prompt),
+                    next_block_index,
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk
+                    if failed:
+                        return
+                yield StreamChunk(
+                    event_type="done",
+                    agent_id=self.agent_id,
+                    total_blocks=next_block_index,
+                )
+                return
+            if _has_fallback(merged_config):
+                async for chunk, updated_block_index in _run_fallback(
+                    merged_config,
+                    messages,
+                    next_block_index,
+                    workspace_path,
+                    tool_specs,
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk
+                for chunk in _text_block(next_block_index, _fallback_summary_text()):
+                    yield chunk
+                next_block_index += 1
+                yield StreamChunk(
+                    event_type="done",
+                    agent_id=self.agent_id,
+                    total_blocks=next_block_index,
+                )
+                return
+            yield StreamChunk(
+                event_type="error",
+                error_code=_error_code(exc),
+                error=str(exc),
+                agent_id=self.agent_id,
+            )
+            return
         except ValueError as exc:
             if _has_fallback(merged_config):
                 async for chunk, updated_block_index in _run_fallback(
@@ -201,10 +332,10 @@ async def _resolve_tasks(
         if llm_planning_enabled(config):
             try:
                 return await _plan_tasks_with_model(config, messages, system_prompt)
-            except ValueError:
+            except ValueError as exc:
                 if _planner_fallback_to_template(config):
                     return _derive_tasks(config, messages)
-                raise
+                raise PlannerResolutionError(str(exc)) from exc
         return _derive_tasks(config, messages)
 
     return _parse_task_list(raw_tasks)
@@ -271,6 +402,46 @@ def _direct_tasks_from_request(
 
 def _planner_fallback_to_template(config: Mapping[str, Any]) -> bool:
     return config.get("planner_fallback_to_template") is True
+
+
+def _direct_answer_on_planner_failure(config: Mapping[str, Any]) -> bool:
+    return config.get("direct_answer_on_planner_failure") is True
+
+
+def _should_direct_answer_after_planner_error(
+    config: Mapping[str, Any],
+    exc: PlannerResolutionError,
+) -> bool:
+    if not _direct_answer_on_planner_failure(config):
+        return False
+    message = str(exc)
+    return any(marker in message for marker in PLANNER_PROTOCOL_ERROR_MARKERS)
+
+
+def _should_direct_answer(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+) -> bool:
+    if config.get("tasks") is not None:
+        return False
+    user_request = _latest_user_request(messages)
+    agent_ids = _agent_id_list(
+        config.get("managed_agent_ids", config.get("default_sub_agents"))
+    )
+    if _explicit_agent_mentions(agent_ids, user_request):
+        return False
+    normalized = _strip_orchestrator_mention(user_request).lower()
+    if _has_task_intent(normalized):
+        return False
+    return any(marker in normalized for marker in META_QUESTION_MARKERS)
+
+
+def _strip_orchestrator_mention(text: str) -> str:
+    return text.replace("@orchestrator", "").replace("＠orchestrator", "").strip()
+
+
+def _has_task_intent(text: str) -> bool:
+    return any(marker in text for marker in TASK_INTENT_MARKERS)
 
 
 def _derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
@@ -558,6 +729,137 @@ async def _run_fallback(
             f"@{fallback_agent_id} failed: {exc}",
         ):
             yield chunk, updated_block_index
+
+
+async def _run_direct_answer(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    system_prompt: str | None,
+    next_block_index: int,
+) -> AsyncIterator[tuple[StreamChunk, int, bool]]:
+    try:
+        gateway = _answer_gateway(config, system_prompt)
+        answer_config = _answer_config(config)
+    except ValueError as exc:
+        yield StreamChunk(
+            event_type="error",
+            error_code=_error_code(exc),
+            error=str(exc),
+            agent_id="orchestrator",
+        ), next_block_index, True
+        return
+
+    index_map: dict[int, int] = {}
+    open_block_index: int | None = None
+
+    try:
+        async for chunk in gateway.stream(
+            _answer_messages(config, messages),
+            system_prompt=_answer_system_prompt(config, system_prompt),
+            config=answer_config,
+        ):
+            if chunk.event_type in {"start", "done"}:
+                continue
+            if chunk.event_type == "error":
+                if open_block_index is not None:
+                    yield StreamChunk(
+                        event_type="block_end", block_index=open_block_index
+                    ), next_block_index, False
+                    open_block_index = None
+                yield chunk, next_block_index, True
+                return
+            if chunk.event_type in {"tool_call", "tool_result"}:
+                yield _remap_tool_call_id(chunk, "direct-answer"), next_block_index, False
+                continue
+            if chunk.event_type not in {"block_start", "delta", "block_end"}:
+                continue
+            remapped, next_block_index = _remap_block_index(
+                chunk,
+                index_map,
+                next_block_index,
+            )
+            if remapped.event_type == "block_start":
+                open_block_index = remapped.block_index
+            elif remapped.event_type == "block_end":
+                open_block_index = None
+            yield remapped, next_block_index, False
+    except Exception as exc:
+        if open_block_index is not None:
+            yield StreamChunk(
+                event_type="block_end", block_index=open_block_index
+            ), next_block_index, False
+        yield StreamChunk(
+            event_type="error",
+            error_code="upstream_error",
+            error=str(exc),
+            agent_id="orchestrator",
+        ), next_block_index, True
+
+
+def _answer_gateway(config: Mapping[str, Any], system_prompt: str | None) -> Any:
+    gateway = config.get("answer_gateway")
+    if gateway is not None:
+        return gateway
+
+    backend = config.get("answer_model_backend", config.get("model_backend", "claude"))
+    if not isinstance(backend, str) or not backend.strip():
+        raise ValueError("invalid_answer_config: answer model backend must be a string")
+    return ModelGateway(
+        backend,
+        default_config=_answer_config(config),
+        agent_id="orchestrator-answer",
+        system_prompt=_answer_system_prompt(config, system_prompt),
+    )
+
+
+def _answer_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    raw_config = config.get("orchestrator_answer_config", {})
+    if raw_config is None:
+        raw_config = {}
+    if not isinstance(raw_config, Mapping):
+        raise ValueError("invalid_answer_config: orchestrator_answer_config must be an object")
+
+    answer_config: dict[str, Any] = {
+        "temperature": 0.2,
+        "max_tokens": 1024,
+    }
+    answer_config.update(dict(raw_config))
+    for key in ("model", "max_retries", "request_timeout_seconds"):
+        if key in config and key not in answer_config:
+            answer_config[key] = config[key]
+    return answer_config
+
+
+def _answer_system_prompt(config: Mapping[str, Any], system_prompt: str | None) -> str:
+    backend = config.get("answer_model_backend", config.get("model_backend", "claude"))
+    backend_name = backend if isinstance(backend, str) and backend else "claude"
+    prompt = (
+        f"{DIRECT_ANSWER_SYSTEM_PROMPT}\n"
+        f"Configured answer backend: {backend_name}.\n"
+        "If asked what model you are, answer as AgentHub Orchestrator and mention "
+        "that your direct answers use the configured ModelGateway backend."
+    )
+    if system_prompt:
+        return f"{system_prompt}\n\n{prompt}"
+    return prompt
+
+
+def _answer_messages(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+) -> list[ChatMessage]:
+    _ = config
+    user_request = _latest_user_request(messages)
+    return [
+        ChatMessage(
+            role="user",
+            content=(
+                "Answer this user message directly as AgentHub Orchestrator. "
+                "Do not create or describe a task plan.\n\n"
+                f"User message:\n{user_request}"
+            ),
+        )
+    ]
 
 
 async def _get_sub_adapter(
