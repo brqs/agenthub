@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import openai
 
@@ -23,6 +24,8 @@ from app.agents.model_gateway.resilience import (
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 from app.core.config import settings
+
+DEFAULT_TOOL_PARAMETERS: dict[str, Any] = {"type": "object", "properties": {}}
 
 
 class OpenAIBackend:
@@ -95,6 +98,20 @@ class OpenAIBackend:
     def effective_system_prompt(self, override: str | None) -> str | None:
         return override if override is not None else self.system_prompt
 
+    def _openai_tools(self, tools: list[ToolSpec] | None) -> list[dict[str, Any]]:
+        if not tools:
+            return []
+        openai_tools: list[dict[str, Any]] = []
+        for tool in tools:
+            function: dict[str, Any] = {
+                "name": tool.name,
+                "parameters": tool.parameters or DEFAULT_TOOL_PARAMETERS,
+            }
+            if tool.description:
+                function["description"] = tool.description
+            openai_tools.append({"type": "function", "function": function})
+        return openai_tools
+
     async def _open_stream_with_retries(
         self,
         client: Any,
@@ -138,7 +155,6 @@ class OpenAIBackend:
         config: dict[str, Any] | None = None,
         tools: list[ToolSpec] | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        _ = tools
         merged = self.merged_config(config)
         resilience = parse_resilience_config(merged)
         model = merged.get("model") or self.default_model
@@ -196,6 +212,12 @@ class OpenAIBackend:
             "max_tokens": max_tokens,
             "stream": True,
         }
+        openai_tools = self._openai_tools(tools)
+        if openai_tools:
+            stream_kwargs["tools"] = openai_tools
+            tool_choice = _openai_tool_choice(merged.get("tool_choice"))
+            if tool_choice is not None:
+                stream_kwargs["tool_choice"] = tool_choice
 
         stream, setup_error, attempts = await self._open_stream_with_retries(
             client,
@@ -215,17 +237,22 @@ class OpenAIBackend:
             return
 
         try:
+            tool_buffers: dict[int, dict[str, Any]] = {}
             async for chunk in stream:
                 if not chunk.choices:
                     continue
-                delta = chunk.choices[0].delta.content
-                if not delta:
-                    continue
-                for parser_chunk in parser.feed(delta):
-                    yield parser_chunk
+                delta_obj = chunk.choices[0].delta
+                delta = _string_attr(delta_obj, "content")
+                if delta:
+                    for parser_chunk in parser.feed(delta):
+                        yield parser_chunk
+                for tool_call in _tool_calls(delta_obj):
+                    _accumulate_tool_call(tool_buffers, tool_call)
 
             for parser_chunk in parser.flush():
                 yield parser_chunk
+            for tool_call in _completed_tool_calls(tool_buffers, self.agent_id):
+                yield tool_call
 
             total_blocks = parser.block_index + 1 if parser.block_index >= 0 else 0
             yield StreamChunk(
@@ -244,3 +271,85 @@ class OpenAIBackend:
                 attempts=attempts,
                 retryable=False,
             )
+
+
+def _openai_tool_choice(value: object) -> object | None:
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, dict):
+        return None
+    raw_type = value.get("type")
+    if raw_type == "auto":
+        return "auto"
+    if raw_type == "tool" and isinstance(value.get("name"), str):
+        return {"type": "function", "function": {"name": value["name"]}}
+    if raw_type == "function":
+        return value
+    return None
+
+
+def _string_attr(value: Any, name: str) -> str | None:
+    attr = getattr(value, name, None)
+    return attr if isinstance(attr, str) else None
+
+
+def _int_attr(value: Any, name: str) -> int | None:
+    attr = getattr(value, name, None)
+    return attr if isinstance(attr, int) else None
+
+
+def _tool_calls(delta_obj: Any) -> list[Any]:
+    calls = getattr(delta_obj, "tool_calls", None)
+    return list(calls) if isinstance(calls, list) else []
+
+
+def _accumulate_tool_call(tool_buffers: dict[int, dict[str, Any]], tool_call: Any) -> None:
+    index = _int_attr(tool_call, "index")
+    if index is None:
+        index = len(tool_buffers)
+    buffer = tool_buffers.setdefault(
+        index,
+        {"id": f"tool-{index}", "name": "unknown_tool", "arguments": []},
+    )
+    call_id = _string_attr(tool_call, "id")
+    if call_id:
+        buffer["id"] = call_id
+    function = getattr(tool_call, "function", None)
+    name = _string_attr(function, "name")
+    if name:
+        buffer["name"] = name
+    arguments = _string_attr(function, "arguments")
+    if arguments:
+        cast(list[str], buffer["arguments"]).append(arguments)
+
+
+def _completed_tool_calls(
+    tool_buffers: dict[int, dict[str, Any]],
+    agent_id: str,
+) -> list[StreamChunk]:
+    chunks: list[StreamChunk] = []
+    for index in sorted(tool_buffers):
+        tool = tool_buffers[index]
+        chunks.append(
+            StreamChunk(
+                event_type="tool_call",
+                agent_id=agent_id,
+                call_id=cast(str, tool["id"]),
+                tool_name=cast(str, tool["name"]),
+                tool_arguments=_tool_arguments(cast(list[str], tool["arguments"])),
+            )
+        )
+    return chunks
+
+
+def _tool_arguments(json_parts: list[str]) -> dict[str, Any]:
+    raw_json = "".join(json_parts).strip()
+    if not raw_json:
+        return {}
+    try:
+        decoded = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return {"_raw_input": raw_json}
+    if isinstance(decoded, dict):
+        return decoded
+    return {"_value": decoded}
