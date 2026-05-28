@@ -34,6 +34,9 @@ class AgentConfig(BaseModel):
     command: str | list[str] | None = None
     args: list[str] | None = None
     timeout_seconds: float | None = Field(default=None, ge=1, le=3600)
+    max_runtime_seconds: float | None = Field(default=None, ge=1, le=3600)
+    idle_timeout_seconds: float | None = Field(default=None, ge=1, le=3600)
+    heartbeat_interval_seconds: float | None = Field(default=None, ge=1, le=3600)
 
     # 允许额外 provider 专属字段
     model_config = ConfigDict(extra="allow")

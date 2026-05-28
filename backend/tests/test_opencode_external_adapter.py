@@ -71,15 +71,19 @@ class FakeProcess:
         returncode: int = 0,
         stderr: bytes = b"",
         hang: bool = False,
+        hang_wait: bool = False,
     ) -> None:
         self.stdin = FakeStdin()
         self.stdout = HangingStdout() if hang else FakeStdout(lines or [])
         self.stderr = FakeStderr(stderr)
         self.returncode: int | None = None
         self._final_returncode = returncode
+        self._hang_wait = hang_wait
         self.killed = False
 
     async def wait(self) -> int:
+        if self._hang_wait and not self.killed:
+            await asyncio_never()
         if self.returncode is None:
             self.returncode = -9 if self.killed else self._final_returncode
         return self.returncode
@@ -606,7 +610,56 @@ class TestOpenCodeAdapterErrors:
 
         assert process.killed is True
         assert chunks[-1].event_type == "error"
-        assert chunks[-1].error_code == "timeout"
+        assert chunks[-1].error_code == "runtime_hard_timeout"
+
+    async def test_waiting_for_stdout_emits_heartbeat_and_cancel_cleans_process(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess(hang=True)
+        _patch_subprocess(monkeypatch, process)
+
+        chunks: list[StreamChunk] = []
+        stream = OpenCodeAdapter(agent_id="opencode-test").stream(
+            [ChatMessage(role="user", content="build a page")],
+            config={
+                "max_runtime_seconds": 2,
+                "idle_timeout_seconds": 2,
+                "heartbeat_interval_seconds": 0.1,
+            },
+            workspace_path=tmp_path,
+        )
+        async for chunk in stream:
+            chunks.append(chunk)
+            if chunk.event_type == "heartbeat":
+                break
+        await stream.aclose()
+
+        assert any(chunk.event_type == "heartbeat" for chunk in chunks)
+        assert process.killed is True
+
+    async def test_done_event_wait_process_hang_uses_idle_timeout(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess([_json_line({"type": "done"})], hang_wait=True)
+        _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            config={
+                "max_runtime_seconds": 1,
+                "idle_timeout_seconds": 0.05,
+                "heartbeat_interval_seconds": 0.01,
+            },
+        )
+
+        assert process.killed is True
+        assert chunks[-1].event_type == "error"
+        assert chunks[-1].error_code == "runtime_idle_timeout"
 
     async def test_invalid_jsonl_does_not_leak_full_output(
         self,

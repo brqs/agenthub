@@ -14,6 +14,12 @@ TOP_LEVEL_PROVIDERS: set[str] = {
 }
 CODEX_RUNTIMES: set[str] = {"cli", "sdk"}
 CODEX_SANDBOX_MODES: set[str] = {"read-only", "workspace-write", "danger-full-access"}
+EXTERNAL_RUNTIME_BUDGET_KEYS = (
+    "timeout_seconds",
+    "max_runtime_seconds",
+    "idle_timeout_seconds",
+    "heartbeat_interval_seconds",
+)
 
 
 class AgentConfigValidationError(ValueError):
@@ -93,7 +99,26 @@ def _validate_mcp_servers(config: dict[str, Any]) -> None:
 
 
 def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> None:
-    _validate_numeric(config, "timeout_seconds", 1, 3600)
+    for key in EXTERNAL_RUNTIME_BUDGET_KEYS:
+        _validate_numeric(config, key, 1, 3600)
+    max_runtime = config.get("max_runtime_seconds", config.get("timeout_seconds"))
+    idle_timeout = config.get("idle_timeout_seconds")
+    if (
+        isinstance(max_runtime, (int, float))
+        and not isinstance(max_runtime, bool)
+        and isinstance(idle_timeout, (int, float))
+        and not isinstance(idle_timeout, bool)
+        and idle_timeout > max_runtime
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'idle_timeout_seconds' must be less than or equal to max runtime",
+            details={
+                "field": "idle_timeout_seconds",
+                "value": idle_timeout,
+                "max_runtime_seconds": max_runtime,
+            },
+        )
     if provider == "opencode":
         command = config.get("command")
         if command is not None and not isinstance(command, str | list):

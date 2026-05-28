@@ -11,16 +11,27 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.external.cli_runtime import cli_env, resolve_command
+from app.agents.external.cli_runtime import (
+    cli_env,
+    kill_process_tree,
+    process_kwargs,
+    resolve_command,
+)
+from app.agents.external.runtime_budget import (
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+    RuntimeBudget,
+    RuntimeTimeoutError,
+    runtime_budget_config,
+)
 from app.agents.external.workspace_prompt import (
     direct_identity_response,
     format_runtime_messages,
     workspace_guard_prompt,
 )
+from app.agents.runtime_guard import sanitize_preview_deploy_text
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_COMMAND = "opencode"
-DEFAULT_TIMEOUT_SECONDS = 120.0
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
 TEXT_EVENT_TYPES = {"text", "text_delta", "reasoning"}
 TOOL_CALL_EVENT_TYPES = {"tool_call"}
@@ -75,9 +86,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
         merged = self.merged_config(config)
         command = self._argv(merged.get("command", DEFAULT_COMMAND))
         args = self._argv(merged.get("args", []))
-        timeout_seconds = self._float_config(
-            merged.get("timeout_seconds"),
-            DEFAULT_TIMEOUT_SECONDS,
+        budget_config = runtime_budget_config(
+            merged,
+            default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
         )
         jsonl = bool(merged.get("jsonl", True))
         output_max_chars = int(
@@ -108,6 +119,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace_path),
                 env=cli_env(),
+                **process_kwargs(),
             )
         except Exception as exc:
             yield self._error("external_runtime_error", self._safe_message(exc))
@@ -133,7 +145,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
         text_block_open = False
         next_block_index = 0
         saw_meaningful_event = False
-        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        budget = RuntimeBudget(budget_config)
 
         try:
             stdout = process.stdout
@@ -143,10 +155,25 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 return
 
             while True:
-                line = await asyncio.wait_for(
-                    stdout.readline(),
-                    timeout=self._remaining_seconds(deadline),
-                )
+                line_task = asyncio.create_task(stdout.readline())
+                try:
+                    while True:
+                        done, _ = await asyncio.wait(
+                            {line_task},
+                            timeout=budget.next_wait_seconds(),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if line_task in done:
+                            line = line_task.result()
+                            if line:
+                                budget.record_activity()
+                                budget.check_timeout()
+                            break
+                        budget.check_timeout()
+                        yield budget.heartbeat(agent_id=self.agent_id, provider=self.provider)
+                finally:
+                    if not line_task.done():
+                        line_task.cancel()
                 if not line:
                     break
 
@@ -162,7 +189,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     yield StreamChunk(
                         event_type="delta",
                         block_index=next_block_index,
-                        text_delta=line.decode(errors="replace"),
+                        text_delta=sanitize_preview_deploy_text(
+                            line.decode(errors="replace")
+                        ),
                     )
                     saw_meaningful_event = True
                     continue
@@ -195,7 +224,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                         yield StreamChunk(event_type="block_end", block_index=next_block_index)
                         text_block_open = False
                         next_block_index += 1
-                    await self._wait_process(process, deadline)
+                    await self._wait_process(process, budget)
                     yield StreamChunk(
                         event_type="done",
                         agent_id=self.agent_id,
@@ -251,13 +280,16 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     text_block_open = False
                     next_block_index += 1
 
-            return_code = await self._wait_process(process, deadline)
-        except TimeoutError:
+            return_code = await self._wait_process(process, budget)
+        except RuntimeTimeoutError as exc:
             if text_block_open:
                 yield StreamChunk(event_type="block_end", block_index=next_block_index)
             await self._terminate_process(process)
-            yield self._error("timeout", "OpenCode runtime timed out")
+            yield self._error(exc.error_code, str(exc))
             return
+        finally:
+            if process.returncode is None:
+                await self._terminate_process(process)
 
         if text_block_open:
             yield StreamChunk(event_type="block_end", block_index=next_block_index)
@@ -288,6 +320,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
         event_type = event.get("type")
         if event_type in TEXT_EVENT_TYPES:
             text = self._event_text(event)
+            if not text:
+                return
+            text = sanitize_preview_deploy_text(text)
             if not text:
                 return
             if not text_block_open:
@@ -428,39 +463,30 @@ class OpenCodeAdapter(BaseAgentAdapter):
             return [str(item) for item in value]
         return [str(value)]
 
-    @staticmethod
-    def _float_config(value: object, default: float) -> float:
-        if value is None:
-            return default
-        if not isinstance(value, str | int | float):
-            return default
-        try:
-            parsed = float(value)
-        except ValueError:
-            return default
-        return parsed if parsed > 0 else default
-
-    @staticmethod
-    def _remaining_seconds(deadline: float) -> float:
-        remaining = deadline - asyncio.get_running_loop().time()
-        if remaining <= 0:
-            raise TimeoutError
-        return remaining
-
-    @staticmethod
     async def _wait_process(
+        self,
         process: asyncio.subprocess.Process,
-        deadline: float,
+        budget: RuntimeBudget,
     ) -> int:
-        return await asyncio.wait_for(
-            process.wait(),
-            timeout=OpenCodeAdapter._remaining_seconds(deadline),
-        )
+        wait_task = asyncio.create_task(process.wait())
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {wait_task},
+                    timeout=budget.next_wait_seconds(),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if wait_task in done:
+                    return wait_task.result()
+                budget.check_timeout()
+        finally:
+            if not wait_task.done():
+                wait_task.cancel()
 
     @staticmethod
     async def _terminate_process(process: asyncio.subprocess.Process) -> None:
         if process.returncode is None:
-            process.kill()
+            kill_process_tree(process)
         try:
             await process.wait()
         except Exception:
