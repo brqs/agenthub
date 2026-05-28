@@ -44,6 +44,8 @@ def workspace_guard_prompt(workspace_path: Path) -> str:
             "or any absolute path outside the workspace root.",
             "- Do not run, suggest, or print shell commands for foreground or "
             "background preview/deploy servers or other long-running processes.",
+            "- Do not include preview/deploy server commands in your final text, "
+            "even to say that you will not run them.",
             "- If the user asks to preview or deploy on a port, create the files and "
             "state that AgentHub platform preview/deploy must be started outside the "
             "agent runtime. Do not provide terminal commands for port previews.",

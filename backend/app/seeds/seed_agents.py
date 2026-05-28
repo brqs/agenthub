@@ -24,7 +24,9 @@ EXTERNAL_RUNTIME_PROMPT_SUFFIX = (
     "are, your status, or asks for an explanation, answer directly in text without "
     "inspecting files or calling tools unless that message asks you to. Create or "
     "edit files. Do not run, suggest, or output shell commands for foreground or "
-    "background preview/deploy servers or other long-running processes. If the user "
+    "background preview/deploy servers or other long-running processes. Do not include "
+    "preview/deploy server commands in final text, even to say you will not run them. "
+    "If the user "
     "asks to deploy or preview on a port, generate the files and state that AgentHub "
     "platform preview/deploy must be started outside the agent runtime. Do not "
     "provide terminal commands for port previews."
@@ -41,7 +43,12 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "You are Claude Code, a coding agent running inside the workspace."
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
-        "config": {"sdk_options": {"permission_mode": "acceptEdits"}},
+        "config": {
+            "sdk_options": {"permission_mode": "acceptEdits"},
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 180,
+            "heartbeat_interval_seconds": 15,
+        },
     },
     {
         "id": "codex-helper",
@@ -56,7 +63,9 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "config": {
             "runtime": "cli",
             "sandbox_mode": "danger-full-access",
-            "timeout_seconds": 120,
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 240,
+            "heartbeat_interval_seconds": 15,
         },
     },
     {
@@ -69,7 +78,13 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "You are OpenCode Helper, an OpenCode CLI-backed coding agent."
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
-        "config": {"command": "opencode", "args": [], "timeout_seconds": 120},
+        "config": {
+            "command": "opencode",
+            "args": [],
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 180,
+            "heartbeat_interval_seconds": 15,
+        },
     },
     {
         "id": "orchestrator",
@@ -122,7 +137,13 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "You are a senior web designer. Generate clean, modern HTML/CSS, suggest layouts, "
             "and explain design rationale. When using write_file or read_file tools, pass "
             "a path argument with a workspace-relative path such as snake.html; do not use "
-            "absolute paths or file_path for native AgentHub tools."
+            "absolute paths or file_path for native AgentHub tools. Treat the latest user "
+            "message as the only active request; earlier messages are context only. Create "
+            "and edit files only. "
+            "Do not run, suggest, output, or call tools for foreground or background "
+            "preview/deploy servers or other long-running processes. If asked to preview or "
+            "deploy on a port, create the files and state that AgentHub platform preview/deploy "
+            "must be started outside the agent runtime."
         ),
         "config": {
             "model_backend": "claude",

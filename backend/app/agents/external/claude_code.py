@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import inspect
 from collections.abc import AsyncIterator, Iterable, Mapping
@@ -10,16 +9,27 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.external.cli_runtime import run_cli_text
+from app.agents.external.cli_runtime import CliCompleted, stream_cli_text
+from app.agents.external.runtime_budget import (
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+    RuntimeBudget,
+    RuntimeTimeoutError,
+    iter_with_runtime_budget,
+    runtime_budget_config,
+)
 from app.agents.external.workspace_prompt import (
     direct_identity_response,
     format_runtime_messages,
     workspace_guard_prompt,
 )
+from app.agents.runtime_guard import (
+    PreviewDeployTextFilter,
+    redact_runtime_secrets,
+    sanitize_preview_deploy_text,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "claude_agent_sdk"
-DEFAULT_CLI_TIMEOUT_SECONDS = 120.0
 TEXT_EVENT_NAMES = {"text", "text_block", "text_delta", "content_block_delta"}
 TOOL_CALL_EVENT_NAMES = {"tool_call", "tool_use", "tool_start", "tooluseblock"}
 TOOL_RESULT_EVENT_NAMES = {"tool_result", "tool_finish", "tool_end", "toolresultblock"}
@@ -54,21 +64,22 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
             return
 
-        timeout_seconds = self._float_config(
-            self.merged_config(config).get("timeout_seconds"),
-            DEFAULT_CLI_TIMEOUT_SECONDS,
+        merged = self.merged_config(config)
+        budget_config = runtime_budget_config(
+            merged,
+            default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
         )
 
         try:
             sdk = self._load_sdk()
             prompt = self._format_prompt(messages, system_prompt, workspace_path)
-            stream = await self._open_sdk_stream(sdk, prompt, workspace_path, config)
+            stream = await self._open_sdk_stream(sdk, prompt, workspace_path, merged)
         except ModuleNotFoundError as exc:
             if exc.name == SDK_MODULE_NAME:
                 async for chunk in self._stream_cli(
                     messages,
                     system_prompt,
-                    config,
+                    merged,
                     workspace_path,
                 ):
                     yield chunk
@@ -82,39 +93,108 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         block_open = False
         block_index = 0
         total_blocks = 0
+        text_filter = PreviewDeployTextFilter()
         try:
-            async with asyncio.timeout(timeout_seconds):
-                async for sdk_event in stream:
-                    for chunk in self._map_sdk_event(sdk_event):
-                        if chunk.event_type == "delta":
-                            if not block_open:
-                                yield StreamChunk(
-                                    event_type="block_start",
-                                    block_index=block_index,
-                                    block_type="text",
-                                )
-                                block_open = True
-                            chunk.block_index = block_index
-                            yield chunk
+            budget = RuntimeBudget(budget_config)
+            async for sdk_event in iter_with_runtime_budget(
+                stream,
+                budget,
+                agent_id=self.agent_id,
+                provider=self.provider,
+            ):
+                if isinstance(sdk_event, StreamChunk) and sdk_event.event_type == "heartbeat":
+                    yield sdk_event
+                    continue
+                for chunk in self._map_sdk_event(sdk_event):
+                    if chunk.event_type == "delta":
+                        text = text_filter.feed(chunk.text_delta or "")
+                        if not text:
                             continue
-
-                        if block_open:
-                            yield StreamChunk(event_type="block_end", block_index=block_index)
-                            total_blocks += 1
-                            block_index += 1
-                            block_open = False
+                        if not block_open:
+                            yield StreamChunk(
+                                event_type="block_start",
+                                block_index=block_index,
+                                block_type="text",
+                            )
+                            block_open = True
+                        chunk.block_index = block_index
+                        chunk.text_delta = text
                         yield chunk
-        except TimeoutError:
+                        continue
+
+                    pending_text = text_filter.flush()
+                    if pending_text:
+                        if not block_open:
+                            yield StreamChunk(
+                                event_type="block_start",
+                                block_index=block_index,
+                                block_type="text",
+                            )
+                            block_open = True
+                        yield StreamChunk(
+                            event_type="delta",
+                            block_index=block_index,
+                            text_delta=pending_text,
+                        )
+                    if block_open:
+                        yield StreamChunk(event_type="block_end", block_index=block_index)
+                        total_blocks += 1
+                        block_index += 1
+                        block_open = False
+                    yield chunk
+        except RuntimeTimeoutError as exc:
+            pending_text = text_filter.flush()
+            if pending_text:
+                if not block_open:
+                    yield StreamChunk(
+                        event_type="block_start",
+                        block_index=block_index,
+                        block_type="text",
+                    )
+                    block_open = True
+                yield StreamChunk(
+                    event_type="delta",
+                    block_index=block_index,
+                    text_delta=pending_text,
+                )
             if block_open:
                 yield StreamChunk(event_type="block_end", block_index=block_index)
-            yield self._error_chunk("timeout", "Claude Code runtime timed out")
+            yield self._error_chunk(exc.error_code, str(exc))
             return
         except Exception as exc:  # noqa: BLE001
+            pending_text = text_filter.flush()
+            if pending_text:
+                if not block_open:
+                    yield StreamChunk(
+                        event_type="block_start",
+                        block_index=block_index,
+                        block_type="text",
+                    )
+                    block_open = True
+                yield StreamChunk(
+                    event_type="delta",
+                    block_index=block_index,
+                    text_delta=pending_text,
+                )
             if block_open:
                 yield StreamChunk(event_type="block_end", block_index=block_index)
             yield self._error_chunk(self._classify_exception(exc), self._safe_error_message(exc))
             return
 
+        pending_text = text_filter.flush()
+        if pending_text:
+            if not block_open:
+                yield StreamChunk(
+                    event_type="block_start",
+                    block_index=block_index,
+                    block_type="text",
+                )
+                block_open = True
+            yield StreamChunk(
+                event_type="delta",
+                block_index=block_index,
+                text_delta=pending_text,
+            )
         if block_open:
             yield StreamChunk(event_type="block_end", block_index=block_index)
             total_blocks += 1
@@ -132,13 +212,12 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         self,
         messages: list[ChatMessage],
         system_prompt: str | None,
-        config: dict[str, Any] | None,
+        config: dict[str, Any],
         workspace_path: Path,
     ) -> AsyncIterator[StreamChunk]:
-        merged = self.merged_config(config)
-        timeout_seconds = self._float_config(
-            merged.get("timeout_seconds"),
-            DEFAULT_CLI_TIMEOUT_SECONDS,
+        budget_config = runtime_budget_config(
+            config,
+            default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
         )
         prompt = self._format_prompt(messages, system_prompt, workspace_path)
         command = [
@@ -151,17 +230,32 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             "--no-session-persistence",
             prompt,
         ]
+        result = None
         try:
-            result = await run_cli_text(
+            async for event in stream_cli_text(
                 command,
                 cwd=workspace_path,
-                timeout_seconds=timeout_seconds,
-            )
-        except TimeoutError:
-            yield self._error_chunk("timeout", "Claude Code CLI timed out")
+                budget_config=budget_config,
+                agent_id=self.agent_id,
+                provider=self.provider,
+            ):
+                if isinstance(event, StreamChunk):
+                    yield event
+                elif isinstance(event, CliCompleted):
+                    result = event.result
+        except RuntimeTimeoutError as exc:
+            output = self._safe_runtime_output(exc.stderr or exc.stdout)
+            yield self._error_chunk(exc.error_code, f"Claude Code CLI timed out: {output}")
             return
         except Exception as exc:  # noqa: BLE001
             yield self._error_chunk("external_runtime_error", self._safe_error_message(exc))
+            return
+
+        if result is None:
+            yield self._error_chunk(
+                "external_runtime_error",
+                "Claude Code CLI ended without result",
+            )
             return
 
         if result.return_code != 0:
@@ -172,7 +266,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             )
             return
 
-        text = result.stdout.strip()
+        text = sanitize_preview_deploy_text(result.stdout.strip())
         total_blocks = 0
         if text:
             yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
@@ -357,17 +451,8 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         return str(exc) or exc.__class__.__name__
 
     @staticmethod
-    def _float_config(value: object, default: float) -> float:
-        if value is None:
-            return default
-        if not isinstance(value, str | int | float):
-            return default
-        try:
-            parsed = float(value)
-        except ValueError:
-            return default
-        return parsed if parsed > 0 else default
-
-    @staticmethod
     def _safe_runtime_output(output: str) -> str:
-        return output.strip()[:500] or "no output"
+        return (
+            redact_runtime_secrets(sanitize_preview_deploy_text(output.strip()))[:500]
+            or "no output"
+        )

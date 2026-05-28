@@ -751,6 +751,9 @@ async def _run_fallback(
             if chunk.event_type in {"tool_call", "tool_result"}:
                 yield _remap_tool_call_id(chunk, "fallback"), next_block_index
                 continue
+            if chunk.event_type == "heartbeat":
+                yield chunk, next_block_index
+                continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
             remapped, next_block_index = _remap_block_index(
@@ -815,6 +818,9 @@ async def _run_direct_answer(
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
                 yield _remap_tool_call_id(chunk, "direct-answer"), next_block_index, False
+                continue
+            if chunk.event_type == "heartbeat":
+                yield chunk, next_block_index, False
                 continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
@@ -1035,6 +1041,9 @@ async def _remapped_sub_stream(
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
                 yield _remap_tool_call_id(chunk, task.task_id), next_block_index, False
+                continue
+            if chunk.event_type == "heartbeat":
+                yield chunk, next_block_index, False
                 continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
