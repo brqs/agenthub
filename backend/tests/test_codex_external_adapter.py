@@ -194,7 +194,7 @@ class TestCodexAdapterStream:
         )
         monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
 
-        chunks = await _collect(adapter, workspace_path=tmp_path)
+        chunks = await _collect(adapter, workspace_path=tmp_path, config={"runtime": "sdk"})
 
         assert [chunk.event_type for chunk in chunks] == [
             "start",
@@ -224,7 +224,7 @@ class TestCodexAdapterStream:
         )
         monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
 
-        chunks = await _collect(adapter, workspace_path=tmp_path)
+        chunks = await _collect(adapter, workspace_path=tmp_path, config={"runtime": "sdk"})
 
         tool_call = next(chunk for chunk in chunks if chunk.event_type == "tool_call")
         tool_result = next(chunk for chunk in chunks if chunk.event_type == "tool_result")
@@ -249,15 +249,77 @@ class TestCodexAdapterStream:
         await _collect(
             adapter,
             workspace_path=tmp_path,
-            config={"runtime_options": {"approval_policy": "never", "exposed_ports": [3000]}},
+            config={
+                "runtime": "sdk",
+                "runtime_options": {"approval_policy": "never", "exposed_ports": [3000]},
+            },
         )
 
         call = runner.calls[0]
+        instructions = call["agent"].kwargs["instructions"]
         run_config = call["run_config"]
+        assert str(tmp_path) in instructions
+        assert "Workspace root:" in instructions
+        assert "Never write to /home/user" in instructions
+        assert "Do not start long-running or background servers" in instructions
         assert isinstance(run_config.sandbox.client, FakeUnixLocalSandboxClient)
         assert run_config.sandbox.manifest.root == str(tmp_path)
         assert run_config.sandbox.options.exposed_ports == (3000,)
         assert not hasattr(run_config.sandbox.options, "approval_policy")
+
+    def test_cli_prompt_includes_workspace_rules(
+        self,
+        adapter: CodexAdapter,
+        tmp_path: Path,
+    ) -> None:
+        prompt = adapter._format_cli_prompt(
+            [ChatMessage(role="user", content="build a page")],
+            None,
+            tmp_path,
+        )
+
+        assert str(tmp_path) in prompt
+        assert "Workspace root:" in prompt
+        assert "Never write to /home/user" in prompt
+        assert "Do not start long-running or background servers" in prompt
+
+    async def test_default_runtime_uses_cli_with_danger_sandbox(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        def fail_load_sdk() -> Any:
+            raise AssertionError("SDK should not load for default Codex runtime")
+
+        seen_command: list[str] = []
+
+        async def fake_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = cwd, timeout_seconds
+            seen_command.extend(command)
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_text("codex cli default ok\n", encoding="utf-8")
+            return CliResult(return_code=0, stdout="ignored", stderr="")
+
+        monkeypatch.setattr(adapter, "_load_sdk", fail_load_sdk)
+        monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "codex cli default ok"
+        assert seen_command[seen_command.index("--sandbox") + 1] == "danger-full-access"
 
 
 class TestCodexAdapterErrors:
@@ -270,7 +332,7 @@ class TestCodexAdapterErrors:
         runner = FakeRunner(exc=FakeAuthenticationError("No API key provided"))
         monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
 
-        chunks = await _collect(adapter, workspace_path=tmp_path)
+        chunks = await _collect(adapter, workspace_path=tmp_path, config={"runtime": "sdk"})
 
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[1].error_code == "missing_api_key"
@@ -284,7 +346,7 @@ class TestCodexAdapterErrors:
         runner = FakeRunner(events=[RuntimeError("runtime crashed")])
         monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
 
-        chunks = await _collect(adapter, workspace_path=tmp_path)
+        chunks = await _collect(adapter, workspace_path=tmp_path, config={"runtime": "sdk"})
 
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[1].error_code == "external_runtime_error"
@@ -313,7 +375,7 @@ class TestCodexAdapterErrors:
         monkeypatch.setattr(adapter, "_load_sdk", missing_sdk)
         monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
 
-        chunks = await _collect(adapter, workspace_path=tmp_path)
+        chunks = await _collect(adapter, workspace_path=tmp_path, config={"runtime": "sdk"})
 
         assert [chunk.event_type for chunk in chunks] == [
             "start",
@@ -350,7 +412,7 @@ class TestCodexAdapterErrors:
         monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
         monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
 
-        chunks = await _collect(adapter, workspace_path=tmp_path)
+        chunks = await _collect(adapter, workspace_path=tmp_path, config={"runtime": "sdk"})
 
         assert [chunk.event_type for chunk in chunks] == [
             "start",
@@ -389,7 +451,7 @@ class TestCodexAdapterErrors:
         monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
         monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
 
-        chunks = await _collect(adapter, workspace_path=tmp_path)
+        chunks = await _collect(adapter, workspace_path=tmp_path, config={"runtime": "sdk"})
 
         assert [chunk.event_type for chunk in chunks] == [
             "start",
