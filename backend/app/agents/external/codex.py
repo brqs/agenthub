@@ -13,7 +13,11 @@ from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.cli_runtime import run_cli_text
-from app.agents.external.workspace_prompt import workspace_guard_prompt
+from app.agents.external.workspace_prompt import (
+    direct_identity_response,
+    format_runtime_messages,
+    workspace_guard_prompt,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "agents"
@@ -70,6 +74,12 @@ class CodexAdapter(BaseAgentAdapter):
 
         if workspace_path is None:
             yield self._error("workspace_violation", "Codex requires a workspace_path")
+            return
+
+        direct_response = direct_identity_response(messages, agent_id=self.agent_id)
+        if direct_response:
+            for chunk in self._text_result_chunks(direct_response):
+                yield chunk
             return
 
         merged = self.merged_config(config)
@@ -224,16 +234,19 @@ class CodexAdapter(BaseAgentAdapter):
                 timeout_seconds=timeout_seconds,
             )
         except TimeoutError:
+            text = self._read_cli_output(output_path)
+            if text:
+                for chunk in self._text_result_chunks(text):
+                    yield chunk
+                return
             yield self._error("timeout", "Codex CLI timed out")
             return
         except Exception as exc:  # noqa: BLE001
+            output_path.unlink(missing_ok=True)
             yield self._error("external_runtime_error", self._safe_message(exc))
             return
 
-        try:
-            text = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
-        finally:
-            output_path.unlink(missing_ok=True)
+        text = self._read_cli_output(output_path)
 
         if result.return_code != 0:
             output = self._safe_runtime_output(result.stderr or result.stdout or text)
@@ -246,13 +259,11 @@ class CodexAdapter(BaseAgentAdapter):
         if not text:
             text = result.stdout.strip()
 
-        total_blocks = 0
         if text:
-            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
-            yield StreamChunk(event_type="delta", block_index=0, text_delta=text)
-            yield StreamChunk(event_type="block_end", block_index=0)
-            total_blocks = 1
-        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=total_blocks)
+            for chunk in self._text_result_chunks(text):
+                yield chunk
+            return
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=0)
 
     def _should_fallback_to_cli(self, exc: BaseException) -> bool:
         if isinstance(exc, ModuleNotFoundError) and exc.name == SDK_MODULE_NAME:
@@ -599,12 +610,7 @@ class CodexAdapter(BaseAgentAdapter):
         return "\n\n".join(lines)
 
     def _format_input(self, messages: list[ChatMessage]) -> str:
-        lines = [
-            f"{message.role.title()}: {message.content}"
-            for message in messages
-            if message.role != "system" and message.content
-        ]
-        return "\n\n".join(lines)
+        return format_runtime_messages(messages, include_system=False)
 
     def _format_cli_prompt(
         self,
@@ -667,6 +673,21 @@ class CodexAdapter(BaseAgentAdapter):
             SUPPORTED_CLI_SANDBOX_MODES,
         )
         return mode or DEFAULT_CLI_SANDBOX_MODE
+
+    @staticmethod
+    def _read_cli_output(output_path: Path) -> str:
+        try:
+            return output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
+        finally:
+            output_path.unlink(missing_ok=True)
+
+    def _text_result_chunks(self, text: str) -> list[StreamChunk]:
+        return [
+            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+            StreamChunk(event_type="delta", block_index=0, text_delta=text),
+            StreamChunk(event_type="block_end", block_index=0),
+            StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1),
+        ]
 
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:

@@ -448,6 +448,68 @@ async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
     assert planner.calls[0]["tools"][0].name == "submit_task_plan"
     assert planner.calls[0]["config"]["tool_choice"] == {"type": "auto"}
     assert "Ask both agents who they are" in planner.calls[0]["messages"][0].content
+    assert "Port preview/deploy requests must not become" in (
+        planner.calls[0]["messages"][0].content
+    )
+    assert "Do not create tasks that start, deploy, preview" in (
+        planner.calls[0]["system_prompt"] or ""
+    )
+
+
+async def test_orchestrator_filters_planner_port_service_tasks() -> None:
+    web_designer = FakeSubAdapter("web-designer", _text_chunks("created snake.html"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "task-create",
+                            "web-designer",
+                            "Create snake.html",
+                            "Create a complete snake.html game file.",
+                        ),
+                        _task(
+                            "task-preview",
+                            "claude-code",
+                            "Start 8082 preview service",
+                            "Set up the port preview service and verify the game.",
+                            priority=2,
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content="Create snake.html and preview it on port 8082.",
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["web-designer", "claude-code"],
+            "sub_adapters": {"web-designer": web_designer},
+        },
+    )
+
+    planning_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "via LLM planner/config" in planning_text
+    assert "Start 8082 preview service" not in planning_text
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["web-designer"]
 
 
 async def test_orchestrator_plans_tasks_from_llm_json_text() -> None:

@@ -253,9 +253,23 @@ class TestBuiltinAgents:
             prompt = agent["system_prompt"]
 
             assert "Work only inside the AgentHub workspace" in prompt
-            assert "do not start foreground long-running preview or deploy servers" in prompt
-            assert "python3 -m http.server 8082" in prompt
+            assert "Treat the latest user message as the only active request" in prompt
+            assert "answer directly in text without inspecting files or calling tools" in prompt
+            assert "Do not run, suggest, or output shell commands" in prompt
+            assert "Do not provide terminal commands for port previews" in prompt
             assert "platform preview/deploy must be started outside the agent runtime" in prompt
+            assert "python3 -m http.server 8082" not in prompt
+            assert "npm run dev" not in prompt
+            assert "pnpm dev" not in prompt
+            assert "vite --host" not in prompt
+
+    def test_web_designer_prompt_documents_native_tool_path_contract(self) -> None:
+        agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "web-designer")
+        prompt = agent["system_prompt"]
+
+        assert "path argument" in prompt
+        assert "workspace-relative path such as snake.html" in prompt
+        assert "absolute paths" in prompt
 
 
 class TestCreateAgentRequestSchema:

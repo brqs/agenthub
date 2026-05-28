@@ -78,6 +78,34 @@ PLANNER_PROTOCOL_ERROR_MARKERS = (
     "empty_planner_output",
     "planner failed",
 )
+PORT_SERVICE_TASK_MARKERS = (
+    "preview",
+    "deploy",
+    "port",
+    "server",
+    "service",
+    "808",
+    "预览",
+    "部署",
+    "端口",
+    "服务",
+)
+ARTIFACT_TASK_MARKERS = (
+    "create",
+    "generate",
+    "write",
+    "implement",
+    "build",
+    "file",
+    "artifact",
+    "html",
+    "创建",
+    "生成",
+    "编写",
+    "实现",
+    "文件",
+    "产物",
+)
 
 
 class TaskState(StrEnum):
@@ -367,7 +395,7 @@ async def _plan_tasks_with_model(
     )
     tasks = _tasks_from_planner_payload(planner_output.payload)
     _validate_planned_tasks(tasks, planner_output.allowed_agent_ids)
-    return tasks
+    return _remove_port_service_tasks(tasks)
 
 
 def _tasks_from_planner_payload(payload: Any) -> list[SubTask]:
@@ -387,6 +415,23 @@ def _validate_planned_tasks(tasks: list[SubTask], allowed_agent_ids: set[str]) -
             raise ValueError(
                 f"invalid_task_plan: unknown depends_on task_id {missing_deps[0]!r}"
             )
+
+
+def _remove_port_service_tasks(tasks: list[SubTask]) -> list[SubTask]:
+    depended_on = {dependency for task in tasks for dependency in task.depends_on}
+    kept = [
+        task
+        for task in tasks
+        if task.task_id in depended_on or not _is_port_service_task(task)
+    ]
+    return kept or tasks
+
+
+def _is_port_service_task(task: SubTask) -> bool:
+    text = f"{task.title}\n{task.instruction}".lower()
+    if not any(marker in text for marker in PORT_SERVICE_TASK_MARKERS):
+        return False
+    return not any(marker in text for marker in ARTIFACT_TASK_MARKERS)
 
 
 def _direct_tasks_from_request(

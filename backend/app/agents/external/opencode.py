@@ -12,7 +12,11 @@ from typing import Any, Literal
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.cli_runtime import cli_env, resolve_command
-from app.agents.external.workspace_prompt import workspace_guard_prompt
+from app.agents.external.workspace_prompt import (
+    direct_identity_response,
+    format_runtime_messages,
+    workspace_guard_prompt,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_COMMAND = "opencode"
@@ -58,6 +62,14 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
         if workspace_path is None:
             yield self._error("workspace_violation", "OpenCode requires a workspace_path")
+            return
+
+        direct_response = direct_identity_response(messages, agent_id=self.agent_id)
+        if direct_response:
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(event_type="delta", block_index=0, text_delta=direct_response)
+            yield StreamChunk(event_type="block_end", block_index=0)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
             return
 
         merged = self.merged_config(config)
@@ -344,11 +356,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
         lines: list[str] = [
             f"System: {self._effective_system_prompt(system_prompt, workspace_path)}"
         ]
-        for message in messages:
-            if message.role == "system":
-                lines.append(f"System: {message.content}")
-            elif message.content:
-                lines.append(f"{message.role.title()}: {message.content}")
+        conversation = format_runtime_messages(messages)
+        if conversation:
+            lines.append(conversation)
         return "\n\n".join(lines)
 
     def _effective_system_prompt(

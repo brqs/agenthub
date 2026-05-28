@@ -261,7 +261,10 @@ class TestCodexAdapterStream:
         assert str(tmp_path) in instructions
         assert "Workspace root:" in instructions
         assert "Never write to /home/user" in instructions
-        assert "Do not start long-running or background servers" in instructions
+        assert "Do not run, suggest, or print shell commands" in instructions
+        assert "Do not provide terminal commands for port previews" in instructions
+        assert "Treat the latest user message as the only active request" in instructions
+        assert "python3 -m http.server 8082" not in instructions
         assert isinstance(run_config.sandbox.client, FakeUnixLocalSandboxClient)
         assert run_config.sandbox.manifest.root == str(tmp_path)
         assert run_config.sandbox.options.exposed_ports == (3000,)
@@ -281,7 +284,66 @@ class TestCodexAdapterStream:
         assert str(tmp_path) in prompt
         assert "Workspace root:" in prompt
         assert "Never write to /home/user" in prompt
-        assert "Do not start long-running or background servers" in prompt
+        assert "Do not run, suggest, or print shell commands" in prompt
+        assert "Do not provide terminal commands for port previews" in prompt
+        assert "Treat the latest user message as the only active request" in prompt
+        assert "python3 -m http.server 8082" not in prompt
+
+    def test_cli_prompt_marks_latest_user_request(
+        self,
+        adapter: CodexAdapter,
+        tmp_path: Path,
+    ) -> None:
+        prompt = adapter._format_cli_prompt(
+            [
+                ChatMessage(role="user", content="create a snake game"),
+                ChatMessage(role="assistant", content="I created snake-game/index.html"),
+                ChatMessage(role="user", content="你是什么模型"),
+            ],
+            None,
+            tmp_path,
+        )
+
+        assert "Previous conversation context (not the active task):" in prompt
+        assert "Current user request (answer this now):\n你是什么模型" in prompt
+        assert prompt.index("create a snake game") < prompt.index("Current user request")
+
+    async def test_identity_question_returns_direct_text_without_runtime(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fail_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = command, cwd, timeout_seconds
+            raise AssertionError("identity questions must not start Codex CLI")
+
+        monkeypatch.setattr(codex_module, "run_cli_text", fail_run_cli_text)
+
+        chunks = await _collect(
+            adapter,
+            messages=[
+                ChatMessage(role="user", content="create a snake game"),
+                ChatMessage(role="assistant", content="I created snake-game/index.html"),
+                ChatMessage(role="user", content="你是什么模型"),
+            ],
+            workspace_path=tmp_path,
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert "我是 Codex Helper" in (chunks[2].text_delta or "")
+        assert chunks[-1].total_blocks == 1
 
     async def test_default_runtime_uses_cli_with_danger_sandbox(
         self,
@@ -320,6 +382,62 @@ class TestCodexAdapterStream:
         ]
         assert chunks[2].text_delta == "codex cli default ok"
         assert seen_command[seen_command.index("--sandbox") + 1] == "danger-full-access"
+
+    async def test_cli_timeout_with_output_file_completes(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fake_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = cwd, timeout_seconds
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_text("codex finished before timeout\n", encoding="utf-8")
+            raise TimeoutError
+
+        monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "codex finished before timeout"
+        assert chunks[-1].total_blocks == 1
+        assert list(tmp_path.glob(".agenthub_codex_*.txt")) == []
+
+    async def test_cli_timeout_without_output_file_remains_timeout(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fake_run_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            timeout_seconds: float,
+        ) -> CliResult:
+            _ = command, cwd, timeout_seconds
+            raise TimeoutError
+
+        monkeypatch.setattr(codex_module, "run_cli_text", fake_run_cli_text)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+        assert chunks[1].error_code == "timeout"
+        assert chunks[1].error == "Codex CLI timed out"
+        assert list(tmp_path.glob(".agenthub_codex_*.txt")) == []
 
 
 class TestCodexAdapterErrors:
