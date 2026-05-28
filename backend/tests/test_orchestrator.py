@@ -120,6 +120,10 @@ class FakePlannerGateway:
             yield chunk
 
 
+class FakeAnswerGateway(FakePlannerGateway):
+    pass
+
+
 def _task(
     task_id: str,
     agent_id: str,
@@ -363,6 +367,34 @@ async def test_orchestrator_derives_direct_tasks_for_named_agents() -> None:
         assert "Do not contact, invoke, or simulate other agents" in instruction
 
 
+async def test_orchestrator_answers_meta_question_without_planner() -> None:
+    planner = FakePlannerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="planner used")]
+    )
+    answer = FakeAnswerGateway(_text_chunks("我是 AgentHub Orchestrator。"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 你是什么模型")],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "managed_agent_ids": ["claude-code", "codex-helper"],
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert planner.calls == []
+    assert len(answer.calls) == 1
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert any(
+        chunk.event_type == "delta" and "AgentHub Orchestrator" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
+    assert "Do not create or describe a task plan" in answer.calls[0]["messages"][0].content
+
+
 async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
     adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
     adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
@@ -563,6 +595,42 @@ async def test_orchestrator_planner_invalid_json_is_visible_error() -> None:
     assert [chunk.event_type for chunk in chunks] == ["start", "error"]
     assert chunks[1].error_code == "invalid_task_plan"
     assert "invalid_json" in (chunks[1].error or "")
+    assert adapter_a.received_messages == []
+
+
+async def test_orchestrator_planner_invalid_json_can_fallback_to_direct_answer() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+            StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta="not a task plan",
+            ),
+            StreamChunk(event_type="block_end", block_index=0),
+        ]
+    )
+    answer = FakeAnswerGateway(_text_chunks("Direct answer fallback."))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a launch plan")],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "direct_answer_on_planner_failure": True,
+            "managed_agent_ids": ["agent-a"],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(planner.calls) == 1
+    assert len(answer.calls) == 1
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert any(chunk.text_delta == "Direct answer fallback." for chunk in chunks)
     assert adapter_a.received_messages == []
 
 

@@ -16,6 +16,7 @@ from app.agents.registry import (
     get_adapter,
 )
 from app.models.agent import Agent
+from app.seeds.seed_agents import BUILTIN_AGENTS
 
 
 def _agent(agent_id: str, provider: str, config: dict[str, Any] | None = None) -> Agent:
@@ -50,6 +51,13 @@ def test_provider_map_contains_final_runtime_providers_only() -> None:
         "builtin": BuiltinAgentAdapter,
     }
     assert {"claude", "openai", "deepseek", "custom"}.isdisjoint(PROVIDER_MAP)
+
+
+def test_orchestrator_seed_enables_direct_answer_fallback() -> None:
+    orchestrator = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "orchestrator")
+
+    assert orchestrator["config"]["direct_answer_on_planner_failure"] is True
+    assert "Answer simple identity" in orchestrator["system_prompt"]
 
 
 async def test_registry_returns_runtime_adapters_by_seed_id() -> None:

@@ -111,6 +111,23 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             message=f"Unsupported model_backend '{model_backend}'",
             details={"model_backend": model_backend},
         )
+    answer_model_backend = config.get("answer_model_backend")
+    if answer_model_backend is not None and (
+        not isinstance(answer_model_backend, str)
+        or answer_model_backend not in SUPPORTED_UPSTREAM_PROVIDERS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported answer_model_backend '{answer_model_backend}'",
+            details={"answer_model_backend": answer_model_backend},
+        )
+    answer_config = config.get("orchestrator_answer_config")
+    if answer_config is not None and not isinstance(answer_config, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'orchestrator_answer_config' must be an object",
+            details={"field": "orchestrator_answer_config", "value": answer_config},
+        )
     _validate_numeric(config, "max_iterations", 1, 50, allow_float=False)
     _validate_mcp_servers(config)
 
