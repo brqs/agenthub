@@ -12,6 +12,8 @@ TOP_LEVEL_PROVIDERS: set[str] = {
     "builtin",
     "mock",
 }
+CODEX_RUNTIMES: set[str] = {"cli", "sdk"}
+CODEX_SANDBOX_MODES: set[str] = {"read-only", "workspace-write", "danger-full-access"}
 
 
 class AgentConfigValidationError(ValueError):
@@ -101,6 +103,24 @@ def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> 
                 details={"field": "command", "value": command},
             )
         _validate_string_list(config, "args")
+    if provider == "codex":
+        runtime = config.get("runtime")
+        if runtime is not None and runtime not in CODEX_RUNTIMES:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'runtime' must be one of: cli, sdk",
+                details={"field": "runtime", "value": runtime},
+            )
+        sandbox_mode = config.get("sandbox_mode")
+        if sandbox_mode is not None and sandbox_mode not in CODEX_SANDBOX_MODES:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=(
+                    "'sandbox_mode' must be one of: read-only, workspace-write, "
+                    "danger-full-access"
+                ),
+                details={"field": "sandbox_mode", "value": sandbox_mode},
+            )
 
 
 def _validate_builtin_config(config: dict[str, Any]) -> None:

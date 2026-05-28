@@ -153,6 +153,22 @@ class TestClaudeCodeAdapterStream:
         assert fake_sdk.last_options is not None
         assert fake_sdk.last_options.kwargs["cwd"] == tmp_path
 
+    async def test_prompt_includes_workspace_rules(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        await _collect(adapter, workspace_path=tmp_path)
+
+        assert str(tmp_path) in fake_sdk.last_prompt
+        assert "Workspace root:" in fake_sdk.last_prompt
+        assert "Never write to /home/user" in fake_sdk.last_prompt
+        assert "Do not start long-running or background servers" in fake_sdk.last_prompt
+
     async def test_sdk_defaults_to_accept_edits_permission_mode(
         self,
         adapter: ClaudeCodeAdapter,

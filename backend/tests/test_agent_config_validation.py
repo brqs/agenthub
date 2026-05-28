@@ -27,13 +27,20 @@ class TestValidConfigs:
         assert result == {"sdk_options": {}}
 
     def test_valid_codex_config(self) -> None:
-        config = {"model": "gpt-4.1", "timeout_seconds": 120}
+        config = {
+            "model": "gpt-4.1",
+            "runtime": "cli",
+            "sandbox_mode": "danger-full-access",
+            "timeout_seconds": 120,
+        }
         result = validate_agent_config(
             provider="codex",
             config=config,
             system_prompt=None,
         )
         assert result["model"] == "gpt-4.1"
+        assert result["runtime"] == "cli"
+        assert result["sandbox_mode"] == "danger-full-access"
         assert result["timeout_seconds"] == 120
 
     def test_valid_opencode_config(self) -> None:
@@ -83,6 +90,24 @@ class TestModelValidation:
             validate_agent_config(
                 provider="opencode",
                 config={"args": "run"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+
+    def test_invalid_codex_runtime_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="codex",
+                config={"runtime": "browser"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+
+    def test_invalid_codex_sandbox_mode_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="codex",
+                config={"sandbox_mode": "host"},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
@@ -221,6 +246,16 @@ class TestBuiltinAgents:
         codex_agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "codex-helper")
 
         assert "model" not in codex_agent["config"]
+
+    def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
+        for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
+            agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == agent_id)
+            prompt = agent["system_prompt"]
+
+            assert "Work only inside the AgentHub workspace" in prompt
+            assert "do not start foreground long-running preview or deploy servers" in prompt
+            assert "python3 -m http.server 8082" in prompt
+            assert "platform preview/deploy must be started outside the agent runtime" in prompt
 
 
 class TestCreateAgentRequestSchema:
