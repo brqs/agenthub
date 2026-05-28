@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ import pytest
 
 import app.agents.external.claude_code as claude_code_module
 from app.agents.external.claude_code import ClaudeCodeAdapter
-from app.agents.external.cli_runtime import CliResult
+from app.agents.external.cli_runtime import CliCompleted, CliResult
 from app.agents.types import ChatMessage, StreamChunk
 
 
@@ -19,11 +20,13 @@ async def _collect(
     *,
     messages: list[ChatMessage] | None = None,
     workspace_path: Path | None,
+    config: dict[str, Any] | None = None,
 ) -> list[StreamChunk]:
     return [
         chunk
         async for chunk in adapter.stream(
             messages or [ChatMessage(role="user", content="build a page")],
+            config=config,
             workspace_path=workspace_path,
         )
     ]
@@ -43,6 +46,12 @@ class FakeEventStream:
             if isinstance(event, Exception):
                 raise event
             yield event
+
+
+class HangingEventStream:
+    async def __aiter__(self) -> AsyncIterator[Any]:
+        await asyncio.Event().wait()
+        yield {"type": "text_delta", "text": "unreachable"}
 
 
 class FakeSdk:
@@ -101,6 +110,31 @@ class TestClaudeCodeAdapterStream:
         assert chunks[2].text_delta == "Hello"
         assert chunks[3].text_delta == " world"
         assert chunks[-1].total_blocks == 1
+
+    async def test_text_stream_removes_preview_server_commands(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(
+            events=[
+                {
+                    "type": "text_delta",
+                    "text": "Created snake.html.\nRun `python3 -m ",
+                },
+                {"type": "text_delta", "text": "http.server 8082`."},
+            ]
+        )
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+        text = "".join(chunk.text_delta or "" for chunk in chunks)
+
+        assert "Created snake.html" in text
+        assert "http.server" not in text
+        assert "python3 -m" not in text
+        assert "Preview/deploy server commands are handled by AgentHub" in text
 
     async def test_tool_call_and_result_preserve_call_id(
         self,
@@ -261,6 +295,35 @@ class TestClaudeCodeAdapterStream:
         assert chunks[1].error_code == "external_runtime_error"
         assert "runtime crashed" in (chunks[1].error or "")
 
+    async def test_sdk_wait_emits_heartbeat_before_hard_timeout(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        class HangingSdk(FakeSdk):
+            def query(self, *, prompt: str, options: FakeOptions) -> HangingEventStream:
+                self.last_prompt = prompt
+                self.last_options = options
+                return HangingEventStream()
+
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: HangingSdk())
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            messages=[ChatMessage(role="user", content="wait")],
+            config={
+                "max_runtime_seconds": 0.3,
+                "idle_timeout_seconds": 0.3,
+                "heartbeat_interval_seconds": 0.1,
+            },
+        )
+
+        assert any(chunk.event_type == "heartbeat" for chunk in chunks)
+        assert chunks[-1].event_type == "error"
+        assert chunks[-1].error_code == "runtime_hard_timeout"
+
     async def test_missing_sdk_falls_back_to_logged_in_cli(
         self,
         adapter: ClaudeCodeAdapter,
@@ -273,17 +336,20 @@ class TestClaudeCodeAdapterStream:
                 name="claude_agent_sdk",
             )
 
-        async def fake_run_cli_text(
+        async def fake_stream_cli_text(
             command: list[str],
             *,
             cwd: Path,
-            timeout_seconds: float,
-        ) -> CliResult:
-            _ = command, cwd, timeout_seconds
-            return CliResult(return_code=0, stdout="cli ok\n", stderr="")
+            budget_config: Any,
+            agent_id: str,
+            provider: str,
+            activity_paths: list[Path] | None = None,
+        ) -> AsyncIterator[StreamChunk | CliCompleted]:
+            _ = command, cwd, budget_config, agent_id, provider, activity_paths
+            yield CliCompleted(CliResult(return_code=0, stdout="cli ok\n", stderr=""))
 
         monkeypatch.setattr(adapter, "_load_sdk", missing_sdk)
-        monkeypatch.setattr(claude_code_module, "run_cli_text", fake_run_cli_text)
+        monkeypatch.setattr(claude_code_module, "stream_cli_text", fake_stream_cli_text)
 
         chunks = await _collect(adapter, workspace_path=tmp_path)
 
