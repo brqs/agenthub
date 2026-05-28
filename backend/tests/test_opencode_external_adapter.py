@@ -111,11 +111,12 @@ async def _collect(
     adapter: OpenCodeAdapter,
     workspace_path: Path | None,
     config: dict[str, Any] | None = None,
+    messages: list[ChatMessage] | None = None,
 ) -> list[StreamChunk]:
     return [
         chunk
         async for chunk in adapter.stream(
-            [ChatMessage(role="user", content="build a page")],
+            messages or [ChatMessage(role="user", content="build a page")],
             config=config,
             workspace_path=workspace_path,
         )
@@ -386,7 +387,10 @@ class TestOpenCodeAdapterStream:
         assert str(tmp_path) in prompt
         assert "Workspace root:" in prompt
         assert "Never write to /home/user" in prompt
-        assert "Do not start long-running or background servers" in prompt
+        assert "Do not run, suggest, or print shell commands" in prompt
+        assert "Do not provide terminal commands for port previews" in prompt
+        assert "Treat the latest user message as the only active request" in prompt
+        assert "python3 -m http.server 8082" not in prompt
 
     async def test_stdin_payload_includes_workspace_rules(
         self,
@@ -406,6 +410,69 @@ class TestOpenCodeAdapterStream:
         assert str(tmp_path) in payload["system_prompt"]
         assert "Workspace root:" in payload["system_prompt"]
         assert "Never write to /home/user" in payload["system_prompt"]
+        assert "Do not provide terminal commands for port previews" in payload["system_prompt"]
+        assert "Treat the latest user message as the only active request" in payload[
+            "system_prompt"
+        ]
+        assert "python3 -m http.server 8082" not in payload["system_prompt"]
+
+    async def test_prompt_marks_latest_user_request(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess([_json_line({"type": "done"})])
+        factory = _patch_subprocess(monkeypatch, process)
+
+        await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            messages=[
+                ChatMessage(role="user", content="create a snake game"),
+                ChatMessage(role="assistant", content="I created snake-game/index.html"),
+                ChatMessage(role="user", content="请只总结当前进度"),
+            ],
+        )
+
+        prompt = factory.calls[0]["argv"][-1]
+        assert "Previous conversation context (not the active task):" in prompt
+        assert "Current user request (answer this now):\n请只总结当前进度" in prompt
+        assert prompt.index("create a snake game") < prompt.index("Current user request")
+
+    async def test_identity_question_returns_direct_text_without_process(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fail_create_subprocess_exec(*args: Any, **kwargs: Any) -> Any:
+            _ = args, kwargs
+            raise AssertionError("identity questions must not start OpenCode")
+
+        monkeypatch.setattr(
+            asyncio,
+            "create_subprocess_exec",
+            fail_create_subprocess_exec,
+        )
+
+        chunks = await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            messages=[
+                ChatMessage(role="user", content="create a snake game"),
+                ChatMessage(role="assistant", content="I created snake-game/index.html"),
+                ChatMessage(role="user", content="你是什么模型"),
+            ],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert "我是 OpenCode Helper" in (chunks[2].text_delta or "")
+        assert chunks[-1].total_blocks == 1
 
 
 class TestOpenCodeAdapterErrors:

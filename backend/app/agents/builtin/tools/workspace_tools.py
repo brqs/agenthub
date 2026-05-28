@@ -45,19 +45,24 @@ def _resolve_workspace_path(workspace_root: Path, user_path: str) -> Path:
     if not user_path or not user_path.strip():
         raise WorkspaceViolation("workspace path is empty")
     normalized_user_path = user_path.replace("\\", "/").strip()
+    workspace = workspace_root.resolve()
+    normalized_user_path = _normalize_workspace_path_alias(
+        workspace,
+        normalized_user_path,
+        user_path,
+    )
     raw_path = Path(normalized_user_path)
-    if raw_path.is_absolute() or PureWindowsPath(user_path).is_absolute():
+    if raw_path.is_absolute() or PureWindowsPath(normalized_user_path).is_absolute():
         raise WorkspaceViolation(f"absolute path is not allowed: {user_path}")
     if PureWindowsPath(user_path).drive:
         raise WorkspaceViolation(f"drive path is not allowed: {user_path}")
 
-    parts = [part for part in raw_path.parts if part not in {"", "."}]
+    parts = [part for part in raw_path.parts if part not in {"", ".", "/"}]
     if any(part == ".." for part in parts):
         raise WorkspaceViolation(f"path traversal is not allowed: {user_path}")
     if any(part in FORBIDDEN_PARTS for part in parts):
         raise WorkspaceViolation(f"forbidden path component: {user_path}")
 
-    workspace = workspace_root.resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     _reject_symlink_in_existing_path(workspace, parts)
     candidate = (workspace / Path(*parts)).resolve(strict=False)
@@ -66,6 +71,34 @@ def _resolve_workspace_path(workspace_root: Path, user_path: str) -> Path:
     except ValueError as exc:
         raise WorkspaceViolation(f"path escapes workspace: {user_path}") from exc
     return candidate
+
+
+def _normalize_workspace_path_alias(
+    workspace: Path,
+    normalized_user_path: str,
+    original_user_path: str,
+) -> str:
+    raw_path = Path(normalized_user_path)
+    if not raw_path.is_absolute():
+        return normalized_user_path
+
+    if PureWindowsPath(original_user_path).drive:
+        return normalized_user_path
+
+    absolute_candidate = raw_path.resolve(strict=False)
+    try:
+        return absolute_candidate.relative_to(workspace).as_posix()
+    except ValueError:
+        pass
+
+    parts = [part for part in raw_path.parts if part not in {"", ".", "/"}]
+    if parts and parts[0] == "workspace":
+        alias_parts = parts[1:]
+        if not alias_parts:
+            raise WorkspaceViolation("workspace path is empty")
+        return Path(*alias_parts).as_posix()
+
+    return normalized_user_path
 
 
 def _reject_symlink_in_existing_path(root: Path, parts: list[str]) -> None:

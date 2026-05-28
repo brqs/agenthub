@@ -167,7 +167,70 @@ class TestClaudeCodeAdapterStream:
         assert str(tmp_path) in fake_sdk.last_prompt
         assert "Workspace root:" in fake_sdk.last_prompt
         assert "Never write to /home/user" in fake_sdk.last_prompt
-        assert "Do not start long-running or background servers" in fake_sdk.last_prompt
+        assert "Do not run, suggest, or print shell commands" in fake_sdk.last_prompt
+        assert "Do not provide terminal commands for port previews" in fake_sdk.last_prompt
+        assert "Treat the latest user message as the only active request" in fake_sdk.last_prompt
+        assert (
+            "answer directly in text and do not inspect files or call tools"
+            in fake_sdk.last_prompt
+        )
+        assert "python3 -m http.server 8082" not in fake_sdk.last_prompt
+
+    async def test_prompt_marks_latest_user_request(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        await _collect(
+            adapter,
+            messages=[
+                ChatMessage(role="user", content="create a snake game"),
+                ChatMessage(role="assistant", content="I created snake-game/index.html"),
+                ChatMessage(role="user", content="请只总结当前进度"),
+            ],
+            workspace_path=tmp_path,
+        )
+
+        prompt = fake_sdk.last_prompt
+        assert "Previous conversation context (not the active task):" in prompt
+        assert "Current user request (answer this now):\n请只总结当前进度" in prompt
+        assert prompt.index("create a snake game") < prompt.index("Current user request")
+
+    async def test_identity_question_returns_direct_text_without_sdk(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            adapter,
+            "_load_sdk",
+            lambda: pytest.fail("identity questions must not start Claude Code"),
+        )
+
+        chunks = await _collect(
+            adapter,
+            messages=[
+                ChatMessage(role="user", content="create a snake game"),
+                ChatMessage(role="assistant", content="I created snake-game/index.html"),
+                ChatMessage(role="user", content="你是什么模型"),
+            ],
+            workspace_path=tmp_path,
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert "我是 Claude Code" in (chunks[2].text_delta or "")
+        assert chunks[-1].total_blocks == 1
 
     async def test_sdk_defaults_to_accept_edits_permission_mode(
         self,
