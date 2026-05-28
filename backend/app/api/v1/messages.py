@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
 from app.api.v1.conversations import _get_owned_conversation, _validate_visible_agent_ids
@@ -28,6 +28,18 @@ from app.schemas.message import (
 )
 
 router = APIRouter()
+
+
+async def _get_active_agent_message(db: DbSession, conv_id: UUID) -> Message | None:
+    stmt = (
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .where(Message.role == "agent")
+        .where(Message.status.in_(("pending", "streaming")))
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 # ─── List messages in conversation ───
@@ -100,6 +112,23 @@ async def send_message(
             },
         )
     await _validate_visible_agent_ids(db, user.id, [target_agent_id])
+
+    active_message = await _get_active_agent_message(db, conv_id)
+    if active_message is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "CONVERSATION_BUSY",
+                    "message": "Conversation already has an agent response in progress",
+                    "details": {
+                        "message_id": str(active_message.id),
+                        "agent_id": active_message.agent_id,
+                        "status": active_message.status,
+                    },
+                }
+            },
+        )
 
     # Create user message
     user_msg = Message(
