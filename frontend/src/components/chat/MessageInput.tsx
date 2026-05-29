@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentMentionPicker } from './AgentMentionPicker';
 import { DemoPromptBar } from './DemoPromptBar';
 import type { DemoConversation } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 
 export interface MentionInsertRequest {
@@ -15,7 +14,7 @@ export function MessageInput({
   conversation,
   onSend,
   isSending = false,
-  agents = mockAgents,
+  agents = [],
   mentionInsertRequest = null,
 }: {
   conversation: DemoConversation;

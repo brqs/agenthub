@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { ContentRenderer } from './ContentRenderer';
-import type { DemoContentBlock } from '@/lib/mockData';
+import { mockAgents, type DemoContentBlock } from '@/lib/mockData';
 
 vi.mock('./CodeBlock', () => ({
   CodeBlock: ({ language, code }: { language: string; code: string }) => (
@@ -51,7 +51,7 @@ describe('ContentRenderer', () => {
       },
     ];
 
-    render(<ContentRenderer blocks={blocks} />);
+    render(<ContentRenderer blocks={blocks} agents={mockAgents} />);
 
     expect(screen.getByText('AgentHub')).toBeInTheDocument();
     expect(screen.getByText('code:tsx:export function Demo() {}')).toBeInTheDocument();

@@ -1,6 +1,5 @@
 import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react';
 import type { TaskCardBlock as TaskCardBlockData, TaskStatus } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -20,7 +19,7 @@ const STATUS_CLASS: Record<TaskStatus, string> = {
 
 export function TaskCardBlock({
   block,
-  agents = mockAgents,
+  agents = [],
 }: {
   block: TaskCardBlockData;
   agents?: Agent[];
