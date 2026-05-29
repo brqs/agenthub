@@ -373,7 +373,8 @@ class TestOpenCodeAdapterStream:
         call = factory.calls[0]
         assert call["argv"] == ["opencode", "run", "--jsonl"]
         assert call["cwd"] == str(tmp_path)
-        assert call["env"]["PATH"] == "fake-path"
+        assert call["env"]["PATH"].endswith("fake-path")
+        assert ".local" in call["env"]["PATH"]
         assert "OPENAI_API_KEY" not in call["env"]
         assert process.stdin.closed is True
 
