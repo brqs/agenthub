@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.cli_runtime import CliCompleted, stream_cli_text
+from app.agents.external.direct_chat import maybe_stream_direct_chat
 from app.agents.external.runtime_budget import (
     CODEX_IDLE_TIMEOUT_SECONDS,
     RuntimeBudget,
@@ -98,6 +99,18 @@ class CodexAdapter(BaseAgentAdapter):
             return
 
         merged = self.merged_config(config)
+        direct_chat = await maybe_stream_direct_chat(
+            agent_id=self.agent_id,
+            provider=self.provider,
+            messages=messages,
+            system_prompt=self.effective_system_prompt(system_prompt),
+            config=merged,
+        )
+        if direct_chat.route == "direct_chat" and direct_chat.stream is not None:
+            async for chunk in direct_chat.stream:
+                yield chunk
+            return
+
         budget_config = runtime_budget_config(
             merged,
             default_idle_timeout_seconds=CODEX_IDLE_TIMEOUT_SECONDS,

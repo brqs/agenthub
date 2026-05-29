@@ -37,6 +37,21 @@ class AgentConfig(BaseModel):
     max_runtime_seconds: float | None = Field(default=None, ge=1, le=3600)
     idle_timeout_seconds: float | None = Field(default=None, ge=1, le=3600)
     heartbeat_interval_seconds: float | None = Field(default=None, ge=1, le=3600)
+    qa_short_circuit_enabled: bool | None = None
+    qa_model_backend: ModelBackend | None = Field(
+        default=None,
+        description="ModelGateway backend for external direct chat.",
+    )
+    qa_model: str | None = None
+    qa_classifier_model: str | None = None
+    qa_max_tokens: int | None = Field(default=None, ge=1, le=32000)
+    qa_classifier_max_tokens: int | None = Field(default=None, ge=1, le=1024)
+    qa_temperature: float | None = Field(default=None, ge=0, le=2)
+    qa_request_timeout_seconds: float | None = Field(default=None, ge=1, le=120)
+    task_fallback_agent_ids: list[str] | None = None
+    max_task_attempts: int | None = Field(default=None, ge=1, le=3)
+    task_result_context_max_chars: int | None = Field(default=None, ge=1, le=32000)
+    task_result_item_max_chars: int | None = Field(default=None, ge=1, le=8000)
 
     # 允许额外 provider 专属字段
     model_config = ConfigDict(extra="allow")
