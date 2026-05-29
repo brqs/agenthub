@@ -36,6 +36,7 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 SDK_MODULE_NAME = "agents"
 DEFAULT_MODEL = "gpt-4.1"
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+DEFAULT_RUNTIME_ERROR_MAX_CHARS = 4000
 DEFAULT_RUNTIME = "cli"
 DEFAULT_CLI_SANDBOX_MODE = "danger-full-access"
 SUPPORTED_RUNTIMES = {"cli", "sdk"}
@@ -357,7 +358,7 @@ class CodexAdapter(BaseAgentAdapter):
 
         if result.return_code != 0:
             self._log_cli_failure(result, text, workspace_path)
-            output = self._safe_runtime_output(result.stderr or result.stdout or text)
+            output = self._runtime_failure_output(result, text)
             yield self._error(
                 "external_runtime_error",
                 f"Codex CLI exited with code {result.return_code}: {output}",
@@ -819,10 +820,22 @@ class CodexAdapter(BaseAgentAdapter):
     def _safe_message(exc: BaseException) -> str:
         return redact_runtime_secrets(str(exc) or exc.__class__.__name__)[:500]
 
+    def _runtime_failure_output(self, result: Any, output_file_text: str) -> str:
+        sections: list[str] = []
+        if result.stderr and result.stderr.strip():
+            sections.append(f"stderr:\n{result.stderr.strip()}")
+        if result.stdout and result.stdout.strip():
+            sections.append(f"stdout:\n{result.stdout.strip()}")
+        if output_file_text and output_file_text.strip():
+            sections.append(f"output_file:\n{output_file_text.strip()}")
+        return self._safe_runtime_output("\n\n".join(sections))
+
     @staticmethod
     def _safe_runtime_output(output: str) -> str:
         return (
-            redact_runtime_secrets(sanitize_preview_deploy_text(output.strip()))[:500]
+            redact_runtime_secrets(sanitize_preview_deploy_text(output.strip()))[
+                :DEFAULT_RUNTIME_ERROR_MAX_CHARS
+            ]
             or "no output"
         )
 

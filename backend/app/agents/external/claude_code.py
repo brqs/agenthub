@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import os
+import shlex
 from collections.abc import AsyncIterator, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -221,7 +223,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         )
         prompt = self._format_prompt(messages, system_prompt, workspace_path)
         command = [
-            "claude",
+            *self._argv(config.get("command", "claude")),
             "-p",
             "--output-format",
             "text",
@@ -449,6 +451,18 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
 
     def _safe_error_message(self, exc: BaseException) -> str:
         return str(exc) or exc.__class__.__name__
+
+    @staticmethod
+    def _argv(value: object) -> list[str]:
+        if value is None:
+            return ["claude"]
+        if isinstance(value, str):
+            argv = shlex.split(value, posix=os.name != "nt")
+            return argv or ["claude"]
+        if isinstance(value, list):
+            argv = [str(item) for item in value if str(item)]
+            return argv or ["claude"]
+        return [str(value)]
 
     @staticmethod
     def _safe_runtime_output(output: str) -> str:
