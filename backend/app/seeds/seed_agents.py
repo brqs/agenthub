@@ -118,6 +118,8 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "config": {
             "model_backend": "claude",
             "llm_planning": True,
+            "react_enabled": True,
+            "react_trace_visible": True,
             "direct_answer_on_planner_failure": True,
             "max_iterations": 10,
             "mcp_servers": [],
