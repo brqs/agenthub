@@ -409,10 +409,10 @@ B2-09 允许提前准备任务文档，但实现必须等待 `docs/b2/spec/orche
 启动 B2-11：为 Claude / OpenAI / DeepSeek / Custom Adapter 统一 retry、timeout、rate-limit 和上游错误映射策略。
 
 ### 关键 Prompt
-> 请执行 B2-11。先阅读 AGENTS.md，然后阅读 docs/b2/spec/provider-resilience.spec.md 和 docs/b2/task-dispatch/B2-11-provider-resilience.md。严格按文档实现：只修改 Provider Adapter 及其测试；setup 阶段 transient error 可配置重试；rate limit 默认不重试；timeout / connection / upstream error 输出标准 StreamChunk(error)；内容已经开始输出后不得重试，必须先 flush parser 再输出 error；DeepSeek 继承 OpenAI resilience；Custom 不做二次 retry，只转发上游 chunk。不要修改 BaseAgentAdapter / StreamChunk / OpenAPI / registry / API / frontend / .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
+> 请执行 B2-11。先阅读 AGENTS.md，然后阅读 docs/b2/spec/model-gateway.spec.md 和 docs/b2/task-dispatch/B2-11-provider-resilience.md。严格按文档实现：只修改 Provider Adapter 及其测试；setup 阶段 transient error 可配置重试；rate limit 默认不重试；timeout / connection / upstream error 输出标准 StreamChunk(error)；内容已经开始输出后不得重试，必须先 flush parser 再输出 error；DeepSeek 继承 OpenAI resilience；Custom 不做二次 retry，只转发上游 chunk。不要修改 BaseAgentAdapter / StreamChunk / OpenAPI / registry / API / frontend / .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
 
 ### AI 输出摘要
-1. 新增 `docs/b2/spec/provider-resilience.spec.md`：
+1. 新增 Provider resilience spec（后续合并到 `docs/b2/spec/model-gateway.spec.md`）：
    - 定义 retry 只发生在内容输出前。
    - 定义 `missing_api_key`、`rate_limit`、`timeout`、`connection_error`、`upstream_error` 五类标准错误码。
    - 定义 `max_retries`、`retry_backoff_seconds`、`request_timeout_seconds`、`retry_on_rate_limit` 配置。
@@ -438,10 +438,10 @@ B2-09 允许提前准备任务文档，但实现必须等待 `docs/b2/spec/orche
 并行准备 B2-12：为 Claude / OpenAI / DeepSeek / Custom Adapter 增加默认 fake smoke tests 和可选真实 API slow tests。
 
 ### 关键 Prompt
-> 请执行 B2-12。先阅读 AGENTS.md，然后阅读 docs/b2/spec/adapter-smoke-tests.spec.md 和 docs/b2/task-dispatch/B2-12-adapter-smoke-tests.md。严格按文档实现：默认 smoke tests 必须使用 fake/mock upstream，不访问真实网络；验证 Adapter stream chunk 序列、to_sse()、block_start/block_end 成对、done.total_blocks 和 B1 _ContentAccumulator 消费；新增可选真实 API slow tests 时必须默认 skip，仅在 AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1 且对应 API key 存在时运行；注册 pytest slow marker；不要修改 Adapter 生产代码、BaseAgentAdapter、StreamChunk、OpenAPI、registry、API、frontend 或 .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
+> 请执行 B2-12。先阅读 AGENTS.md，然后阅读 docs/b2/spec/agent-runtime-test-matrix.spec.md 和 docs/b2/task-dispatch/B2-12-adapter-smoke-tests.md。严格按文档实现：默认 smoke tests 必须使用 fake/mock upstream，不访问真实网络；验证 Adapter stream chunk 序列、to_sse()、block_start/block_end 成对、done.total_blocks 和 B1 _ContentAccumulator 消费；新增可选真实 API slow tests 时必须默认 skip，仅在 AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1 且对应 API key 存在时运行；注册 pytest slow marker；不要修改 Adapter 生产代码、BaseAgentAdapter、StreamChunk、OpenAPI、registry、API、frontend 或 .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
 
 ### AI 输出摘要
-1. 新增 `docs/b2/spec/adapter-smoke-tests.spec.md`：
+1. 新增 adapter smoke tests spec（后续合并到 `docs/b2/spec/agent-runtime-test-matrix.spec.md`）：
    - 定义默认 fake smoke tests 与可选真实 API slow tests 的边界。
    - 明确默认测试不得访问真实 Provider。
    - 明确 `slow` marker、`AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1` 和 provider API key 检查。
