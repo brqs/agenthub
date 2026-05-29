@@ -90,16 +90,37 @@ class _LimitedBuffer:
 
 def cli_env() -> dict[str, str]:
     """Return enough local environment for logged-in CLIs without provider secrets."""
-    return {key: value for key, value in os.environ.items() if key in CLI_ENV_ALLOWLIST}
+    env = {key: value for key, value in os.environ.items() if key in CLI_ENV_ALLOWLIST}
+    env["PATH"] = _runtime_path(env.get("PATH", ""))
+    return env
 
 
 def resolve_command(command: list[str]) -> list[str]:
     if not command:
         return []
-    resolved = shutil.which(command[0])
+    resolved = shutil.which(command[0], path=_runtime_path(os.environ.get("PATH", "")))
     if resolved:
         return [resolved, *command[1:]]
     return command
+
+
+def _runtime_path(path_value: str) -> str:
+    entries = [entry for entry in path_value.split(os.pathsep) if entry]
+    for extra in _extra_runtime_path_entries():
+        if extra and extra not in entries:
+            entries.insert(0, extra)
+    return os.pathsep.join(entries)
+
+
+def _extra_runtime_path_entries() -> list[str]:
+    entries: list[str] = []
+    user_profile = os.environ.get("USERPROFILE")
+    if user_profile:
+        entries.append(str(Path(user_profile) / ".local" / "bin"))
+    home = os.environ.get("HOME")
+    if home:
+        entries.append(str(Path(home) / ".local" / "bin"))
+    return entries
 
 
 async def run_cli_text(

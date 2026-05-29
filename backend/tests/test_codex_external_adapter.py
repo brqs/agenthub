@@ -568,6 +568,37 @@ class TestCodexAdapterErrors:
         assert "sk-testsecret123456" not in caplog.text
         assert "secret-token-123456" not in caplog.text
 
+    async def test_cli_nonzero_error_includes_redacted_stdout_stderr_and_output_file(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        def write_output(command: list[str]) -> None:
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_text("partial output sk-abcdef123456", encoding="utf-8")
+
+        monkeypatch.setattr(
+            codex_module,
+            "stream_cli_text",
+            _fake_stream_cli_text(
+                CliResult(
+                    return_code=1,
+                    stdout="stdout detail",
+                    stderr="stderr detail Bearer secret-token-123456",
+                ),
+                on_command=write_output,
+            ),
+        )
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+        assert chunks[1].error_code == "external_runtime_error"
+        assert "stderr:\nstderr detail Bearer [redacted]" in (chunks[1].error or "")
+        assert "stdout:\nstdout detail" in (chunks[1].error or "")
+        assert "output_file:\npartial output [redacted]" in (chunks[1].error or "")
+
     async def test_sdk_authentication_error_maps_missing_api_key(
         self,
         adapter: CodexAdapter,

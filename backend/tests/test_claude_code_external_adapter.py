@@ -377,3 +377,42 @@ class TestClaudeCodeAdapterStream:
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[1].error_code == "workspace_violation"
         assert chunks[1].error == "workspace_path is required"
+
+    async def test_cli_command_can_be_overridden(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        def missing_sdk() -> Any:
+            raise ModuleNotFoundError(
+                "No module named 'claude_agent_sdk'",
+                name="claude_agent_sdk",
+            )
+
+        seen_command: list[str] = []
+
+        async def fake_stream_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            budget_config: Any,
+            agent_id: str,
+            provider: str,
+            activity_paths: list[Path] | None = None,
+        ) -> AsyncIterator[StreamChunk | CliCompleted]:
+            _ = cwd, budget_config, agent_id, provider, activity_paths
+            seen_command.extend(command)
+            yield CliCompleted(CliResult(return_code=0, stdout="cli ok\n", stderr=""))
+
+        monkeypatch.setattr(adapter, "_load_sdk", missing_sdk)
+        monkeypatch.setattr(claude_code_module, "stream_cli_text", fake_stream_cli_text)
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={"command": ["C:\\Users\\qq\\.local\\bin\\claude.exe"]},
+        )
+
+        assert chunks[-1].event_type == "done"
+        assert seen_command[0] == "C:\\Users\\qq\\.local\\bin\\claude.exe"
