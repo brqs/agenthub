@@ -422,6 +422,33 @@ components:
           type: array
           items: { type: string }
         timeout_seconds: { type: number, minimum: 1, maximum: 3600 }
+        max_runtime_seconds: { type: number, minimum: 1, maximum: 3600 }
+        idle_timeout_seconds: { type: number, minimum: 1, maximum: 3600 }
+        heartbeat_interval_seconds: { type: number, minimum: 1, maximum: 3600 }
+        qa_short_circuit_enabled:
+          type: boolean
+          description: Whether external runtime agents may answer pure Q&A through ModelGateway without starting SDK/CLI.
+        qa_model_backend:
+          type: string
+          enum: [claude, deepseek, openai]
+          description: ModelGateway backend for external direct chat.
+        qa_model:
+          type: string
+          nullable: true
+        qa_classifier_model:
+          type: string
+          nullable: true
+        qa_max_tokens: { type: integer, minimum: 1, maximum: 32000 }
+        qa_classifier_max_tokens: { type: integer, minimum: 1, maximum: 1024 }
+        qa_temperature: { type: number, minimum: 0, maximum: 2 }
+        qa_request_timeout_seconds: { type: number, minimum: 1, maximum: 120 }
+        task_fallback_agent_ids:
+          type: array
+          items: { type: string }
+          description: Optional per-task fallback agents for orchestrator retries.
+        max_task_attempts: { type: integer, minimum: 1, maximum: 3 }
+        task_result_context_max_chars: { type: integer, minimum: 1, maximum: 32000 }
+        task_result_item_max_chars: { type: integer, minimum: 1, maximum: 8000 }
 
     Agent:
       type: object

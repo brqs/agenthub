@@ -20,6 +20,7 @@ EXTERNAL_RUNTIME_BUDGET_KEYS = (
     "idle_timeout_seconds",
     "heartbeat_interval_seconds",
 )
+QA_MODEL_BACKENDS = SUPPORTED_UPSTREAM_PROVIDERS
 
 
 class AgentConfigValidationError(ValueError):
@@ -86,6 +87,30 @@ def _validate_string_list(config: dict[str, Any], key: str) -> None:
         )
 
 
+def _validate_bool(config: dict[str, Any], key: str) -> None:
+    value = config.get(key)
+    if value is None:
+        return
+    if not isinstance(value, bool):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=f"'{key}' must be a boolean",
+            details={"field": key, "value": value},
+        )
+
+
+def _validate_optional_non_empty_string(config: dict[str, Any], key: str) -> None:
+    value = config.get(key)
+    if value is None:
+        return
+    if not isinstance(value, str) or not value:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=f"'{key}' must be a non-empty string",
+            details={"field": key, "value": value},
+        )
+
+
 def _validate_mcp_servers(config: dict[str, Any]) -> None:
     value = config.get("mcp_servers")
     if value is None:
@@ -101,6 +126,7 @@ def _validate_mcp_servers(config: dict[str, Any]) -> None:
 def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> None:
     for key in EXTERNAL_RUNTIME_BUDGET_KEYS:
         _validate_numeric(config, key, 1, 3600)
+    _validate_external_direct_chat_config(config)
     max_runtime = config.get("max_runtime_seconds", config.get("timeout_seconds"))
     idle_timeout = config.get("idle_timeout_seconds")
     if (
@@ -148,6 +174,26 @@ def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> 
             )
 
 
+def _validate_external_direct_chat_config(config: dict[str, Any]) -> None:
+    _validate_bool(config, "qa_short_circuit_enabled")
+    qa_model_backend = config.get("qa_model_backend")
+    if qa_model_backend is not None and (
+        not isinstance(qa_model_backend, str)
+        or qa_model_backend not in QA_MODEL_BACKENDS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported qa_model_backend '{qa_model_backend}'",
+            details={"qa_model_backend": qa_model_backend},
+        )
+    _validate_optional_non_empty_string(config, "qa_model")
+    _validate_optional_non_empty_string(config, "qa_classifier_model")
+    _validate_numeric(config, "qa_max_tokens", 1, 32000, allow_float=False)
+    _validate_numeric(config, "qa_classifier_max_tokens", 1, 1024, allow_float=False)
+    _validate_numeric(config, "qa_temperature", 0, 2)
+    _validate_numeric(config, "qa_request_timeout_seconds", 1, 120)
+
+
 def _validate_builtin_config(config: dict[str, Any]) -> None:
     model_backend = config.get("model_backend", "claude")
     if not isinstance(model_backend, str) or model_backend not in SUPPORTED_UPSTREAM_PROVIDERS:
@@ -174,6 +220,22 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             details={"field": "orchestrator_answer_config", "value": answer_config},
         )
     _validate_numeric(config, "max_iterations", 1, 50, allow_float=False)
+    _validate_string_list(config, "task_fallback_agent_ids")
+    _validate_numeric(config, "max_task_attempts", 1, 3, allow_float=False)
+    _validate_numeric(
+        config,
+        "task_result_context_max_chars",
+        1,
+        32000,
+        allow_float=False,
+    )
+    _validate_numeric(
+        config,
+        "task_result_item_max_chars",
+        1,
+        8000,
+        allow_float=False,
+    )
     _validate_mcp_servers(config)
 
 

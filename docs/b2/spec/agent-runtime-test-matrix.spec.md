@@ -87,9 +87,13 @@
 - planner 不规划 preview/deploy server。
 - 子 agent heartbeat 透传。
 - 子 agent error 转 summary，不让主流程卡住。
+- 前序子任务输出注入依赖子任务上下文。
+- `include_history=false` 不带原始历史，但仍可注入依赖任务结果。
 - `artifact_missing` 触发 fallback。
 - fallback 成功后 summary 包含 artifact 路径。
 - 所有 attempts 失败时 Orchestrator `done` 并说明失败。
+- summary 列出每个 attempt 的 agent、状态和失败原因。
+- `tool_call` block 可被压平成下一轮上下文摘要。
 
 ## Slow Live Smoke
 

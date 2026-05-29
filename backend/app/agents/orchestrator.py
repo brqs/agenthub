@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, cast
@@ -14,6 +15,25 @@ from app.agents.orchestrator_planner import llm_planning_enabled, plan_task_payl
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 AdapterFactory = Callable[[str], BaseAgentAdapter | Awaitable[BaseAgentAdapter]]
+DEFAULT_TASK_RESULT_CONTEXT_MAX_CHARS = 4000
+DEFAULT_TASK_RESULT_ITEM_MAX_CHARS = 1200
+DEFAULT_MAX_TASK_ATTEMPTS = 1
+MAX_TASK_ATTEMPTS_LIMIT = 3
+SENSITIVE_ARTIFACT_PARTS = {".env", "secrets", ".ssh", ".agenthub"}
+ARTIFACT_PATH_KEYS = {
+    "path",
+    "file_path",
+    "filepath",
+    "filename",
+    "file",
+    "target_path",
+    "output_path",
+}
+ARTIFACT_PATH_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_.\-/\\])"
+    r"([A-Za-z0-9_.\-/\\]+"
+    r"\.(?:html|css|js|jsx|ts|tsx|py|md|json|txt|yml|yaml|toml|xml|svg|png|jpg|jpeg|gif|webp))"
+)
 
 DIRECT_ANSWER_SYSTEM_PROMPT = """You are AgentHub's Orchestrator.
 Answer simple questions about your identity, configured model backend, capabilities,
@@ -113,6 +133,7 @@ class TaskState(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"
+    ARTIFACT_MISSING = "artifact_missing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,8 +162,34 @@ class SubTask:
 
 
 @dataclass(slots=True)
-class TaskRunResult:
+class TaskAttempt:
+    attempt_index: int
+    agent_id: str
     state: TaskState = TaskState.PENDING
+    text_preview: str = ""
+    tool_summaries: list[str] = field(default_factory=list)
+    artifact_paths: list[str] = field(default_factory=list)
+    missing_artifact_paths: list[str] = field(default_factory=list)
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class TaskResult:
+    task_id: str
+    title: str
+    final_state: TaskState = TaskState.PENDING
+    attempts: list[TaskAttempt] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class OrchestratorRunContext:
+    results: dict[str, TaskResult] = field(default_factory=dict)
+    result_order: list[str] = field(default_factory=list)
+
+    def record(self, result: TaskResult) -> None:
+        if result.task_id not in self.results:
+            self.result_order.append(result.task_id)
+        self.results[result.task_id] = result
 
 
 class PlannerResolutionError(ValueError):
@@ -279,26 +326,36 @@ class OrchestratorAdapter(BaseAgentAdapter):
         next_block_index += 1
 
         task_states = {task.task_id: TaskState.PENDING for task in tasks}
+        run_context = OrchestratorRunContext()
         for task in tasks:
             if not _dependencies_satisfied(task, task_states):
                 task_states[task.task_id] = TaskState.SKIPPED
+                run_context.record(
+                    TaskResult(
+                        task_id=task.task_id,
+                        title=task.title,
+                        final_state=TaskState.SKIPPED,
+                    )
+                )
                 continue
 
-            result = TaskRunResult()
             async for chunk, updated_block_index in _run_task(
                 merged_config,
                 task,
                 messages,
                 next_block_index,
-                result,
+                run_context,
                 workspace_path,
                 tool_specs,
             ):
                 next_block_index = updated_block_index
                 yield chunk
-            task_states[task.task_id] = result.state
+            task_states[task.task_id] = run_context.results[task.task_id].final_state
 
-        for chunk in _text_block(next_block_index, _summary_text(tasks, task_states)):
+        for chunk in _text_block(
+            next_block_index,
+            _summary_text(tasks, task_states, run_context),
+        ):
             yield chunk
         next_block_index += 1
         yield StreamChunk(
@@ -944,11 +1001,12 @@ def _dependencies_satisfied(
     )
 
 
-def _agent_switch(task: SubTask) -> StreamChunk:
+def _agent_switch(task: SubTask, agent_id: str | None = None) -> StreamChunk:
+    target_agent_id = agent_id or task.agent_id
     return StreamChunk(
         event_type="agent_switch",
         from_agent="orchestrator",
-        to_agent=task.agent_id,
+        to_agent=target_agent_id,
         task=task.title,
     )
 
@@ -986,12 +1044,14 @@ def _plan_source(tasks: list[SubTask]) -> str:
     return "LLM planner/config"
 
 
-def _agent_header_text(task: SubTask) -> str:
-    return f"@{task.agent_id}\n\n"
+def _agent_header_text(task: SubTask, agent_id: str | None = None) -> str:
+    _ = task
+    return f"@{agent_id or task.agent_id}\n\n"
 
 
-def _failure_text(task: SubTask, reason: str) -> str:
-    return f"@{task.agent_id} failed: {reason}\n"
+def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> str:
+    _ = task
+    return f"@{agent_id or task.agent_id} failed: {reason}\n"
 
 
 def _fallback_summary_text() -> str:
@@ -1001,21 +1061,58 @@ def _fallback_summary_text() -> str:
 def _summary_text(
     tasks: list[SubTask],
     task_states: Mapping[str, TaskState],
+    run_context: OrchestratorRunContext | None = None,
 ) -> str:
     lines = ["Execution summary", ""]
     for task in tasks:
         state = task_states[task.task_id]
-        lines.append(f"- {state.value}: @{task.agent_id} - {task.title}")
+        result = run_context.results.get(task.task_id) if run_context else None
+        if result is None or not result.attempts:
+            lines.append(f"- {state.value}: @{task.agent_id} - {task.title}")
+            continue
+
+        final_attempt = result.attempts[-1]
+        lines.append(f"- {state.value}: @{final_attempt.agent_id} - {task.title}")
+        artifacts = _dedupe_strings(
+            path for attempt in result.attempts for path in attempt.artifact_paths
+        )
+        missing = _dedupe_strings(
+            path
+            for attempt in result.attempts
+            for path in attempt.missing_artifact_paths
+        )
+        if artifacts:
+            lines.append(f"  artifacts: {', '.join(artifacts)}")
+        if missing and state == TaskState.ARTIFACT_MISSING:
+            lines.append(f"  missing: {', '.join(missing)}")
+        if len(result.attempts) > 1 or state in {
+            TaskState.FAILED,
+            TaskState.ARTIFACT_MISSING,
+        }:
+            lines.append("  attempts:")
+            for attempt in result.attempts:
+                detail = (
+                    f"  - attempt {attempt.attempt_index} "
+                    f"@{attempt.agent_id}: {attempt.state.value}"
+                )
+                if attempt.error:
+                    detail += f" - {attempt.error}"
+                elif attempt.missing_artifact_paths:
+                    detail += f" - missing {', '.join(attempt.missing_artifact_paths)}"
+                lines.append(detail)
     return "\n".join(lines) + "\n"
 
 
 async def _remapped_sub_stream(
     sub_adapter: BaseAgentAdapter,
     task: SubTask,
+    agent_id: str,
+    call_id_prefix: str,
     messages: list[ChatMessage],
     next_block_index: int,
     workspace_path: Path | None,
     tool_specs: list[ToolSpec] | None,
+    attempt: TaskAttempt,
 ) -> AsyncIterator[tuple[StreamChunk, int, bool]]:
     index_map: dict[int, int] = {}
     open_block_index: int | None = None
@@ -1035,18 +1132,22 @@ async def _remapped_sub_stream(
                         event_type="block_end", block_index=open_block_index
                     ), next_block_index, False
                     open_block_index = None
-                failure_text = _failure_text(task, _error_reason(chunk))
+                attempt.error = _error_reason(chunk)
+                attempt.state = TaskState.FAILED
+                failure_text = _failure_text(task, attempt.error, agent_id)
                 for failure_chunk in _text_block(next_block_index, failure_text):
                     yield failure_chunk, next_block_index + 1, True
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
-                yield _remap_tool_call_id(chunk, task.task_id), next_block_index, False
+                _accumulate_tool_event(attempt, chunk)
+                yield _remap_tool_call_id(chunk, call_id_prefix), next_block_index, False
                 continue
             if chunk.event_type == "heartbeat":
                 yield chunk, next_block_index, False
                 continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
+            _accumulate_text_event(attempt, chunk)
             remapped, next_block_index = _remap_block_index(
                 chunk,
                 index_map,
@@ -1063,7 +1164,9 @@ async def _remapped_sub_stream(
                 event_type="block_end", block_index=open_block_index
             ), next_block_index, False
             open_block_index = None
-        failure_text = _failure_text(task, str(exc))
+        attempt.error = str(exc)
+        attempt.state = TaskState.FAILED
+        failure_text = _failure_text(task, str(exc), agent_id)
         for failure_chunk in _text_block(next_block_index, failure_text):
             yield failure_chunk, next_block_index + 1, True
         return
@@ -1074,44 +1177,435 @@ async def _run_task(
     task: SubTask,
     messages: list[ChatMessage],
     next_block_index: int,
-    result: TaskRunResult,
+    run_context: OrchestratorRunContext,
     workspace_path: Path | None,
     tool_specs: list[ToolSpec] | None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
-    yield _agent_switch(task), next_block_index
-    for chunk, updated_block_index in _text_block_with_next(
-        next_block_index,
-        _agent_header_text(task),
-    ):
-        yield chunk, updated_block_index
-    next_block_index += 1
+    task_result = TaskResult(task_id=task.task_id, title=task.title)
+    fallback_agents = _task_fallback_agent_ids(config)
+    max_attempts = _max_task_attempts(config)
+    attempted_agents: set[str] = set()
 
-    try:
-        sub_adapter = await _get_sub_adapter(config, task.agent_id)
-    except Exception as exc:
-        result.state = TaskState.FAILED
+    for attempt_index in range(1, max_attempts + 1):
+        agent_id = _agent_for_attempt(task, fallback_agents, attempted_agents)
+        if agent_id is None:
+            break
+        attempted_agents.add(agent_id)
+
+        attempt = TaskAttempt(attempt_index=attempt_index, agent_id=agent_id)
+        task_result.attempts.append(attempt)
+
+        yield _agent_switch(task, agent_id), next_block_index
         for chunk, updated_block_index in _text_block_with_next(
             next_block_index,
-            _failure_text(task, str(exc)),
+            _agent_header_text(task, agent_id),
         ):
             yield chunk, updated_block_index
-        return
+        next_block_index += 1
 
+        try:
+            sub_adapter = await _get_sub_adapter(config, agent_id)
+        except Exception as exc:
+            attempt.state = TaskState.FAILED
+            attempt.error = str(exc)
+            for chunk, updated_block_index in _text_block_with_next(
+                next_block_index,
+                _failure_text(task, str(exc), agent_id),
+            ):
+                next_block_index = updated_block_index
+                yield chunk, updated_block_index
+        else:
+            sub_messages = _task_messages(
+                task,
+                messages,
+                run_context,
+                config,
+                previous_attempt=task_result.attempts[-2]
+                if len(task_result.attempts) > 1
+                else None,
+            )
+            task_failed = False
+            async for chunk, updated_block_index, subtask_failed in _remapped_sub_stream(
+                sub_adapter,
+                task,
+                agent_id,
+                _attempt_call_id_prefix(task.task_id, attempt_index),
+                sub_messages,
+                next_block_index,
+                workspace_path,
+                tool_specs,
+                attempt,
+            ):
+                next_block_index = updated_block_index
+                task_failed = subtask_failed
+                yield chunk, updated_block_index
+            if task_failed:
+                attempt.state = TaskState.FAILED
+            else:
+                _finalize_artifact_candidates(attempt, task)
+                _check_attempt_artifacts(attempt, workspace_path)
+
+        task_result.final_state = attempt.state
+        if attempt.state == TaskState.SUCCEEDED:
+            break
+        if not _can_retry_task(task_result, fallback_agents, max_attempts):
+            break
+
+    if not task_result.attempts:
+        task_result.final_state = TaskState.FAILED
+        task_result.attempts.append(
+            TaskAttempt(
+                attempt_index=1,
+                agent_id=task.agent_id,
+                state=TaskState.FAILED,
+                error="no fallback agent available",
+            )
+        )
+    run_context.record(task_result)
+
+
+def _task_messages(
+    task: SubTask,
+    messages: list[ChatMessage],
+    run_context: OrchestratorRunContext,
+    config: Mapping[str, Any],
+    *,
+    previous_attempt: TaskAttempt | None = None,
+) -> list[ChatMessage]:
     task_message = ChatMessage(role="user", content=task.instruction)
-    sub_messages = [*messages, task_message] if task.include_history else [task_message]
-    task_failed = False
-    async for chunk, updated_block_index, subtask_failed in _remapped_sub_stream(
-        sub_adapter,
+    context_message = _task_result_context_message(
+        run_context,
         task,
-        sub_messages,
-        next_block_index,
-        workspace_path,
-        tool_specs,
-    ):
-        next_block_index = updated_block_index
-        task_failed = subtask_failed
-        yield chunk, updated_block_index
-    result.state = TaskState.FAILED if task_failed else TaskState.SUCCEEDED
+        config,
+        previous_attempt=previous_attempt,
+    )
+    base_messages = [*messages] if task.include_history else []
+    if context_message is not None:
+        base_messages.append(context_message)
+    base_messages.append(task_message)
+    return base_messages
+
+
+def _task_result_context_message(
+    run_context: OrchestratorRunContext,
+    task: SubTask,
+    config: Mapping[str, Any],
+    *,
+    previous_attempt: TaskAttempt | None = None,
+) -> ChatMessage | None:
+    result_ids = _context_result_ids(run_context, task)
+    lines: list[str] = []
+    if result_ids:
+        lines.append("Previous sub-agent results:")
+        lines.append("")
+        for task_id in result_ids:
+            result = run_context.results.get(task_id)
+            if result is None:
+                continue
+            item = _format_task_result_context(
+                task_id,
+                result,
+                _task_result_item_max_chars(config),
+            )
+            if item:
+                lines.append(item)
+    if previous_attempt is not None:
+        if lines:
+            lines.append("")
+        lines.append("Previous attempt failure:")
+        lines.append(
+            _format_attempt_context(previous_attempt, _task_result_item_max_chars(config))
+        )
+    if not lines:
+        return None
+    content = _truncate_preserving_edges(
+        "\n".join(lines),
+        _task_result_context_max_chars(config),
+    )
+    return ChatMessage(role="system", content=content)
+
+
+def _context_result_ids(
+    run_context: OrchestratorRunContext,
+    task: SubTask,
+) -> list[str]:
+    if task.depends_on:
+        return [task_id for task_id in task.depends_on if task_id in run_context.results]
+    return [
+        task_id
+        for task_id in run_context.result_order
+        if run_context.results[task_id].final_state != TaskState.PENDING
+    ]
+
+
+def _format_task_result_context(
+    task_id: str,
+    result: TaskResult,
+    max_chars: int,
+) -> str:
+    if not result.attempts:
+        return _truncate_preserving_edges(
+            f"- {task_id} {result.final_state.value}",
+            max_chars,
+        )
+    final_attempt = result.attempts[-1]
+    lines = [
+        f"- {task_id} @{final_attempt.agent_id} {result.final_state.value}",
+    ]
+    if final_attempt.text_preview:
+        lines.append(f"  Text: {final_attempt.text_preview}")
+    if final_attempt.tool_summaries:
+        lines.append(f"  Tools: {'; '.join(final_attempt.tool_summaries[:4])}")
+    if final_attempt.artifact_paths:
+        lines.append(f"  Artifacts: {', '.join(final_attempt.artifact_paths)}")
+    if final_attempt.error:
+        lines.append(f"  Error: {final_attempt.error}")
+    if final_attempt.missing_artifact_paths:
+        lines.append(f"  Missing: {', '.join(final_attempt.missing_artifact_paths)}")
+    return _truncate_preserving_edges("\n".join(lines), max_chars)
+
+
+def _format_attempt_context(attempt: TaskAttempt, max_chars: int) -> str:
+    text = (
+        f"- attempt {attempt.attempt_index} @{attempt.agent_id} "
+        f"{attempt.state.value}"
+    )
+    if attempt.error:
+        text += f": {attempt.error}"
+    elif attempt.missing_artifact_paths:
+        text += f": missing {', '.join(attempt.missing_artifact_paths)}"
+    return _truncate_preserving_edges(text, max_chars)
+
+
+def _task_fallback_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    value = config.get("task_fallback_agent_ids")
+    if not isinstance(value, list):
+        return []
+    return _dedupe_strings(
+        item.strip()
+        for item in value
+        if isinstance(item, str) and item.strip() and item.strip() != "orchestrator"
+    )
+
+
+def _max_task_attempts(config: Mapping[str, Any]) -> int:
+    value = config.get("max_task_attempts", DEFAULT_MAX_TASK_ATTEMPTS)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return DEFAULT_MAX_TASK_ATTEMPTS
+    return int(min(max(value, 1), MAX_TASK_ATTEMPTS_LIMIT))
+
+
+def _task_result_context_max_chars(config: Mapping[str, Any]) -> int:
+    return _positive_int_config(
+        config,
+        "task_result_context_max_chars",
+        DEFAULT_TASK_RESULT_CONTEXT_MAX_CHARS,
+    )
+
+
+def _task_result_item_max_chars(config: Mapping[str, Any]) -> int:
+    return _positive_int_config(
+        config,
+        "task_result_item_max_chars",
+        DEFAULT_TASK_RESULT_ITEM_MAX_CHARS,
+    )
+
+
+def _positive_int_config(
+    config: Mapping[str, Any],
+    key: str,
+    default: int,
+) -> int:
+    value = config.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return default
+    return int(value)
+
+
+def _agent_for_attempt(
+    task: SubTask,
+    fallback_agents: list[str],
+    attempted_agents: set[str],
+) -> str | None:
+    if not attempted_agents:
+        return task.agent_id
+    for agent_id in fallback_agents:
+        if agent_id not in attempted_agents:
+            return agent_id
+    return None
+
+
+def _can_retry_task(
+    result: TaskResult,
+    fallback_agents: list[str],
+    max_attempts: int,
+) -> bool:
+    if not fallback_agents or len(result.attempts) >= max_attempts:
+        return False
+    return result.final_state in {TaskState.FAILED, TaskState.ARTIFACT_MISSING}
+
+
+def _attempt_call_id_prefix(task_id: str, attempt_index: int) -> str:
+    if attempt_index == 1:
+        return task_id
+    return f"{task_id}.attempt-{attempt_index}"
+
+
+def _accumulate_text_event(attempt: TaskAttempt, chunk: StreamChunk) -> None:
+    if chunk.text_delta:
+        attempt.text_preview = _append_limited(
+            attempt.text_preview,
+            chunk.text_delta,
+            DEFAULT_TASK_RESULT_ITEM_MAX_CHARS,
+        )
+        attempt.artifact_paths.extend(_extract_artifact_paths_from_text(chunk.text_delta))
+    if chunk.code_delta:
+        attempt.text_preview = _append_limited(
+            attempt.text_preview,
+            chunk.code_delta,
+            DEFAULT_TASK_RESULT_ITEM_MAX_CHARS,
+        )
+    if chunk.metadata:
+        attempt.artifact_paths.extend(_extract_artifact_paths_from_mapping(chunk.metadata))
+
+
+def _accumulate_tool_event(attempt: TaskAttempt, chunk: StreamChunk) -> None:
+    if chunk.event_type == "tool_call":
+        summary = _tool_call_summary(chunk)
+        if summary:
+            attempt.tool_summaries.append(summary)
+        if chunk.tool_arguments:
+            attempt.artifact_paths.extend(
+                _extract_artifact_paths_from_mapping(chunk.tool_arguments)
+            )
+    elif chunk.event_type == "tool_result":
+        summary = _tool_result_summary(chunk)
+        if summary:
+            attempt.tool_summaries.append(summary)
+        if chunk.tool_output:
+            attempt.artifact_paths.extend(
+                _extract_artifact_paths_from_text(chunk.tool_output)
+            )
+
+
+def _tool_call_summary(chunk: StreamChunk) -> str:
+    name = chunk.tool_name or "tool"
+    path_bits = []
+    if chunk.tool_arguments:
+        path_bits = _extract_artifact_paths_from_mapping(chunk.tool_arguments)
+    if path_bits:
+        return f"{name}({', '.join(path_bits[:3])})"
+    return name
+
+
+def _tool_result_summary(chunk: StreamChunk) -> str:
+    status = chunk.tool_status or "unknown"
+    output = _truncate_preserving_edges(chunk.tool_output or "", 160)
+    if output:
+        return f"result {status}: {output}"
+    return f"result {status}"
+
+
+def _finalize_artifact_candidates(attempt: TaskAttempt, task: SubTask) -> None:
+    candidates: list[str] = []
+    if task.expected_output:
+        candidates.extend(_extract_artifact_paths_from_text(task.expected_output))
+    candidates.extend(_extract_artifact_paths_from_text(task.instruction))
+    candidates.extend(attempt.artifact_paths)
+    attempt.artifact_paths = _dedupe_strings(candidates)
+
+
+def _check_attempt_artifacts(
+    attempt: TaskAttempt,
+    workspace_path: Path | None,
+) -> None:
+    if workspace_path is None or not attempt.artifact_paths:
+        attempt.state = TaskState.SUCCEEDED
+        return
+    missing = [
+        path
+        for path in attempt.artifact_paths
+        if not (workspace_path / path).exists()
+    ]
+    attempt.missing_artifact_paths = missing
+    if missing:
+        attempt.state = TaskState.ARTIFACT_MISSING
+        attempt.error = f"missing artifact: {', '.join(missing)}"
+        return
+    attempt.state = TaskState.SUCCEEDED
+
+
+def _extract_artifact_paths_from_mapping(value: Mapping[str, Any]) -> list[str]:
+    paths: list[str] = []
+    for key, item in value.items():
+        normalized_key = str(key).lower()
+        if normalized_key in ARTIFACT_PATH_KEYS and isinstance(item, str):
+            candidate = _normalize_artifact_path(item)
+            if candidate is not None:
+                paths.append(candidate)
+        elif isinstance(item, Mapping):
+            paths.extend(_extract_artifact_paths_from_mapping(item))
+        elif isinstance(item, list):
+            for child in item:
+                if isinstance(child, Mapping):
+                    paths.extend(_extract_artifact_paths_from_mapping(child))
+                elif isinstance(child, str):
+                    paths.extend(_extract_artifact_paths_from_text(child))
+    return _dedupe_strings(paths)
+
+
+def _extract_artifact_paths_from_text(text: str) -> list[str]:
+    return _dedupe_strings(
+        path
+        for match in ARTIFACT_PATH_PATTERN.finditer(text)
+        if (path := _normalize_artifact_path(match.group(1))) is not None
+    )
+
+
+def _normalize_artifact_path(raw_path: str) -> str | None:
+    cleaned = raw_path.strip().strip("`'\".,;:)]}")
+    if not cleaned:
+        return None
+    cleaned = cleaned.replace("\\", "/")
+    candidate = Path(cleaned)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return None
+    parts = [part for part in cleaned.split("/") if part]
+    if not parts or any(part in SENSITIVE_ARTIFACT_PARTS for part in parts):
+        return None
+    if any(part.startswith(".") and part not in {".well-known"} for part in parts):
+        return None
+    return "/".join(parts)
+
+
+def _append_limited(existing: str, addition: str, max_chars: int) -> str:
+    combined = f"{existing}{addition}"
+    return _truncate_preserving_edges(combined, max_chars)
+
+
+def _truncate_preserving_edges(text: str, max_chars: int) -> str:
+    normalized = re.sub(r"\s+", " ", text).strip()
+    if len(normalized) <= max_chars:
+        return normalized
+    if max_chars <= 20:
+        return normalized[:max_chars]
+    head_len = max_chars // 2
+    tail_len = max_chars - head_len - 5
+    return f"{normalized[:head_len].rstrip()} ... {normalized[-tail_len:].lstrip()}"
+
+
+def _dedupe_strings(values: Any) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        item = value.strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        output.append(item)
+    return output
 
 
 def _remap_block_index(
