@@ -802,3 +802,63 @@ Planner 不能只把 tool schema 传到 Orchestrator helper 层；ModelGateway b
 
 ### 经验
 Orchestrator 的 planner 不应承担所有对话形态；简单元信息问答应在调度前短路，复杂任务才进入结构化 planner。seed 中的 Orchestrator 配置变更必须部署后重新执行 seed，否则运行服务仍读取数据库里的旧配置。
+
+## 2026-05-29 — Codex 实现 External Agent 对话 / Runtime 路由
+
+### 任务
+为 `claude-code`、`codex-helper`、`opencode-helper` 增加 direct chat routing：普通问答走 ModelGateway，任务型请求继续进入真实 external runtime。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: External Agent 对话 / Runtime 路由开发计划
+
+### AI 输出摘要
+1. 新增 external direct chat helper，使用 ModelGateway 分类最新用户请求，分类为 direct chat 时跳过 external SDK/CLI 并流式输出最终回答。
+2. 三个 external adapter 在 identity shortcut 后统一接入 direct chat helper，未命中时保留原 runtime、timeout、heartbeat 和 tool event 行为。
+3. 补齐 `qa_*` 配置校验、seed 默认配置、Pydantic AgentConfig 与 OpenAPI AgentConfig 字段。
+4. 增加 helper、adapter、config 和 OpenAPI 契约测试。
+
+### 人工调整
+未新增 API endpoint，未修改 BaseAgentAdapter / StreamChunk / 顶层 provider 列表。测试以 fake ModelGateway / fake SDK/CLI 为主，remote smoke 仍需在部署环境复验。
+
+### 经验
+External runtime 既要支持真实文件/命令能力，也要避免普通问答启动重型 SDK/CLI。路由应放在 adapter 内部，并且 direct chat 的 ModelGateway 中间分类结果不能进入 SSE 或消息持久化。
+
+## 2026-05-29 — Codex 更新 Orchestrator v1.2 Spec
+
+### 任务
+复审当前 Orchestrator 能力，更新 B2 spec，为 artifact-aware / context-aware orchestration 后续实现提供明确契约。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: B2 Orchestrator Spec 更新计划
+
+### AI 输出摘要
+1. `orchestrator.spec.md` 升级到 v1.2，新增单轮运行上下文、子任务结果注入、artifact_missing、per-task fallback、attempt summary 等契约。
+2. `orchestrator-task-planning.spec.md` 升级到 v1.1，明确 `expected_output` 可作为 artifact path 候选，并要求 planner 用 `depends_on` 表达结果消费关系。
+3. `agent-runtime-test-matrix.spec.md` 增加 Orchestrator run context、artifact_missing、fallback 和 tool_call flatten 测试要求。
+4. `workspace-artifact-preview.spec.md` 补充边界：Orchestrator 只做 artifact 存在性检查，preview/deploy 生命周期仍归平台。
+
+### 人工调整
+本次只更新文档，不修改 `BaseAgentAdapter`、`StreamChunk`、OpenAPI、后端运行代码或前端。
+
+### 经验
+Orchestrator 的增强应先把“单轮工作记忆”和“平台 preview 边界”写清楚，否则很容易把调度、artifact 校验、preview service 和持久化 task run 混成一团，导致实现范围失控。
+## 2026-05-29 — Codex 实现 Orchestrator v1.2
+
+### 任务
+实现 artifact-aware / context-aware Orchestrator：单轮内吸收子任务结果、注入依赖上下文、校验 workspace artifact，并支持可选 per-task fallback。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: B2 Orchestrator v1.2 执行计划
+
+### AI 输出摘要
+1. `OrchestratorAdapter` 增加内存 run context、task result、attempt 结构，并在子任务 stream 消费时累计文本、tool 摘要、错误和 artifact path。
+2. `_run_task()` 支持 `max_task_attempts` 与 `task_fallback_agent_ids`，失败或 `artifact_missing` 时可改派 fallback agent，最终仍输出标准 summary 和 `done`。
+3. 后续子任务会收到 `Previous sub-agent results` system message；`include_history=false` 不再阻止依赖结果注入。
+4. Artifact 判定只检查 workspace-relative path 是否存在，不读取文件、不执行命令、不启动 preview/deploy。
+5. `blocks_to_text()` 增加 tool_call block 摘要，AgentConfig/OpenAPI/config validation 补充 Orchestrator v1.2 可选配置字段。
+
+### 人工调整
+保持 `BaseAgentAdapter`、`StreamChunk`、SSE API 与数据库结构不变。新增测试覆盖 run context、dependency injection、artifact_missing、per-task fallback、attempt summary、tool_call flatten 和 config/OpenAPI 字段。
+
+### 经验
+Orchestrator 的增强应优先落在单轮内存态和只读校验上；per-task fallback 必须和 planning-level fallback adapter 分离，否则会混淆“规划失败降级”和“单个子任务重试”两类语义。

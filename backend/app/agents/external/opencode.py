@@ -17,6 +17,7 @@ from app.agents.external.cli_runtime import (
     process_kwargs,
     resolve_command,
 )
+from app.agents.external.direct_chat import maybe_stream_direct_chat
 from app.agents.external.runtime_budget import (
     DEFAULT_IDLE_TIMEOUT_SECONDS,
     RuntimeBudget,
@@ -84,6 +85,18 @@ class OpenCodeAdapter(BaseAgentAdapter):
             return
 
         merged = self.merged_config(config)
+        direct_chat = await maybe_stream_direct_chat(
+            agent_id=self.agent_id,
+            provider=self.provider,
+            messages=messages,
+            system_prompt=self.effective_system_prompt(system_prompt),
+            config=merged,
+        )
+        if direct_chat.route == "direct_chat" and direct_chat.stream is not None:
+            async for chunk in direct_chat.stream:
+                yield chunk
+            return
+
         command = self._argv(merged.get("command", DEFAULT_COMMAND))
         args = self._argv(merged.get("args", []))
         budget_config = runtime_budget_config(

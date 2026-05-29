@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -23,6 +24,12 @@ class TestValidConfigs:
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 180,
             "heartbeat_interval_seconds": 15,
+            "qa_short_circuit_enabled": True,
+            "qa_model_backend": "deepseek",
+            "qa_max_tokens": 2048,
+            "qa_classifier_max_tokens": 128,
+            "qa_temperature": 0.2,
+            "qa_request_timeout_seconds": 20,
         }
         result = validate_agent_config(
             provider="claude_code",
@@ -69,7 +76,15 @@ class TestValidConfigs:
         assert result["args"] == ["run", "--jsonl"]
 
     def test_valid_builtin_config(self) -> None:
-        config = {"model_backend": "claude", "max_iterations": 10, "mcp_servers": []}
+        config = {
+            "model_backend": "claude",
+            "max_iterations": 10,
+            "mcp_servers": [],
+            "task_fallback_agent_ids": ["codex-helper"],
+            "max_task_attempts": 2,
+            "task_result_context_max_chars": 4000,
+            "task_result_item_max_chars": 1200,
+        }
         result = validate_agent_config(
             provider="builtin",
             config=config,
@@ -203,6 +218,45 @@ class TestNumericValidation:
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "boolean" in exc_info.value.message
 
+    def test_invalid_qa_bool_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="claude_code",
+                config={"qa_short_circuit_enabled": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_qa_backend_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="codex",
+                config={"qa_model_backend": "custom"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+
+    def test_invalid_qa_token_range_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="opencode",
+                config={"qa_classifier_max_tokens": 2048},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "qa_classifier_max_tokens" in exc_info.value.message
+
+    def test_invalid_qa_request_timeout_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="opencode",
+                config={"qa_request_timeout_seconds": 121},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "qa_request_timeout_seconds" in exc_info.value.message
+
     def test_idle_timeout_cannot_exceed_max_runtime(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
@@ -222,6 +276,36 @@ class TestNumericValidation:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "boolean" in exc_info.value.message
+
+    def test_invalid_task_fallback_agent_ids_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"task_fallback_agent_ids": "codex-helper"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "task_fallback_agent_ids" in exc_info.value.message
+
+    def test_invalid_max_task_attempts_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"max_task_attempts": 4},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "max_task_attempts" in exc_info.value.message
+
+    def test_invalid_task_result_context_budget_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"task_result_context_max_chars": 0},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "task_result_context_max_chars" in exc_info.value.message
 
 
 class TestImmutability:
@@ -271,6 +355,18 @@ class TestBuiltinAgents:
         codex_agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "codex-helper")
 
         assert "model" not in codex_agent["config"]
+
+    def test_external_seed_agents_enable_direct_chat_defaults(self) -> None:
+        for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
+            agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == agent_id)
+            config = agent["config"]
+
+            assert config["qa_short_circuit_enabled"] is True
+            assert config["qa_model_backend"] == "deepseek"
+            assert config["qa_max_tokens"] == 2048
+            assert config["qa_classifier_max_tokens"] == 128
+            assert config["qa_temperature"] == 0.2
+            assert config["qa_request_timeout_seconds"] == 20
 
     def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
         for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
@@ -351,3 +447,26 @@ class TestErrorStructure:
         assert exc.code == "INVALID_MODEL"
         assert exc.message == "model is required"
         assert exc.details == {"provider": "claude"}
+
+
+class TestOpenAPIContract:
+    def test_openapi_includes_external_runtime_and_qa_config_fields(self) -> None:
+        openapi = Path(__file__).parents[1] / ".." / "shared" / "openapi.yaml"
+        text = openapi.resolve().read_text(encoding="utf-8")
+
+        for field in (
+            "max_runtime_seconds",
+            "idle_timeout_seconds",
+            "heartbeat_interval_seconds",
+            "qa_short_circuit_enabled",
+            "qa_model_backend",
+            "qa_max_tokens",
+            "qa_classifier_max_tokens",
+            "qa_temperature",
+            "qa_request_timeout_seconds",
+            "task_fallback_agent_ids",
+            "max_task_attempts",
+            "task_result_context_max_chars",
+            "task_result_item_max_chars",
+        ):
+            assert field in text
