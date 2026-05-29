@@ -1,22 +1,46 @@
-"""Codex external runtime adapter backed by OpenAI Agents SDK."""
+"""Codex external runtime adapter backed by Codex CLI, with SDK opt-in."""
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import inspect
 import json
+import logging
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
+from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.external.cli_runtime import CliCompleted, stream_cli_text
+from app.agents.external.runtime_budget import (
+    CODEX_IDLE_TIMEOUT_SECONDS,
+    RuntimeBudget,
+    RuntimeBudgetConfig,
+    RuntimeTimeoutError,
+    iter_with_runtime_budget,
+    runtime_budget_config,
+)
+from app.agents.external.workspace_prompt import (
+    direct_identity_response,
+    format_runtime_messages,
+    workspace_guard_prompt,
+)
+from app.agents.runtime_guard import (
+    PreviewDeployTextFilter,
+    redact_runtime_secrets,
+    sanitize_preview_deploy_text,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "agents"
 DEFAULT_MODEL = "gpt-4.1"
-DEFAULT_TIMEOUT_SECONDS = 120.0
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+DEFAULT_RUNTIME_ERROR_MAX_CHARS = 4000
+DEFAULT_RUNTIME = "cli"
+DEFAULT_CLI_SANDBOX_MODE = "danger-full-access"
+SUPPORTED_RUNTIMES = {"cli", "sdk"}
+SUPPORTED_CLI_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
 TEXT_EVENT_NAMES = {
     "text_delta",
     "text",
@@ -44,9 +68,11 @@ SKIP_EVENT_NAMES = {
     "agent_updated_stream_event",
 }
 
+logger = logging.getLogger(__name__)
+
 
 class CodexAdapter(BaseAgentAdapter):
-    """Adapter for Codex / OpenAI Agents SDK runtime events."""
+    """Adapter for Codex CLI, with OpenAI Agents SDK as an opt-in runtime."""
 
     provider = "codex"
 
@@ -65,14 +91,42 @@ class CodexAdapter(BaseAgentAdapter):
             yield self._error("workspace_violation", "Codex requires a workspace_path")
             return
 
+        direct_response = direct_identity_response(messages, agent_id=self.agent_id)
+        if direct_response:
+            for chunk in self._text_result_chunks(direct_response):
+                yield chunk
+            return
+
         merged = self.merged_config(config)
-        timeout_seconds = self._float_config(
-            merged.get("timeout_seconds"),
-            DEFAULT_TIMEOUT_SECONDS,
+        budget_config = runtime_budget_config(
+            merged,
+            default_idle_timeout_seconds=CODEX_IDLE_TIMEOUT_SECONDS,
         )
         output_max_chars = int(
             merged.get("tool_output_max_chars", DEFAULT_TOOL_OUTPUT_MAX_CHARS)
         )
+        runtime = self._string_choice(
+            merged.get("runtime"),
+            DEFAULT_RUNTIME,
+            SUPPORTED_RUNTIMES,
+        )
+        if runtime is None:
+            yield self._error(
+                "external_runtime_error",
+                "Codex runtime must be one of: cli, sdk",
+            )
+            return
+
+        if runtime == "cli":
+            async for chunk in self._stream_cli(
+                messages,
+                system_prompt,
+                merged,
+                workspace_path,
+                budget_config,
+            ):
+                yield chunk
+            return
 
         try:
             sdk = self._load_sdk()
@@ -84,45 +138,136 @@ class CodexAdapter(BaseAgentAdapter):
                 merged,
             )
         except Exception as exc:  # noqa: BLE001
+            if self._should_fallback_to_cli(exc):
+                async for chunk in self._stream_cli(
+                    messages,
+                    system_prompt,
+                    merged,
+                    workspace_path,
+                    budget_config,
+                ):
+                    yield chunk
+                return
             yield self._error(self._classify_exception(exc), self._safe_message(exc))
             return
 
         block_open = False
         block_index = 0
         total_blocks = 0
+        saw_runtime_chunk = False
+        text_filter = PreviewDeployTextFilter()
         try:
-            async with asyncio.timeout(timeout_seconds):
-                async for sdk_event in sdk_stream:
-                    for chunk in self._map_sdk_event(sdk_event, output_max_chars):
-                        if chunk.event_type == "delta":
-                            if not block_open:
-                                yield StreamChunk(
-                                    event_type="block_start",
-                                    block_index=block_index,
-                                    block_type="text",
-                                )
-                                block_open = True
-                            chunk.block_index = block_index
-                            yield chunk
+            budget = RuntimeBudget(budget_config)
+            async for sdk_event in iter_with_runtime_budget(
+                sdk_stream,
+                budget,
+                agent_id=self.agent_id,
+                provider=self.provider,
+            ):
+                if isinstance(sdk_event, StreamChunk) and sdk_event.event_type == "heartbeat":
+                    yield sdk_event
+                    continue
+                for chunk in self._map_sdk_event(sdk_event, output_max_chars):
+                    saw_runtime_chunk = True
+                    if chunk.event_type == "delta":
+                        text = text_filter.feed(chunk.text_delta or "")
+                        if not text:
                             continue
-
-                        if block_open:
-                            yield StreamChunk(event_type="block_end", block_index=block_index)
-                            total_blocks += 1
-                            block_index += 1
-                            block_open = False
+                        if not block_open:
+                            yield StreamChunk(
+                                event_type="block_start",
+                                block_index=block_index,
+                                block_type="text",
+                            )
+                            block_open = True
+                        chunk.block_index = block_index
+                        chunk.text_delta = text
                         yield chunk
-        except TimeoutError:
+                        continue
+
+                    pending_text = text_filter.flush()
+                    if pending_text:
+                        if not block_open:
+                            yield StreamChunk(
+                                event_type="block_start",
+                                block_index=block_index,
+                                block_type="text",
+                            )
+                            block_open = True
+                        yield StreamChunk(
+                            event_type="delta",
+                            block_index=block_index,
+                            text_delta=pending_text,
+                        )
+                    if block_open:
+                        yield StreamChunk(event_type="block_end", block_index=block_index)
+                        total_blocks += 1
+                        block_index += 1
+                        block_open = False
+                    yield chunk
+        except RuntimeTimeoutError as exc:
+            pending_text = text_filter.flush()
+            if pending_text:
+                if not block_open:
+                    yield StreamChunk(
+                        event_type="block_start",
+                        block_index=block_index,
+                        block_type="text",
+                    )
+                    block_open = True
+                yield StreamChunk(
+                    event_type="delta",
+                    block_index=block_index,
+                    text_delta=pending_text,
+                )
             if block_open:
                 yield StreamChunk(event_type="block_end", block_index=block_index)
-            yield self._error("timeout", "Codex runtime timed out")
+            yield self._error(exc.error_code, str(exc))
             return
         except Exception as exc:  # noqa: BLE001
+            pending_text = text_filter.flush()
+            if pending_text:
+                if not block_open:
+                    yield StreamChunk(
+                        event_type="block_start",
+                        block_index=block_index,
+                        block_type="text",
+                    )
+                    block_open = True
+                yield StreamChunk(
+                    event_type="delta",
+                    block_index=block_index,
+                    text_delta=pending_text,
+                )
             if block_open:
                 yield StreamChunk(event_type="block_end", block_index=block_index)
+            if not saw_runtime_chunk and self._should_fallback_to_cli(exc):
+                async for chunk in self._stream_cli(
+                    messages,
+                    system_prompt,
+                    merged,
+                    workspace_path,
+                    budget_config,
+                ):
+                    yield chunk
+                return
             yield self._error(self._classify_exception(exc), self._safe_message(exc))
             return
 
+        pending_text = text_filter.flush()
+        if pending_text:
+            if not block_open:
+                yield StreamChunk(
+                    event_type="block_start",
+                    block_index=block_index,
+                    block_type="text",
+                )
+                block_open = True
+            yield StreamChunk(
+                event_type="delta",
+                block_index=block_index,
+                text_delta=pending_text,
+            )
         if block_open:
             yield StreamChunk(event_type="block_end", block_index=block_index)
             total_blocks += 1
@@ -135,6 +280,114 @@ class CodexAdapter(BaseAgentAdapter):
 
     def _load_sdk(self) -> Any:
         return importlib.import_module(SDK_MODULE_NAME)
+
+    async def _stream_cli(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        config: dict[str, Any],
+        workspace_path: Path,
+        budget_config: RuntimeBudgetConfig,
+    ) -> AsyncIterator[StreamChunk]:
+        output_path = workspace_path / f".agenthub_codex_{uuid4().hex}.txt"
+        command = [
+            "codex",
+            "--ask-for-approval",
+            "never",
+            "exec",
+            "--cd",
+            str(workspace_path),
+            "--skip-git-repo-check",
+            "--sandbox",
+            self._cli_sandbox_mode(config),
+            "--ephemeral",
+            "--color",
+            "never",
+            "-o",
+            str(output_path),
+            self._format_cli_prompt(messages, system_prompt, workspace_path),
+        ]
+        model = config.get("model")
+        if isinstance(model, str) and model:
+            command[1:1] = ["-m", model]
+
+        result = None
+        try:
+            async for event in stream_cli_text(
+                command,
+                cwd=workspace_path,
+                budget_config=budget_config,
+                agent_id=self.agent_id,
+                provider=self.provider,
+                activity_paths=[output_path],
+            ):
+                if isinstance(event, StreamChunk):
+                    yield event
+                elif isinstance(event, CliCompleted):
+                    result = event.result
+        except RuntimeTimeoutError as exc:
+            text = self._read_cli_output(output_path)
+            if text:
+                for chunk in self._text_result_chunks(text):
+                    yield chunk
+                return
+            logger.warning(
+                "Codex CLI timed out without output in workspace %s\nstdout:\n%s\nstderr:\n%s",
+                workspace_path,
+                redact_runtime_secrets(exc.stdout or ""),
+                redact_runtime_secrets(exc.stderr or ""),
+            )
+            output = self._safe_runtime_output(exc.stderr or exc.stdout)
+            yield self._error(exc.error_code, f"Codex CLI timed out: {output}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            output_path.unlink(missing_ok=True)
+            logger.exception(
+                "Codex CLI failed before producing a process result in workspace %s",
+                workspace_path,
+            )
+            yield self._error("external_runtime_error", self._safe_message(exc))
+            return
+
+        if result is None:
+            output_path.unlink(missing_ok=True)
+            yield self._error("external_runtime_error", "Codex CLI ended without result")
+            return
+
+        text = self._read_cli_output(output_path)
+
+        if result.return_code != 0:
+            self._log_cli_failure(result, text, workspace_path)
+            output = self._runtime_failure_output(result, text)
+            yield self._error(
+                "external_runtime_error",
+                f"Codex CLI exited with code {result.return_code}: {output}",
+            )
+            return
+
+        if not text:
+            text = result.stdout.strip()
+
+        if text:
+            for chunk in self._text_result_chunks(text):
+                yield chunk
+            return
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=0)
+
+    def _should_fallback_to_cli(self, exc: BaseException) -> bool:
+        if isinstance(exc, ModuleNotFoundError) and exc.name == SDK_MODULE_NAME:
+            return True
+        lowered = f"{exc.__class__.__name__}: {exc}".lower()
+        if (
+            "missing credentials" in lowered
+            or "openai_api_key" in lowered
+            or "openai_admin_key" in lowered
+        ):
+            return True
+        return (
+            isinstance(exc, RuntimeError)
+            and str(exc) == "OpenAI Agents SDK sandbox runtime is unavailable"
+        )
 
     async def _open_sdk_stream(
         self,
@@ -168,7 +421,13 @@ class CodexAdapter(BaseAgentAdapter):
         run_config = self._build_run_config(sdk, workspace_path, config)
 
         if runner is not None and agent_cls is not None:
-            agent = self._build_agent(agent_cls, messages, system_prompt, config)
+            agent = self._build_agent(
+                agent_cls,
+                messages,
+                system_prompt,
+                workspace_path,
+                config,
+            )
             run_streamed = runner.run_streamed
             kwargs = self._supported_kwargs(
                 run_streamed,
@@ -189,7 +448,11 @@ class CodexAdapter(BaseAgentAdapter):
                 {
                     "input": prompt,
                     "messages": [message.model_dump() for message in messages],
-                    "system_prompt": self._effective_instructions(messages, system_prompt),
+                    "system_prompt": self._effective_instructions(
+                        messages,
+                        system_prompt,
+                        workspace_path,
+                    ),
                     "model": str(config.get("model") or DEFAULT_MODEL),
                     "run_config": run_config,
                 },
@@ -206,13 +469,18 @@ class CodexAdapter(BaseAgentAdapter):
         agent_cls: Callable[..., Any],
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
         config: dict[str, Any],
     ) -> Any:
         kwargs = self._supported_kwargs(
             agent_cls,
             {
                 "name": self.agent_id,
-                "instructions": self._effective_instructions(messages, system_prompt),
+                "instructions": self._effective_instructions(
+                    messages,
+                    system_prompt,
+                    workspace_path,
+                ),
                 "model": str(config.get("model") or DEFAULT_MODEL),
             },
         )
@@ -441,8 +709,9 @@ class CodexAdapter(BaseAgentAdapter):
         self,
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
     ) -> str:
-        lines: list[str] = []
+        lines: list[str] = [workspace_guard_prompt(workspace_path)]
         effective_system = self.effective_system_prompt(system_prompt)
         if effective_system:
             lines.append(effective_system)
@@ -450,12 +719,23 @@ class CodexAdapter(BaseAgentAdapter):
         return "\n\n".join(lines)
 
     def _format_input(self, messages: list[ChatMessage]) -> str:
-        lines = [
-            f"{message.role.title()}: {message.content}"
-            for message in messages
-            if message.role != "system" and message.content
-        ]
-        return "\n\n".join(lines)
+        return format_runtime_messages(messages, include_system=False)
+
+    def _format_cli_prompt(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        workspace_path: Path,
+    ) -> str:
+        instructions = self._effective_instructions(
+            messages,
+            system_prompt,
+            workspace_path,
+        )
+        user_input = self._format_input(messages)
+        if instructions and user_input:
+            return f"System: {instructions}\n\n{user_input}"
+        return instructions or user_input
 
     def _supported_kwargs(
         self,
@@ -473,14 +753,41 @@ class CodexAdapter(BaseAgentAdapter):
         return {key: value for key, value in kwargs.items() if key in names}
 
     @staticmethod
-    def _float_config(value: object, default: float) -> float:
+    def _string_choice(
+        value: object,
+        default: str,
+        allowed: set[str],
+    ) -> str | None:
         if value is None:
             return default
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().lower()
+        return normalized if normalized in allowed else None
+
+    def _cli_sandbox_mode(self, config: dict[str, Any]) -> str:
+        mode = self._string_choice(
+            config.get("sandbox_mode"),
+            DEFAULT_CLI_SANDBOX_MODE,
+            SUPPORTED_CLI_SANDBOX_MODES,
+        )
+        return mode or DEFAULT_CLI_SANDBOX_MODE
+
+    @staticmethod
+    def _read_cli_output(output_path: Path) -> str:
         try:
-            parsed = float(cast(Any, value))
-        except (TypeError, ValueError):
-            return default
-        return parsed if parsed > 0 else default
+            return output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
+        finally:
+            output_path.unlink(missing_ok=True)
+
+    def _text_result_chunks(self, text: str) -> list[StreamChunk]:
+        text = sanitize_preview_deploy_text(text)
+        return [
+            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+            StreamChunk(event_type="delta", block_index=0, text_delta=text),
+            StreamChunk(event_type="block_end", block_index=0),
+            StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1),
+        ]
 
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:
@@ -499,10 +806,53 @@ class CodexAdapter(BaseAgentAdapter):
 
     def _classify_exception(self, exc: BaseException) -> str:
         lowered = f"{exc.__class__.__name__}: {exc}".lower()
-        if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
+        if (
+            "api key" in lowered
+            or "api_key" in lowered
+            or "credentials" in lowered
+            or "authentication" in lowered
+            or "unauthorized" in lowered
+        ):
             return "missing_api_key"
         return "external_runtime_error"
 
     @staticmethod
     def _safe_message(exc: BaseException) -> str:
-        return (str(exc) or exc.__class__.__name__)[:500]
+        return redact_runtime_secrets(str(exc) or exc.__class__.__name__)[:500]
+
+    def _runtime_failure_output(self, result: Any, output_file_text: str) -> str:
+        sections: list[str] = []
+        if result.stderr and result.stderr.strip():
+            sections.append(f"stderr:\n{result.stderr.strip()}")
+        if result.stdout and result.stdout.strip():
+            sections.append(f"stdout:\n{result.stdout.strip()}")
+        if output_file_text and output_file_text.strip():
+            sections.append(f"output_file:\n{output_file_text.strip()}")
+        return self._safe_runtime_output("\n\n".join(sections))
+
+    @staticmethod
+    def _safe_runtime_output(output: str) -> str:
+        return (
+            redact_runtime_secrets(sanitize_preview_deploy_text(output.strip()))[
+                :DEFAULT_RUNTIME_ERROR_MAX_CHARS
+            ]
+            or "no output"
+        )
+
+    def _log_cli_failure(
+        self,
+        result: Any,
+        output_file_text: str,
+        workspace_path: Path,
+    ) -> None:
+        logger.error(
+            "Codex CLI exited with code %s in workspace %s\n"
+            "stdout:\n%s\n"
+            "stderr:\n%s\n"
+            "output_last_message:\n%s",
+            result.return_code,
+            workspace_path,
+            redact_runtime_secrets(result.stdout or ""),
+            redact_runtime_secrets(result.stderr or ""),
+            redact_runtime_secrets(output_file_text or ""),
+        )

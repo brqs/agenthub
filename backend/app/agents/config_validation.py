@@ -12,6 +12,14 @@ TOP_LEVEL_PROVIDERS: set[str] = {
     "builtin",
     "mock",
 }
+CODEX_RUNTIMES: set[str] = {"cli", "sdk"}
+CODEX_SANDBOX_MODES: set[str] = {"read-only", "workspace-write", "danger-full-access"}
+EXTERNAL_RUNTIME_BUDGET_KEYS = (
+    "timeout_seconds",
+    "max_runtime_seconds",
+    "idle_timeout_seconds",
+    "heartbeat_interval_seconds",
+)
 
 
 class AgentConfigValidationError(ValueError):
@@ -91,7 +99,26 @@ def _validate_mcp_servers(config: dict[str, Any]) -> None:
 
 
 def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> None:
-    _validate_numeric(config, "timeout_seconds", 1, 3600)
+    for key in EXTERNAL_RUNTIME_BUDGET_KEYS:
+        _validate_numeric(config, key, 1, 3600)
+    max_runtime = config.get("max_runtime_seconds", config.get("timeout_seconds"))
+    idle_timeout = config.get("idle_timeout_seconds")
+    if (
+        isinstance(max_runtime, (int, float))
+        and not isinstance(max_runtime, bool)
+        and isinstance(idle_timeout, (int, float))
+        and not isinstance(idle_timeout, bool)
+        and idle_timeout > max_runtime
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'idle_timeout_seconds' must be less than or equal to max runtime",
+            details={
+                "field": "idle_timeout_seconds",
+                "value": idle_timeout,
+                "max_runtime_seconds": max_runtime,
+            },
+        )
     if provider == "opencode":
         command = config.get("command")
         if command is not None and not isinstance(command, str | list):
@@ -101,6 +128,24 @@ def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> 
                 details={"field": "command", "value": command},
             )
         _validate_string_list(config, "args")
+    if provider == "codex":
+        runtime = config.get("runtime")
+        if runtime is not None and runtime not in CODEX_RUNTIMES:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'runtime' must be one of: cli, sdk",
+                details={"field": "runtime", "value": runtime},
+            )
+        sandbox_mode = config.get("sandbox_mode")
+        if sandbox_mode is not None and sandbox_mode not in CODEX_SANDBOX_MODES:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=(
+                    "'sandbox_mode' must be one of: read-only, workspace-write, "
+                    "danger-full-access"
+                ),
+                details={"field": "sandbox_mode", "value": sandbox_mode},
+            )
 
 
 def _validate_builtin_config(config: dict[str, Any]) -> None:
@@ -110,6 +155,23 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             code="INVALID_MODEL_BACKEND",
             message=f"Unsupported model_backend '{model_backend}'",
             details={"model_backend": model_backend},
+        )
+    answer_model_backend = config.get("answer_model_backend")
+    if answer_model_backend is not None and (
+        not isinstance(answer_model_backend, str)
+        or answer_model_backend not in SUPPORTED_UPSTREAM_PROVIDERS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported answer_model_backend '{answer_model_backend}'",
+            details={"answer_model_backend": answer_model_backend},
+        )
+    answer_config = config.get("orchestrator_answer_config")
+    if answer_config is not None and not isinstance(answer_config, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'orchestrator_answer_config' must be an object",
+            details={"field": "orchestrator_answer_config", "value": answer_config},
         )
     _validate_numeric(config, "max_iterations", 1, 50, allow_float=False)
     _validate_mcp_servers(config)

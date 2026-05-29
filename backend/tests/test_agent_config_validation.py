@@ -18,26 +18,48 @@ from app.seeds.seed_agents import BUILTIN_AGENTS
 
 class TestValidConfigs:
     def test_valid_claude_code_config(self) -> None:
-        config = {"sdk_options": {}}
+        config = {
+            "sdk_options": {},
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 180,
+            "heartbeat_interval_seconds": 15,
+        }
         result = validate_agent_config(
             provider="claude_code",
             config=config,
             system_prompt=None,
         )
-        assert result == {"sdk_options": {}}
+        assert result == config
 
     def test_valid_codex_config(self) -> None:
-        config = {"model": "gpt-4.1", "timeout_seconds": 120}
+        config = {
+            "model": "gpt-4.1",
+            "runtime": "cli",
+            "sandbox_mode": "danger-full-access",
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 240,
+            "heartbeat_interval_seconds": 15,
+        }
         result = validate_agent_config(
             provider="codex",
             config=config,
             system_prompt=None,
         )
         assert result["model"] == "gpt-4.1"
-        assert result["timeout_seconds"] == 120
+        assert result["runtime"] == "cli"
+        assert result["sandbox_mode"] == "danger-full-access"
+        assert result["max_runtime_seconds"] == 600
+        assert result["idle_timeout_seconds"] == 240
+        assert result["heartbeat_interval_seconds"] == 15
 
     def test_valid_opencode_config(self) -> None:
-        config = {"command": "opencode", "args": ["run", "--jsonl"], "timeout_seconds": 120}
+        config = {
+            "command": "opencode",
+            "args": ["run", "--jsonl"],
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 180,
+            "heartbeat_interval_seconds": 15,
+        }
         result = validate_agent_config(
             provider="opencode",
             config=config,
@@ -83,6 +105,24 @@ class TestModelValidation:
             validate_agent_config(
                 provider="opencode",
                 config={"args": "run"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+
+    def test_invalid_codex_runtime_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="codex",
+                config={"runtime": "browser"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+
+    def test_invalid_codex_sandbox_mode_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="codex",
+                config={"sandbox_mode": "host"},
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
@@ -163,6 +203,16 @@ class TestNumericValidation:
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "boolean" in exc_info.value.message
 
+    def test_idle_timeout_cannot_exceed_max_runtime(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="opencode",
+                config={"max_runtime_seconds": 10, "idle_timeout_seconds": 11},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "idle_timeout_seconds" in exc_info.value.message
+
     def test_max_iterations_bool_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
@@ -216,6 +266,38 @@ class TestBuiltinAgents:
                 system_prompt=agent["system_prompt"],
             )
             assert isinstance(result, dict)
+
+    def test_seed_codex_uses_cli_default_model(self) -> None:
+        codex_agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "codex-helper")
+
+        assert "model" not in codex_agent["config"]
+
+    def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
+        for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
+            agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == agent_id)
+            prompt = agent["system_prompt"]
+
+            assert "Work only inside the AgentHub workspace" in prompt
+            assert "Treat the latest user message as the only active request" in prompt
+            assert "answer directly in text without inspecting files or calling tools" in prompt
+            assert "Do not run, suggest, or output shell commands" in prompt
+            assert "Do not provide terminal commands for port previews" in prompt
+            assert "platform preview/deploy must be started outside the agent runtime" in prompt
+            assert "python3 -m http.server 8082" not in prompt
+            assert "npm run dev" not in prompt
+            assert "pnpm dev" not in prompt
+            assert "vite --host" not in prompt
+
+    def test_web_designer_prompt_documents_native_tool_path_contract(self) -> None:
+        agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "web-designer")
+        prompt = agent["system_prompt"]
+
+        assert "path argument" in prompt
+        assert "workspace-relative path such as snake.html" in prompt
+        assert "absolute paths" in prompt
+        assert "Treat the latest user message as the only active request" in prompt
+        assert "Do not run, suggest, output, or call tools" in prompt
+        assert "platform preview/deploy must be started outside the agent runtime" in prompt
 
 
 class TestCreateAgentRequestSchema:

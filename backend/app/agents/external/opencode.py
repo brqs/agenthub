@@ -11,11 +11,36 @@ from pathlib import Path
 from typing import Any, Literal
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.external.cli_runtime import (
+    cli_env,
+    kill_process_tree,
+    process_kwargs,
+    resolve_command,
+)
+from app.agents.external.runtime_budget import (
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+    RuntimeBudget,
+    RuntimeTimeoutError,
+    runtime_budget_config,
+)
+from app.agents.external.workspace_prompt import (
+    direct_identity_response,
+    format_runtime_messages,
+    workspace_guard_prompt,
+)
+from app.agents.runtime_guard import sanitize_preview_deploy_text
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_COMMAND = "opencode"
-DEFAULT_TIMEOUT_SECONDS = 120.0
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+TEXT_EVENT_TYPES = {"text", "text_delta", "reasoning"}
+TOOL_CALL_EVENT_TYPES = {"tool_call"}
+TOOL_RESULT_EVENT_TYPES = {"tool_result"}
+TOOL_USE_EVENT_TYPES = {"tool_use"}
+TOOL_EVENT_TYPES = TOOL_CALL_EVENT_TYPES | TOOL_RESULT_EVENT_TYPES | TOOL_USE_EVENT_TYPES
+TOOL_USE_OK_STATUSES = {"completed", "done", "success", "ok"}
+TOOL_USE_ERROR_STATUSES = {"error", "failed"}
+TOOL_USE_NON_TERMINAL_STATUSES = {"running", "pending", "started"}
 ENV_ALLOWLIST = {
     "PATH",
     "LANG",
@@ -50,17 +75,36 @@ class OpenCodeAdapter(BaseAgentAdapter):
             yield self._error("workspace_violation", "OpenCode requires a workspace_path")
             return
 
+        direct_response = direct_identity_response(messages, agent_id=self.agent_id)
+        if direct_response:
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(event_type="delta", block_index=0, text_delta=direct_response)
+            yield StreamChunk(event_type="block_end", block_index=0)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+            return
+
         merged = self.merged_config(config)
         command = self._argv(merged.get("command", DEFAULT_COMMAND))
         args = self._argv(merged.get("args", []))
-        timeout_seconds = self._float_config(
-            merged.get("timeout_seconds"),
-            DEFAULT_TIMEOUT_SECONDS,
+        budget_config = runtime_budget_config(
+            merged,
+            default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
         )
         jsonl = bool(merged.get("jsonl", True))
         output_max_chars = int(
             merged.get("tool_output_max_chars", DEFAULT_TOOL_OUTPUT_MAX_CHARS)
         )
+        write_stdin_payload = True
+        if not args:
+            args = [
+                "run",
+                "--format",
+                "json",
+                "--dir",
+                str(workspace_path),
+                self._format_prompt(messages, system_prompt, workspace_path),
+            ]
+            write_stdin_payload = False
 
         if not command:
             yield self._error("external_runtime_error", "OpenCode command is empty")
@@ -68,29 +112,40 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
         try:
             process = await asyncio.create_subprocess_exec(
-                *command,
+                *resolve_command(command),
                 *args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace_path),
-                env=self._subprocess_env(),
+                env=cli_env(),
+                **process_kwargs(),
             )
         except Exception as exc:
             yield self._error("external_runtime_error", self._safe_message(exc))
             return
 
-        try:
-            await self._write_stdin(process, messages, system_prompt, tool_specs)
-        except Exception as exc:
-            await self._terminate_process(process)
-            yield self._error("external_runtime_error", self._safe_message(exc))
-            return
+        if write_stdin_payload:
+            try:
+                await self._write_stdin(
+                    process,
+                    messages,
+                    system_prompt,
+                    workspace_path,
+                    tool_specs,
+                )
+            except Exception as exc:
+                await self._terminate_process(process)
+                yield self._error("external_runtime_error", self._safe_message(exc))
+                return
+        elif process.stdin is not None:
+            process.stdin.close()
+            await process.stdin.wait_closed()
 
         text_block_open = False
         next_block_index = 0
-        saw_terminal_event = False
-        deadline = asyncio.get_running_loop().time() + timeout_seconds
+        saw_meaningful_event = False
+        budget = RuntimeBudget(budget_config)
 
         try:
             stdout = process.stdout
@@ -100,10 +155,25 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 return
 
             while True:
-                line = await asyncio.wait_for(
-                    stdout.readline(),
-                    timeout=self._remaining_seconds(deadline),
-                )
+                line_task = asyncio.create_task(stdout.readline())
+                try:
+                    while True:
+                        done, _ = await asyncio.wait(
+                            {line_task},
+                            timeout=budget.next_wait_seconds(),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if line_task in done:
+                            line = line_task.result()
+                            if line:
+                                budget.record_activity()
+                                budget.check_timeout()
+                            break
+                        budget.check_timeout()
+                        yield budget.heartbeat(agent_id=self.agent_id, provider=self.provider)
+                finally:
+                    if not line_task.done():
+                        line_task.cancel()
                 if not line:
                     break
 
@@ -115,11 +185,15 @@ class OpenCodeAdapter(BaseAgentAdapter):
                             block_type="text",
                         )
                         text_block_open = True
+                        saw_meaningful_event = True
                     yield StreamChunk(
                         event_type="delta",
                         block_index=next_block_index,
-                        text_delta=line.decode(errors="replace"),
+                        text_delta=sanitize_preview_deploy_text(
+                            line.decode(errors="replace")
+                        ),
                     )
+                    saw_meaningful_event = True
                     continue
 
                 try:
@@ -150,17 +224,16 @@ class OpenCodeAdapter(BaseAgentAdapter):
                         yield StreamChunk(event_type="block_end", block_index=next_block_index)
                         text_block_open = False
                         next_block_index += 1
-                    return_code = await self._wait_process(process, deadline)
-                    if return_code != 0:
-                        stderr = await self._read_stderr(process)
-                        yield self._exit_error(return_code, stderr)
-                        return
+                    await self._wait_process(process, budget)
                     yield StreamChunk(
                         event_type="done",
                         agent_id=self.agent_id,
                         total_blocks=next_block_index,
                     )
                     return
+
+                if event_type in {"step_start", "step_finish"}:
+                    continue
 
                 if event_type == "error":
                     if text_block_open:
@@ -172,7 +245,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     )
                     return
 
-                if event_type not in {"text_delta", "tool_call", "tool_result"}:
+                if event_type not in TEXT_EVENT_TYPES | TOOL_EVENT_TYPES:
                     if text_block_open:
                         yield StreamChunk(event_type="block_end", block_index=next_block_index)
                     await self._terminate_process(process)
@@ -188,32 +261,41 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     block_index=next_block_index,
                     output_max_chars=output_max_chars,
                 ):
+                    if chunk.event_type in {
+                        "block_start",
+                        "delta",
+                        "tool_call",
+                        "tool_result",
+                    }:
+                        saw_meaningful_event = True
                     yield chunk
 
                 if (
-                    event_type == "text_delta"
+                    event_type in TEXT_EVENT_TYPES
                     and not text_block_open
-                    and isinstance(event.get("text"), str)
-                    and event.get("text")
+                    and self._event_text(event)
                 ):
                     text_block_open = True
-                elif event_type in {"tool_call", "tool_result"} and text_block_open:
+                elif event_type in TOOL_EVENT_TYPES and text_block_open:
                     text_block_open = False
                     next_block_index += 1
 
-            return_code = await self._wait_process(process, deadline)
-        except TimeoutError:
+            return_code = await self._wait_process(process, budget)
+        except RuntimeTimeoutError as exc:
             if text_block_open:
                 yield StreamChunk(event_type="block_end", block_index=next_block_index)
             await self._terminate_process(process)
-            yield self._error("timeout", "OpenCode runtime timed out")
+            yield self._error(exc.error_code, str(exc))
             return
+        finally:
+            if process.returncode is None:
+                await self._terminate_process(process)
 
         if text_block_open:
             yield StreamChunk(event_type="block_end", block_index=next_block_index)
             next_block_index += 1
 
-        if return_code != 0 and not saw_terminal_event:
+        if return_code != 0 and not saw_meaningful_event:
             stderr = await self._read_stderr(process)
             yield self._exit_error(return_code, stderr)
             return
@@ -236,9 +318,12 @@ class OpenCodeAdapter(BaseAgentAdapter):
             return
 
         event_type = event.get("type")
-        if event_type == "text_delta":
-            text = event.get("text")
-            if not isinstance(text, str) or not text:
+        if event_type in TEXT_EVENT_TYPES:
+            text = self._event_text(event)
+            if not text:
+                return
+            text = sanitize_preview_deploy_text(text)
+            if not text:
                 return
             if not text_block_open:
                 yield StreamChunk(
@@ -256,25 +341,23 @@ class OpenCodeAdapter(BaseAgentAdapter):
         if text_block_open:
             yield StreamChunk(event_type="block_end", block_index=block_index)
 
-        if event_type == "tool_call":
-            yield StreamChunk(
-                event_type="tool_call",
-                call_id=self._string_field(event, "call_id"),
-                tool_name=self._string_field(event, "tool_name"),
-                tool_arguments=self._dict_field(event, "arguments"),
-            )
+        if event_type in TOOL_CALL_EVENT_TYPES:
+            yield self._tool_call_chunk(event)
             return
 
-        if event_type == "tool_result":
-            output = self._string_field(event, "output") or ""
-            truncated_output = self._truncate(output, output_max_chars)
-            yield StreamChunk(
-                event_type="tool_result",
-                call_id=self._string_field(event, "call_id"),
-                tool_status=self._tool_status(event.get("status")),
-                tool_output=truncated_output,
-                tool_output_truncated=len(output) > len(truncated_output),
-            )
+        if event_type in TOOL_USE_EVENT_TYPES:
+            yield self._tool_call_chunk(event)
+            result_status = self._tool_use_result_status(event)
+            if result_status is not None:
+                yield self._tool_result_chunk(
+                    event,
+                    output_max_chars,
+                    tool_status=result_status,
+                )
+            return
+
+        if event_type in TOOL_RESULT_EVENT_TYPES:
+            yield self._tool_result_chunk(event, output_max_chars)
             return
 
         return
@@ -284,19 +367,91 @@ class OpenCodeAdapter(BaseAgentAdapter):
         process: asyncio.subprocess.Process,
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
         tool_specs: list[ToolSpec] | None,
     ) -> None:
         if process.stdin is None:
             return
         payload = {
             "messages": [message.model_dump() for message in messages],
-            "system_prompt": self.effective_system_prompt(system_prompt),
+            "system_prompt": self._effective_system_prompt(system_prompt, workspace_path),
             "tool_specs": [tool.model_dump() for tool in tool_specs or []],
         }
         process.stdin.write((json.dumps(payload, ensure_ascii=False) + "\n").encode())
         await process.stdin.drain()
         process.stdin.close()
         await process.stdin.wait_closed()
+
+    def _format_prompt(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        workspace_path: Path,
+    ) -> str:
+        lines: list[str] = [
+            f"System: {self._effective_system_prompt(system_prompt, workspace_path)}"
+        ]
+        conversation = format_runtime_messages(messages)
+        if conversation:
+            lines.append(conversation)
+        return "\n\n".join(lines)
+
+    def _effective_system_prompt(
+        self,
+        system_prompt: str | None,
+        workspace_path: Path,
+    ) -> str:
+        lines = [workspace_guard_prompt(workspace_path)]
+        effective_system = self.effective_system_prompt(system_prompt)
+        if effective_system:
+            lines.append(effective_system)
+        return "\n\n".join(lines)
+
+    @staticmethod
+    def _event_text(event: dict[Any, Any]) -> str | None:
+        text = event.get("text")
+        if isinstance(text, str):
+            return text
+        part = event.get("part")
+        if not isinstance(part, dict) or part.get("type") not in {"text", "reasoning"}:
+            return None
+        part_text = part.get("text")
+        return part_text if isinstance(part_text, str) else None
+
+    def _tool_call_chunk(self, event: dict[Any, Any]) -> StreamChunk:
+        return StreamChunk(
+            event_type="tool_call",
+            call_id=self._string_field_deep(
+                event,
+                ("call_id", "callID", "id", "tool_call_id", "tool_use_id"),
+            ),
+            tool_name=self._string_field_deep(event, ("tool_name", "tool", "name")),
+            tool_arguments=self._dict_field_deep(
+                event,
+                ("arguments", "tool_arguments", "input", "args"),
+                include_state=True,
+            ),
+        )
+
+    def _tool_result_chunk(
+        self,
+        event: dict[Any, Any],
+        output_max_chars: int,
+        *,
+        tool_status: Literal["ok", "error"] | None = None,
+    ) -> StreamChunk:
+        output = self._tool_output(event) or ""
+        truncated_output = self._truncate(output, output_max_chars)
+        return StreamChunk(
+            event_type="tool_result",
+            call_id=self._string_field_deep(
+                event,
+                ("call_id", "callID", "tool_call_id", "tool_use_id", "id"),
+            ),
+            tool_status=tool_status or self._tool_status(event),
+            tool_output=truncated_output,
+            tool_output_truncated=len(output) > len(truncated_output),
+        )
 
     @staticmethod
     def _argv(value: object) -> list[str]:
@@ -308,43 +463,30 @@ class OpenCodeAdapter(BaseAgentAdapter):
             return [str(item) for item in value]
         return [str(value)]
 
-    @staticmethod
-    def _float_config(value: object, default: float) -> float:
-        if value is None:
-            return default
-        if not isinstance(value, str | int | float):
-            return default
-        try:
-            parsed = float(value)
-        except ValueError:
-            return default
-        return parsed if parsed > 0 else default
-
-    @staticmethod
-    def _subprocess_env() -> dict[str, str]:
-        return {key: value for key, value in os.environ.items() if key in ENV_ALLOWLIST}
-
-    @staticmethod
-    def _remaining_seconds(deadline: float) -> float:
-        remaining = deadline - asyncio.get_running_loop().time()
-        if remaining <= 0:
-            raise TimeoutError
-        return remaining
-
-    @staticmethod
     async def _wait_process(
+        self,
         process: asyncio.subprocess.Process,
-        deadline: float,
+        budget: RuntimeBudget,
     ) -> int:
-        return await asyncio.wait_for(
-            process.wait(),
-            timeout=OpenCodeAdapter._remaining_seconds(deadline),
-        )
+        wait_task = asyncio.create_task(process.wait())
+        try:
+            while True:
+                done, _ = await asyncio.wait(
+                    {wait_task},
+                    timeout=budget.next_wait_seconds(),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if wait_task in done:
+                    return wait_task.result()
+                budget.check_timeout()
+        finally:
+            if not wait_task.done():
+                wait_task.cancel()
 
     @staticmethod
     async def _terminate_process(process: asyncio.subprocess.Process) -> None:
         if process.returncode is None:
-            process.kill()
+            kill_process_tree(process)
         try:
             await process.wait()
         except Exception:
@@ -371,9 +513,89 @@ class OpenCodeAdapter(BaseAgentAdapter):
         value = event.get(key)
         return value if isinstance(value, dict) else {}
 
+    def _string_field_deep(
+        self,
+        event: dict[Any, Any],
+        keys: tuple[str, ...],
+    ) -> str | None:
+        for candidate in self._field_candidates(event):
+            for key in keys:
+                value = candidate.get(key)
+                if value is None:
+                    continue
+                return value if isinstance(value, str) else str(value)
+        return None
+
+    def _dict_field_deep(
+        self,
+        event: dict[Any, Any],
+        keys: tuple[str, ...],
+        *,
+        include_state: bool = False,
+    ) -> dict[str, Any]:
+        for candidate in self._field_candidates(event, include_state=include_state):
+            for key in keys:
+                value = candidate.get(key)
+                if isinstance(value, dict):
+                    return value
+        return {}
+
+    def _field_deep(self, event: dict[Any, Any], keys: tuple[str, ...]) -> Any:
+        for candidate in self._field_candidates(event, include_state=True):
+            for key in keys:
+                value = candidate.get(key)
+                if value is not None:
+                    return value
+        return None
+
     @staticmethod
-    def _tool_status(value: object) -> Literal["ok", "error"]:
-        return "error" if value == "error" else "ok"
+    def _field_candidates(
+        event: dict[Any, Any],
+        *,
+        include_state: bool = False,
+    ) -> list[dict[Any, Any]]:
+        candidates = [event]
+        for first_level in ("part", "item", "data"):
+            value = event.get(first_level)
+            if isinstance(value, dict):
+                candidates.append(value)
+                state = value.get("state")
+                if include_state and isinstance(state, dict):
+                    candidates.append(state)
+        state = event.get("state")
+        if include_state and isinstance(state, dict):
+            candidates.append(state)
+        return candidates
+
+    def _tool_status(self, event: dict[Any, Any]) -> Literal["ok", "error"]:
+        status = self._field_deep(event, ("tool_status", "status"))
+        if isinstance(status, str) and status.lower() in TOOL_USE_ERROR_STATUSES:
+            return "error"
+        return "error" if self._field_deep(event, ("error", "is_error")) is True else "ok"
+
+    def _tool_use_result_status(self, event: dict[Any, Any]) -> Literal["ok", "error"] | None:
+        status = self._field_deep(event, ("tool_status", "status"))
+        if not isinstance(status, str):
+            return None
+        normalized = status.lower()
+        if normalized in TOOL_USE_OK_STATUSES:
+            return "ok"
+        if normalized in TOOL_USE_ERROR_STATUSES:
+            return "error"
+        if normalized in TOOL_USE_NON_TERMINAL_STATUSES:
+            return None
+        return None
+
+    def _tool_output(self, event: dict[Any, Any]) -> str | None:
+        value = self._field_deep(event, ("tool_output", "output", "result", "content", "error"))
+        if value is None:
+            metadata = self._dict_field_deep(event, ("metadata",))
+            value = metadata.get("output") or metadata.get("error")
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False)
 
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:

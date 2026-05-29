@@ -201,6 +201,22 @@ async def test_write_file_success_and_call_id_pairing(tmp_path: Path) -> None:
     ]
 
 
+async def test_write_file_accepts_file_path_alias(tmp_path: Path) -> None:
+    adapter, _gateway = _adapter(
+        [
+            _tool_call("write_file", {"file_path": "snake.html", "content": "ok"}),
+            _text_stream("written"),
+        ]
+    )
+
+    chunks = await _collect(adapter, tmp_path)
+
+    assert (tmp_path / "snake.html").read_text(encoding="utf-8") == "ok"
+    result = next(chunk for chunk in chunks if chunk.event_type == "tool_result")
+    assert result.tool_status == "ok"
+    assert result.tool_output == "wrote snake.html (2 bytes)"
+
+
 async def test_read_file_success_uses_model_gateway_fake_path(tmp_path: Path) -> None:
     (tmp_path / "notes.txt").write_text("hello file", encoding="utf-8")
     adapter, gateway = _adapter(

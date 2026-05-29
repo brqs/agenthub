@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { extractApiError } from '@/lib/api';
 import * as authAdapter from '@/lib/adapters/auth';
 import { env } from '@/lib/env';
-import { useAuthStore } from '@/stores/authStore';
+import { startClientSession } from '@/lib/session';
 
 export const MOCK_DEMO_TOKEN = 'mock-demo-token';
 
@@ -13,11 +13,10 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const setAuth = useAuthStore((s) => s.setAuth);
   const navigate = useNavigate();
 
   function enterDemo() {
-    setAuth(MOCK_DEMO_TOKEN, {
+    startClientSession(MOCK_DEMO_TOKEN, {
       id: '00000000-0000-4000-8000-000000000001',
       username: 'frontend-demo',
       avatar_url: null,
@@ -35,7 +34,7 @@ export function LoginPage() {
         mode === 'login'
           ? await authAdapter.login({ username, password })
           : await authAdapter.register({ username, password });
-      setAuth(data.access_token, data.user);
+      startClientSession(data.access_token, data.user);
       navigate('/chat');
     } catch (err) {
       setError(extractApiError(err));
