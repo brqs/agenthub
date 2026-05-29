@@ -79,6 +79,9 @@ class TestValidConfigs:
         config = {
             "model_backend": "claude",
             "max_iterations": 10,
+            "react_enabled": True,
+            "react_trace_visible": False,
+            "react_decision_max_tokens": 1024,
             "mcp_servers": [],
             "task_fallback_agent_ids": ["codex-helper"],
             "max_task_attempts": 2,
@@ -207,6 +210,36 @@ class TestNumericValidation:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "integer" in exc_info.value.message
+
+    def test_invalid_react_bool_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"react_enabled": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_react_trace_bool_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"react_trace_visible": 1},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_react_decision_max_tokens_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"react_decision_max_tokens": 4097},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "react_decision_max_tokens" in exc_info.value.message
 
     def test_timeout_bool_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
@@ -368,6 +401,13 @@ class TestBuiltinAgents:
             assert config["qa_temperature"] == 0.2
             assert config["qa_request_timeout_seconds"] == 20
 
+    def test_seed_orchestrator_enables_react_defaults(self) -> None:
+        orchestrator = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "orchestrator")
+        config = orchestrator["config"]
+
+        assert config["react_enabled"] is True
+        assert config["react_trace_visible"] is True
+
     def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
         for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
             agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == agent_id)
@@ -468,5 +508,8 @@ class TestOpenAPIContract:
             "max_task_attempts",
             "task_result_context_max_chars",
             "task_result_item_max_chars",
+            "react_enabled",
+            "react_trace_visible",
+            "react_decision_max_tokens",
         ):
             assert field in text

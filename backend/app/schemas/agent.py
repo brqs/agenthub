@@ -30,6 +30,9 @@ class AgentConfig(BaseModel):
         description="ModelGateway backend for builtin agents.",
     )
     max_iterations: int | None = Field(default=None, ge=1, le=50)
+    react_enabled: bool | None = None
+    react_trace_visible: bool | None = None
+    react_decision_max_tokens: int | None = Field(default=None, ge=1, le=4096)
     mcp_servers: list[dict[str, Any]] | None = None
     command: str | list[str] | None = None
     args: list[str] | None = None
