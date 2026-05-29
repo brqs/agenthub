@@ -122,6 +122,15 @@ def blocks_to_text(blocks: list[dict[str, Any]]) -> str:
     return "\n".join(part for part in parts if part)
 
 
+def message_to_text(message: Message, *, include_agent_label: bool = False) -> str:
+    """Flatten a Message to text and optionally keep the group-chat speaker."""
+    text = blocks_to_text(message.content)
+    if include_agent_label and message.role == "agent":
+        agent_id = message.agent_id or "unknown"
+        return f"[Agent: {agent_id}]\n{text}" if text else f"[Agent: {agent_id}]"
+    return text
+
+
 def _summarize_text(text: str, max_chars: int = 360) -> str:
     sentences = [
         part.strip()
@@ -214,6 +223,8 @@ class ContextCompressor:
         self,
         messages: list[Message],
         existing_summary: str = "",
+        *,
+        include_agent_labels: bool = False,
     ) -> tuple[str, str]:
         critical_facts = _dedupe_items(
             CriticalFactExtractor.from_messages(messages)
@@ -225,6 +236,7 @@ class ContextCompressor:
                     messages,
                     critical_facts,
                     existing_summary,
+                    include_agent_labels=include_agent_labels,
                 )
                 return (
                     self.validator.validate(llm_summary, critical_facts),
@@ -233,17 +245,29 @@ class ContextCompressor:
             except CompressionUnavailableError:
                 pass
 
-        return _summarize_messages(messages, existing_summary), RULES_ALGORITHM_VERSION
+        return (
+            _summarize_messages(
+                messages,
+                existing_summary,
+                include_agent_labels=include_agent_labels,
+            ),
+            RULES_ALGORITHM_VERSION,
+        )
 
     async def _summarize_with_llm(
         self,
         messages: list[Message],
         critical_facts: list[str],
         existing_summary: str,
+        *,
+        include_agent_labels: bool = False,
     ) -> str:
         facts_text = "\n".join(f"- {fact}" for fact in critical_facts) or "暂无"
         existing_text = existing_summary.strip() or "暂无"
-        history_text = _format_messages_for_summary(messages)
+        history_text = _format_messages_for_summary(
+            messages,
+            include_agent_labels=include_agent_labels,
+        )
         if not history_text:
             raise CompressionUnavailableError("empty history")
 
@@ -265,11 +289,18 @@ class ContextCompressor:
             raise CompressionUnavailableError(str(exc)) from exc
 
 
-def _format_messages_for_summary(messages: list[Message]) -> str:
+def _format_messages_for_summary(
+    messages: list[Message],
+    *,
+    include_agent_labels: bool = False,
+) -> str:
     formatted: list[str] = []
     for message in messages:
         role = "assistant" if message.role == "agent" else message.role
-        text = truncate_text(blocks_to_text(message.content), 1400)
+        text = truncate_text(
+            message_to_text(message, include_agent_label=include_agent_labels),
+            1400,
+        )
         if not text:
             continue
         formatted.append(f"[{message.created_at:%Y-%m-%d %H:%M}] {role}: {text}")
@@ -370,14 +401,21 @@ def _has_summary_item(sections: dict[str, list[str]], item: str) -> bool:
     )
 
 
-def _summarize_messages(messages: list[Message], existing_summary: str = "") -> str:
+def _summarize_messages(
+    messages: list[Message],
+    existing_summary: str = "",
+    *,
+    include_agent_labels: bool = False,
+) -> str:
     sections = _parse_existing_summary(existing_summary)
 
     for message in messages:
-        raw_text = blocks_to_text(message.content)
+        raw_text = message_to_text(message, include_agent_label=include_agent_labels)
         summary = _summarize_blocks(message.content)
         if not summary:
             continue
+        if include_agent_labels and message.role == "agent":
+            summary = f"[Agent: {message.agent_id or 'unknown'}] {summary}"
         prefix = f"{message.created_at:%Y-%m-%d %H:%M} "
         lowered = summary.lower()
         if message.role == "user":
