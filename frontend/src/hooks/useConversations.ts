@@ -45,12 +45,38 @@ export function useConversations(params: ListConversationsParams = {}): UseConve
     }
   }, [query.data, hydrate, queryParams.archived]);
 
+  const shouldUseHydratedStore =
+    env.useMockApi ||
+    (!queryParams.archived && !queryParams.pinnedOnly && !queryParams.search && !queryParams.page);
+
+  const localData = useMemo(() => {
+    if (!shouldUseHydratedStore) return query.data ?? [];
+    return conversations.filter((conversation) => {
+      if (!queryParams.archived && conversation.is_archived) return false;
+      if (queryParams.pinnedOnly && !conversation.is_pinned) return false;
+      if (
+        queryParams.search &&
+        !conversation.title.toLowerCase().includes(queryParams.search.toLowerCase())
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    conversations,
+    query.data,
+    queryParams.archived,
+    queryParams.pinnedOnly,
+    queryParams.search,
+    shouldUseHydratedStore,
+  ]);
+
   return useMemo<UseConversationsResult>(
     () => ({
-      data: env.useMockApi ? conversations : query.data ?? [],
+      data: env.useMockApi || query.data ? localData : [],
       isLoading: !env.useMockApi && query.isLoading,
       error: env.useMockApi ? null : query.error,
     }),
-    [conversations, query.data, query.isLoading, query.error],
+    [localData, query.data, query.isLoading, query.error],
   );
 }
