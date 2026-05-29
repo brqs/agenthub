@@ -23,7 +23,7 @@
 ## 开始前必须阅读
 
 1. `AGENTS.md`
-2. `docs/b2/spec/provider-resilience.spec.md`
+2. `docs/b2/spec/model-gateway.spec.md`
 3. `backend/app/agents/base.py`
 4. `backend/app/agents/types.py`
 5. `backend/app/agents/artifact_parser.py`
@@ -53,7 +53,7 @@
 
 如发现文档和实现边界不一致，可最小更新：
 
-- `docs/b2/spec/provider-resilience.spec.md`
+- `docs/b2/spec/model-gateway.spec.md`
 - `docs/b2/task-dispatch/B2-11-provider-resilience.md`
 
 ## 禁止修改
