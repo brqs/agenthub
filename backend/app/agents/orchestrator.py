@@ -3,22 +3,32 @@
 from __future__ import annotations
 
 import re
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
-from enum import StrEnum
+from collections.abc import AsyncIterator, Awaitable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.model_gateway import ModelGateway
 from app.agents.orchestrator_planner import llm_planning_enabled, plan_task_payload
+from app.agents.orchestrator_platform_facts import (
+    platform_fact_intent,
+    platform_fact_text,
+)
+from app.agents.orchestrator_react import react_enabled, run_react_loop
+from app.agents.orchestrator_types import (
+    DEFAULT_MAX_TASK_ATTEMPTS,
+    DEFAULT_TASK_RESULT_CONTEXT_MAX_CHARS,
+    DEFAULT_TASK_RESULT_ITEM_MAX_CHARS,
+    MAX_TASK_ATTEMPTS_LIMIT,
+    AdapterFactory,
+    OrchestratorRunContext,
+    SubTask,
+    TaskAttempt,
+    TaskResult,
+    TaskState,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
-AdapterFactory = Callable[[str], BaseAgentAdapter | Awaitable[BaseAgentAdapter]]
-DEFAULT_TASK_RESULT_CONTEXT_MAX_CHARS = 4000
-DEFAULT_TASK_RESULT_ITEM_MAX_CHARS = 1200
-DEFAULT_MAX_TASK_ATTEMPTS = 1
-MAX_TASK_ATTEMPTS_LIMIT = 3
 SENSITIVE_ARTIFACT_PARTS = {".env", "secrets", ".ssh", ".agenthub"}
 ARTIFACT_PATH_KEYS = {
     "path",
@@ -92,7 +102,6 @@ TASK_INTENT_MARKERS = (
     "coordinate",
     "ask ",
 )
-
 PLANNER_PROTOCOL_ERROR_MARKERS = (
     "invalid_json",
     "empty_planner_output",
@@ -128,70 +137,6 @@ ARTIFACT_TASK_MARKERS = (
 )
 
 
-class TaskState(StrEnum):
-    PENDING = "pending"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    ARTIFACT_MISSING = "artifact_missing"
-
-
-@dataclass(frozen=True, slots=True)
-class SubTask:
-    task_id: str
-    agent_id: str
-    title: str
-    instruction: str
-    depends_on: tuple[str, ...] = ()
-    priority: int = 0
-    expected_output: str | None = None
-    include_history: bool = True
-
-    @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any]) -> SubTask:
-        return cls(
-            task_id=_required_str(raw, "task_id"),
-            agent_id=_required_str(raw, "agent_id"),
-            title=_required_str(raw, "title"),
-            instruction=_required_str(raw, "instruction"),
-            depends_on=_depends_on(raw),
-            priority=_priority(raw),
-            expected_output=_optional_str(raw, "expected_output"),
-            include_history=_include_history(raw),
-        )
-
-
-@dataclass(slots=True)
-class TaskAttempt:
-    attempt_index: int
-    agent_id: str
-    state: TaskState = TaskState.PENDING
-    text_preview: str = ""
-    tool_summaries: list[str] = field(default_factory=list)
-    artifact_paths: list[str] = field(default_factory=list)
-    missing_artifact_paths: list[str] = field(default_factory=list)
-    error: str | None = None
-
-
-@dataclass(slots=True)
-class TaskResult:
-    task_id: str
-    title: str
-    final_state: TaskState = TaskState.PENDING
-    attempts: list[TaskAttempt] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class OrchestratorRunContext:
-    results: dict[str, TaskResult] = field(default_factory=dict)
-    result_order: list[str] = field(default_factory=list)
-
-    def record(self, result: TaskResult) -> None:
-        if result.task_id not in self.results:
-            self.result_order.append(result.task_id)
-        self.results[result.task_id] = result
-
-
 class PlannerResolutionError(ValueError):
     """Raised when LLM planner output cannot be used as a task plan."""
 
@@ -214,6 +159,28 @@ class OrchestratorAdapter(BaseAgentAdapter):
 
         merged_config = self.merged_config(config)
         next_block_index = 0
+        platform_fact = await platform_fact_intent(
+            merged_config,
+            messages,
+            latest_user_request=_latest_user_request,
+            agent_id_list=_agent_id_list,
+            explicit_agent_mentions=_explicit_agent_mentions,
+            has_task_intent=_has_task_intent,
+            error_reason=_error_reason,
+        )
+        if platform_fact:
+            for chunk in _text_block(
+                next_block_index,
+                platform_fact_text(merged_config, platform_fact),
+            ):
+                yield chunk
+            next_block_index += 1
+            yield StreamChunk(
+                event_type="done",
+                agent_id=self.agent_id,
+                total_blocks=next_block_index,
+            )
+            return
         if _should_direct_answer(merged_config, messages):
             async for chunk, updated_block_index, failed in _run_direct_answer(
                 merged_config,
@@ -325,83 +292,39 @@ class OrchestratorAdapter(BaseAgentAdapter):
             yield chunk
         next_block_index += 1
 
-        task_states = {task.task_id: TaskState.PENDING for task in tasks}
-        run_context = OrchestratorRunContext()
-        for task in tasks:
-            if not _dependencies_satisfied(task, task_states):
-                task_states[task.task_id] = TaskState.SKIPPED
-                run_context.record(
-                    TaskResult(
-                        task_id=task.task_id,
-                        title=task.title,
-                        final_state=TaskState.SKIPPED,
-                    )
-                )
-                continue
-
-            async for chunk, updated_block_index in _run_task(
+        if react_enabled(merged_config):
+            async for chunk, updated_block_index in run_react_loop(
                 merged_config,
-                task,
+                tasks,
                 messages,
                 next_block_index,
-                run_context,
+                workspace_path,
+                tool_specs,
+                run_task=_run_task,
+                text_block_with_next=_text_block_with_next,
+                summary_text=_summary_text,
+                format_task_result_context=_format_task_result_context,
+                latest_user_request=_latest_user_request,
+                positive_int_config=_positive_int_config,
+                agent_id_list=_agent_id_list,
+                error_reason=_error_reason,
+            ):
+                next_block_index = updated_block_index
+                yield chunk
+        else:
+            async for chunk, updated_block_index in _run_static_tasks(
+                merged_config,
+                tasks,
+                messages,
+                next_block_index,
                 workspace_path,
                 tool_specs,
             ):
                 next_block_index = updated_block_index
                 yield chunk
-            task_states[task.task_id] = run_context.results[task.task_id].final_state
-
-        for chunk in _text_block(
-            next_block_index,
-            _summary_text(tasks, task_states, run_context),
-        ):
-            yield chunk
-        next_block_index += 1
         yield StreamChunk(
             event_type="done", agent_id=self.agent_id, total_blocks=next_block_index
         )
-
-
-def _required_str(raw: Mapping[str, Any], key: str) -> str:
-    value = raw.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"invalid_task_plan: task.{key} must be a non-empty string")
-    return value
-
-
-def _optional_str(raw: Mapping[str, Any], key: str) -> str | None:
-    value = raw.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"invalid_task_plan: task.{key} must be a string")
-    return value
-
-
-def _depends_on(raw: Mapping[str, Any]) -> tuple[str, ...]:
-    value = raw.get("depends_on", [])
-    if value is None:
-        return ()
-    if not isinstance(value, list):
-        raise ValueError("invalid_task_plan: task.depends_on must be a list")
-    if not all(isinstance(item, str) for item in value):
-        raise ValueError("invalid_task_plan: task.depends_on must contain strings")
-    return tuple(value)
-
-
-def _priority(raw: Mapping[str, Any]) -> int:
-    value: object = raw.get("priority", 0)
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError("invalid_task_plan: task.priority must be an integer")
-    return value
-
-
-def _include_history(raw: Mapping[str, Any]) -> bool:
-    value = raw.get("include_history", True)
-    if not isinstance(value, bool):
-        raise ValueError("invalid_task_plan: task.include_history must be a boolean")
-    return value
 
 
 async def _resolve_tasks(
@@ -1101,6 +1024,48 @@ def _summary_text(
                     detail += f" - missing {', '.join(attempt.missing_artifact_paths)}"
                 lines.append(detail)
     return "\n".join(lines) + "\n"
+
+
+async def _run_static_tasks(
+    config: Mapping[str, Any],
+    tasks: list[SubTask],
+    messages: list[ChatMessage],
+    next_block_index: int,
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
+) -> AsyncIterator[tuple[StreamChunk, int]]:
+    task_states = {task.task_id: TaskState.PENDING for task in tasks}
+    run_context = OrchestratorRunContext()
+    for task in tasks:
+        if not _dependencies_satisfied(task, task_states):
+            task_states[task.task_id] = TaskState.SKIPPED
+            run_context.record(
+                TaskResult(
+                    task_id=task.task_id,
+                    title=task.title,
+                    final_state=TaskState.SKIPPED,
+                )
+            )
+            continue
+
+        async for chunk, updated_block_index in _run_task(
+            config,
+            task,
+            messages,
+            next_block_index,
+            run_context,
+            workspace_path,
+            tool_specs,
+        ):
+            next_block_index = updated_block_index
+            yield chunk, updated_block_index
+        task_states[task.task_id] = run_context.results[task.task_id].final_state
+
+    for chunk, updated_block_index in _text_block_with_next(
+        next_block_index,
+        _summary_text(tasks, task_states, run_context),
+    ):
+        yield chunk, updated_block_index
 
 
 async def _remapped_sub_stream(

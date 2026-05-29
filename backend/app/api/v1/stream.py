@@ -13,13 +13,16 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.agents.registry import AgentNotFoundError, get_adapter
+from app.agents.registry import ORCHESTRATOR_AGENT_ID, AgentNotFoundError, get_adapter
 from app.agents.types import StreamChunk
 from app.api.v1.conversations import _get_owned_conversation
 from app.core.deps import DbSession, get_current_user
+from app.models.agent import Agent
+from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
 from app.services.context_builder import build_context
@@ -221,6 +224,71 @@ def _tool_result_error_code(chunk: StreamChunk) -> str:
     return chunk.error_code or "tool_call_failed"
 
 
+def _agent_context(agent: Agent) -> dict[str, Any]:
+    capabilities = agent.capabilities if isinstance(agent.capabilities, list) else []
+    context: dict[str, Any] = {
+        "id": agent.id,
+        "name": agent.name,
+        "provider": agent.provider,
+        "capabilities": [item for item in capabilities if isinstance(item, str)],
+        "is_builtin": agent.is_builtin,
+    }
+    if isinstance(agent.config, dict):
+        for key in (
+            "model_backend",
+            "answer_model_backend",
+            "planner_model_backend",
+            "qa_model_backend",
+            "qa_model",
+            "runtime",
+        ):
+            value = agent.config.get(key)
+            if isinstance(value, str) and value.strip():
+                context[key] = value.strip()
+    return context
+
+
+async def _orchestrator_conversation_config(
+    db: AsyncSession,
+    message: Message,
+) -> dict[str, Any] | None:
+    if message.agent_id != ORCHESTRATOR_AGENT_ID:
+        return None
+
+    conversation = await db.get(Conversation, message.conversation_id)
+    if conversation is None or conversation.mode != "group":
+        return None
+
+    agent_ids = [agent_id for agent_id in conversation.agent_ids if isinstance(agent_id, str)]
+    if not agent_ids:
+        return None
+
+    result = await db.execute(select(Agent).where(Agent.id.in_(agent_ids)))
+    agents_by_id = {agent.id: agent for agent in result.scalars().all()}
+    conversation_agents = [
+        _agent_context(agent)
+        for agent_id in agent_ids
+        if (agent := agents_by_id.get(agent_id)) is not None
+    ]
+    if not conversation_agents:
+        return None
+
+    available_agents = [
+        agent
+        for agent in conversation_agents
+        if agent.get("id") != ORCHESTRATOR_AGENT_ID
+    ]
+    config: dict[str, Any] = {
+        "conversation_agents": conversation_agents,
+        "available_agents": available_agents,
+    }
+    if available_agents:
+        config["managed_agent_ids"] = [
+            agent["id"] for agent in available_agents if isinstance(agent.get("id"), str)
+        ]
+    return config
+
+
 async def _event_generator(
     db: AsyncSession,
     request: Request,
@@ -242,6 +310,7 @@ async def _event_generator(
         adapter = await get_adapter(message.agent_id, db)
         history = await build_context(db, message.conversation_id)
         workspace = await WorkspaceService().get_or_create(db, message.conversation_id)
+        stream_config = await _orchestrator_conversation_config(db, message)
 
         # Mark streaming
         message.status = "streaming"
@@ -250,6 +319,7 @@ async def _event_generator(
         disconnected = False
         async for chunk in adapter.stream(
             history,
+            config=stream_config,
             workspace_path=Path(workspace.root_path),
             tool_specs=None,
         ):

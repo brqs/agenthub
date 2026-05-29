@@ -220,6 +220,9 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             details={"field": "orchestrator_answer_config", "value": answer_config},
         )
     _validate_numeric(config, "max_iterations", 1, 50, allow_float=False)
+    _validate_bool(config, "react_enabled")
+    _validate_bool(config, "react_trace_visible")
+    _validate_numeric(config, "react_decision_max_tokens", 1, 4096, allow_float=False)
     _validate_string_list(config, "task_fallback_agent_ids")
     _validate_numeric(config, "max_task_attempts", 1, 3, allow_float=False)
     _validate_numeric(

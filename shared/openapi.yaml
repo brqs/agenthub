@@ -410,6 +410,13 @@ components:
           enum: [claude, deepseek, openai]
           description: ModelGateway backend for builtin agents.
         max_iterations: { type: integer, minimum: 1, maximum: 50 }
+        react_enabled:
+          type: boolean
+          description: Whether builtin orchestrator uses ReAct dynamic task graph execution.
+        react_trace_visible:
+          type: boolean
+          description: Whether ReAct step/action/observation summaries are visible in chat output.
+        react_decision_max_tokens: { type: integer, minimum: 1, maximum: 4096 }
         mcp_servers:
           type: array
           items: { type: object, additionalProperties: true }
