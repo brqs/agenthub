@@ -132,6 +132,56 @@ class FakeWorkspaceWriterAdapter(FakeSubAdapter):
             yield chunk
 
 
+class FakeWorkspaceVerifierAdapter(FakeSubAdapter):
+    def __init__(self, agent_id: str, verify_path: str) -> None:
+        super().__init__(agent_id, [])
+        self.verify_path = verify_path
+        self.verified_content = ""
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        self.received_messages = messages
+        self.received_system_prompt = system_prompt
+        self.received_config = config
+        target = workspace_path / self.verify_path if workspace_path else None
+        self.verified_content = target.read_text(encoding="utf-8") if target else ""
+        checks = {
+            "title": "Orchestrator Flow Smoke Test" in self.verified_content,
+            "input": "<input" in self.verified_content,
+            "button": "<button" in self.verified_content,
+            "display": "textContent" in self.verified_content,
+        }
+        result = (
+            f"Checked {self.verify_path}: "
+            f"title={checks['title']}, input={checks['input']}, "
+            f"button={checks['button']}, display={checks['display']}"
+        )
+        yield StreamChunk(event_type="start", agent_id=self.agent_id)
+        yield StreamChunk(
+            event_type="tool_call",
+            call_id="verify-1",
+            tool_name="read_file",
+            tool_arguments={"path": self.verify_path},
+        )
+        yield StreamChunk(
+            event_type="tool_result",
+            call_id="verify-1",
+            tool_status="ok" if all(checks.values()) else "error",
+            tool_output=result,
+        )
+        yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+        yield StreamChunk(event_type="delta", block_index=0, text_delta=result)
+        yield StreamChunk(event_type="block_end", block_index=0)
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+
 class FakePlannerGateway:
     def __init__(self, chunks: list[StreamChunk]) -> None:
         self._chunks = chunks
@@ -432,13 +482,540 @@ async def test_orchestrator_answers_meta_question_without_planner() -> None:
 
     assert chunks[-1].event_type == "done"
     assert planner.calls == []
-    assert len(answer.calls) == 1
+    assert answer.calls == []
     assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
     assert any(
         chunk.event_type == "delta" and "AgentHub Orchestrator" in (chunk.text_delta or "")
         for chunk in chunks
     )
-    assert "Do not create or describe a task plan" in answer.calls[0]["messages"][0].content
+
+
+async def test_orchestrator_answers_group_agents_from_conversation_context() -> None:
+    planner = FakePlannerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="planner used")]
+    )
+    answer = FakeAnswerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="answer used")]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 当前群聊有哪些 agent")],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "conversation_agents": [
+                {
+                    "id": "orchestrator",
+                    "name": "Orchestrator",
+                    "provider": "builtin",
+                    "capabilities": ["task_decomposition", "coordination"],
+                    "is_builtin": True,
+                },
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files", "analysis"],
+                    "is_builtin": True,
+                },
+                {
+                    "id": "codex-helper",
+                    "name": "Codex Helper",
+                    "provider": "codex",
+                    "capabilities": ["coding", "sandbox"],
+                    "is_builtin": True,
+                },
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "capabilities": ["coding", "cli", "files"],
+                    "is_builtin": True,
+                },
+            ],
+            "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper"],
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert planner.calls == []
+    assert answer.calls == []
+    assert "当前群聊包含 4 个 agent" in text
+    assert "Orchestrator" in text
+    assert "Claude Code" in text
+    assert "Codex Helper" in text
+    assert "OpenCode Helper" in text
+    assert "Planner" not in text
+    assert "Specialist Agents" not in text
+
+
+async def test_orchestrator_answers_group_models_from_platform_facts() -> None:
+    planner = FakePlannerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="planner used")]
+    )
+    answer = FakeAnswerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="answer used")]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 当前群聊有哪些模型")],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "conversation_agents": [
+                {
+                    "id": "orchestrator",
+                    "name": "Orchestrator",
+                    "provider": "builtin",
+                    "capabilities": ["task_decomposition", "coordination"],
+                    "is_builtin": True,
+                    "model_backend": "claude",
+                    "answer_model_backend": "deepseek",
+                    "planner_model_backend": "claude",
+                },
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files", "analysis"],
+                    "is_builtin": True,
+                },
+                {
+                    "id": "codex-helper",
+                    "name": "Codex Helper",
+                    "provider": "codex",
+                    "capabilities": ["coding", "sandbox"],
+                    "is_builtin": True,
+                    "runtime": "cli",
+                    "qa_model_backend": "deepseek",
+                    "qa_model": "deepseek-chat",
+                },
+            ],
+            "managed_agent_ids": ["claude-code", "codex-helper"],
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert planner.calls == []
+    assert answer.calls == []
+    assert "可见的模型/运行时配置" in text
+    assert "answer_model_backend: deepseek" in text
+    assert "planner_model_backend: claude" in text
+    assert "provider: claude_code" in text
+    assert "执行模型: 未在 AgentHub 配置中暴露" in text
+    assert "runtime: cli" in text
+    assert "qa_model_backend: deepseek" in text
+    assert "GPT-4" not in text
+    assert "Gemini" not in text
+    assert "Llama" not in text
+    assert "Mistral" not in text
+
+
+async def test_orchestrator_answers_combined_group_agents_and_self_model() -> None:
+    answer = FakeAnswerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="answer used")]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content="@orchestrator 当前群聊有哪些agent，你又是什么模型",
+            )
+        ],
+        config={
+            "answer_gateway": answer,
+            "model_backend": "claude",
+            "answer_model_backend": "deepseek",
+            "planner_model_backend": "claude",
+            "conversation_agents": [
+                {
+                    "id": "orchestrator",
+                    "name": "Orchestrator",
+                    "provider": "builtin",
+                    "capabilities": ["task_decomposition", "coordination"],
+                    "is_builtin": True,
+                    "model_backend": "claude",
+                },
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files", "analysis"],
+                    "is_builtin": True,
+                },
+            ],
+            "managed_agent_ids": ["claude-code"],
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert answer.calls == []
+    assert "当前群聊包含 2 个 agent" in text
+    assert "Claude Code" in text
+    assert "我是 AgentHub Orchestrator" in text
+    assert "direct answer backend: deepseek" in text
+    assert "可见的模型/运行时配置" not in text
+
+
+async def test_orchestrator_answers_combined_group_agents_and_self_model_variants() -> None:
+    cases = [
+        "@orchestrator 当前群聊有哪些 agent？你又是什么模型？",
+        "@orchestrator 群里有哪些成员，你用什么后端",
+        "@orchestrator 当前群聊有什么 agent？你用的是什么模型？",
+        "@orchestrator 群聊里有谁？你也是什么模型？",
+        "@orchestrator 当前群聊有哪些agent，以及 orchestrator 用什么模型",
+        "@orchestrator what agents are in this group and what model are you?",
+        "@orchestrator who is in this group, and which backend are you using?",
+    ]
+
+    for content in cases:
+        answer = FakeAnswerGateway(
+            [StreamChunk(event_type="error", error_code="unexpected", error="answer used")]
+        )
+        orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+        chunks = await _collect(
+            orchestrator,
+            messages=[ChatMessage(role="user", content=content)],
+            config={
+                "answer_gateway": answer,
+                "model_backend": "claude",
+                "answer_model_backend": "deepseek",
+                "planner_model_backend": "claude",
+                "conversation_agents": [
+                    {
+                        "id": "orchestrator",
+                        "name": "Orchestrator",
+                        "provider": "builtin",
+                        "capabilities": ["task_decomposition", "coordination"],
+                        "is_builtin": True,
+                        "model_backend": "claude",
+                    },
+                    {
+                        "id": "claude-code",
+                        "name": "Claude Code",
+                        "provider": "claude_code",
+                        "capabilities": ["coding", "files", "analysis"],
+                        "is_builtin": True,
+                    },
+                    {
+                        "id": "codex-helper",
+                        "name": "Codex Helper",
+                        "provider": "codex",
+                        "capabilities": ["coding", "sandbox"],
+                        "is_builtin": True,
+                    },
+                ],
+                "managed_agent_ids": ["claude-code", "codex-helper"],
+            },
+        )
+
+        text = "".join(chunk.text_delta or "" for chunk in chunks)
+        assert chunks[-1].event_type == "done", content
+        assert answer.calls == [], content
+        assert "当前群聊包含 3 个 agent" in text, content
+        assert "Claude Code" in text, content
+        assert "Codex Helper" in text, content
+        assert "我是 AgentHub Orchestrator" in text, content
+        assert "direct answer backend: deepseek" in text, content
+        assert "planner backend: claude" in text, content
+        assert "可见的模型/运行时配置" not in text, content
+
+
+async def test_orchestrator_answers_model_followup_from_recent_context() -> None:
+    answer = FakeAnswerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="answer used")]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="user", content="@orchestrator 当前群聊有哪些模型"),
+            ChatMessage(role="assistant", content="当前群聊可见模型如下"),
+            ChatMessage(role="user", content="还有哪些模型"),
+        ],
+        config={
+            "answer_gateway": answer,
+            "conversation_agents": [
+                {
+                    "id": "orchestrator",
+                    "name": "Orchestrator",
+                    "provider": "builtin",
+                    "capabilities": ["coordination"],
+                    "is_builtin": True,
+                    "model_backend": "claude",
+                },
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "capabilities": ["coding", "cli", "files"],
+                    "is_builtin": True,
+                },
+            ],
+            "managed_agent_ids": ["opencode-helper"],
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert answer.calls == []
+    assert "OpenCode Helper" in text
+    assert "未在 AgentHub 配置中暴露" in text
+
+
+async def test_orchestrator_answers_self_model_without_llm() -> None:
+    answer = FakeAnswerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="answer used")]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 你是什么模型")],
+        config={
+            "answer_gateway": answer,
+            "model_backend": "claude",
+            "answer_model_backend": "deepseek",
+            "planner_model_backend": "claude",
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert answer.calls == []
+    assert "我是 AgentHub Orchestrator" in text
+    assert "direct answer backend: deepseek" in text
+    assert "planner backend: claude" in text
+
+
+async def test_orchestrator_answers_group_capabilities_from_platform_facts() -> None:
+    answer = FakeAnswerGateway(
+        [StreamChunk(event_type="error", error_code="unexpected", error="answer used")]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 这些 agent 能做什么")],
+        config={
+            "answer_gateway": answer,
+            "conversation_agents": [
+                {
+                    "id": "orchestrator",
+                    "name": "Orchestrator",
+                    "provider": "builtin",
+                    "capabilities": ["task_decomposition", "coordination"],
+                    "is_builtin": True,
+                },
+                {
+                    "id": "codex-helper",
+                    "name": "Codex Helper",
+                    "provider": "codex",
+                    "capabilities": ["coding", "sandbox"],
+                    "is_builtin": True,
+                },
+            ],
+            "managed_agent_ids": ["codex-helper"],
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert answer.calls == []
+    assert "能力配置如下" in text
+    assert "task_decomposition, coordination" in text
+    assert "coding, sandbox" in text
+
+
+async def test_platform_fact_classifier_invalid_json_falls_back_to_direct_answer() -> None:
+    classifier = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="classifier"),
+            StreamChunk(event_type="delta", text_delta="not json"),
+            StreamChunk(event_type="done", agent_id="classifier"),
+        ]
+    )
+    answer = FakeAnswerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="answer"),
+            StreamChunk(event_type="delta", text_delta="direct answer"),
+            StreamChunk(event_type="done", agent_id="answer"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 介绍一下")],
+        config={
+            "platform_fact_classifier_enabled": True,
+            "platform_fact_classifier_gateway": classifier,
+            "answer_gateway": answer,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(classifier.calls) == 1
+    assert len(answer.calls) == 1
+    assert any(chunk.text_delta == "direct answer" for chunk in chunks)
+
+
+async def test_platform_fact_classifier_low_confidence_falls_back_to_direct_answer() -> None:
+    classifier = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="classifier"),
+            StreamChunk(
+                event_type="delta",
+                text_delta=(
+                    '{"intent":"platform_fact","fact_type":"group_models",'
+                    '"confidence":0.2}'
+                ),
+            ),
+            StreamChunk(event_type="done", agent_id="classifier"),
+        ]
+    )
+    answer = FakeAnswerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="answer"),
+            StreamChunk(event_type="delta", text_delta="direct answer"),
+            StreamChunk(event_type="done", agent_id="answer"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 介绍一下")],
+        config={
+            "platform_fact_classifier_enabled": True,
+            "platform_fact_classifier_gateway": classifier,
+            "answer_gateway": answer,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(classifier.calls) == 1
+    assert len(answer.calls) == 1
+    assert any(chunk.text_delta == "direct answer" for chunk in chunks)
+
+
+async def test_platform_fact_classifier_error_does_not_block_task_planning() -> None:
+    classifier = FakePlannerGateway(
+        [
+            StreamChunk(
+                event_type="error",
+                error_code="classifier_error",
+                error="boom",
+            )
+        ]
+    )
+    adapter = FakeSubAdapter("agent-a", _text_chunks("done"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a todo app")],
+        config={
+            "platform_fact_classifier_enabled": True,
+            "platform_fact_classifier_gateway": classifier,
+            "managed_agent_ids": ["agent-a"],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(classifier.calls) == 1
+    assert any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert any(chunk.text_delta == "done" for chunk in chunks)
+
+
+async def test_orchestrator_planner_cannot_select_agent_outside_available_agents() -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="delta",
+                text_delta=(
+                    '{"tasks":[{"task_id":"task-a","agent_id":"web-designer",'
+                    '"title":"Design","instruction":"Build UI"}]}'
+                ),
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a landing page")],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["codex-helper"],
+            "available_agents": [
+                {
+                    "id": "codex-helper",
+                    "name": "Codex Helper",
+                    "provider": "codex",
+                    "capabilities": ["coding"],
+                    "is_builtin": True,
+                }
+            ],
+        },
+    )
+
+    assert len(planner.calls) == 1
+    assert "- codex-helper" in planner.calls[0]["messages"][0].content
+    assert "web-designer" not in planner.calls[0]["messages"][0].content
+    assert chunks[-1].event_type == "error"
+    assert "unknown agent_id 'web-designer'" in (chunks[-1].error or "")
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_direct_routing_only_matches_current_managed_agents() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("claude response"))
+    codex = FakeSubAdapter("codex-helper", _text_chunks("codex response"))
+    planner = FakePlannerGateway([])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    '@orchestrator ask claude code, codex, and web-designer '
+                    '"hello" and return their outputs'
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert planner.calls == []
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code", "codex-helper"]
+    assert not any(chunk.to_agent == "web-designer" for chunk in chunks)
 
 
 async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
@@ -500,6 +1077,161 @@ async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
     assert "Do not create tasks that start, deploy, preview" in (
         planner.calls[0]["system_prompt"] or ""
     )
+
+
+async def test_orchestrator_smoke_flows_create_then_verify_html(
+    tmp_path: Path,
+) -> None:
+    html_path = "orchestrator-flow-smoke.html"
+    html_content = """<!doctype html>
+<html>
+<head><title>Orchestrator Flow Smoke Test</title></head>
+<body>
+  <h1>Orchestrator Flow Smoke Test</h1>
+  <input id="smoke-input" />
+  <button id="smoke-button">Show</button>
+  <p id="smoke-output"></p>
+  <script>
+    document.getElementById("smoke-button").addEventListener("click", () => {
+      document.getElementById("smoke-output").textContent =
+        document.getElementById("smoke-input").value;
+    });
+  </script>
+</body>
+</html>
+"""
+    creator = FakeWorkspaceWriterAdapter(
+        "codex-helper",
+        [
+            StreamChunk(event_type="start", agent_id="codex-helper"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="write-1",
+                tool_name="write_file",
+                tool_arguments={"path": html_path, "content": html_content},
+            ),
+            StreamChunk(
+                event_type="tool_result",
+                call_id="write-1",
+                tool_status="ok",
+                tool_output=f"wrote {html_path}",
+            ),
+            *_text_chunks(f"Created {html_path}")[1:],
+        ],
+        write_path=html_path,
+        content=html_content,
+    )
+    verifier = FakeWorkspaceVerifierAdapter("opencode-helper", html_path)
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "create-html",
+                            "codex-helper",
+                            "Create smoke HTML",
+                            f"Create {html_path} with title, input, button, and display logic.",
+                            priority=1,
+                            expected_output=html_path,
+                        ),
+                        _task(
+                            "verify-html",
+                            "opencode-helper",
+                            "Verify smoke HTML",
+                            (
+                                f"Verify {html_path} contains the title, input, button, "
+                                "and click display behavior. Do not regenerate the file."
+                            ),
+                            priority=2,
+                            depends_on=["create-html"],
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 请编排当前群聊里的 agent 协作完成一个极简 HTML "
+                    f"文件 `{html_path}`。第一个子任务只负责创建 HTML 文件，"
+                    "第二个子任务必须基于第一个子任务的结果进行检查。"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper"],
+            "available_agents": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files", "analysis"],
+                },
+                {
+                    "id": "codex-helper",
+                    "name": "Codex Helper",
+                    "provider": "codex",
+                    "capabilities": ["coding", "sandbox"],
+                },
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "capabilities": ["coding", "cli", "files"],
+                },
+            ],
+            "sub_adapters": {
+                "codex-helper": creator,
+                "opencode-helper": verifier,
+            },
+        },
+    )
+
+    persisted_html = (tmp_path / html_path).read_text(encoding="utf-8")
+    planning_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    planner_prompt = planner.calls[0]["messages"][0].content
+    verifier_system_messages = [
+        message for message in verifier.received_messages if message.role == "system"
+    ]
+    summary = planning_text.split("Execution summary", 1)[1]
+
+    assert chunks[-1].event_type == "done"
+    assert "Planned 2 sub-task(s) via LLM planner/config" in planning_text
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["codex-helper", "opencode-helper"]
+    assert "web-designer" not in planner_prompt
+    assert "Previous sub-agent results" in verifier_system_messages[0].content
+    assert "create-html @codex-helper succeeded" in verifier_system_messages[0].content
+    assert html_path in verifier_system_messages[0].content
+    assert "Created orchestrator-flow-smoke.html" in verifier_system_messages[0].content
+    assert "- succeeded: @codex-helper - Create smoke HTML" in summary
+    assert "- succeeded: @opencode-helper - Verify smoke HTML" in summary
+    assert f"artifacts: {html_path}" in summary
+    assert "Checked orchestrator-flow-smoke.html" in planning_text
+    assert "title=True" in planning_text
+    assert "input=True" in planning_text
+    assert "button=True" in planning_text
+    assert "display=True" in planning_text
+    assert "Orchestrator Flow Smoke Test" in persisted_html
+    assert "<input" in persisted_html
+    assert "<button" in persisted_html
+    assert "textContent" in persisted_html
+    assert verifier.verified_content == persisted_html
 
 
 async def test_orchestrator_filters_planner_port_service_tasks() -> None:
