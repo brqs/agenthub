@@ -13,10 +13,15 @@
 | Spec | 用途 |
 |---|---|
 | [spec/agent-runtime-adapter.spec.md](spec/agent-runtime-adapter.spec.md) | BaseAgentAdapter v2 与 StreamChunk 协议 |
+| [spec/agent-runtime-test-matrix.spec.md](spec/agent-runtime-test-matrix.spec.md) | Agent runtime 测试矩阵 |
 | [spec/builtin-agent-framework.spec.md](spec/builtin-agent-framework.spec.md) | 自建 Agent Framework |
+| [spec/model-gateway.spec.md](spec/model-gateway.spec.md) | ModelGateway backend 与 resilience |
 | [spec/orchestrator.spec.md](spec/orchestrator.spec.md) | Orchestrator 行为契约 |
-| [spec/provider-resilience.spec.md](spec/provider-resilience.spec.md) | ModelGateway / legacy raw provider retry / timeout / 错误映射 |
-| [spec/adapter-smoke-tests.spec.md](spec/adapter-smoke-tests.spec.md) | Adapter smoke tests（含 legacy shim 与 runtime adapter） |
+| [spec/orchestrator-task-planning.spec.md](spec/orchestrator-task-planning.spec.md) | Orchestrator 任务规划与分配规则 |
 | [spec/agent-config-validation.spec.md](spec/agent-config-validation.spec.md) | Agent 配置校验 |
 | [spec/artifact-parser-v2.spec.md](spec/artifact-parser-v2.spec.md) | ArtifactParser v2 |
+| [spec/external-direct-chat-routing.spec.md](spec/external-direct-chat-routing.spec.md) | External Agent 纯问答 / Runtime 路由 |
+| [spec/external-runtime-adapters.spec.md](spec/external-runtime-adapters.spec.md) | Claude Code / Codex / OpenCode adapter 细节 |
+| [spec/external-runtime-lifecycle.spec.md](spec/external-runtime-lifecycle.spec.md) | External runtime timeout / heartbeat / cancel / cleanup |
 | [spec/stream-error-status.spec.md](spec/stream-error-status.spec.md) | SSE error 状态持久化协同 |
+| [spec/workspace-artifact-preview.spec.md](spec/workspace-artifact-preview.spec.md) | Workspace artifact / preview / deploy 边界 |

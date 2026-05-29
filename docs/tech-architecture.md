@@ -734,12 +734,12 @@ class ModelGateway:
 ```
 
 - ❌ 不注册到顶层 AgentRegistry（不是顶层 Agent）
-- ✅ retry / timeout / 错误码统一（复用 [docs/b2/spec/provider-resilience.spec.md](b2/spec/provider-resilience.spec.md)）
+- ✅ retry / timeout / 错误码统一（复用 [docs/b2/spec/model-gateway.spec.md](b2/spec/model-gateway.spec.md)）
 - ✅ 新增能力：把 Provider 原生 tool calling 协议（Anthropic `tool_use` / OpenAI `tool_calls`）映射为 `StreamChunk(tool_call)`
 
 ### 6.4 ClaudeBackend 实现示意（v1 ClaudeAdapter 迁移而来）
 
-> 📍 v1.1 已迁移到 `backend/app/agents/model_gateway/claude.py`，作为 BuiltinAgent 的可选 LLM 后端。原 v1 代码（基于 `anthropic.AsyncAnthropic.messages.stream`）保留其骨架，**新增**对 Anthropic `tool_use` content block 的解析与 `StreamChunk(tool_call/tool_result)` 映射；retry / timeout / error_code 策略沿用 [provider-resilience.spec.md](b2/spec/provider-resilience.spec.md)。完整设计见 [builtin-agent-framework.spec.md §6](b2/spec/builtin-agent-framework.spec.md)。
+> 📍 v1.1 已迁移到 `backend/app/agents/model_gateway/claude.py`，作为 BuiltinAgent 的可选 LLM 后端。原 v1 代码（基于 `anthropic.AsyncAnthropic.messages.stream`）保留其骨架，**新增**对 Anthropic `tool_use` content block 的解析与 `StreamChunk(tool_call/tool_result)` 映射；retry / timeout / error_code 策略沿用 [model-gateway.spec.md](b2/spec/model-gateway.spec.md)。完整设计见 [builtin-agent-framework.spec.md §6](b2/spec/builtin-agent-framework.spec.md)。
 
 ```python
 # backend/app/agents/model_gateway/claude.py（伪代码）
