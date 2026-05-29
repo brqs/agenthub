@@ -247,6 +247,8 @@ MCP server 暴露的工具与 native ToolRegistry 工具**合并到同一 `tools
 
 ## 6. ModelGateway（复用 B2-02~B2-12）
 
+> ModelGateway 的 canonical spec 见 [model-gateway.spec.md](model-gateway.spec.md)。本节只保留 BuiltinAgent 视角下的接入说明。
+
 ### 6.1 结构
 
 ```
