@@ -12,6 +12,7 @@ import pytest
 import app.agents.external.claude_code as claude_code_module
 from app.agents.external.claude_code import ClaudeCodeAdapter
 from app.agents.external.cli_runtime import CliCompleted, CliResult
+from app.agents.external.direct_chat import DirectChatDecision
 from app.agents.types import ChatMessage, StreamChunk
 
 
@@ -22,11 +23,12 @@ async def _collect(
     workspace_path: Path | None,
     config: dict[str, Any] | None = None,
 ) -> list[StreamChunk]:
+    merged_config = {"qa_short_circuit_enabled": False, **(config or {})}
     return [
         chunk
         async for chunk in adapter.stream(
             messages or [ChatMessage(role="user", content="build a page")],
-            config=config,
+            config=merged_config,
             workspace_path=workspace_path,
         )
     ]
@@ -81,6 +83,44 @@ def adapter() -> ClaudeCodeAdapter:
 
 
 class TestClaudeCodeAdapterStream:
+    async def test_direct_chat_does_not_load_sdk(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fake_direct_chat(**_kwargs: Any) -> DirectChatDecision:
+            async def stream() -> AsyncIterator[StreamChunk]:
+                yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+                yield StreamChunk(event_type="delta", block_index=0, text_delta="direct")
+                yield StreamChunk(event_type="block_end", block_index=0)
+                yield StreamChunk(event_type="done", agent_id="agent-claude-code", total_blocks=1)
+
+            return DirectChatDecision(route="direct_chat", stream=stream())
+
+        monkeypatch.setattr(claude_code_module, "maybe_stream_direct_chat", fake_direct_chat)
+        monkeypatch.setattr(
+            adapter,
+            "_load_sdk",
+            lambda: pytest.fail("SDK should not load for direct chat"),
+        )
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={"qa_short_circuit_enabled": True},
+            messages=[ChatMessage(role="user", content="Explain timeouts")],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "direct"
+
     async def test_text_stream_maps_to_text_block(
         self,
         adapter: ClaudeCodeAdapter,

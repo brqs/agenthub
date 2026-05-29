@@ -13,6 +13,7 @@ import pytest
 import app.agents.external.codex as codex_module
 from app.agents.external.cli_runtime import CliCompleted, CliResult
 from app.agents.external.codex import CodexAdapter
+from app.agents.external.direct_chat import DirectChatDecision
 from app.agents.external.runtime_budget import RuntimeTimeoutError
 from app.agents.types import ChatMessage, StreamChunk
 
@@ -165,11 +166,12 @@ async def _collect(
     config: dict[str, Any] | None = None,
     messages: list[ChatMessage] | None = None,
 ) -> list[StreamChunk]:
+    merged_config = {"qa_short_circuit_enabled": False, **(config or {})}
     return [
         chunk
         async for chunk in adapter.stream(
             messages or [ChatMessage(role="user", content="build a page")],
-            config=config,
+            config=merged_config,
             workspace_path=workspace_path,
         )
     ]
@@ -195,6 +197,45 @@ def _fake_stream_cli_text(
         yield CliCompleted(result)
 
     return fake
+
+
+class TestCodexDirectChat:
+    async def test_direct_chat_does_not_start_cli(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fake_direct_chat(**_kwargs: Any) -> DirectChatDecision:
+            async def stream() -> AsyncIterator[StreamChunk]:
+                yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+                yield StreamChunk(event_type="delta", block_index=0, text_delta="direct")
+                yield StreamChunk(event_type="block_end", block_index=0)
+                yield StreamChunk(event_type="done", agent_id="codex-test", total_blocks=1)
+
+            return DirectChatDecision(route="direct_chat", stream=stream())
+
+        async def fail_stream_cli_text(*_args: Any, **_kwargs: Any) -> AsyncIterator[Any]:
+            pytest.fail("Codex CLI should not start for direct chat")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr(codex_module, "maybe_stream_direct_chat", fake_direct_chat)
+        monkeypatch.setattr(codex_module, "stream_cli_text", fail_stream_cli_text)
+
+        chunks = await _collect(
+            CodexAdapter(agent_id="codex-test"),
+            workspace_path=tmp_path,
+            config={"qa_short_circuit_enabled": True},
+            messages=[ChatMessage(role="user", content="Explain React effects")],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "direct"
 
 
 def _fake_stream_cli_timeout(

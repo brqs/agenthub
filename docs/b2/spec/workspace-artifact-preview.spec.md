@@ -208,11 +208,14 @@ class WorkspaceDeployment(Base):
 
 ## Orchestrator 集成
 
-Orchestrator 对 `requires_artifact=true` 的子任务必须检查 artifact diff：
+Orchestrator 只做 workspace artifact 的只读存在性检查，不负责 preview session 生命周期。平台 preview / deploy API 仍是唯一能启动、复用和停止 preview service 的组件。
+
+Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 artifact path 的子任务必须检查 artifact：
 
 - expected artifact 存在：任务 `succeeded`。
 - 子 agent `done` 但没有 artifact：任务 `artifact_missing`。
 - `artifact_missing` 可触发 fallback agent。
+- 不读取 `.env`、`.ssh`、`secrets/`、`.agenthub/`，不执行 shell，不监听端口。
 
 ## 安全规则
 
