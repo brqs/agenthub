@@ -87,6 +87,14 @@ class TestValidConfigs:
             "max_task_attempts": 2,
             "task_result_context_max_chars": 4000,
             "task_result_item_max_chars": 1200,
+            "orchestrator_memory_enabled": True,
+            "orchestrator_memory_recent_runs": 3,
+            "orchestrator_memory_context_max_chars": 6000,
+            "orchestrator_tool_calling_enabled": False,
+            "orchestrator_tool_trace_visible": True,
+            "orchestrator_tool_max_iterations": 12,
+            "orchestrator_tool_result_max_chars": 4000,
+            "orchestrator_tool_read_max_bytes": 65536,
         }
         result = validate_agent_config(
             provider="builtin",
@@ -340,6 +348,66 @@ class TestNumericValidation:
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "task_result_context_max_chars" in exc_info.value.message
 
+    def test_invalid_orchestrator_memory_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_memory_enabled": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_orchestrator_memory_recent_runs_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_memory_recent_runs": 11},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_memory_recent_runs" in exc_info.value.message
+
+    def test_invalid_orchestrator_memory_context_budget_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_memory_context_max_chars": 0},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_memory_context_max_chars" in exc_info.value.message
+
+    def test_invalid_orchestrator_tool_calling_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_tool_calling_enabled": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_orchestrator_tool_max_iterations_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_tool_max_iterations": 51},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_tool_max_iterations" in exc_info.value.message
+
+    def test_invalid_orchestrator_tool_read_budget_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_tool_read_max_bytes": 0},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_tool_read_max_bytes" in exc_info.value.message
+
 
 class TestImmutability:
     def test_validation_does_not_mutate_input_config(self) -> None:
@@ -407,6 +475,12 @@ class TestBuiltinAgents:
 
         assert config["react_enabled"] is True
         assert config["react_trace_visible"] is True
+        assert config["orchestrator_memory_enabled"] is True
+        assert config["orchestrator_memory_recent_runs"] == 3
+        assert config["orchestrator_memory_context_max_chars"] == 6000
+        assert config["orchestrator_tool_calling_enabled"] is False
+        assert config["orchestrator_tool_trace_visible"] is True
+        assert config["orchestrator_tool_max_iterations"] == 12
 
     def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
         for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
@@ -511,5 +585,15 @@ class TestOpenAPIContract:
             "react_enabled",
             "react_trace_visible",
             "react_decision_max_tokens",
+            "orchestrator_memory_enabled",
+            "orchestrator_memory_recent_runs",
+            "orchestrator_memory_context_max_chars",
+            "orchestrator_tool_calling_enabled",
+            "orchestrator_tool_trace_visible",
+            "orchestrator_tool_max_iterations",
+            "orchestrator_tool_result_max_chars",
+            "orchestrator_tool_read_max_bytes",
+            "OrchestratorRun",
+            "OrchestratorRunDetail",
         ):
             assert field in text

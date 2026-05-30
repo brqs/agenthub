@@ -1,3 +1,50 @@
+## 2026-05-30 — B2 实现 Orchestrator Structured Memory v1
+
+### 任务
+实现 Orchestrator Memory & Context Manager v1，并同步数据库变更文档，避免其他开发者遗漏新增表和 debug API。
+
+### 关键 Prompt
+> 开始执行你的计划，执行完毕之后执行结果和spec文档作比较，写入真实的执行spec
+>
+> 检查当前数据库的更新与不同，请你同步其他文档更新，以免其他开发者不知道这一回事
+
+### AI 输出摘要
+新增 Orchestrator structured memory 数据模型、migration、service、writer protocol 和 stream 注入逻辑。Orchestrator 任务编排现在会记录 run、task、attempt、event 和 final summary；下一轮 Orchestrator 请求前会注入 `Previous Orchestrator structured memory` system context。新增 development-only debug API：`/api/v1/conversations/{conv_id}/orchestrator-runs` 和 `/api/v1/conversations/{conv_id}/orchestrator-runs/{run_id}`。
+
+新增数据库表：
+
+- `orchestrator_runs`
+- `orchestrator_tasks`
+- `orchestrator_task_attempts`
+- `orchestrator_run_events`
+
+同步更新文档：
+
+- `docs/b2/spec/orchestrator-memory-context-management.execution.spec.md`
+- `docs/b2/spec/orchestrator.spec.md`
+- `backend/alembic/README.md`
+- `docs/api-spec.md`
+- `docs/tech-architecture.md`
+- `README.md`
+
+### 验证
+已通过：
+
+```bash
+cd backend
+uv run python -m pytest tests/test_orchestrator.py tests/test_orchestrator_memory.py tests/test_context_builder.py tests/test_stream_tool_calls.py tests/test_registry.py tests/test_model_gateway.py tests/test_external_direct_chat.py tests/test_claude_code_external_adapter.py tests/test_codex_external_adapter.py tests/test_opencode_external_adapter.py tests/test_agent_config_validation.py -q
+# 211 passed, 1 skipped
+
+uv run python -m ruff check app tests alembic/versions/9a1b2c3d4e5f_add_orchestrator_memory.py
+# passed
+
+uv run python -m mypy app/agents app/services/orchestrator_memory.py app/schemas/agent.py app/schemas/conversation.py
+# passed
+```
+
+### 经验
+当 B2 需要新增 DB 表时，除了实现 model/migration，还必须同步 Orchestrator 主 spec、API spec、架构文档和 Alembic README；否则其他开发者只看到 agent 层变更，容易漏跑 migration 或误以为 Orchestrator 仍然只保留单轮内存。
+
 ## 2026-05-26 — F 实现 Mock ToolCall 与 Workspace 产物预览
 
 ### 任务
@@ -29,7 +76,7 @@ Pivot 后前端可以不等待真实 Agent runtime 完全接通，先用 Mock SS
 ### 人工调整
 云服务器 IP 由人工提供：`111.229.151.159`。服务器 Docker daemon 代理配置位于仓库外，文档中明确标记为服务器系统级配置。
 
-后续检查确认当前数据库仍为空库：`backend/alembic/versions/` 只有 `.gitkeep`，`alembic heads` 为空，数据库中不存在 `alembic_version` 表，也没有业务表。因此需要 B1 先补初始建表 migration，再执行 `alembic upgrade head` 和 `seed_agents`。
+历史状态记录：当时数据库仍为空库，`backend/alembic/versions/` 只有 `.gitkeep`，`alembic heads` 为空。该状态已过期；当前项目已经包含完整迁移链，新服务器部署应按最新文档执行 `alembic upgrade head` 和 `seed_agents`。
 
 ### 经验
 云端运行状态要和 Git 仓库保持边界清晰：可复用的配置说明和源码修复应提交到仓库，但 `.env`、API Key、数据库密码和服务器 daemon 代理配置不能提交。

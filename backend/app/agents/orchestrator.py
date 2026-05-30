@@ -15,12 +15,17 @@ from app.agents.orchestrator_platform_facts import (
     platform_fact_text,
 )
 from app.agents.orchestrator_react import react_enabled, run_react_loop
+from app.agents.orchestrator_tool_loop import (
+    run_orchestrator_tool_loop,
+    tool_calling_enabled,
+)
 from app.agents.orchestrator_types import (
     DEFAULT_MAX_TASK_ATTEMPTS,
     DEFAULT_TASK_RESULT_CONTEXT_MAX_CHARS,
     DEFAULT_TASK_RESULT_ITEM_MAX_CHARS,
     MAX_TASK_ATTEMPTS_LIMIT,
     AdapterFactory,
+    OrchestratorMemoryWriter,
     OrchestratorRunContext,
     SubTask,
     TaskAttempt,
@@ -199,6 +204,41 @@ class OrchestratorAdapter(BaseAgentAdapter):
             )
             return
 
+        if merged_config.get("tasks") is None and tool_calling_enabled(merged_config):
+            run_context = OrchestratorRunContext()
+            try:
+                async for chunk, updated_block_index in run_orchestrator_tool_loop(
+                    merged_config,
+                    messages,
+                    next_block_index,
+                    workspace_path,
+                    tool_specs,
+                    run_context=run_context,
+                    run_task=_run_task,
+                    text_block_with_next=_text_block_with_next,
+                    latest_user_request=_latest_user_request,
+                    positive_int_config=_positive_int_config,
+                    format_task_result_context=_format_task_result_context,
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk
+                    if chunk.event_type == "error":
+                        return
+            except ValueError as exc:
+                yield StreamChunk(
+                    event_type="error",
+                    error_code=_error_code(exc),
+                    error=str(exc),
+                    agent_id=self.agent_id,
+                )
+                return
+            yield StreamChunk(
+                event_type="done",
+                agent_id=self.agent_id,
+                total_blocks=next_block_index,
+            )
+            return
+
         try:
             tasks = await _resolve_tasks(
                 merged_config,
@@ -288,6 +328,8 @@ class OrchestratorAdapter(BaseAgentAdapter):
             )
             return
 
+        run_context = OrchestratorRunContext()
+        await _memory_start_run_for_messages(merged_config, run_context, tasks, messages)
         for chunk in _text_block(next_block_index, _planning_text(tasks)):
             yield chunk
         next_block_index += 1
@@ -300,6 +342,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 next_block_index,
                 workspace_path,
                 tool_specs,
+                run_context=run_context,
                 run_task=_run_task,
                 text_block_with_next=_text_block_with_next,
                 summary_text=_summary_text,
@@ -319,6 +362,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 next_block_index,
                 workspace_path,
                 tool_specs,
+                run_context,
             ):
                 next_block_index = updated_block_index
                 yield chunk
@@ -967,6 +1011,97 @@ def _plan_source(tasks: list[SubTask]) -> str:
     return "LLM planner/config"
 
 
+def _memory_writer(config: Mapping[str, Any]) -> OrchestratorMemoryWriter | None:
+    writer = config.get("orchestrator_memory_writer")
+    if writer is None:
+        return None
+    return cast(OrchestratorMemoryWriter, writer)
+
+
+async def _memory_start_run_for_messages(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    tasks: list[SubTask],
+    messages: list[ChatMessage],
+) -> None:
+    writer = _memory_writer(config)
+    if writer is None:
+        return
+    try:
+        run_context.memory_run_id = await writer.start_run(
+            user_request=_latest_user_request(messages),
+            plan_source=_plan_source(tasks),
+            tasks=tasks,
+        )
+    except Exception:  # noqa: BLE001
+        run_context.memory_run_id = None
+
+
+async def _memory_record_task_started(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    task: SubTask,
+    agent_id: str,
+    attempt_index: int,
+) -> None:
+    if run_context.memory_run_id is None:
+        return
+    writer = _memory_writer(config)
+    if writer is None:
+        return
+    try:
+        await writer.record_task_started(
+            run_id=run_context.memory_run_id,
+            task=task,
+            agent_id=agent_id,
+            attempt_index=attempt_index,
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
+async def _memory_record_task_result(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    task: SubTask,
+    result: TaskResult,
+) -> None:
+    if run_context.memory_run_id is None:
+        return
+    writer = _memory_writer(config)
+    if writer is None:
+        return
+    try:
+        await writer.record_task_result(
+            run_id=run_context.memory_run_id,
+            task=task,
+            result=result,
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
+async def _memory_finish_run(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    status: str,
+    final_summary: str,
+) -> None:
+    if run_context.memory_run_id is None:
+        return
+    writer = _memory_writer(config)
+    if writer is None:
+        return
+    try:
+        await writer.finish_run(
+            run_id=run_context.memory_run_id,
+            status=status,
+            final_summary=final_summary,
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
 def _agent_header_text(task: SubTask, agent_id: str | None = None) -> str:
     _ = task
     return f"@{agent_id or task.agent_id}\n\n"
@@ -1033,19 +1168,20 @@ async def _run_static_tasks(
     next_block_index: int,
     workspace_path: Path | None,
     tool_specs: list[ToolSpec] | None,
+    run_context: OrchestratorRunContext | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     task_states = {task.task_id: TaskState.PENDING for task in tasks}
-    run_context = OrchestratorRunContext()
+    run_context = run_context or OrchestratorRunContext()
     for task in tasks:
         if not _dependencies_satisfied(task, task_states):
             task_states[task.task_id] = TaskState.SKIPPED
-            run_context.record(
-                TaskResult(
-                    task_id=task.task_id,
-                    title=task.title,
-                    final_state=TaskState.SKIPPED,
-                )
+            skipped_result = TaskResult(
+                task_id=task.task_id,
+                title=task.title,
+                final_state=TaskState.SKIPPED,
             )
+            run_context.record(skipped_result)
+            await _memory_record_task_result(config, run_context, task, skipped_result)
             continue
 
         async for chunk, updated_block_index in _run_task(
@@ -1061,9 +1197,11 @@ async def _run_static_tasks(
             yield chunk, updated_block_index
         task_states[task.task_id] = run_context.results[task.task_id].final_state
 
+    final_summary = _summary_text(tasks, task_states, run_context)
+    await _memory_finish_run(config, run_context, "done", final_summary)
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
-        _summary_text(tasks, task_states, run_context),
+        final_summary,
     ):
         yield chunk, updated_block_index
 
@@ -1145,6 +1283,8 @@ async def _run_task(
     run_context: OrchestratorRunContext,
     workspace_path: Path | None,
     tool_specs: list[ToolSpec] | None,
+    *,
+    call_id_prefix: str | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     task_result = TaskResult(task_id=task.task_id, title=task.title)
     fallback_agents = _task_fallback_agent_ids(config)
@@ -1159,6 +1299,13 @@ async def _run_task(
 
         attempt = TaskAttempt(attempt_index=attempt_index, agent_id=agent_id)
         task_result.attempts.append(attempt)
+        await _memory_record_task_started(
+            config,
+            run_context,
+            task,
+            agent_id,
+            attempt_index,
+        )
 
         yield _agent_switch(task, agent_id), next_block_index
         for chunk, updated_block_index in _text_block_with_next(
@@ -1194,7 +1341,11 @@ async def _run_task(
                 sub_adapter,
                 task,
                 agent_id,
-                _attempt_call_id_prefix(task.task_id, attempt_index),
+                _attempt_call_id_prefix(
+                    task.task_id,
+                    attempt_index,
+                    call_id_prefix=call_id_prefix,
+                ),
                 sub_messages,
                 next_block_index,
                 workspace_path,
@@ -1227,6 +1378,7 @@ async def _run_task(
             )
         )
     run_context.record(task_result)
+    await _memory_record_task_result(config, run_context, task, task_result)
 
 
 def _task_messages(
@@ -1410,10 +1562,16 @@ def _can_retry_task(
     return result.final_state in {TaskState.FAILED, TaskState.ARTIFACT_MISSING}
 
 
-def _attempt_call_id_prefix(task_id: str, attempt_index: int) -> str:
+def _attempt_call_id_prefix(
+    task_id: str,
+    attempt_index: int,
+    *,
+    call_id_prefix: str | None = None,
+) -> str:
+    base = call_id_prefix or task_id
     if attempt_index == 1:
-        return task_id
-    return f"{task_id}.attempt-{attempt_index}"
+        return base
+    return f"{base}.attempt-{attempt_index}"
 
 
 def _accumulate_text_event(attempt: TaskAttempt, chunk: StreamChunk) -> None:
