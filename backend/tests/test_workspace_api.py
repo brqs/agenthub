@@ -47,6 +47,13 @@ def workspace_settings(
     monkeypatch.setattr(settings, "preview_port_end", preview_port)
     monkeypatch.setattr(settings, "preview_public_base_url", "http://127.0.0.1")
     monkeypatch.setattr(settings, "preview_start_timeout_seconds", 5)
+    monkeypatch.setattr(settings, "browser_verify_enabled", True)
+    monkeypatch.setattr(settings, "browser_verify_timeout_seconds", 10)
+    monkeypatch.setattr(
+        settings,
+        "browser_verify_screenshot_dir",
+        str(tmp_path / "screenshots"),
+    )
 
 
 @pytest_asyncio.fixture
@@ -302,13 +309,14 @@ async def test_workspace_preview_static_html_lifecycle(client: AsyncClient) -> N
     start_response = await client.post(
         f"/api/v1/workspaces/{conversation_id}/preview",
         headers=headers,
-        json={"entry_path": "index.html"},
+        json={"entry_path": "index.html", "requested_port": settings.preview_port_start},
     )
     assert start_response.status_code == 201, start_response.text
     started = start_response.json()
     try:
         assert started["status"] == "running"
         assert started["entry_path"] == "index.html"
+        assert started["port"] == settings.preview_port_start
         assert started["url"].endswith(f":{started['port']}/index.html")
         local_response = httpx.get(
             f"http://127.0.0.1:{started['port']}/index.html",
@@ -403,6 +411,99 @@ async def test_html_workspace_file_adds_preview_security_headers(
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
+async def test_workspace_preview_requested_port_unavailable_fails(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<!doctype html><html><body><h1>Port Busy</h1></body></html>",
+    )
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("0.0.0.0", settings.preview_port_start))
+        sock.listen(1)
+        response = await client.post(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+            json={
+                "entry_path": "index.html",
+                "requested_port": settings.preview_port_start,
+            },
+        )
+
+    assert response.status_code == 503, response.text
+    assert response.json()["detail"]["error"]["code"] == "workspace_preview_start_failed"
+
+
+async def test_workspace_preview_verify_browser_checks(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "workspace_max_read_bytes", 4096)
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"""<!doctype html>
+<html>
+<head><title>Verify OK</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+  <main>
+    <h1>Preview OK</h1>
+    <button id="toggle">Toggle</button>
+    <p id="status">Ready</p>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
+""",
+    )
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/styles.css",
+        headers=headers,
+        content=b"body{font-family:sans-serif;margin:0}main{padding:24px}button{padding:8px}",
+    )
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/app.js",
+        headers=headers,
+        content=(
+            b"document.querySelector('#toggle').onclick=()=>{"
+            b"document.querySelector('#status').textContent='Clicked'};"
+        ),
+    )
+    start_response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "index.html"},
+    )
+    assert start_response.status_code == 201, start_response.text
+    try:
+        verify_response = await client.post(
+            f"/api/v1/workspaces/{conversation_id}/preview/verify",
+            headers=headers,
+            json={"required_text": ["Preview OK"], "max_clicks": 1},
+        )
+        assert verify_response.status_code == 200, verify_response.text
+        body = verify_response.json()
+        assert body["passed"] is True
+        assert body["checks"]["no_console_errors"] is True
+        assert body["checks"]["no_page_errors"] is True
+        assert body["screenshots"]["desktop"].endswith("desktop.png")
+        assert Path(body["screenshots"]["desktop"]).exists()
+        assert Path(body["screenshots"]["mobile"]).exists()
+    finally:
+        await client.delete(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+        )
+
+
 async def test_workspace_tree_max_depth_limits_children(client: AsyncClient) -> None:
     _, headers = await _register(client)
     conversation = await _create_conversation(client, headers)
@@ -432,3 +533,4 @@ async def test_openapi_includes_workspace_routes(client: AsyncClient) -> None:
     paths = response.json()["paths"]
     assert "/api/v1/workspaces/{conversation_id}/tree" in paths
     assert "/api/v1/workspaces/{conversation_id}/files/{path}" in paths
+    assert "/api/v1/workspaces/{conversation_id}/preview/verify" in paths

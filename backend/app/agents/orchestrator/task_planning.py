@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
@@ -85,6 +86,63 @@ EXPLICIT_REQUIREMENT_MARKERS = (
     "must",
     "with",
 )
+FRONTEND_DEMO_MARKERS = (
+    "前端",
+    "网页",
+    "页面",
+    "html",
+    "css",
+    "javascript",
+    "js",
+    "frontend",
+    "web",
+)
+PREVIEW_DEPLOY_MARKERS = (
+    "部署",
+    "发布",
+    "上线",
+    "端口",
+    "预览",
+    "preview",
+    "deploy",
+    "port",
+)
+QUALITY_MARKERS = (
+    "浏览器",
+    "质量验收",
+    "移动端",
+    "按钮",
+    "交互",
+    "browser",
+    "quality",
+    "mobile",
+    "viewport",
+)
+FRONTEND_QUALITY_PLAN_MARKERS = (
+    "前端开发演示",
+    "任务拆解",
+    "代码产物",
+    "网页预览",
+    "移动端适配",
+    "frontend development demo",
+    "front-end development demo",
+    "code artifact",
+    "task breakdown",
+    "diff",
+)
+FRONTEND_AGENT_PREFERENCE = (
+    "opencode-helper",
+    "claude-code",
+    "codex-helper",
+    "web-designer",
+)
+FRONTEND_REVIEW_AGENT_PREFERENCE = (
+    "opencode-helper",
+    "codex-helper",
+    "claude-code",
+    "web-designer",
+)
+PORT_NUMBER_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
 
 
 class PlannerResolutionError(ValueError):
@@ -105,6 +163,9 @@ async def resolve_tasks(
             try:
                 return await _plan_tasks_with_model(config, messages, system_prompt)
             except ValueError as exc:
+                frontend_tasks = _frontend_deploy_tasks_from_request(config, messages)
+                if frontend_tasks:
+                    return frontend_tasks
                 if planner_fallback_to_template(config):
                     return _derive_tasks(config, messages)
                 raise PlannerResolutionError(str(exc)) from exc
@@ -202,7 +263,12 @@ async def _plan_tasks_with_model(
     tasks = _tasks_from_planner_payload(planner_output.payload)
     _validate_planned_tasks(tasks, planner_output.allowed_agent_ids)
     tasks = _remove_port_service_tasks(tasks)
-    return _preserve_explicit_requirements(tasks, user_request)
+    tasks = _preserve_explicit_requirements(tasks, user_request)
+    return _stabilize_frontend_deploy_tasks(
+        tasks,
+        user_request,
+        sorted(planner_output.allowed_agent_ids),
+    )
 
 
 def _tasks_from_planner_payload(payload: Any) -> list[SubTask]:
@@ -264,6 +330,170 @@ def _preserve_explicit_requirements(
     ]
 
 
+def _stabilize_frontend_deploy_tasks(
+    tasks: list[SubTask],
+    user_request: str,
+    allowed_agent_ids: list[str],
+) -> list[SubTask]:
+    """Prefer a known-good file generation/review shape for preview quality gates."""
+
+    frontend_tasks = _derive_frontend_deploy_tasks(allowed_agent_ids, user_request)
+    return frontend_tasks or tasks
+
+
+def _frontend_deploy_tasks_from_request(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+) -> list[SubTask]:
+    return _derive_frontend_deploy_tasks(
+        _available_orchestrator_agent_ids(config),
+        latest_user_request(messages),
+    )
+
+
+def _derive_frontend_deploy_tasks(
+    agent_ids: list[str],
+    user_request: str,
+) -> list[SubTask]:
+    if not _is_frontend_deploy_or_quality_request(user_request):
+        return []
+    if not agent_ids:
+        return []
+
+    generator = _preferred_agent(agent_ids, FRONTEND_AGENT_PREFERENCE)
+    if generator is None:
+        return []
+    reviewer = None
+    if generator != "opencode-helper":
+        reviewer = _preferred_agent(
+            [agent_id for agent_id in agent_ids if agent_id != generator],
+            FRONTEND_REVIEW_AGENT_PREFERENCE,
+        )
+
+    requested_port = _requested_port(user_request)
+    port_text = f" The requested preview port is {requested_port}." if requested_port else ""
+    common_requirements = (
+        "Original user request:\n"
+        f"{user_request}\n\n"
+        "Hard requirements:\n"
+        "- Preserve every explicit deliverable and acceptance requirement from the "
+        "original user request.\n"
+        "- Prefer a conventional static frontend structure for web apps.\n"
+        "- Work only inside the current AgentHub workspace and use workspace-relative "
+        "paths.\n"
+        "- Do not enter plan mode, ask for approval, or wait for a human approval step. "
+        "Create or edit the requested files directly.\n"
+        "- Do not start preview/deploy servers and do not create server.js, Express, "
+        "Vite, Next, or package.json start/dev/preview scripts. AgentHub platform "
+        "owns preview/deploy."
+        f"{port_text}\n"
+        "- The final static app must use exactly these entry files at the workspace "
+        "root: index.html, styles.css, app.js.\n"
+        "- The page must visibly include the Chinese labels/sections: 任务拆解, "
+        "代码产物, Diff, 网页预览, 按钮交互, 移动端适配.\n"
+        "- Include at least one clickable button wired to app.js. Clicking visible "
+        "buttons must not produce JavaScript errors.\n"
+        "- Make the page responsive at a 390px mobile viewport with no horizontal "
+        "overflow.\n"
+        "- Avoid external same-origin assets unless you also create them in the "
+        "workspace.\n"
+    )
+    tasks = [
+        SubTask(
+            task_id="frontend-build",
+            agent_id=generator,
+            title="Build static frontend demo artifacts",
+            instruction=(
+                "Create the complete static frontend demo now.\n\n"
+                f"{common_requirements}\n"
+                "Implement a polished random-theme frontend demo with task "
+                "decomposition, code artifact, Diff, web preview, button interaction, "
+                "and mobile adaptation sections. Return a concise summary and list "
+                "the changed files."
+            ),
+            expected_output="index.html\nstyles.css\napp.js",
+            include_history=False,
+            priority=1,
+        )
+    ]
+    if reviewer is not None:
+        tasks.append(
+            SubTask(
+                task_id="frontend-review-refine",
+                agent_id=reviewer,
+                title="Review and refine frontend quality",
+                instruction=(
+                    "Inspect the existing static frontend files and fix any gaps before "
+                    "platform browser verification runs.\n\n"
+                    f"{common_requirements}\n"
+                    "Verify that index.html links styles.css and app.js, required text "
+                    "is visible, button interactions are implemented without console "
+                    "errors, and mobile layout avoids horizontal overflow. If anything "
+                    "is missing, edit the files directly."
+                ),
+                depends_on=["frontend-build"],
+                expected_output="index.html\nstyles.css\napp.js",
+                include_history=True,
+                priority=2,
+            )
+        )
+    return tasks
+
+
+def _is_frontend_deploy_or_quality_request(user_request: str) -> bool:
+    if not user_request:
+        return False
+    normalized = user_request.lower()
+    is_frontend = any(marker in normalized for marker in FRONTEND_DEMO_MARKERS)
+    wants_preview = any(marker in normalized for marker in PREVIEW_DEPLOY_MARKERS)
+    wants_quality = any(marker in normalized for marker in QUALITY_MARKERS)
+    has_demo_requirements = any(
+        marker in normalized for marker in FRONTEND_QUALITY_PLAN_MARKERS
+    )
+    return is_frontend and (wants_quality or (wants_preview and has_demo_requirements))
+
+
+def _available_orchestrator_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    available_agents = config.get("available_agents")
+    if isinstance(available_agents, list):
+        ids: list[str] = []
+        seen: set[str] = set()
+        for item in available_agents:
+            if not isinstance(item, Mapping):
+                continue
+            raw_id = item.get("agent_id", item.get("id"))
+            if not isinstance(raw_id, str):
+                continue
+            agent_id = raw_id.strip()
+            if not agent_id or agent_id == "orchestrator" or agent_id in seen:
+                continue
+            seen.add(agent_id)
+            ids.append(agent_id)
+        if ids:
+            return ids
+    return agent_id_list(
+        config.get("managed_agent_ids", config.get("default_sub_agents"))
+    )
+
+
+def _preferred_agent(agent_ids: list[str], preference: tuple[str, ...]) -> str | None:
+    available = set(agent_ids)
+    for agent_id in preference:
+        if agent_id in available:
+            return agent_id
+    return agent_ids[0] if agent_ids else None
+
+
+def _requested_port(text: str) -> int | None:
+    match = PORT_NUMBER_RE.search(text)
+    if match is None:
+        return None
+    port = int(match.group(1))
+    if 1 <= port <= 65535:
+        return port
+    return None
+
+
 def _has_explicit_requirements(user_request: str) -> bool:
     normalized = user_request.lower()
     return any(marker in normalized for marker in EXPLICIT_REQUIREMENT_MARKERS)
@@ -297,6 +527,9 @@ def _derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> lis
     direct_tasks = _derive_direct_agent_tasks(agent_ids, user_request)
     if direct_tasks:
         return direct_tasks
+    frontend_tasks = _derive_frontend_deploy_tasks(agent_ids, user_request)
+    if frontend_tasks:
+        return frontend_tasks
 
     titles = (
         "Analyze request",

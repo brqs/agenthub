@@ -16,7 +16,14 @@ from app.models.user import User
 from app.schemas.workspace import (
     WorkspacePreviewRequest,
     WorkspacePreviewResponse,
+    WorkspacePreviewVerifyRequest,
+    WorkspacePreviewVerifyResponse,
     WorkspaceTreeResponse,
+)
+from app.services.browser_preview_verifier import (
+    BrowserPreviewVerifier,
+    BrowserPreviewVerifyDisabledError,
+    BrowserPreviewVerifyError,
 )
 from app.services.workspace_preview import (
     WorkspacePreviewDisabledError,
@@ -33,6 +40,7 @@ from app.services.workspace_service import (
 router = APIRouter()
 workspace_service = WorkspaceService()
 preview_service = WorkspacePreviewService(workspace_service)
+browser_verifier = BrowserPreviewVerifier()
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -99,6 +107,22 @@ def _map_preview_error(exc: Exception) -> HTTPException:
     return _map_workspace_error(exc)
 
 
+def _map_browser_verify_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, BrowserPreviewVerifyDisabledError):
+        return _error(
+            status.HTTP_403_FORBIDDEN,
+            "browser_preview_verify_disabled",
+            str(exc),
+        )
+    if isinstance(exc, BrowserPreviewVerifyError):
+        return _error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "browser_preview_verify_failed",
+            str(exc),
+        )
+    raise exc
+
+
 def _file_headers(mime_type: str) -> dict[str, str]:
     headers = {"X-Content-Type-Options": "nosniff"}
     if mime_type == "text/html":
@@ -161,6 +185,7 @@ async def start_workspace_preview(
             db,
             conversation_id,
             entry_path=payload.entry_path,
+            requested_port=payload.requested_port,
         )
     except (
         WorkspacePreviewDisabledError,
@@ -171,6 +196,44 @@ async def start_workspace_preview(
     ) as exc:
         raise _map_preview_error(exc) from exc
     return WorkspacePreviewResponse.model_validate(session)
+
+
+@router.post(
+    "/{conversation_id}/preview/verify",
+    response_model=WorkspacePreviewVerifyResponse,
+)
+async def verify_workspace_preview(
+    conversation_id: UUID,
+    payload: WorkspacePreviewVerifyRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspacePreviewVerifyResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    session = await preview_service.get(db, conversation_id)
+    if session is None:
+        raise _error(
+            status.HTTP_404_NOT_FOUND,
+            "workspace_preview_not_found",
+            "workspace preview session not found",
+        )
+    if session.status != "running":
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "workspace_preview_not_running",
+            "workspace preview session is not running",
+        )
+    try:
+        result = await browser_verifier.verify(
+            conversation_id=conversation_id,
+            url=session.url,
+            required_text=payload.required_text,
+            viewports=payload.viewports,
+            click_buttons=payload.click_buttons,
+            max_clicks=payload.max_clicks,
+        )
+    except (BrowserPreviewVerifyDisabledError, BrowserPreviewVerifyError) as exc:
+        raise _map_browser_verify_error(exc) from exc
+    return WorkspacePreviewVerifyResponse.model_validate(result)
 
 
 @router.get(

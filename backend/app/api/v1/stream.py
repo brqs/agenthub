@@ -111,6 +111,7 @@ async def _event_generator(
                 history=history,
                 workspace_path=Path(workspace.root_path),
                 block_index=next_block_index,
+                existing_blocks=accumulator.to_list(),
             )
             for preview_chunk in preview_chunks:
                 accumulator_error = accumulator.feed(preview_chunk)

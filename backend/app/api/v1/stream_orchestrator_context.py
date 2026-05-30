@@ -21,6 +21,7 @@ from app.services.orchestrator_memory import (
     build_orchestrator_memory_context,
     inject_orchestrator_memory_context,
 )
+from app.services.orchestrator_platform_tools import OrchestratorPlatformToolExecutor
 
 
 def _agent_context(agent: Agent) -> dict[str, Any]:
@@ -113,6 +114,10 @@ async def apply_orchestrator_stream_context(
             agent_message_id=message.id,
             user_message_id=message.reply_to_id,
         )
+    stream_config["orchestrator_platform_tool_executor"] = OrchestratorPlatformToolExecutor(
+        db=db,
+        conversation_id=message.conversation_id,
+    )
     return history, stream_config
 
 

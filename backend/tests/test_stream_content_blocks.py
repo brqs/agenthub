@@ -310,6 +310,87 @@ async def test_stream_autostarts_platform_preview_for_deploy_request(
     )
 
 
+async def test_stream_preview_fallback_skips_when_formal_tool_called(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path / "workspaces"))
+    preview_port = _free_port()
+    monkeypatch.setattr(settings, "preview_enabled", True)
+    monkeypatch.setattr(settings, "preview_port_start", preview_port)
+    monkeypatch.setattr(settings, "preview_port_end", preview_port)
+    monkeypatch.setattr(settings, "preview_public_base_url", "http://127.0.0.1")
+    monkeypatch.setattr(settings, "preview_start_timeout_seconds", 5)
+
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        content_text=f"请生成一个网页并部署到端口{preview_port}",
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[Any]:
+            assert workspace_path is not None
+            (workspace_path / "index.html").write_text(
+                "<!doctype html><title>Preview</title><h1>ok</h1>",
+                encoding="utf-8",
+            )
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(
+                event_type="tool_call",
+                call_id="orch.quality.preview",
+                tool_name="start_workspace_preview",
+                tool_arguments={"entry_path": "index.html", "requested_port": preview_port},
+            )
+            yield StreamChunk(
+                event_type="tool_result",
+                call_id="orch.quality.preview",
+                tool_status="ok",
+                tool_output='{"status":"running","url":"http://127.0.0.1/fake"}',
+            )
+            yield StreamChunk(event_type="done", total_blocks=0)
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter()
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+
+    assert response.status_code == 200
+    assert message is not None
+    assert message.status == "done", sse_text
+    assert sse_text.count("start_workspace_preview") == 1
+    assert "platform-preview-" not in sse_text
+    preview = await client.get(
+        f"/api/v1/workspaces/{conversation['id']}/preview",
+        headers=headers,
+    )
+    assert preview.status_code == 404
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
