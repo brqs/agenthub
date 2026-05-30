@@ -38,6 +38,7 @@ TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
 LatestUserRequest = Callable[[list[ChatMessage]], str]
 PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
 FormatTaskResultContext = Callable[[str, TaskResult, int], str]
+PLATFORM_TOOL_NAMES = {"start_workspace_preview", "verify_web_preview"}
 
 
 class RunTaskWithPrefix(Protocol):
@@ -192,9 +193,9 @@ async def run_orchestrator_tool_loop(
                         format_task_result_context=format_task_result_context,
                     )
             else:
-                result = await execute_workspace_tool(
-                    call.name,
-                    call.arguments,
+                result = await _execute_non_dispatch_tool(
+                    config,
+                    call,
                     workspace_path=workspace_path,
                     result_max_chars=result_max_chars,
                     read_max_bytes=read_max_bytes,
@@ -322,9 +323,47 @@ def _tool_system_prompt(config: Mapping[str, Any]) -> str:
         "Dispatch only these available agent ids: "
         f"{agents}.\n"
         "Do not dispatch orchestrator to itself. Do not request preview/deploy/server "
-        "long-running commands. Use read_artifact, inspect_workspace, and validate_html "
-        "to verify workspace artifacts when useful. Final answers must be based on tool "
-        "results. Keep user-visible text concise and do not reveal hidden reasoning."
+        "long-running commands from sub-agents. For preview/deploy requests, use "
+        "start_workspace_preview after files exist, then verify_web_preview for browser "
+        "quality. Use read_artifact, inspect_workspace, and validate_html when useful. "
+        "Final answers must be based on tool results. Keep user-visible text concise "
+        "and do not reveal hidden reasoning."
+    )
+
+
+async def _execute_non_dispatch_tool(
+    config: Mapping[str, Any],
+    call: OrchestratorToolCall,
+    *,
+    workspace_path: Path | None,
+    result_max_chars: int,
+    read_max_bytes: int,
+) -> OrchestratorToolResult:
+    if call.name in PLATFORM_TOOL_NAMES:
+        executor = config.get("orchestrator_platform_tool_executor")
+        if executor is None:
+            return OrchestratorToolResult(
+                status="error",
+                output=f"platform tool executor is not available: {call.name}",
+                error_code="platform_tool_unavailable",
+            )
+        result = await executor(call.name, call.arguments)
+        if result.output_truncated:
+            return result
+        output, truncated = _truncate(result.output, result_max_chars)
+        return OrchestratorToolResult(
+            status=result.status,
+            output=output,
+            error_code=result.error_code,
+            output_truncated=truncated,
+            needs_user_input=result.needs_user_input,
+        )
+    return await execute_workspace_tool(
+        call.name,
+        call.arguments,
+        workspace_path=workspace_path,
+        result_max_chars=result_max_chars,
+        read_max_bytes=read_max_bytes,
     )
 
 
