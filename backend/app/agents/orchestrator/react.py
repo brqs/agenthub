@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
-from app.agents.orchestrator_types import (
+from app.agents.orchestrator.types import (
     DEFAULT_TASK_RESULT_ITEM_MAX_CHARS,
     OrchestratorRunContext,
     SubTask,
@@ -143,7 +143,12 @@ async def run_react_loop(
                 decision,
             )
         except ReactDecisionError as exc:
-            finish_reason = f"ReAct replanner stopped: {exc}"
+            can_continue = _next_runnable_task(task_graph, task_states) is not None
+            finish_reason = (
+                f"ReAct replanner unavailable: {exc}; continuing existing task graph"
+                if can_continue
+                else f"ReAct replanner stopped: {exc}"
+            )
             if react_trace_visible(config):
                 for chunk, updated_block_index in text_block_with_next(
                     next_block_index,
@@ -151,6 +156,9 @@ async def run_react_loop(
                 ):
                     next_block_index = updated_block_index
                     yield chunk, updated_block_index
+            if can_continue:
+                finish_reason = None
+                continue
             break
 
         if react_trace_visible(config):

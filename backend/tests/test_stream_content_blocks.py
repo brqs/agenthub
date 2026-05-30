@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 from app.agents.types import StreamChunk
+from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
@@ -89,8 +91,9 @@ async def _send_message(
     headers: dict[str, str],
     conversation_id: str,
     target_agent_id: str | None = None,
+    content_text: str = "hello",
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {"content": [{"type": "text", "text": "hello"}]}
+    payload: dict[str, Any] = {"content": [{"type": "text", "text": content_text}]}
     if target_agent_id is not None:
         payload["target_agent_id"] = target_agent_id
     response = await client.post(
@@ -213,3 +216,101 @@ async def test_stream_persists_web_preview_block(
     assert len(message.content) == 1
     assert message.content[0]["type"] == "web_preview"
     assert message.content[0]["url"] == "https://example.com"
+
+
+async def test_stream_autostarts_platform_preview_for_deploy_request(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path / "workspaces"))
+    preview_port = _free_port()
+    monkeypatch.setattr(settings, "preview_enabled", True)
+    monkeypatch.setattr(settings, "preview_port_start", preview_port)
+    monkeypatch.setattr(settings, "preview_port_end", preview_port)
+    monkeypatch.setattr(settings, "preview_public_base_url", "http://127.0.0.1")
+    monkeypatch.setattr(settings, "preview_start_timeout_seconds", 5)
+
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        content_text=f"请生成一个网页并部署到端口{preview_port}",
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[Any]:
+            assert workspace_path is not None
+            (workspace_path / "index.html").write_text(
+                "<!doctype html><title>Preview</title><h1>ok</h1>",
+                encoding="utf-8",
+            )
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta="Created index.html",
+            )
+            yield StreamChunk(event_type="block_end", block_index=0)
+            yield StreamChunk(event_type="done", total_blocks=1)
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter()
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+
+    assert response.status_code == 200
+    assert message is not None
+    assert message.status == "done", sse_text
+    assert "start_workspace_preview" in sse_text
+    assert any(
+        block.get("type") == "tool_call"
+        and block.get("tool_name") == "start_workspace_preview"
+        and block.get("status") == "ok"
+        for block in message.content
+    )
+    preview_blocks = [block for block in message.content if block.get("type") == "web_preview"]
+    assert len(preview_blocks) == 1
+    assert preview_blocks[0]["url"].startswith(f"http://127.0.0.1:{preview_port}/")
+
+    preview = await client.get(
+        f"/api/v1/workspaces/{conversation['id']}/preview",
+        headers=headers,
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["entry_path"] == "index.html"
+    assert preview.json()["port"] == preview_port
+
+    await client.delete(
+        f"/api/v1/workspaces/{conversation['id']}/preview",
+        headers=headers,
+    )
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])

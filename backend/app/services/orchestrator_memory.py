@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.orchestrator_types import SubTask, TaskResult
+from app.agents.orchestrator.types import SubTask, TaskResult
 from app.agents.types import ChatMessage
 from app.models.orchestrator_memory import (
     OrchestratorRun,

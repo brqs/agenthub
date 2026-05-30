@@ -12,6 +12,10 @@ from typing import Any
 
 from sqlalchemy import select
 
+from app.agents.config_fields import (
+    EXTERNAL_DIRECT_CHAT_DEFAULTS,
+    ORCHESTRATOR_DEFAULTS,
+)
 from app.agents.config_validation import validate_agent_config
 from app.core.database import SessionFactory
 from app.models.agent import Agent
@@ -29,7 +33,9 @@ EXTERNAL_RUNTIME_PROMPT_SUFFIX = (
     "If the user "
     "asks to deploy or preview on a port, generate the files and state that AgentHub "
     "platform preview/deploy must be started outside the agent runtime. Do not "
-    "provide terminal commands for port previews."
+    "provide terminal commands for port previews. Do not create server.js, "
+    "package.json start/dev/preview scripts, Express/Node/Vite/Next server files, "
+    "or server dependencies merely to expose a preview port."
 )
 
 BUILTIN_AGENTS: list[dict[str, Any]] = [
@@ -48,12 +54,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 180,
             "heartbeat_interval_seconds": 15,
-            "qa_short_circuit_enabled": True,
-            "qa_model_backend": "deepseek",
-            "qa_max_tokens": 2048,
-            "qa_classifier_max_tokens": 128,
-            "qa_temperature": 0.2,
-            "qa_request_timeout_seconds": 20,
+            **EXTERNAL_DIRECT_CHAT_DEFAULTS,
         },
     },
     {
@@ -72,12 +73,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 240,
             "heartbeat_interval_seconds": 15,
-            "qa_short_circuit_enabled": True,
-            "qa_model_backend": "deepseek",
-            "qa_max_tokens": 2048,
-            "qa_classifier_max_tokens": 128,
-            "qa_temperature": 0.2,
-            "qa_request_timeout_seconds": 20,
+            **EXTERNAL_DIRECT_CHAT_DEFAULTS,
         },
     },
     {
@@ -96,12 +92,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 180,
             "heartbeat_interval_seconds": 15,
-            "qa_short_circuit_enabled": True,
-            "qa_model_backend": "deepseek",
-            "qa_max_tokens": 2048,
-            "qa_classifier_max_tokens": 128,
-            "qa_temperature": 0.2,
-            "qa_request_timeout_seconds": 20,
+            **EXTERNAL_DIRECT_CHAT_DEFAULTS,
         },
     },
     {
@@ -116,20 +107,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "sub-tasks and dispatch each to the most suitable specialist agent."
         ),
         "config": {
-            "model_backend": "claude",
-            "llm_planning": True,
-            "react_enabled": True,
-            "react_trace_visible": True,
-            "direct_answer_on_planner_failure": True,
-            "max_iterations": 10,
-            "orchestrator_memory_enabled": True,
-            "orchestrator_memory_recent_runs": 3,
-            "orchestrator_memory_context_max_chars": 6000,
-            "orchestrator_tool_calling_enabled": False,
-            "orchestrator_tool_trace_visible": True,
-            "orchestrator_tool_max_iterations": 12,
-            "orchestrator_tool_result_max_chars": 4000,
-            "orchestrator_tool_read_max_bytes": 65536,
+            **ORCHESTRATOR_DEFAULTS,
             "mcp_servers": [],
             "managed_agent_ids": [
                 "claude-code",

@@ -20,7 +20,14 @@ If tools are unavailable, output only JSON in the same shape as the tool input.
 Each task must target exactly one available agent_id.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
+Preserve every explicit deliverable and acceptance requirement from the user request in
+the relevant generation and verification task instructions. A random theme may only add
+style; it must not replace requested sections, files, or checks.
+For frontend development demo requests, instruct the generator to create a static
+index.html, styles.css, and app.js that visibly includes any requested demo sections.
 Do not create tasks that start, deploy, preview, or manage long-running port services.
+Do not ask sub-agents to create server.js, package.json server scripts, Express/Node
+servers, Vite/Next dev servers, or server dependencies just to satisfy preview/deploy.
 If the user asks for preview/deploy on a port, plan only file generation and content
 verification. Put any preview/deploy handling in the final platform explanation, not
 as a sub-agent execution task.
@@ -174,7 +181,10 @@ def _planner_messages(
         "Available agents:\n"
         f"{agents}\n\n"
         "Port preview/deploy requests must not become sub-agent execution tasks. "
-        "Plan file creation and verification only.\n\n"
+        "Plan static file creation and verification only. Do not plan Node/Express "
+        "servers, package.json scripts, server.js, or any runtime port service. "
+        "Preserve explicit acceptance requirements from the user request in task "
+        "instructions.\n\n"
         "Return tasks as {\"tasks\": [...]} using only these agent ids."
     )
     return [ChatMessage(role="user", content=content)]

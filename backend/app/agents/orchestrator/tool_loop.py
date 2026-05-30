@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from app.agents.model_gateway import ModelGateway
-from app.agents.orchestrator_tools import (
+from app.agents.orchestrator.tools import (
     DEFAULT_TOOL_READ_MAX_BYTES,
     DEFAULT_TOOL_RESULT_MAX_CHARS,
     OrchestratorToolResult,
@@ -16,7 +16,7 @@ from app.agents.orchestrator_tools import (
     execute_workspace_tool,
     orchestrator_tool_specs,
 )
-from app.agents.orchestrator_types import OrchestratorRunContext, SubTask, TaskResult
+from app.agents.orchestrator.types import OrchestratorRunContext, SubTask, TaskResult
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_TOOL_MAX_ITERATIONS = 12

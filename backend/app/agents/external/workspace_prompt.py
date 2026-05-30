@@ -49,6 +49,10 @@ def workspace_guard_prompt(workspace_path: Path) -> str:
             "- If the user asks to preview or deploy on a port, create the files and "
             "state that AgentHub platform preview/deploy must be started outside the "
             "agent runtime. Do not provide terminal commands for port previews.",
+            "- For preview/deploy requests, do not create a Node/Express/Fastify/Koa/"
+            "Next/Vite server, server.js, package.json start/dev/preview scripts, "
+            "or server dependencies merely to expose a port. AgentHub platform owns "
+            "the preview port.",
             "- For web apps, write the files in the workspace and tell the user which "
             "files changed; preview is handled by AgentHub Workspace.",
         ]
