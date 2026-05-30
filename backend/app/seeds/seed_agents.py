@@ -33,7 +33,9 @@ EXTERNAL_RUNTIME_PROMPT_SUFFIX = (
     "If the user "
     "asks to deploy or preview on a port, generate the files and state that AgentHub "
     "platform preview/deploy must be started outside the agent runtime. Do not "
-    "provide terminal commands for port previews."
+    "provide terminal commands for port previews. Do not create server.js, "
+    "package.json start/dev/preview scripts, Express/Node/Vite/Next server files, "
+    "or server dependencies merely to expose a preview port."
 )
 
 BUILTIN_AGENTS: list[dict[str, Any]] = [

@@ -523,6 +523,8 @@ class TestBuiltinAgents:
             assert "Do not run, suggest, or output shell commands" in prompt
             assert "Do not provide terminal commands for port previews" in prompt
             assert "platform preview/deploy must be started outside the agent runtime" in prompt
+            assert "Do not create server.js" in prompt
+            assert "package.json start/dev/preview scripts" in prompt
             assert "python3 -m http.server 8082" not in prompt
             assert "npm run dev" not in prompt
             assert "pnpm dev" not in prompt

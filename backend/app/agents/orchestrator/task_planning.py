@@ -254,8 +254,9 @@ def _preserve_explicit_requirements(
         "creates or verifies frontend artifacts, the result must visibly satisfy any "
         "named sections/features from the request. Use the exact artifact filenames "
         "requested by the user; otherwise prefer a conventional static frontend "
-        "structure. Do not start preview/server commands; platform "
-        "preview handles requested ports."
+        "structure. Do not create server.js, package.json server scripts, Express/"
+        "Node/Vite/Next server files, or preview/server commands; platform preview "
+        "handles requested ports."
     )
     return [
         replace(task, instruction=f"{task.instruction}{requirement_block}")

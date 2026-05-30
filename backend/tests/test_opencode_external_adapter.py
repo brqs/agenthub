@@ -438,6 +438,8 @@ class TestOpenCodeAdapterStream:
         assert "Never write to /home/user" in prompt
         assert "Do not run, suggest, or print shell commands" in prompt
         assert "Do not provide terminal commands for port previews" in prompt
+        assert "do not create a Node/Express" in prompt
+        assert "server.js" in prompt
         assert "Treat the latest user message as the only active request" in prompt
         assert "python3 -m http.server 8082" not in prompt
 
@@ -460,6 +462,8 @@ class TestOpenCodeAdapterStream:
         assert "Workspace root:" in payload["system_prompt"]
         assert "Never write to /home/user" in payload["system_prompt"]
         assert "Do not provide terminal commands for port previews" in payload["system_prompt"]
+        assert "do not create a Node/Express" in payload["system_prompt"]
+        assert "server.js" in payload["system_prompt"]
         assert "Treat the latest user message as the only active request" in payload[
             "system_prompt"
         ]

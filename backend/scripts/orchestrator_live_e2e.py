@@ -40,7 +40,8 @@ AGENT_IDS = ["orchestrator", "claude-code", "opencode-helper", "codex-helper"]
 REQUIRED_FRONTEND_FILES = {"index.html", "styles.css", "app.js"}
 SERVER_COMMAND_RE = re.compile(
     r"npm\s+run\s+dev|pnpm\s+dev|vite\s+--host|python\d*\s+-m\s+http\.server|"
-    r"http-server|next\s+dev",
+    r"http-server|next\s+dev|npm\s+(?:run\s+)?start|node\s+server\.js|"
+    r"app\.listen\s*\(|express\s+server|server\.js",
     re.I,
 )
 
@@ -139,16 +140,26 @@ def block_text(blocks: list[dict[str, Any]]) -> str:
 
 def classify_tool_errors(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     failures: list[dict[str, Any]] = []
+    tool_names_by_call_id: dict[str, str] = {}
     for event in events:
+        data = event.get("data") or {}
+        if event.get("event") == "tool_call":
+            call_id = data.get("call_id")
+            tool_name = data.get("tool_name")
+            if isinstance(call_id, str) and isinstance(tool_name, str):
+                tool_names_by_call_id[call_id] = tool_name
+            continue
         if event.get("event") != "tool_result":
             continue
-        data = event.get("data") or {}
         if data.get("tool_status") == "error":
+            call_id = data.get("call_id")
+            tool_name = tool_names_by_call_id.get(call_id) if isinstance(call_id, str) else None
             failures.append(
                 {
                     "elapsed_seconds": event.get("elapsed_seconds"),
                     "data": data,
-                    "recoverable": True,
+                    "tool_name": tool_name,
+                    "recoverable": tool_name != "start_workspace_preview",
                 }
             )
     return failures
@@ -347,22 +358,80 @@ def main() -> None:
                     }
                 )
 
-            preview = client.post(
+            content_blocks = (target or {}).get("content") or []
+            preview_tool_blocks = [
+                block
+                for block in content_blocks
+                if block.get("type") == "tool_call"
+                and block.get("tool_name") == "start_workspace_preview"
+            ]
+            preview_message_blocks = [
+                block for block in content_blocks if block.get("type") == "web_preview"
+            ]
+            report["checks"]["platform_preview_tool_called"] = bool(preview_tool_blocks)
+            report["checks"]["platform_preview_tool_succeeded"] = any(
+                block.get("status") == "ok" for block in preview_tool_blocks
+            )
+            report["checks"]["preview_url_in_agent_message"] = bool(
+                preview_message_blocks
+                and isinstance(preview_message_blocks[0].get("url"), str)
+                and preview_message_blocks[0]["url"].startswith("http")
+            )
+
+            preview = client.get(
                 f"/api/v1/workspaces/{conv_id}/preview",
                 headers=headers,
-                json={"entry_path": entry["path"], "mode": "static"},
             )
-            report["preview_start_status_code"] = preview.status_code
-            if preview.status_code == 201:
+            report["preview_get_status_code"] = preview.status_code
+            if preview.status_code == 200:
                 preview_body = preview.json()
                 report["preview_8082"] = preview_body
+                report["checks"]["preview_uses_requested_8082"] = (
+                    preview_body.get("port") == 8082
+                    and ":8082/" in str(preview_body.get("url", ""))
+                )
+                report["checks"]["platform_preview_auto_started"] = (
+                    preview_body.get("entry_path") == entry["path"]
+                    and preview_body.get("status") == "running"
+                )
                 public = httpx.get(preview_body["url"], timeout=10, trust_env=False)
                 report["checks"]["preview_8082_public_accessible"] = (
                     public.status_code == 200
                 )
             else:
                 report["preview_8082_error"] = preview.text
+                report["checks"]["preview_uses_requested_8082"] = False
+                report["checks"]["platform_preview_auto_started"] = False
                 report["checks"]["preview_8082_public_accessible"] = False
+            if not all(
+                report["checks"].get(key, False)
+                for key in (
+                    "platform_preview_tool_called",
+                    "platform_preview_tool_succeeded",
+                    "platform_preview_auto_started",
+                    "preview_url_in_agent_message",
+                )
+            ):
+                report["bugs"].append(
+                    {
+                        "code": "platform_preview_not_auto_started",
+                        "symptom": (
+                            "The user requested deployment/preview, but the agent stream "
+                            "did not complete a platform start_workspace_preview tool call."
+                        ),
+                        "checks": {
+                            key: report["checks"].get(key, False)
+                            for key in (
+                                "platform_preview_tool_called",
+                                "platform_preview_tool_succeeded",
+                                "platform_preview_auto_started",
+                                "preview_url_in_agent_message",
+                            )
+                        },
+                        "preview_get_status_code": preview.status_code,
+                        "preview_error": report.get("preview_8082_error"),
+                    }
+                )
 
         text = block_text((target or {}).get("content") or [])
         report["checks"]["agent_output_no_long_running_server_command"] = (
@@ -376,13 +445,25 @@ def main() -> None:
         report["checks"]["no_workspace_path_escape_error"] = "path escapes workspace" not in text
 
         tool_errors = classify_tool_errors(events)
-        report["recoverable_tool_result_errors"] = tool_errors
-        if tool_errors:
+        fatal_tool_errors = [error for error in tool_errors if not error.get("recoverable")]
+        if fatal_tool_errors:
+            report["bugs"].append(
+                {
+                    "code": "fatal_tool_result_errors",
+                    "symptom": "A platform-critical tool_result returned error.",
+                    "evidence": fatal_tool_errors,
+                }
+            )
+        recoverable_tool_errors = [
+            error for error in tool_errors if error.get("recoverable")
+        ]
+        report["recoverable_tool_result_errors"] = recoverable_tool_errors
+        if recoverable_tool_errors:
             report["warnings"].append(
                 {
                     "code": "recoverable_tool_result_errors",
-                    "count": len(tool_errors),
-                    "evidence": tool_errors,
+                    "count": len(recoverable_tool_errors),
+                    "evidence": recoverable_tool_errors,
                 }
             )
 
@@ -405,6 +486,22 @@ def main() -> None:
             ),
             "preview_8082_public_accessible": report["checks"].get(
                 "preview_8082_public_accessible",
+                False,
+            ),
+            "preview_uses_requested_8082": report["checks"].get(
+                "preview_uses_requested_8082",
+                False,
+            ),
+            "platform_preview_tool_called": report["checks"].get(
+                "platform_preview_tool_called",
+                False,
+            ),
+            "platform_preview_auto_started": report["checks"].get(
+                "platform_preview_auto_started",
+                False,
+            ),
+            "preview_url_in_agent_message": report["checks"].get(
+                "preview_url_in_agent_message",
                 False,
             ),
             "dispatch_only_group_members": report["checks"].get(

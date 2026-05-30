@@ -24,6 +24,7 @@ from app.api.v1.stream_orchestrator_context import (
     apply_orchestrator_stream_context,
     cancel_orchestrator_run,
 )
+from app.api.v1.stream_preview import maybe_autostart_platform_preview
 from app.core.deps import DbSession, get_current_user
 from app.models.message import Message
 from app.models.user import User
@@ -68,12 +69,21 @@ async def _event_generator(
         await db.commit()
 
         disconnected = False
+        final_done: StreamChunk | None = None
+        next_block_index = 0
         async for chunk in adapter.stream(
             history,
             config=stream_config,
             workspace_path=Path(workspace.root_path),
             tool_specs=None,
         ):
+            if chunk.block_index is not None:
+                next_block_index = max(next_block_index, chunk.block_index + 1)
+            if chunk.event_type == "done":
+                final_done = chunk
+                if chunk.total_blocks is not None:
+                    next_block_index = max(next_block_index, chunk.total_blocks)
+                break
             if await request.is_disconnected():
                 disconnected = True
                 break
@@ -94,6 +104,24 @@ async def _event_generator(
         # Persist
         if disconnected:
             await cancel_orchestrator_run(stream_config)
+        elif final_done is not None:
+            preview_chunks, next_block_index = await maybe_autostart_platform_preview(
+                db=db,
+                message=message,
+                history=history,
+                workspace_path=Path(workspace.root_path),
+                block_index=next_block_index,
+            )
+            for preview_chunk in preview_chunks:
+                accumulator_error = accumulator.feed(preview_chunk)
+                if accumulator_error is not None:
+                    message.content = accumulator.to_list()
+                    message.status = "error"
+                    await db.commit()
+                    yield accumulator_error.to_sse()
+                    return
+                yield preview_chunk.to_sse()
+            yield final_done.model_copy(update={"total_blocks": next_block_index}).to_sse()
         has_orphaned_tool_call = accumulator.finalize_orphaned_tools()
         message.content = accumulator.to_list()
         message.status = "error" if disconnected or has_orphaned_tool_call else "done"
