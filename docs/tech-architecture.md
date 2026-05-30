@@ -229,6 +229,7 @@ async for chunk in adapter.stream(...):
 | **ConversationService** | Service | `services/conversation_service.py` | 会话业务逻辑 |
 | **MessageService** | Service | `services/message_service.py` | 消息业务逻辑、状态机 |
 | **ContextBuilder** | Service | `services/context_builder.py` | 历史消息 → Agent 上下文 |
+| **OrchestratorMemoryStore** ✨ | Service | `services/orchestrator_memory.py` | Orchestrator structured memory 读写、历史 run context 注入、debug 查询 |
 | **WorkspaceService** ✨ | Service | `services/workspace_service.py` | Workspace CRUD + 路径校验（**pivot 新增**） |
 | **BaseAgentAdapter v2** | Agent | `agents/base.py` | Adapter 抽象基类（含 workspace_path / tool_specs） |
 | **AgentRegistry v2** | Agent | `agents/registry.py` | 注册 ExternalAgent / BuiltinAgent / Orchestrator |
@@ -242,6 +243,30 @@ async for chunk in adapter.stream(...):
 | **PubSub** | Infrastructure | `core/pubsub.py` | Redis Pub/Sub 封装 |
 
 > ✨ = pivot 新增 / 重新分层。完整迁移映射见 [agent-runtime-pivot.adr.md §6](spec/agent-runtime-pivot.adr.md)。
+
+### 3.1.1 Orchestrator Structured Memory 表
+
+2026-05-30 新增 Orchestrator 结构化编排记忆，migration：
+
+```text
+backend/alembic/versions/9a1b2c3d4e5f_add_orchestrator_memory.py
+```
+
+新增表：
+
+| 表 | 用途 |
+|---|---|
+| `orchestrator_runs` | 一次 Orchestrator 编排 run，记录 conversation、触发消息、状态、用户请求、plan source、final summary。 |
+| `orchestrator_tasks` | run 内 task graph，记录 task id、agent、依赖、priority、expected output、最终状态。 |
+| `orchestrator_task_attempts` | 每个 task 的每次 attempt，记录实际执行 agent、状态、文本摘要、tool 摘要、artifact、missing artifact、error。 |
+| `orchestrator_run_events` | 编排时间线事件，如 `planned`、`task_started`、`task_result`、`react_decision`、`finished`。 |
+
+边界：
+
+- Orchestrator adapter 仍不直接访问 DB。
+- `stream.py` 创建 `OrchestratorMemoryStore`，通过 `config["orchestrator_memory_writer"]` 注入给 Orchestrator。
+- 下一轮 Orchestrator 请求前，service 会把最近 terminal runs 格式化为 `Previous Orchestrator structured memory:` system message，并插入到最新 user request 之前。
+- 该结构化 memory 不替代 `conversation_memories` 文本压缩表，两者并存。
 
 ### 3.2 组件交互（C4 Container 视图）
 

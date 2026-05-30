@@ -55,6 +55,26 @@ class AgentConfig(BaseModel):
     max_task_attempts: int | None = Field(default=None, ge=1, le=3)
     task_result_context_max_chars: int | None = Field(default=None, ge=1, le=32000)
     task_result_item_max_chars: int | None = Field(default=None, ge=1, le=8000)
+    orchestrator_memory_enabled: bool | None = None
+    orchestrator_memory_recent_runs: int | None = Field(default=None, ge=1, le=10)
+    orchestrator_memory_context_max_chars: int | None = Field(
+        default=None,
+        ge=1,
+        le=32000,
+    )
+    orchestrator_tool_calling_enabled: bool | None = None
+    orchestrator_tool_trace_visible: bool | None = None
+    orchestrator_tool_max_iterations: int | None = Field(default=None, ge=1, le=50)
+    orchestrator_tool_result_max_chars: int | None = Field(
+        default=None,
+        ge=1,
+        le=32000,
+    )
+    orchestrator_tool_read_max_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        le=1048576,
+    )
 
     # 允许额外 provider 专属字段
     model_config = ConfigDict(extra="allow")
