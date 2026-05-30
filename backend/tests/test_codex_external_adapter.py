@@ -373,6 +373,8 @@ class TestCodexAdapterStream:
         assert "Never write to /home/user" in instructions
         assert "Do not run, suggest, or print shell commands" in instructions
         assert "Do not provide terminal commands for port previews" in instructions
+        assert "do not create a Node/Express" in instructions
+        assert "server.js" in instructions
         assert "Treat the latest user message as the only active request" in instructions
         assert "python3 -m http.server 8082" not in instructions
         assert isinstance(run_config.sandbox.client, FakeUnixLocalSandboxClient)
@@ -396,6 +398,8 @@ class TestCodexAdapterStream:
         assert "Never write to /home/user" in prompt
         assert "Do not run, suggest, or print shell commands" in prompt
         assert "Do not provide terminal commands for port previews" in prompt
+        assert "do not create a Node/Express" in prompt
+        assert "server.js" in prompt
         assert "Treat the latest user message as the only active request" in prompt
         assert "python3 -m http.server 8082" not in prompt
 

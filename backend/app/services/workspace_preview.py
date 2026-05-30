@@ -57,9 +57,18 @@ class WorkspacePreviewService:
         conversation_id: UUID,
         *,
         entry_path: str,
+        requested_port: int | None = None,
     ) -> WorkspacePreviewSession:
         if not settings.preview_enabled:
             raise WorkspacePreviewDisabledError("workspace preview is disabled")
+        if requested_port is not None and not (
+            settings.preview_port_start <= requested_port <= settings.preview_port_end
+        ):
+            raise WorkspacePreviewStartError(
+                "requested preview port "
+                f"{requested_port} is outside configured range "
+                f"{settings.preview_port_start}-{settings.preview_port_end}"
+            )
 
         workspace = await self._workspace_service.get_or_create(db, conversation_id)
         entry = self._validate_entry(workspace, entry_path)
@@ -72,6 +81,7 @@ class WorkspacePreviewService:
                 session.entry_path == normalized_entry_path
                 and session.status == "running"
                 and self._pid_alive(session.pid)
+                and (requested_port is None or session.port == requested_port)
             ):
                 session.last_accessed_at = datetime.now(UTC)
                 await db.flush()
@@ -88,7 +98,11 @@ class WorkspacePreviewService:
             )
             db.add(session)
 
-        port = await self._allocate_port(db, preferred=session.port or None)
+        port = await self._allocate_port(
+            db,
+            preferred=requested_port or session.port or None,
+            allow_fallback=requested_port is None,
+        )
         session.workspace_id = workspace.id
         session.entry_path = normalized_entry_path
         session.port = port
@@ -156,6 +170,7 @@ class WorkspacePreviewService:
         db: AsyncSession,
         *,
         preferred: int | None = None,
+        allow_fallback: bool = True,
     ) -> int:
         used_ports = set(
             (
@@ -171,12 +186,21 @@ class WorkspacePreviewService:
         candidates: list[int] = []
         if preferred is not None:
             candidates.append(preferred)
-        candidates.extend(range(settings.preview_port_start, settings.preview_port_end + 1))
+        if allow_fallback:
+            candidates.extend(range(settings.preview_port_start, settings.preview_port_end + 1))
+        seen: set[int] = set()
         for port in candidates:
+            if port in seen:
+                continue
+            seen.add(port)
             if port in used_ports and port != preferred:
                 continue
             if self._port_available(port):
                 return port
+        if preferred is not None and not allow_fallback:
+            raise WorkspacePreviewStartError(
+                f"requested preview port {preferred} is not available"
+            )
         raise WorkspacePreviewStartError("no preview port is available")
 
     def _start_process(self, root: Path, port: int) -> subprocess.Popen[bytes]:

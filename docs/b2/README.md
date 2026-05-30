@@ -18,11 +18,11 @@
 |---|---|---|
 | Orchestrator 主流程 | `backend/app/agents/orchestrator/__init__.py`、`backend/app/agents/orchestrator/adapter.py` | 已 package 化，公开入口保持 `from app.agents.orchestrator import OrchestratorAdapter` |
 | Orchestrator helper | `backend/app/agents/orchestrator/*.py` | helper 已迁入 package，去掉平铺 `orchestrator_*` 文件前缀 |
-| Stream 接入 | `backend/app/api/v1/stream.py`、`stream_accumulator.py`、`stream_orchestrator_context.py` | endpoint 已变薄，B2 上下注入移到独立 helper |
+| Stream 接入 | `backend/app/api/v1/stream.py`、`stream_accumulator.py`、`stream_orchestrator_context.py`、`stream_preview.py` | endpoint 已变薄，B2 上下注入和平台 preview autostart 移到独立 helper |
 | External runtime | `external/claude_code.py`、`external/codex.py`、`external/opencode.py`、`external/runtime_prelude.py`、`external/sdk_stream.py`、`external/runtime_utils.py` | direct chat / SDK stream / 小型 runtime utility 公共逻辑已收敛 |
 | Config schema | `config_validation.py`、`config_fields.py`、`schemas/agent.py` | numeric bounds、seed 默认值和 OpenAPI contract 检查已收敛，OpenAPI 自动生成仍未做 |
-| Workspace preview | `backend/app/services/workspace_preview.py`、`backend/app/api/v1/workspaces.py` | 平台侧 static preview MVP：`POST/GET/DELETE /workspaces/{id}/preview`，端口池默认从 8082 开始 |
-| Live E2E report | `backend/scripts/orchestrator_live_e2e.py` | 真实部署链路报告脚本，输出 `/tmp/agenthub_orchestrator_8082_{sse,report}` |
+| Workspace preview | `backend/app/services/workspace_preview.py`、`backend/app/api/v1/workspaces.py` | 平台侧 static preview MVP：`POST/GET/DELETE /workspaces/{id}/preview`，端口池默认从 8082 开始；agent 只能请求 preview，实际 PID/端口由平台 tool 管理 |
+| Live E2E report | `backend/scripts/orchestrator_live_e2e.py` | 真实部署链路报告脚本，断言 Orchestrator 完成后自动触发平台 `start_workspace_preview`，输出 `/tmp/agenthub_orchestrator_8082_{sse,report}` |
 
 ## 重构状态
 
