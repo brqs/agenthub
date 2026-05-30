@@ -18,14 +18,16 @@ _PREVIEW_DEPLOY_COMMAND_PATTERNS = (
     re.compile(r"\b(?:python(?:3(?:\.\d+)?)?|py)\s+-m\s+http\.server\b[^\n\r`;&|]*", re.I),
     re.compile(r"\b(?:npm|pnpm|yarn)\s+(?:run\s+)?(?:dev|preview|start)\b[^\n\r`;&|]*", re.I),
     re.compile(r"\bbun\s+(?:run\s+)?(?:dev|preview|start)\b[^\n\r`;&|]*", re.I),
+    re.compile(r"\bnode\s+server\.js\b[^\n\r`;&|]*", re.I),
     re.compile(r"\b(?:npx\s+)?vite\b[^\n\r`;&|]*\s--host\b[^\n\r`;&|]*", re.I),
     re.compile(r"\b(?:npx\s+)?next\s+dev\b[^\n\r`;&|]*", re.I),
     re.compile(r"\b(?:npx\s+)?http-server\b[^\n\r`;&|]*", re.I),
+    re.compile(r"\bapp\.listen\s*\([^`\n\r]*", re.I),
 )
 _POSSIBLE_PREVIEW_COMMAND_START = re.compile(
     r"(?i)(?:^|[\s`$>])("
     r"python(?:3(?:\.\d+)?)?|py|http(?:\.server|-server)?|"
-    r"npm|pnpm|yarn|bun|npx|vite|next"
+    r"npm|pnpm|yarn|bun|npx|node|vite|next"
     r")\b"
 )
 _COMMAND_START_PREFIXES = frozenset(
@@ -41,6 +43,7 @@ _COMMAND_START_PREFIXES = frozenset(
         "yarn",
         "bun",
         "npx",
+        "node",
         "vite",
         "next",
     )
@@ -163,4 +166,3 @@ def _first_newline_end(text: str) -> int | None:
     if text[index : index + 2] == "\r\n":
         return index + 2
     return index + 1
-

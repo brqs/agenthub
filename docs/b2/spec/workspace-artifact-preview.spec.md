@@ -145,6 +145,18 @@ class WorkspacePreviewSession(Base):
 
 MVP 只要求 `mode="static"`。
 
+## Agent 请求预览
+
+当用户消息明确包含部署/端口/preview 意图时，SSE 流结束前由平台层执行自动 preview：
+
+1. agent / Orchestrator 仍只负责生成和验证 workspace artifact。
+2. `stream_preview.py` 在生成完成后查找 `index.html` 或其他 `.html/.htm` 入口。
+3. 平台插入 `tool_call(name="start_workspace_preview")` 与对应 `tool_result`。
+4. `WorkspacePreviewService` 校验 workspace path、按用户明确端口作为首选分配端口并启动静态 preview。
+5. 成功后追加平台来源的 `web_preview` block。
+
+该 tool 是平台受控 tool，不是 runtime agent shell 命令；`pid` 只能来自平台 service。
+
 ## URL 与 StreamChunk
 
 平台返回：

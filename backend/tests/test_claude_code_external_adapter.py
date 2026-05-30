@@ -176,6 +176,30 @@ class TestClaudeCodeAdapterStream:
         assert "python3 -m" not in text
         assert "Preview/deploy server commands are handled by AgentHub" in text
 
+    async def test_text_stream_removes_node_server_preview_commands(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(
+            events=[
+                {
+                    "type": "text_delta",
+                    "text": "Created files.\nRun `node ",
+                },
+                {"type": "text_delta", "text": "server.js` on port 8082."},
+            ]
+        )
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+        text = "".join(chunk.text_delta or "" for chunk in chunks)
+
+        assert "Created files" in text
+        assert "node server.js" not in text
+        assert "Preview/deploy server commands are handled by AgentHub" in text
+
     async def test_tool_call_and_result_preserve_call_id(
         self,
         adapter: ClaudeCodeAdapter,
@@ -243,6 +267,8 @@ class TestClaudeCodeAdapterStream:
         assert "Never write to /home/user" in fake_sdk.last_prompt
         assert "Do not run, suggest, or print shell commands" in fake_sdk.last_prompt
         assert "Do not provide terminal commands for port previews" in fake_sdk.last_prompt
+        assert "do not create a Node/Express" in fake_sdk.last_prompt
+        assert "server.js" in fake_sdk.last_prompt
         assert "Treat the latest user message as the only active request" in fake_sdk.last_prompt
         assert (
             "answer directly in text and do not inspect files or call tools"

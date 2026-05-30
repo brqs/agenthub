@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import shlex
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Literal
@@ -24,8 +22,14 @@ from app.agents.external.runtime_budget import (
     RuntimeTimeoutError,
     runtime_budget_config,
 )
+from app.agents.external.runtime_prelude import external_runtime_prelude
+from app.agents.external.runtime_utils import (
+    argv,
+    external_error_chunk,
+    safe_exception_message,
+    truncate,
+)
 from app.agents.external.workspace_prompt import (
-    direct_identity_response,
     format_runtime_messages,
     workspace_guard_prompt,
 )
@@ -72,33 +76,26 @@ class OpenCodeAdapter(BaseAgentAdapter):
     ) -> AsyncIterator[StreamChunk]:
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
 
-        if workspace_path is None:
-            yield self._error("workspace_violation", "OpenCode requires a workspace_path")
-            return
-
-        direct_response = direct_identity_response(messages, agent_id=self.agent_id)
-        if direct_response:
-            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
-            yield StreamChunk(event_type="delta", block_index=0, text_delta=direct_response)
-            yield StreamChunk(event_type="block_end", block_index=0)
-            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
-            return
-
-        merged = self.merged_config(config)
-        direct_chat = await maybe_stream_direct_chat(
-            agent_id=self.agent_id,
+        prelude = await external_runtime_prelude(
+            adapter=self,
             provider=self.provider,
             messages=messages,
-            system_prompt=self.effective_system_prompt(system_prompt),
-            config=merged,
+            system_prompt=system_prompt,
+            config=config,
+            workspace_path=workspace_path,
+            workspace_error="OpenCode requires a workspace_path",
+            error_chunk=self._error,
+            direct_chat=maybe_stream_direct_chat,
         )
-        if direct_chat.route == "direct_chat" and direct_chat.stream is not None:
-            async for chunk in direct_chat.stream:
+        if prelude.handled and prelude.stream is not None:
+            async for chunk in prelude.stream:
                 yield chunk
             return
+        merged = prelude.merged_config
+        assert workspace_path is not None
 
-        command = self._argv(merged.get("command", DEFAULT_COMMAND))
-        args = self._argv(merged.get("args", []))
+        command = argv(merged.get("command", DEFAULT_COMMAND))
+        args = argv(merged.get("args", []))
         budget_config = runtime_budget_config(
             merged,
             default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
@@ -466,16 +463,6 @@ class OpenCodeAdapter(BaseAgentAdapter):
             tool_output_truncated=len(output) > len(truncated_output),
         )
 
-    @staticmethod
-    def _argv(value: object) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, str):
-            return shlex.split(value, posix=os.name != "nt")
-        if isinstance(value, list):
-            return [str(item) for item in value]
-        return [str(value)]
-
     async def _wait_process(
         self,
         process: asyncio.subprocess.Process,
@@ -612,17 +599,14 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:
-        if max_chars <= 0:
-            return ""
-        return value[:max_chars]
+        return truncate(value, max_chars)
 
     def _error(self, error_code: str, error: str) -> StreamChunk:
-        return StreamChunk(
-            event_type="error",
+        return external_error_chunk(
             agent_id=self.agent_id,
+            provider=self.provider,
             error_code=error_code,
             error=error,
-            metadata={"provider": self.provider},
         )
 
     def _exit_error(self, return_code: int, stderr: str) -> StreamChunk:
@@ -633,4 +617,4 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
     @staticmethod
     def _safe_message(exc: Exception) -> str:
-        return str(exc)[:500] or exc.__class__.__name__
+        return safe_exception_message(exc)

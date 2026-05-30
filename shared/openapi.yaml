@@ -506,6 +506,24 @@ components:
           type: string
           enum: [claude, deepseek, openai]
           description: ModelGateway backend for builtin agents.
+        answer_model_backend:
+          type: string
+          enum: [claude, deepseek, openai]
+          description: ModelGateway backend for orchestrator direct answers.
+        planner_model_backend:
+          type: string
+          enum: [claude, deepseek, openai]
+          description: ModelGateway backend for orchestrator LLM planning.
+        llm_planning:
+          type: boolean
+          description: Whether Orchestrator uses LLM planning for task decomposition.
+        planner_fallback_to_template:
+          type: boolean
+          description: Whether planner failures may fall back to legacy template tasks.
+        orchestrator_llm_config:
+          type: object
+          additionalProperties: true
+          description: Model parameters shared by orchestrator planner/replanner.
         max_iterations: { type: integer, minimum: 1, maximum: 50 }
         react_enabled:
           type: boolean
@@ -639,6 +657,31 @@ components:
       properties:
         root: { type: string, example: /workspaces/00000000-0000-0000-0000-000000000000 }
         tree: { $ref: '#/components/schemas/WorkspaceTreeNode' }
+
+    WorkspacePreviewRequest:
+      type: object
+      required: [entry_path]
+      properties:
+        entry_path: { type: string, minLength: 1, maxLength: 512 }
+        mode: { type: string, enum: [static], default: static }
+
+    WorkspacePreviewResponse:
+      type: object
+      required: [id, conversation_id, workspace_id, entry_path, mode, port, url, status, created_at, updated_at, last_accessed_at]
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        entry_path: { type: string }
+        mode: { type: string, enum: [static] }
+        port: { type: integer }
+        pid: { type: integer, nullable: true }
+        url: { type: string }
+        status: { type: string, enum: [starting, running, stopped, error] }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_accessed_at: { type: string, format: date-time }
 
   # ─── 通用响应 ───
   responses:
@@ -1136,6 +1179,57 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/workspaces/{conversation_id}/preview:
+    parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Start or reuse workspace static preview
+      tags: [Workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkspacePreviewRequest' }
+      responses:
+        '201':
+          description: Preview session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: Preview start failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      summary: Get workspace preview status
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Preview session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Stop workspace preview
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Stopped preview session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ─── Agents ───
   /api/v1/agents:

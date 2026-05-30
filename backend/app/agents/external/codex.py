@@ -16,19 +16,27 @@ from app.agents.external.cli_runtime import CliCompleted, stream_cli_text
 from app.agents.external.direct_chat import maybe_stream_direct_chat
 from app.agents.external.runtime_budget import (
     CODEX_IDLE_TIMEOUT_SECONDS,
-    RuntimeBudget,
     RuntimeBudgetConfig,
     RuntimeTimeoutError,
-    iter_with_runtime_budget,
     runtime_budget_config,
 )
+from app.agents.external.runtime_prelude import (
+    external_runtime_prelude,
+    text_result_chunks,
+)
+from app.agents.external.runtime_utils import (
+    classify_external_exception,
+    external_error_chunk,
+    safe_exception_message,
+    safe_runtime_output,
+    truncate,
+)
+from app.agents.external.sdk_stream import stream_sdk_events
 from app.agents.external.workspace_prompt import (
-    direct_identity_response,
     format_runtime_messages,
     workspace_guard_prompt,
 )
 from app.agents.runtime_guard import (
-    PreviewDeployTextFilter,
     redact_runtime_secrets,
     sanitize_preview_deploy_text,
 )
@@ -88,28 +96,23 @@ class CodexAdapter(BaseAgentAdapter):
     ) -> AsyncIterator[StreamChunk]:
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
 
-        if workspace_path is None:
-            yield self._error("workspace_violation", "Codex requires a workspace_path")
-            return
-
-        direct_response = direct_identity_response(messages, agent_id=self.agent_id)
-        if direct_response:
-            for chunk in self._text_result_chunks(direct_response):
-                yield chunk
-            return
-
-        merged = self.merged_config(config)
-        direct_chat = await maybe_stream_direct_chat(
-            agent_id=self.agent_id,
+        prelude = await external_runtime_prelude(
+            adapter=self,
             provider=self.provider,
             messages=messages,
-            system_prompt=self.effective_system_prompt(system_prompt),
-            config=merged,
+            system_prompt=system_prompt,
+            config=config,
+            workspace_path=workspace_path,
+            workspace_error="Codex requires a workspace_path",
+            error_chunk=self._error,
+            direct_chat=maybe_stream_direct_chat,
         )
-        if direct_chat.route == "direct_chat" and direct_chat.stream is not None:
-            async for chunk in direct_chat.stream:
+        if prelude.handled and prelude.stream is not None:
+            async for chunk in prelude.stream:
                 yield chunk
             return
+        merged = prelude.merged_config
+        assert workspace_path is not None
 
         budget_config = runtime_budget_config(
             merged,
@@ -164,132 +167,32 @@ class CodexAdapter(BaseAgentAdapter):
             yield self._error(self._classify_exception(exc), self._safe_message(exc))
             return
 
-        block_open = False
-        block_index = 0
-        total_blocks = 0
-        saw_runtime_chunk = False
-        text_filter = PreviewDeployTextFilter()
-        try:
-            budget = RuntimeBudget(budget_config)
-            async for sdk_event in iter_with_runtime_budget(
-                sdk_stream,
-                budget,
-                agent_id=self.agent_id,
-                provider=self.provider,
-            ):
-                if isinstance(sdk_event, StreamChunk) and sdk_event.event_type == "heartbeat":
-                    yield sdk_event
-                    continue
-                for chunk in self._map_sdk_event(sdk_event, output_max_chars):
-                    saw_runtime_chunk = True
-                    if chunk.event_type == "delta":
-                        text = text_filter.feed(chunk.text_delta or "")
-                        if not text:
-                            continue
-                        if not block_open:
-                            yield StreamChunk(
-                                event_type="block_start",
-                                block_index=block_index,
-                                block_type="text",
-                            )
-                            block_open = True
-                        chunk.block_index = block_index
-                        chunk.text_delta = text
-                        yield chunk
-                        continue
-
-                    pending_text = text_filter.flush()
-                    if pending_text:
-                        if not block_open:
-                            yield StreamChunk(
-                                event_type="block_start",
-                                block_index=block_index,
-                                block_type="text",
-                            )
-                            block_open = True
-                        yield StreamChunk(
-                            event_type="delta",
-                            block_index=block_index,
-                            text_delta=pending_text,
-                        )
-                    if block_open:
-                        yield StreamChunk(event_type="block_end", block_index=block_index)
-                        total_blocks += 1
-                        block_index += 1
-                        block_open = False
-                    yield chunk
-        except RuntimeTimeoutError as exc:
-            pending_text = text_filter.flush()
-            if pending_text:
-                if not block_open:
-                    yield StreamChunk(
-                        event_type="block_start",
-                        block_index=block_index,
-                        block_type="text",
-                    )
-                    block_open = True
-                yield StreamChunk(
-                    event_type="delta",
-                    block_index=block_index,
-                    text_delta=pending_text,
-                )
-            if block_open:
-                yield StreamChunk(event_type="block_end", block_index=block_index)
-            yield self._error(exc.error_code, str(exc))
-            return
-        except Exception as exc:  # noqa: BLE001
-            pending_text = text_filter.flush()
-            if pending_text:
-                if not block_open:
-                    yield StreamChunk(
-                        event_type="block_start",
-                        block_index=block_index,
-                        block_type="text",
-                    )
-                    block_open = True
-                yield StreamChunk(
-                    event_type="delta",
-                    block_index=block_index,
-                    text_delta=pending_text,
-                )
-            if block_open:
-                yield StreamChunk(event_type="block_end", block_index=block_index)
+        async def exception_stream(
+            exc: BaseException,
+            saw_runtime_chunk: bool,
+        ) -> AsyncIterator[StreamChunk]:
             if not saw_runtime_chunk and self._should_fallback_to_cli(exc):
-                async for chunk in self._stream_cli(
+                async for fallback_chunk in self._stream_cli(
                     messages,
                     system_prompt,
                     merged,
                     workspace_path,
                     budget_config,
                 ):
-                    yield chunk
+                    yield fallback_chunk
                 return
             yield self._error(self._classify_exception(exc), self._safe_message(exc))
-            return
 
-        pending_text = text_filter.flush()
-        if pending_text:
-            if not block_open:
-                yield StreamChunk(
-                    event_type="block_start",
-                    block_index=block_index,
-                    block_type="text",
-                )
-                block_open = True
-            yield StreamChunk(
-                event_type="delta",
-                block_index=block_index,
-                text_delta=pending_text,
-            )
-        if block_open:
-            yield StreamChunk(event_type="block_end", block_index=block_index)
-            total_blocks += 1
-
-        yield StreamChunk(
-            event_type="done",
+        async for chunk in stream_sdk_events(
+            sdk_stream,
+            budget_config=budget_config,
             agent_id=self.agent_id,
-            total_blocks=total_blocks,
-        )
+            provider=self.provider,
+            map_event=lambda event: self._map_sdk_event(event, output_max_chars),
+            timeout_error_chunk=lambda exc: self._error(exc.error_code, str(exc)),
+            exception_stream=exception_stream,
+        ):
+            yield chunk
 
     def _load_sdk(self) -> Any:
         return importlib.import_module(SDK_MODULE_NAME)
@@ -794,44 +697,26 @@ class CodexAdapter(BaseAgentAdapter):
             output_path.unlink(missing_ok=True)
 
     def _text_result_chunks(self, text: str) -> list[StreamChunk]:
-        text = sanitize_preview_deploy_text(text)
-        return [
-            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
-            StreamChunk(event_type="delta", block_index=0, text_delta=text),
-            StreamChunk(event_type="block_end", block_index=0),
-            StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1),
-        ]
+        return text_result_chunks(sanitize_preview_deploy_text(text), self.agent_id)
 
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:
-        if max_chars <= 0:
-            return ""
-        return value[:max_chars]
+        return truncate(value, max_chars)
 
     def _error(self, error_code: str, error: str) -> StreamChunk:
-        return StreamChunk(
-            event_type="error",
+        return external_error_chunk(
             agent_id=self.agent_id,
+            provider=self.provider,
             error_code=error_code,
             error=error,
-            metadata={"provider": self.provider},
         )
 
     def _classify_exception(self, exc: BaseException) -> str:
-        lowered = f"{exc.__class__.__name__}: {exc}".lower()
-        if (
-            "api key" in lowered
-            or "api_key" in lowered
-            or "credentials" in lowered
-            or "authentication" in lowered
-            or "unauthorized" in lowered
-        ):
-            return "missing_api_key"
-        return "external_runtime_error"
+        return classify_external_exception(exc)
 
     @staticmethod
     def _safe_message(exc: BaseException) -> str:
-        return redact_runtime_secrets(str(exc) or exc.__class__.__name__)[:500]
+        return safe_exception_message(exc)
 
     def _runtime_failure_output(self, result: Any, output_file_text: str) -> str:
         sections: list[str] = []
@@ -845,11 +730,9 @@ class CodexAdapter(BaseAgentAdapter):
 
     @staticmethod
     def _safe_runtime_output(output: str) -> str:
-        return (
-            redact_runtime_secrets(sanitize_preview_deploy_text(output.strip()))[
-                :DEFAULT_RUNTIME_ERROR_MAX_CHARS
-            ]
-            or "no output"
+        return safe_runtime_output(
+            output,
+            max_chars=DEFAULT_RUNTIME_ERROR_MAX_CHARS,
         )
 
     def _log_cli_failure(

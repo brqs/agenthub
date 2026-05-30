@@ -12,7 +12,7 @@ import pytest_asyncio
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
-from app.agents.orchestrator_types import SubTask, TaskAttempt, TaskResult, TaskState
+from app.agents.orchestrator.types import SubTask, TaskAttempt, TaskResult, TaskState
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 from app.core.database import Base, SessionFactory, engine
 from app.models.conversation import Conversation
