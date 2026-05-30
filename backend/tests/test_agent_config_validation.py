@@ -6,14 +6,20 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
+from app.agents.config_fields import (
+    EXTERNAL_DIRECT_CHAT_DEFAULTS,
+    NUMERIC_CONFIG_FIELDS,
+    ORCHESTRATOR_DEFAULTS,
+)
 from app.agents.config_validation import (
     AgentConfigValidationError,
     merge_agent_config,
     validate_agent_config,
 )
-from app.schemas.agent import AgentOut, CreateAgentRequest
+from app.schemas.agent import AgentConfig, AgentOut, CreateAgentRequest
 from app.seeds.seed_agents import BUILTIN_AGENTS
 
 
@@ -78,6 +84,11 @@ class TestValidConfigs:
     def test_valid_builtin_config(self) -> None:
         config = {
             "model_backend": "claude",
+            "answer_model_backend": "deepseek",
+            "planner_model_backend": "claude",
+            "llm_planning": True,
+            "planner_fallback_to_template": False,
+            "orchestrator_llm_config": {"max_tokens": 1024},
             "max_iterations": 10,
             "react_enabled": True,
             "react_trace_visible": False,
@@ -248,6 +259,34 @@ class TestNumericValidation:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "react_decision_max_tokens" in exc_info.value.message
+
+    def test_invalid_llm_planning_bool_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"llm_planning": "true"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "llm_planning" in exc_info.value.message
+
+    def test_invalid_planner_model_backend_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"planner_model_backend": "local"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+
+    def test_invalid_orchestrator_llm_config_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_llm_config": "fast"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
 
     def test_timeout_bool_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
@@ -462,25 +501,16 @@ class TestBuiltinAgents:
             agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == agent_id)
             config = agent["config"]
 
-            assert config["qa_short_circuit_enabled"] is True
-            assert config["qa_model_backend"] == "deepseek"
-            assert config["qa_max_tokens"] == 2048
-            assert config["qa_classifier_max_tokens"] == 128
-            assert config["qa_temperature"] == 0.2
-            assert config["qa_request_timeout_seconds"] == 20
+            for key, value in EXTERNAL_DIRECT_CHAT_DEFAULTS.items():
+                assert config[key] == value
 
     def test_seed_orchestrator_enables_react_defaults(self) -> None:
         orchestrator = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "orchestrator")
         config = orchestrator["config"]
 
-        assert config["react_enabled"] is True
-        assert config["react_trace_visible"] is True
-        assert config["orchestrator_memory_enabled"] is True
-        assert config["orchestrator_memory_recent_runs"] == 3
-        assert config["orchestrator_memory_context_max_chars"] == 6000
-        assert config["orchestrator_tool_calling_enabled"] is False
-        assert config["orchestrator_tool_trace_visible"] is True
-        assert config["orchestrator_tool_max_iterations"] == 12
+        for key, value in ORCHESTRATOR_DEFAULTS.items():
+            assert config[key] == value
+        assert config["llm_planning"] is True
 
     def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
         for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
@@ -551,6 +581,25 @@ class TestCreateAgentRequestSchema:
         assert agent.provider == "mock"
 
 
+class TestAgentConfigSchemaMetadata:
+    def test_agent_config_numeric_bounds_match_shared_metadata(self) -> None:
+        schema = AgentConfig.model_json_schema()
+        properties = schema["properties"]
+
+        for key, field in NUMERIC_CONFIG_FIELDS.items():
+            property_schema = properties[key]
+            numeric_schema = next(
+                (
+                    item
+                    for item in property_schema.get("anyOf", [property_schema])
+                    if "minimum" in item
+                ),
+                property_schema,
+            )
+            assert numeric_schema["minimum"] == field.minimum
+            assert numeric_schema["maximum"] == field.maximum
+
+
 class TestErrorStructure:
     def test_error_has_code_message_details(self) -> None:
         exc = AgentConfigValidationError(
@@ -567,33 +616,25 @@ class TestOpenAPIContract:
     def test_openapi_includes_external_runtime_and_qa_config_fields(self) -> None:
         openapi = Path(__file__).parents[1] / ".." / "shared" / "openapi.yaml"
         text = openapi.resolve().read_text(encoding="utf-8")
+        document = yaml.safe_load(text)
+        openapi_properties = document["components"]["schemas"]["AgentConfig"]["properties"]
+        schema_properties = AgentConfig.model_json_schema()["properties"]
 
-        for field in (
-            "max_runtime_seconds",
-            "idle_timeout_seconds",
-            "heartbeat_interval_seconds",
-            "qa_short_circuit_enabled",
-            "qa_model_backend",
-            "qa_max_tokens",
-            "qa_classifier_max_tokens",
-            "qa_temperature",
-            "qa_request_timeout_seconds",
-            "task_fallback_agent_ids",
-            "max_task_attempts",
-            "task_result_context_max_chars",
-            "task_result_item_max_chars",
-            "react_enabled",
-            "react_trace_visible",
-            "react_decision_max_tokens",
-            "orchestrator_memory_enabled",
-            "orchestrator_memory_recent_runs",
-            "orchestrator_memory_context_max_chars",
-            "orchestrator_tool_calling_enabled",
-            "orchestrator_tool_trace_visible",
-            "orchestrator_tool_max_iterations",
-            "orchestrator_tool_result_max_chars",
-            "orchestrator_tool_read_max_bytes",
+        for field in schema_properties:
+            assert field in openapi_properties
+
+        for schema in (
             "OrchestratorRun",
             "OrchestratorRunDetail",
         ):
-            assert field in text
+            assert schema in document["components"]["schemas"]
+
+    def test_openapi_agent_config_numeric_bounds_match_shared_metadata(self) -> None:
+        openapi = Path(__file__).parents[1] / ".." / "shared" / "openapi.yaml"
+        document = yaml.safe_load(openapi.resolve().read_text(encoding="utf-8"))
+        properties = document["components"]["schemas"]["AgentConfig"]["properties"]
+
+        for key, field in NUMERIC_CONFIG_FIELDS.items():
+            property_schema = properties[key]
+            assert property_schema["minimum"] == field.minimum
+            assert property_schema["maximum"] == field.maximum

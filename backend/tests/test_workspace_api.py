@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -39,6 +41,12 @@ def workspace_settings(
 ) -> None:
     monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path / "workspaces"))
     monkeypatch.setattr(settings, "workspace_max_read_bytes", 128)
+    preview_port = _free_port()
+    monkeypatch.setattr(settings, "preview_enabled", True)
+    monkeypatch.setattr(settings, "preview_port_start", preview_port)
+    monkeypatch.setattr(settings, "preview_port_end", preview_port)
+    monkeypatch.setattr(settings, "preview_public_base_url", "http://127.0.0.1")
+    monkeypatch.setattr(settings, "preview_start_timeout_seconds", 5)
 
 
 @pytest_asyncio.fixture
@@ -46,6 +54,12 @@ async def client() -> AsyncClient:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as test_client:
         yield test_client
+
+
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 async def _register(client: AsyncClient) -> tuple[dict[str, Any], dict[str, str]]:
@@ -150,9 +164,14 @@ async def test_workspace_routes_hide_other_users_conversation(
             headers=other_headers,
             content=b"nope",
         ),
+        await client.post(
+            f"/api/v1/workspaces/{conversation['id']}/preview",
+            headers=other_headers,
+            json={"entry_path": "index.html"},
+        ),
     ]
 
-    assert [response.status_code for response in responses] == [404, 404, 404]
+    assert [response.status_code for response in responses] == [404, 404, 404, 404]
 
 
 async def test_write_then_read_workspace_file(client: AsyncClient) -> None:
@@ -268,6 +287,97 @@ async def test_write_workspace_file_rejects_large_body(client: AsyncClient) -> N
 
     assert response.status_code == 413
     assert response.json()["detail"]["error"]["code"] == "workspace_file_too_large"
+
+
+async def test_workspace_preview_static_html_lifecycle(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<!doctype html><html><body><h1>Preview OK</h1></body></html>",
+    )
+
+    start_response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "index.html"},
+    )
+    assert start_response.status_code == 201, start_response.text
+    started = start_response.json()
+    try:
+        assert started["status"] == "running"
+        assert started["entry_path"] == "index.html"
+        assert started["url"].endswith(f":{started['port']}/index.html")
+        local_response = httpx.get(
+            f"http://127.0.0.1:{started['port']}/index.html",
+            timeout=5,
+            trust_env=False,
+        )
+        assert local_response.status_code == 200
+        assert "Preview OK" in local_response.text
+
+        repeat_response = await client.post(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+            json={"entry_path": "index.html"},
+        )
+        assert repeat_response.status_code == 201, repeat_response.text
+        repeated = repeat_response.json()
+        assert repeated["id"] == started["id"]
+        assert repeated["port"] == started["port"]
+
+        get_response = await client.get(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+        )
+        assert get_response.status_code == 200, get_response.text
+        assert get_response.json()["status"] == "running"
+    finally:
+        stop_response = await client.delete(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+        )
+        assert stop_response.status_code == 200, stop_response.text
+        assert stop_response.json()["status"] == "stopped"
+
+
+async def test_workspace_preview_rejects_missing_and_forbidden_entries(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+
+    missing_response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "missing.html"},
+    )
+    forbidden_response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "../escape.html"},
+    )
+    non_html_response = await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/app.txt",
+        headers=headers,
+        content=b"not html",
+    )
+    assert non_html_response.status_code == 204
+    invalid_type_response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "app.txt"},
+    )
+
+    assert missing_response.status_code == 404
+    assert missing_response.json()["detail"]["error"]["code"] == "workspace_file_not_found"
+    assert forbidden_response.status_code == 403
+    assert forbidden_response.json()["detail"]["error"]["code"] == "workspace_violation"
+    assert invalid_type_response.status_code == 403
+    assert invalid_type_response.json()["detail"]["error"]["code"] == "workspace_violation"
 
 
 async def test_html_workspace_file_adds_preview_security_headers(
