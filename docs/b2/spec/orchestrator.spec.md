@@ -2,8 +2,8 @@
 
 > 定义 AgentHub 多 Agent 编排器的当前行为契约，包括任务规划、任务分配、子任务流转、事件聚合和失败处理。
 >
-> 版本：v1.2
-> 最后更新：2026-05-29
+> 版本：v1.3
+> 最后更新：2026-05-30
 
 ---
 
@@ -23,6 +23,7 @@ Orchestrator 负责：
 8. 对 `expected_output` 中明确提到的 workspace artifact 做只读存在性校验。
 9. 在配置开启时，对失败或 artifact 缺失的子任务执行 per-task fallback。
 10. 输出最终 execution summary，并以 `done` 结束非 fatal 的部分失败流程。
+11. 在配置开启时，将真实编排 run、task、attempt、event 写入 Orchestrator structured memory，并在后续回合注入最近结构化记忆。
 
 Orchestrator 不负责：
 
@@ -31,7 +32,7 @@ Orchestrator 不负责：
 - 并发执行子任务。
 - 启动 preview/deploy/server 等长驻端口服务。
 - 评审子 Agent 输出质量或自动判断产物内容是否正确。
-- 写入数据库 task run 表；v1.2 的任务结果只保存在单轮内存上下文中。
+- 直接写数据库；结构化 memory 由 stream/service 层通过 writer protocol 注入完成。
 
 ---
 
@@ -87,6 +88,10 @@ async def stream(
 | `max_task_attempts` | `int` | 单个子任务最大 attempt 数；默认 `1`，建议范围 `1..3`。 |
 | `task_result_context_max_chars` | `int` | 注入后续子任务的前序结果总字符预算；默认 `4000`。 |
 | `task_result_item_max_chars` | `int` | 单个任务结果摘要字符预算；默认 `1200`。 |
+| `orchestrator_memory_writer` | protocol object | stream/service 层注入的结构化记忆 writer；Orchestrator 不直接访问 DB。 |
+| `orchestrator_memory_enabled` | `bool` | 是否启用结构化 run memory；默认 `true`。 |
+| `orchestrator_memory_recent_runs` | `int` | 后续回合注入最近 terminal run 数；默认 `3`，范围 `1..10`。 |
+| `orchestrator_memory_context_max_chars` | `int` | 结构化 memory system message 字符预算；默认 `6000`，范围 `1..32000`。 |
 
 生产接线：
 
@@ -127,9 +132,9 @@ class SubTask:
 
 ---
 
-## 3.1 单轮运行上下文
+## 3.1 运行上下文与结构化记忆
 
-v1.2 引入 Orchestrator 内部运行上下文，只在单次 `stream()` 调用内存中存在，不进入 OpenAPI，不新增数据库表。
+v1.2 引入 Orchestrator 内部运行上下文。v1.3 在不改变 `BaseAgentAdapter` / `StreamChunk` / SSE 契约的前提下，新增 Orchestrator structured memory：运行期仍用 `OrchestratorRunContext` 聚合结果，stream/service 层通过 `orchestrator_memory_writer` 把真实流转写入数据库。
 
 建议内部结构：
 
@@ -154,6 +159,7 @@ class TaskResult:
 @dataclass(slots=True)
 class OrchestratorRunContext:
     results: dict[str, TaskResult] = field(default_factory=dict)
+    memory_run_id: UUID | None = None
 ```
 
 用途：
@@ -162,6 +168,30 @@ class OrchestratorRunContext:
 - 每个子任务完成后写入 `results[task_id]`。
 - 后续任务根据 `depends_on` 和执行顺序读取前序结果，生成上下文注入。
 - 最终 summary 基于 `TaskResult` 输出，而不是只输出简单状态列表。
+
+结构化 memory 表：
+
+| 表 | 说明 |
+|---|---|
+| `orchestrator_runs` | 一次 Orchestrator 编排 run，包含 conversation、触发消息、状态、用户请求、plan source 和 final summary。 |
+| `orchestrator_tasks` | run 内的 task graph，包含 task id、agent、依赖、priority、expected output 和最终状态。 |
+| `orchestrator_task_attempts` | 每个 task 的每次 attempt，包含实际 agent、状态、text preview、tool 摘要、artifact、missing artifact 和 error。 |
+| `orchestrator_run_events` | planned、task_started、task_result、react_decision、finished/cancelled 等时间线事件。 |
+
+实现入口：
+
+- Model：`backend/app/models/orchestrator_memory.py`
+- Migration：`backend/alembic/versions/9a1b2c3d4e5f_add_orchestrator_memory.py`
+- Service：`backend/app/services/orchestrator_memory.py`
+- 执行记录：[orchestrator-memory-context-management.execution.spec.md](orchestrator-memory-context-management.execution.spec.md)
+
+下一轮 Orchestrator 请求前，stream 层会读取最近 terminal runs，并在最新 user request 之前插入 system message：
+
+```text
+Previous Orchestrator structured memory:
+```
+
+该 structured memory 不替代 `ConversationMemory` 文本压缩；它只记录 Orchestrator 编排状态。
 
 ---
 
