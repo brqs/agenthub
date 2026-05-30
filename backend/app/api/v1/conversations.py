@@ -35,6 +35,7 @@ from app.services.orchestrator_memory import (
     get_orchestrator_run_detail,
     list_orchestrator_runs,
 )
+from app.services.workspace_preview import WorkspacePreviewService
 
 router = APIRouter()
 
@@ -271,4 +272,5 @@ async def delete_conversation(
     user: Annotated[User, Depends(get_current_user)],
 ) -> None:
     conv = await _get_owned_conversation(db, user.id, conv_id)
+    await WorkspacePreviewService().stop(db, conv_id)
     await db.delete(conv)
