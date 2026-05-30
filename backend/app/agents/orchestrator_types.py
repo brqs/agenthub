@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
+from uuid import UUID
 
 from app.agents.base import BaseAgentAdapter
 
@@ -115,8 +116,65 @@ class TaskResult:
 class OrchestratorRunContext:
     results: dict[str, TaskResult] = field(default_factory=dict)
     result_order: list[str] = field(default_factory=list)
+    memory_run_id: UUID | None = None
 
     def record(self, result: TaskResult) -> None:
         if result.task_id not in self.results:
             self.result_order.append(result.task_id)
         self.results[result.task_id] = result
+
+
+class OrchestratorMemoryWriter(Protocol):
+    """Optional persistence boundary for orchestrator run memory."""
+
+    async def start_run(
+        self,
+        *,
+        user_request: str,
+        plan_source: str,
+        tasks: list[SubTask],
+    ) -> UUID: ...
+
+    async def record_task_planned(
+        self,
+        *,
+        run_id: UUID,
+        task: SubTask,
+    ) -> None: ...
+
+    async def record_task_started(
+        self,
+        *,
+        run_id: UUID,
+        task: SubTask,
+        agent_id: str,
+        attempt_index: int,
+    ) -> None: ...
+
+    async def record_task_result(
+        self,
+        *,
+        run_id: UUID,
+        task: SubTask,
+        result: TaskResult,
+    ) -> None: ...
+
+    async def record_event(
+        self,
+        *,
+        run_id: UUID,
+        event_type: str,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None: ...
+
+    async def finish_run(
+        self,
+        *,
+        run_id: UUID,
+        status: str,
+        final_summary: str,
+    ) -> None: ...
+
+    async def cancel_active_run(self) -> None: ...

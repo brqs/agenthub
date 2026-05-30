@@ -72,6 +72,8 @@ ENVIRONMENT=development
 ```bash
 cd /home/ubuntu/agenthub
 docker compose up -d --build
+docker compose exec backend alembic upgrade head
+docker compose exec backend python -m app.seeds.seed_agents
 docker compose ps
 curl -i http://127.0.0.1:8000/health
 docker compose logs --tail=80 backend
@@ -91,34 +93,59 @@ docker compose restart backend
 
 ## 数据库初始化
 
-当前已在云服务器确认数据库状态：
-
-- `backend/alembic/versions/` 目录只有 `.gitkeep`，没有 migration 文件。
-- `alembic heads` 为空。
-- 数据库中不存在 `alembic_version` 表。
-- PostgreSQL 当前是空库，没有业务表。
-
-因此现在不要直接把 `alembic upgrade head` 当作已完成初始化的标志。当前项目还没有可执行的初始建表 migration，需要先由 B1 补齐初始迁移文件。
-
-当 Alembic migration 文件准备好后，执行数据库迁移：
+当前项目已经包含完整 Alembic migration。新服务器、空数据库或旧服务器代码更新后，都应执行：
 
 ```bash
 docker compose exec backend alembic upgrade head
-```
-
-初始化内置 Agent：
-
-```bash
 docker compose exec backend python -m app.seeds.seed_agents
 ```
 
-建议后续分支：
+当前迁移链：
 
 ```text
-feat/B1-initial-db-migration
+829867f35d97_init.py
+-> c2f8e1d9a4b7_add_conversation_memories.py
+-> f4a3b2c1d0e9_add_workspaces.py
+-> 9a1b2c3d4e5f_add_orchestrator_memory.py
 ```
 
-迁移文件合并并部署到云服务器后，再执行 `alembic upgrade head` 和 `seed_agents`。
+`9a1b2c3d4e5f_add_orchestrator_memory.py` 新增 Orchestrator structured memory 表：
+
+- `orchestrator_runs`
+- `orchestrator_tasks`
+- `orchestrator_task_attempts`
+- `orchestrator_run_events`
+
+这些表用于 Orchestrator 跨轮结构化记忆。如果不执行 `alembic upgrade head`，Orchestrator 仍可启动，但真实任务编排时 structured memory 写入和 debug API 会不可用。
+
+验证当前数据库版本：
+
+```bash
+docker compose exec postgres psql -U ${POSTGRES_USER:-agenthub} -d ${POSTGRES_DB:-agenthub} -c "select * from alembic_version;"
+```
+
+期望版本：
+
+```text
+9a1b2c3d4e5f
+```
+
+验证 Orchestrator structured memory 表：
+
+```bash
+docker compose exec postgres psql -U ${POSTGRES_USER:-agenthub} -d ${POSTGRES_DB:-agenthub} -c "\dt orchestrator_*"
+```
+
+期望包含：
+
+```text
+orchestrator_runs
+orchestrator_tasks
+orchestrator_task_attempts
+orchestrator_run_events
+```
+
+`seed_agents` 会 upsert 内置 agent。每次更新内置 agent 配置后都建议执行一次，确保 `orchestrator` 的 `orchestrator_memory_*` 配置同步到数据库。
 
 ## 安全注意事项
 

@@ -60,6 +60,7 @@ async def run_react_loop(
     workspace_path: Path | None,
     tool_specs: list[ToolSpec] | None,
     *,
+    run_context: OrchestratorRunContext | None = None,
     run_task: RunTask,
     text_block_with_next: TextBlockWithNext,
     summary_text: SummaryText,
@@ -71,7 +72,7 @@ async def run_react_loop(
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     task_graph = list(tasks)
     task_states = {task.task_id: TaskState.PENDING for task in task_graph}
-    run_context = OrchestratorRunContext()
+    run_context = run_context or OrchestratorRunContext()
     max_iterations = _max_iterations(config, positive_int_config)
     finish_reason: str | None = None
 
@@ -134,6 +135,13 @@ async def run_react_loop(
                 config,
                 agent_id_list,
             )
+            await _record_react_decision_event(
+                config,
+                run_context,
+                iteration,
+                observation,
+                decision,
+            )
         except ReactDecisionError as exc:
             finish_reason = f"ReAct replanner stopped: {exc}"
             if react_trace_visible(config):
@@ -163,10 +171,9 @@ async def run_react_loop(
             finish_reason = "all tasks are terminal"
             break
 
-    for chunk, updated_block_index in text_block_with_next(
-        next_block_index,
-        summary_text(task_graph, task_states, run_context),
-    ):
+    final_summary = summary_text(task_graph, task_states, run_context)
+    await _finish_memory_run(config, run_context, final_summary)
+    for chunk, updated_block_index in text_block_with_next(next_block_index, final_summary):
         yield chunk, updated_block_index
 
 
@@ -199,6 +206,55 @@ def _all_tasks_terminal(task_states: Mapping[str, TaskState]) -> bool:
 
 def react_trace_visible(config: Mapping[str, Any]) -> bool:
     return config.get("react_trace_visible", True) is not False
+
+
+async def _record_react_decision_event(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    iteration: int,
+    observation: str,
+    decision: ReactDecision,
+) -> None:
+    if run_context.memory_run_id is None:
+        return
+    writer = config.get("orchestrator_memory_writer")
+    record_event = getattr(writer, "record_event", None)
+    if record_event is None:
+        return
+    try:
+        await record_event(
+            run_id=run_context.memory_run_id,
+            event_type="react_decision",
+            payload={
+                "iteration": iteration,
+                "observation": observation,
+                "actions": [dict(action) for action in decision.actions],
+                "summary": decision.summary,
+            },
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
+async def _finish_memory_run(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    final_summary: str,
+) -> None:
+    if run_context.memory_run_id is None:
+        return
+    writer = config.get("orchestrator_memory_writer")
+    finish_run = getattr(writer, "finish_run", None)
+    if finish_run is None:
+        return
+    try:
+        await finish_run(
+            run_id=run_context.memory_run_id,
+            status="done",
+            final_summary=final_summary,
+        )
+    except Exception:  # noqa: BLE001
+        return
 
 
 def _max_iterations(

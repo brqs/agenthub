@@ -19,6 +19,9 @@
 | [spec/orchestrator.spec.md](spec/orchestrator.spec.md) | Orchestrator 行为契约 |
 | [spec/orchestrator-task-planning.spec.md](spec/orchestrator-task-planning.spec.md) | Orchestrator 任务规划与分配规则 |
 | [spec/orchestrator-react-dynamic-task-graph.spec.md](spec/orchestrator-react-dynamic-task-graph.spec.md) | Orchestrator ReAct 动态任务图设计 |
+| [spec/orchestrator-memory-context-management.spec.md](spec/orchestrator-memory-context-management.spec.md) | Orchestrator 结构化记忆与上下文管理 |
+| [spec/orchestrator-memory-context-management.execution.spec.md](spec/orchestrator-memory-context-management.execution.spec.md) | Orchestrator 结构化记忆 v1 真实执行结果 |
+| [spec/orchestrator-tool-calling-agent.spec.md](spec/orchestrator-tool-calling-agent.spec.md) | Orchestrator 原生 Tool Calling Agent 设计 |
 | [spec/agent-config-validation.spec.md](spec/agent-config-validation.spec.md) | Agent 配置校验 |
 | [spec/artifact-parser-v2.spec.md](spec/artifact-parser-v2.spec.md) | ArtifactParser v2 |
 | [spec/external-direct-chat-routing.spec.md](spec/external-direct-chat-routing.spec.md) | External Agent 纯问答 / Runtime 路由 |

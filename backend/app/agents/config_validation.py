@@ -239,6 +239,44 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
         8000,
         allow_float=False,
     )
+    _validate_bool(config, "orchestrator_memory_enabled")
+    _validate_numeric(
+        config,
+        "orchestrator_memory_recent_runs",
+        1,
+        10,
+        allow_float=False,
+    )
+    _validate_numeric(
+        config,
+        "orchestrator_memory_context_max_chars",
+        1,
+        32000,
+        allow_float=False,
+    )
+    _validate_bool(config, "orchestrator_tool_calling_enabled")
+    _validate_bool(config, "orchestrator_tool_trace_visible")
+    _validate_numeric(
+        config,
+        "orchestrator_tool_max_iterations",
+        1,
+        50,
+        allow_float=False,
+    )
+    _validate_numeric(
+        config,
+        "orchestrator_tool_result_max_chars",
+        1,
+        32000,
+        allow_float=False,
+    )
+    _validate_numeric(
+        config,
+        "orchestrator_tool_read_max_bytes",
+        1,
+        1048576,
+        allow_float=False,
+    )
     _validate_mcp_servers(config)
 
 

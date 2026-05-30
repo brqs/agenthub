@@ -26,6 +26,13 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
 from app.services.context_builder import build_context
+from app.services.orchestrator_memory import (
+    DEFAULT_ORCHESTRATOR_MEMORY_CONTEXT_MAX_CHARS,
+    DEFAULT_ORCHESTRATOR_MEMORY_RECENT_RUNS,
+    OrchestratorMemoryStore,
+    build_orchestrator_memory_context,
+    inject_orchestrator_memory_context,
+)
 from app.services.workspace_service import WorkspaceService
 
 router = APIRouter()
@@ -311,6 +318,22 @@ async def _event_generator(
         history = await build_context(db, message.conversation_id)
         workspace = await WorkspaceService().get_or_create(db, message.conversation_id)
         stream_config = await _orchestrator_conversation_config(db, message)
+        if message.agent_id == ORCHESTRATOR_AGENT_ID:
+            stream_config = stream_config or {}
+            merged_config = adapter.merged_config(stream_config)
+            memory_message = await _orchestrator_memory_context_message(
+                db,
+                message.conversation_id,
+                merged_config,
+            )
+            history = inject_orchestrator_memory_context(history, memory_message)
+            if _orchestrator_memory_enabled(merged_config):
+                stream_config["orchestrator_memory_writer"] = OrchestratorMemoryStore(
+                    db,
+                    conversation_id=message.conversation_id,
+                    agent_message_id=message.id,
+                    user_message_id=message.reply_to_id,
+                )
 
         # Mark streaming
         message.status = "streaming"
@@ -341,6 +364,8 @@ async def _event_generator(
                 return
 
         # Persist
+        if disconnected:
+            await _cancel_orchestrator_run(stream_config)
         has_orphaned_tool_call = accumulator.finalize_orphaned_tools()
         message.content = accumulator.to_list()
         message.status = "error" if disconnected or has_orphaned_tool_call else "done"
@@ -390,3 +415,53 @@ async def stream_message(
         )
 
     return EventSourceResponse(_event_generator(db, request, message))
+
+
+def _orchestrator_memory_enabled(config: dict[str, Any]) -> bool:
+    return config.get("orchestrator_memory_enabled", True) is not False
+
+
+def _positive_int_config(config: dict[str, Any], key: str, default: int) -> int:
+    value = config.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    return value
+
+
+async def _orchestrator_memory_context_message(
+    db: AsyncSession,
+    conversation_id: UUID,
+    config: dict[str, Any],
+) -> Any:
+    if not _orchestrator_memory_enabled(config):
+        return None
+    try:
+        return await build_orchestrator_memory_context(
+            db,
+            conversation_id,
+            recent_runs=_positive_int_config(
+                config,
+                "orchestrator_memory_recent_runs",
+                DEFAULT_ORCHESTRATOR_MEMORY_RECENT_RUNS,
+            ),
+            max_chars=_positive_int_config(
+                config,
+                "orchestrator_memory_context_max_chars",
+                DEFAULT_ORCHESTRATOR_MEMORY_CONTEXT_MAX_CHARS,
+            ),
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _cancel_orchestrator_run(config: dict[str, Any] | None) -> None:
+    if not config:
+        return
+    writer = config.get("orchestrator_memory_writer")
+    cancel = getattr(writer, "cancel_active_run", None)
+    if cancel is None:
+        return
+    try:
+        await cancel()
+    except Exception:  # noqa: BLE001
+        return
