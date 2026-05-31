@@ -72,7 +72,7 @@ export function ArtifactPreview({
 
   if (!artifact) {
     return (
-      <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm text-slate-500">
+      <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-800">
         选择一个 workspace 文件查看预览
       </div>
     );
@@ -102,7 +102,7 @@ export function ArtifactPreview({
 
   return (
     <>
-      <section className="overflow-hidden rounded-md border border-slate-800 bg-slate-950/60">
+      <section className="overflow-hidden rounded-md border border-slate-300 bg-white dark:border-slate-800 dark:bg-slate-950/60">
         <ArtifactHeader
           artifact={artifact}
           isEditing={isEditing}
@@ -118,8 +118,8 @@ export function ArtifactPreview({
       </section>
 
       {isFullscreen && (
-        <div className="fixed inset-0 z-[70] flex bg-slate-950/90 p-4 backdrop-blur-sm">
-          <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-2xl shadow-black/50">
+        <div className="fixed inset-0 z-[70] flex bg-slate-950/60 p-4 backdrop-blur-sm dark:bg-slate-950/90">
+          <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-md border border-slate-300 bg-white shadow-2xl shadow-black/25 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/50">
             <ArtifactHeader
               artifact={artifact}
               isEditing={isEditing}
@@ -166,17 +166,17 @@ function ArtifactHeader({
   const Icon = artifact.mime_type === 'text/html' ? Monitor : isTextMime(artifact.mime_type) ? Code2 : FileText;
 
   return (
-    <div className="flex min-w-0 items-center gap-2 border-b border-slate-800 px-3 py-2">
+    <div className="flex min-w-0 items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
       <Icon className="h-4 w-4 shrink-0 text-brand-light" />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-white">{artifact.name}</div>
+        <div className="truncate text-sm font-medium text-slate-950 dark:text-white">{artifact.name}</div>
         <div className="truncate text-xs text-slate-500">{artifact.mime_type} · {formatSize(artifact.size)}</div>
       </div>
       {canSave && (
         <button
           type="button"
           onClick={onEdit}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-white"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
           aria-label={isEditing ? '退出修改模式' : '修改模式'}
         >
           <Edit3 className="h-3.5 w-3.5" />
@@ -188,7 +188,7 @@ function ArtifactHeader({
           type="button"
           disabled={!isDirty || isSaving}
           onClick={() => void onSave()}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-45 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Save className="h-3.5 w-3.5" />}
           {saved ? '已保存' : '保存'}
@@ -197,7 +197,7 @@ function ArtifactHeader({
       <button
         type="button"
         onClick={onFullscreen}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 hover:text-white"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
         aria-label={isFullscreen ? '退出全屏预览' : '全屏预览'}
       >
         {isFullscreen ? <X className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
@@ -230,12 +230,12 @@ function ArtifactContent({
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
           spellCheck={false}
-          className="min-h-72 w-full resize-y bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-300 outline-none scrollbar-thin"
+          className="min-h-72 w-full resize-y bg-white p-3 font-mono text-xs leading-5 text-slate-900 outline-none scrollbar-thin dark:bg-slate-950 dark:text-slate-300"
         />
       );
     }
     return (
-      <label className="flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 p-6 text-center text-sm text-slate-400">
+      <label className="flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 p-6 text-center text-sm text-slate-600 dark:text-slate-400">
         <Upload className="h-7 w-7 text-brand-light" />
         <span>选择新文件替换当前 workspace 文件</span>
         <input
@@ -252,10 +252,10 @@ function ArtifactContent({
     return <iframe title={artifact.name} srcDoc={draft} sandbox="" className="h-[32rem] w-full border-0 bg-white" />;
   }
   if (typeof artifact.content === 'string' && isTextMime(artifact.mime_type)) {
-    return <pre className="max-h-[36rem] overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-slate-300 scrollbar-thin">{draft}</pre>;
+    return <pre className="max-h-[36rem] overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-slate-900 scrollbar-thin dark:text-slate-300">{draft}</pre>;
   }
   if (blobUrl && artifact.mime_type.startsWith('image/')) {
-    return <div className="flex min-h-56 items-center justify-center bg-slate-950 p-3"><img src={blobUrl} alt={artifact.name} className="max-h-[70vh] max-w-full object-contain" /></div>;
+    return <div className="flex min-h-56 items-center justify-center bg-slate-100 p-3 dark:bg-slate-950"><img src={blobUrl} alt={artifact.name} className="max-h-[70vh] max-w-full object-contain" /></div>;
   }
   if (blobUrl && artifact.mime_type.startsWith('video/')) {
     return <video src={blobUrl} controls className="max-h-[70vh] w-full bg-black" />;

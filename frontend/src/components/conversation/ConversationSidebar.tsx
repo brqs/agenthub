@@ -31,11 +31,11 @@ export function ConversationSidebar({
   const recent = filtered.filter((conversation) => !conversation.is_pinned);
 
   return (
-    <aside className="flex h-screen w-72 shrink-0 flex-col border-r border-slate-800 bg-slate-900">
+    <aside className="flex h-screen w-72 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div className="px-4 pb-2 pt-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-base font-semibold text-white">AgentHub</h1>
+            <h1 className="text-base font-semibold text-slate-950 dark:text-white">AgentHub</h1>
             <p className="text-xs text-slate-500">多 Agent 协作频道</p>
           </div>
           <div className="flex items-center gap-2">
@@ -43,7 +43,7 @@ export function ConversationSidebar({
               <button
                 type="button"
                 onClick={onCollapse}
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-800 bg-slate-950 text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand"
+                className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-brand dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                 title="收起会话列表"
                 aria-label="收起会话列表"
               >
@@ -61,13 +61,13 @@ export function ConversationSidebar({
             </button>
           </div>
         </div>
-        <label className="mt-4 flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm text-slate-400 ring-1 ring-slate-800 focus-within:ring-brand">
+        <label className="mt-4 flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-500 ring-1 ring-slate-300 focus-within:ring-brand dark:bg-slate-950 dark:text-slate-400 dark:ring-slate-800">
           <Search className="h-4 w-4" />
           <input
             value={search}
             onChange={(event) => onSearch(event.target.value)}
             placeholder="搜索会话"
-            className="min-w-0 flex-1 bg-transparent text-slate-200 outline-none placeholder:text-slate-600"
+            className="min-w-0 flex-1 bg-transparent text-slate-950 outline-none placeholder:text-slate-400 dark:text-slate-200 dark:placeholder:text-slate-600"
           />
         </label>
       </div>
@@ -110,7 +110,7 @@ export function ConversationSidebar({
                 />
               ))
             ) : (
-              <div className="rounded-md border border-dashed border-slate-800 px-3 py-6 text-center text-sm text-slate-500">
+              <div className="rounded-md border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500 dark:border-slate-800">
                 {normalized ? '没有匹配的会话' : '暂无最近会话'}
               </div>
             )}

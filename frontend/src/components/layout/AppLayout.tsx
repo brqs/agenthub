@@ -8,18 +8,20 @@ import { useUiStore } from '@/stores/uiStore';
 
 export function AppLayout() {
   const user = useAuthStore((s) => s.user);
-  const theme = useUiStore((s) => s.theme);
+  const themePreference = useUiStore((s) => s.themePreference);
+  const resolvedTheme = useUiStore((s) => s.resolvedTheme);
   const settingsOpen = useUiStore((s) => s.settingsOpen);
   const userMenuOpen = useUiStore((s) => s.userMenuOpen);
-  const toggleTheme = useUiStore((s) => s.toggleTheme);
+  const cycleThemePreference = useUiStore((s) => s.cycleThemePreference);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const setUserMenuOpen = useUiStore((s) => s.setUserMenuOpen);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
+    <div className="surface-app flex h-screen w-screen overflow-hidden">
       <ModuleRail
-        theme={theme}
-        onToggleTheme={toggleTheme}
+        themePreference={themePreference}
+        resolvedTheme={resolvedTheme}
+        onCycleTheme={cycleThemePreference}
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleUserMenu={() => setUserMenuOpen(!userMenuOpen)}
       />

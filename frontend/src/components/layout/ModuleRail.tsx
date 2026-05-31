@@ -1,7 +1,7 @@
-import { Archive, Bot, MessageSquare, Moon, Settings, Sparkles, Sun, UserRound } from 'lucide-react';
+import { Archive, Bot, MessageSquare, Monitor, Moon, Settings, Sparkles, Sun, UserRound } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import type { ThemeMode } from '@/stores/uiStore';
+import type { ThemeMode, ThemePreference } from '@/stores/uiStore';
 
 const navItems = [
   { to: '/chat', label: '聊天', icon: MessageSquare },
@@ -10,20 +10,26 @@ const navItems = [
 ];
 
 export function ModuleRail({
-  theme,
-  onToggleTheme,
+  themePreference,
+  resolvedTheme,
+  onCycleTheme,
   onOpenSettings,
   onToggleUserMenu,
 }: {
-  theme: ThemeMode;
-  onToggleTheme: () => void;
+  themePreference: ThemePreference;
+  resolvedTheme: ThemeMode;
+  onCycleTheme: () => void;
   onOpenSettings: () => void;
   onToggleUserMenu: () => void;
 }) {
-  const ThemeIcon = theme === 'dark' ? Moon : Sun;
+  const ThemeIcon = themePreference === 'system' ? Monitor : resolvedTheme === 'dark' ? Moon : Sun;
+  const themeTitle =
+    themePreference === 'system'
+      ? `主题：跟随系统（当前${resolvedTheme === 'dark' ? '深色' : '浅色'}）`
+      : `主题：${resolvedTheme === 'dark' ? '深色' : '浅色'}`;
 
   return (
-    <nav className="flex h-screen w-16 shrink-0 flex-col items-center border-r border-slate-800 bg-slate-950 py-4 text-slate-400">
+    <nav className="flex h-screen w-16 shrink-0 flex-col items-center border-r border-slate-200 bg-white py-4 text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
       <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-2xl bg-brand text-white shadow-lg shadow-brand/25">
         <Sparkles className="h-5 w-5" />
       </div>
@@ -38,7 +44,7 @@ export function ModuleRail({
                 'group relative flex h-11 w-11 items-center justify-center rounded-2xl transition',
                 isActive
                   ? 'bg-brand text-white shadow-lg shadow-brand/20'
-                  : 'hover:bg-slate-800 hover:text-white',
+                  : 'hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white',
               )
             }
             title={item.label}
@@ -52,7 +58,7 @@ export function ModuleRail({
         <button
           type="button"
           onClick={onToggleUserMenu}
-          className="flex h-11 w-11 items-center justify-center rounded-2xl hover:bg-slate-800 hover:text-white"
+          className="flex h-11 w-11 items-center justify-center rounded-2xl hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
           title="用户菜单"
           aria-label="用户菜单"
         >
@@ -60,17 +66,17 @@ export function ModuleRail({
         </button>
         <button
           type="button"
-          onClick={onToggleTheme}
-          className="flex h-11 w-11 items-center justify-center rounded-2xl hover:bg-slate-800 hover:text-white"
-          title="主题"
-          aria-label="主题"
+          onClick={onCycleTheme}
+          className="flex h-11 w-11 items-center justify-center rounded-2xl hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+          title={themeTitle}
+          aria-label={themeTitle}
         >
           <ThemeIcon className="h-5 w-5" />
         </button>
         <button
           type="button"
           onClick={onOpenSettings}
-          className="flex h-11 w-11 items-center justify-center rounded-2xl hover:bg-slate-800 hover:text-white"
+          className="flex h-11 w-11 items-center justify-center rounded-2xl hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
           title="Settings"
           aria-label="Settings"
         >
