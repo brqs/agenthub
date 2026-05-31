@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-SUPPORTED_UPSTREAM_PROVIDERS: set[str] = {"claude", "deepseek", "openai"}
-TOP_LEVEL_PROVIDERS: set[str] = {
-    "claude_code",
-    "codex",
-    "opencode",
-    "builtin",
-    "mock",
-}
+from app.agents.config_fields import (
+    BUILTIN_ORCHESTRATOR_FIELDS,
+    CODEX_RUNTIMES,
+    CODEX_SANDBOX_MODES,
+    EXTERNAL_DIRECT_CHAT_FIELDS,
+    EXTERNAL_RUNTIME_BUDGET_FIELDS,
+    SUPPORTED_UPSTREAM_PROVIDERS,
+    TOP_LEVEL_PROVIDERS,
+)
+
+QA_MODEL_BACKENDS = SUPPORTED_UPSTREAM_PROVIDERS
 
 
 class AgentConfigValidationError(ValueError):
@@ -78,6 +81,30 @@ def _validate_string_list(config: dict[str, Any], key: str) -> None:
         )
 
 
+def _validate_bool(config: dict[str, Any], key: str) -> None:
+    value = config.get(key)
+    if value is None:
+        return
+    if not isinstance(value, bool):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=f"'{key}' must be a boolean",
+            details={"field": key, "value": value},
+        )
+
+
+def _validate_optional_non_empty_string(config: dict[str, Any], key: str) -> None:
+    value = config.get(key)
+    if value is None:
+        return
+    if not isinstance(value, str) or not value:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=f"'{key}' must be a non-empty string",
+            details={"field": key, "value": value},
+        )
+
+
 def _validate_mcp_servers(config: dict[str, Any]) -> None:
     value = config.get("mcp_servers")
     if value is None:
@@ -91,7 +118,33 @@ def _validate_mcp_servers(config: dict[str, Any]) -> None:
 
 
 def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> None:
-    _validate_numeric(config, "timeout_seconds", 1, 3600)
+    for field in EXTERNAL_RUNTIME_BUDGET_FIELDS:
+        _validate_numeric(
+            config,
+            field.key,
+            field.minimum,
+            field.maximum,
+            allow_float=field.allow_float,
+        )
+    _validate_external_direct_chat_config(config)
+    max_runtime = config.get("max_runtime_seconds", config.get("timeout_seconds"))
+    idle_timeout = config.get("idle_timeout_seconds")
+    if (
+        isinstance(max_runtime, (int, float))
+        and not isinstance(max_runtime, bool)
+        and isinstance(idle_timeout, (int, float))
+        and not isinstance(idle_timeout, bool)
+        and idle_timeout > max_runtime
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'idle_timeout_seconds' must be less than or equal to max runtime",
+            details={
+                "field": "idle_timeout_seconds",
+                "value": idle_timeout,
+                "max_runtime_seconds": max_runtime,
+            },
+        )
     if provider == "opencode":
         command = config.get("command")
         if command is not None and not isinstance(command, str | list):
@@ -101,6 +154,48 @@ def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> 
                 details={"field": "command", "value": command},
             )
         _validate_string_list(config, "args")
+    if provider == "codex":
+        runtime = config.get("runtime")
+        if runtime is not None and runtime not in CODEX_RUNTIMES:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'runtime' must be one of: cli, sdk",
+                details={"field": "runtime", "value": runtime},
+            )
+        sandbox_mode = config.get("sandbox_mode")
+        if sandbox_mode is not None and sandbox_mode not in CODEX_SANDBOX_MODES:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=(
+                    "'sandbox_mode' must be one of: read-only, workspace-write, "
+                    "danger-full-access"
+                ),
+                details={"field": "sandbox_mode", "value": sandbox_mode},
+            )
+
+
+def _validate_external_direct_chat_config(config: dict[str, Any]) -> None:
+    _validate_bool(config, "qa_short_circuit_enabled")
+    qa_model_backend = config.get("qa_model_backend")
+    if qa_model_backend is not None and (
+        not isinstance(qa_model_backend, str)
+        or qa_model_backend not in QA_MODEL_BACKENDS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported qa_model_backend '{qa_model_backend}'",
+            details={"qa_model_backend": qa_model_backend},
+        )
+    _validate_optional_non_empty_string(config, "qa_model")
+    _validate_optional_non_empty_string(config, "qa_classifier_model")
+    for field in EXTERNAL_DIRECT_CHAT_FIELDS:
+        _validate_numeric(
+            config,
+            field.key,
+            field.minimum,
+            field.maximum,
+            allow_float=field.allow_float,
+        )
 
 
 def _validate_builtin_config(config: dict[str, Any]) -> None:
@@ -111,7 +206,56 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             message=f"Unsupported model_backend '{model_backend}'",
             details={"model_backend": model_backend},
         )
-    _validate_numeric(config, "max_iterations", 1, 50, allow_float=False)
+    answer_model_backend = config.get("answer_model_backend")
+    if answer_model_backend is not None and (
+        not isinstance(answer_model_backend, str)
+        or answer_model_backend not in SUPPORTED_UPSTREAM_PROVIDERS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported answer_model_backend '{answer_model_backend}'",
+            details={"answer_model_backend": answer_model_backend},
+        )
+    planner_model_backend = config.get("planner_model_backend")
+    if planner_model_backend is not None and (
+        not isinstance(planner_model_backend, str)
+        or planner_model_backend not in SUPPORTED_UPSTREAM_PROVIDERS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported planner_model_backend '{planner_model_backend}'",
+            details={"planner_model_backend": planner_model_backend},
+        )
+    answer_config = config.get("orchestrator_answer_config")
+    if answer_config is not None and not isinstance(answer_config, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'orchestrator_answer_config' must be an object",
+            details={"field": "orchestrator_answer_config", "value": answer_config},
+        )
+    llm_config = config.get("orchestrator_llm_config")
+    if llm_config is not None and not isinstance(llm_config, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'orchestrator_llm_config' must be an object",
+            details={"field": "orchestrator_llm_config", "value": llm_config},
+        )
+    for field in BUILTIN_ORCHESTRATOR_FIELDS:
+        _validate_numeric(
+            config,
+            field.key,
+            field.minimum,
+            field.maximum,
+            allow_float=field.allow_float,
+        )
+    _validate_bool(config, "react_enabled")
+    _validate_bool(config, "react_trace_visible")
+    _validate_bool(config, "llm_planning")
+    _validate_bool(config, "planner_fallback_to_template")
+    _validate_string_list(config, "task_fallback_agent_ids")
+    _validate_bool(config, "orchestrator_memory_enabled")
+    _validate_bool(config, "orchestrator_tool_calling_enabled")
+    _validate_bool(config, "orchestrator_tool_trace_visible")
     _validate_mcp_servers(config)
 
 

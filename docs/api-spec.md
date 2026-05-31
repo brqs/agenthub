@@ -379,7 +379,111 @@ Authorization: Bearer eyJhbGc...
 
 ---
 
-### 3.7 GET/PATCH `/api/v1/context-compression/config` — 上下文压缩配置
+### 3.7 GET `/api/v1/conversations/{id}/orchestrator-runs` — Orchestrator 结构化编排记录
+
+**鉴权**：✅
+
+**说明**：仅开发环境可用，用于查看 Orchestrator structured memory。该 API 读取 `orchestrator_runs`，不会暴露 API Key、环境变量、CLI args 或 SDK options。
+
+**Query**：
+
+| 参数 | 默认 | 范围 | 说明 |
+|---|---:|---:|---|
+| `limit` | `20` | `1..100` | 返回最近 run 数 |
+
+**响应 200**：
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "conversation_id": "uuid",
+      "agent_message_id": "uuid",
+      "user_message_id": "uuid",
+      "status": "done",
+      "user_request": "请编排当前群聊完成 HTML 文件",
+      "plan_source": "LLM planner/config",
+      "final_summary": "Execution summary\n- succeeded...",
+      "created_at": "2026-05-30T12:00:00Z",
+      "updated_at": "2026-05-30T12:00:03Z",
+      "completed_at": "2026-05-30T12:00:03Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+**错误**：
+- `404 NOT_FOUND` —— 非开发环境隐藏该调试端点
+- `403 FORBIDDEN` —— 不是自己的会话
+
+---
+
+### 3.8 GET `/api/v1/conversations/{id}/orchestrator-runs/{run_id}` — Orchestrator 编排详情
+
+**鉴权**：✅
+
+**说明**：仅开发环境可用，返回单次 Orchestrator run 的 task、attempt 和 event 时间线。
+
+**响应 200**：
+```json
+{
+  "run": {
+    "id": "uuid",
+    "conversation_id": "uuid",
+    "status": "done",
+    "user_request": "请编排当前群聊完成 HTML 文件",
+    "plan_source": "LLM planner/config",
+    "final_summary": "Execution summary..."
+  },
+  "tasks": [
+    {
+      "id": "uuid",
+      "run_id": "uuid",
+      "task_id": "create",
+      "agent_id": "opencode-helper",
+      "title": "Create HTML",
+      "depends_on": [],
+      "priority": 0,
+      "expected_output": "orchestrator-flow-smoke.html",
+      "include_history": true,
+      "final_state": "succeeded"
+    }
+  ],
+  "attempts": [
+    {
+      "id": "uuid",
+      "task_id": "create",
+      "attempt_index": 1,
+      "agent_id": "opencode-helper",
+      "state": "succeeded",
+      "text_preview": "Created orchestrator-flow-smoke.html",
+      "artifact_paths": ["orchestrator-flow-smoke.html"],
+      "missing_artifact_paths": [],
+      "error": null
+    }
+  ],
+  "events": [
+    {
+      "id": "uuid",
+      "event_type": "planned",
+      "task_id": null,
+      "agent_id": null,
+      "payload": { "task_count": 2 },
+      "created_at": "2026-05-30T12:00:00Z"
+    }
+  ]
+}
+```
+
+**错误**：
+- `404 ORCHESTRATOR_RUN_NOT_FOUND`
+- `404 NOT_FOUND` —— 非开发环境隐藏该调试端点
+- `403 FORBIDDEN` —— 不是自己的会话
+
+---
+
+### 3.9 GET/PATCH `/api/v1/context-compression/config` — 上下文压缩配置
 
 **鉴权**：✅
 

@@ -229,6 +229,7 @@ async for chunk in adapter.stream(...):
 | **ConversationService** | Service | `services/conversation_service.py` | 会话业务逻辑 |
 | **MessageService** | Service | `services/message_service.py` | 消息业务逻辑、状态机 |
 | **ContextBuilder** | Service | `services/context_builder.py` | 历史消息 → Agent 上下文 |
+| **OrchestratorMemoryStore** ✨ | Service | `services/orchestrator_memory.py` | Orchestrator structured memory 读写、历史 run context 注入、debug 查询 |
 | **WorkspaceService** ✨ | Service | `services/workspace_service.py` | Workspace CRUD + 路径校验（**pivot 新增**） |
 | **BaseAgentAdapter v2** | Agent | `agents/base.py` | Adapter 抽象基类（含 workspace_path / tool_specs） |
 | **AgentRegistry v2** | Agent | `agents/registry.py` | 注册 ExternalAgent / BuiltinAgent / Orchestrator |
@@ -242,6 +243,30 @@ async for chunk in adapter.stream(...):
 | **PubSub** | Infrastructure | `core/pubsub.py` | Redis Pub/Sub 封装 |
 
 > ✨ = pivot 新增 / 重新分层。完整迁移映射见 [agent-runtime-pivot.adr.md §6](spec/agent-runtime-pivot.adr.md)。
+
+### 3.1.1 Orchestrator Structured Memory 表
+
+2026-05-30 新增 Orchestrator 结构化编排记忆，migration：
+
+```text
+backend/alembic/versions/9a1b2c3d4e5f_add_orchestrator_memory.py
+```
+
+新增表：
+
+| 表 | 用途 |
+|---|---|
+| `orchestrator_runs` | 一次 Orchestrator 编排 run，记录 conversation、触发消息、状态、用户请求、plan source、final summary。 |
+| `orchestrator_tasks` | run 内 task graph，记录 task id、agent、依赖、priority、expected output、最终状态。 |
+| `orchestrator_task_attempts` | 每个 task 的每次 attempt，记录实际执行 agent、状态、文本摘要、tool 摘要、artifact、missing artifact、error。 |
+| `orchestrator_run_events` | 编排时间线事件，如 `planned`、`task_started`、`task_result`、`react_decision`、`finished`。 |
+
+边界：
+
+- Orchestrator adapter 仍不直接访问 DB。
+- `stream.py` 创建 `OrchestratorMemoryStore`，通过 `config["orchestrator_memory_writer"]` 注入给 Orchestrator。
+- 下一轮 Orchestrator 请求前，service 会把最近 terminal runs 格式化为 `Previous Orchestrator structured memory:` system message，并插入到最新 user request 之前。
+- 该结构化 memory 不替代 `conversation_memories` 文本压缩表，两者并存。
 
 ### 3.2 组件交互（C4 Container 视图）
 
@@ -734,12 +759,12 @@ class ModelGateway:
 ```
 
 - ❌ 不注册到顶层 AgentRegistry（不是顶层 Agent）
-- ✅ retry / timeout / 错误码统一（复用 [docs/b2/spec/provider-resilience.spec.md](b2/spec/provider-resilience.spec.md)）
+- ✅ retry / timeout / 错误码统一（复用 [docs/b2/spec/model-gateway.spec.md](b2/spec/model-gateway.spec.md)）
 - ✅ 新增能力：把 Provider 原生 tool calling 协议（Anthropic `tool_use` / OpenAI `tool_calls`）映射为 `StreamChunk(tool_call)`
 
 ### 6.4 ClaudeBackend 实现示意（v1 ClaudeAdapter 迁移而来）
 
-> 📍 v1.1 已迁移到 `backend/app/agents/model_gateway/claude.py`，作为 BuiltinAgent 的可选 LLM 后端。原 v1 代码（基于 `anthropic.AsyncAnthropic.messages.stream`）保留其骨架，**新增**对 Anthropic `tool_use` content block 的解析与 `StreamChunk(tool_call/tool_result)` 映射；retry / timeout / error_code 策略沿用 [provider-resilience.spec.md](b2/spec/provider-resilience.spec.md)。完整设计见 [builtin-agent-framework.spec.md §6](b2/spec/builtin-agent-framework.spec.md)。
+> 📍 v1.1 已迁移到 `backend/app/agents/model_gateway/claude.py`，作为 BuiltinAgent 的可选 LLM 后端。原 v1 代码（基于 `anthropic.AsyncAnthropic.messages.stream`）保留其骨架，**新增**对 Anthropic `tool_use` content block 的解析与 `StreamChunk(tool_call/tool_result)` 映射；retry / timeout / error_code 策略沿用 [model-gateway.spec.md](b2/spec/model-gateway.spec.md)。完整设计见 [builtin-agent-framework.spec.md §6](b2/spec/builtin-agent-framework.spec.md)。
 
 ```python
 # backend/app/agents/model_gateway/claude.py（伪代码）

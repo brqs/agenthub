@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as agentsAdapter from '@/lib/adapters/agents';
 import { env } from '@/lib/env';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Agent } from '@/lib/types';
 import { useAgentStore, type CreateAgentInput } from '@/stores/agentStore';
+import { useAuthStore } from '@/stores/authStore';
 
 const DEFAULT_MODELS: Record<CreateAgentInput['provider'], string> = {
   builtin: 'deepseek',
@@ -56,6 +58,7 @@ export function buildAgentConfig(input: CreateAgentInput): Record<string, unknow
 
 export function useCreateAgent() {
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const createMockAgent = useAgentStore((state) => state.createAgent);
   const addAgent = useAgentStore((state) => state.addAgent);
   const [mockPending, setMockPending] = useState(false);
@@ -72,7 +75,7 @@ export function useCreateAgent() {
       }),
     onSuccess: (created) => {
       addAgent(created);
-      void queryClient.invalidateQueries({ queryKey: ['agents'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.agents(userId) });
     },
   });
 

@@ -19,7 +19,7 @@ class OpenAIAdapter(OpenAIBackend, BaseAgentAdapter):
     """Legacy adapter delegating raw LLM behavior to ModelGateway backend."""
 
     provider = "openai"
-    default_model = "gpt-4o"
+    default_model = "mimo-v2.5-pro"
     api_key_setting = "openai_api_key"
     base_url_setting = "openai_base_url"
     display_name = "OpenAI"

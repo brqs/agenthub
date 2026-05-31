@@ -22,6 +22,7 @@ dependencies = [
     "anthropic>=0.39.0",
     "openai>=1.51.0",
     "openai-agents>=0.17.4",
+    "playwright>=1.49.0",
     "structlog>=24.4.0",
 ]
 
@@ -91,4 +92,9 @@ python_files = ["test_*.py"]
 addopts = "-v --tb=short"
 markers = [
     "slow: tests that call live external providers or are too slow for default runs",
+]
+
+[dependency-groups]
+dev = [
+    "socksio>=1.0.0",
 ]

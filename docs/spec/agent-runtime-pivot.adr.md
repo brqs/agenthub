@@ -216,5 +216,5 @@ PDF 中的 "Claude Code / Codex / OpenCode" **不是 LLM API**，而是**已具�
 - 自建 Framework 规范：[docs/b2/spec/builtin-agent-framework.spec.md](../b2/spec/builtin-agent-framework.spec.md)
 - Workspace 沙箱规范：[docs/b1/spec/workspace-sandbox.spec.md](../b1/spec/workspace-sandbox.spec.md)
 - 现有 Orchestrator 规范：[docs/b2/spec/orchestrator.spec.md](../b2/spec/orchestrator.spec.md)
-- 现有 Provider 弹性规范：[docs/b2/spec/provider-resilience.spec.md](../b2/spec/provider-resilience.spec.md)
+- 现有 ModelGateway 弹性规范：[docs/b2/spec/model-gateway.spec.md](../b2/spec/model-gateway.spec.md)
 - 总体协作宪法：[CLAUDE.md](../../CLAUDE.md) / [AGENTS.md](../../AGENTS.md)

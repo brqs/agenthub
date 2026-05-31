@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import anthropic
 
@@ -23,6 +24,8 @@ from app.agents.model_gateway.resilience import (
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 from app.core.config import settings
+
+DEFAULT_TOOL_INPUT_SCHEMA: dict[str, Any] = {"type": "object", "properties": {}}
 
 
 class ClaudeBackend:
@@ -86,6 +89,20 @@ class ClaudeBackend:
     def effective_system_prompt(self, override: str | None) -> str | None:
         return override if override is not None else self.system_prompt
 
+    def _anthropic_tools(self, tools: list[ToolSpec] | None) -> list[dict[str, Any]]:
+        if not tools:
+            return []
+        anthropic_tools: list[dict[str, Any]] = []
+        for tool in tools:
+            entry: dict[str, Any] = {
+                "name": tool.name,
+                "input_schema": tool.parameters or DEFAULT_TOOL_INPUT_SCHEMA,
+            }
+            if tool.description:
+                entry["description"] = tool.description
+            anthropic_tools.append(entry)
+        return anthropic_tools
+
     async def _open_stream_with_retries(
         self,
         client: Any,
@@ -131,7 +148,6 @@ class ClaudeBackend:
         config: dict[str, Any] | None = None,
         tools: list[ToolSpec] | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        _ = tools
         merged = self.merged_config(config)
         resilience = parse_resilience_config(merged)
         model = merged.get("model") or "claude-sonnet-4-6"
@@ -187,6 +203,12 @@ class ClaudeBackend:
         }
         if effective_system:
             stream_kwargs["system"] = effective_system
+        anthropic_tools = self._anthropic_tools(tools)
+        if anthropic_tools:
+            stream_kwargs["tools"] = anthropic_tools
+            tool_choice = merged.get("tool_choice")
+            if isinstance(tool_choice, dict):
+                stream_kwargs["tool_choice"] = tool_choice
 
         stream_manager, stream, setup_error, attempts = await self._open_stream_with_retries(
             client,
@@ -226,9 +248,13 @@ class ClaudeBackend:
         stream_error: BaseException | None = None
         try:
             try:
-                async for text in stream.text_stream:
-                    for chunk in parser.feed(text):
+                if anthropic_tools and hasattr(stream, "__aiter__"):
+                    async for chunk in self._stream_tool_events(stream, parser):
                         yield chunk
+                else:
+                    async for text in stream.text_stream:
+                        for chunk in parser.feed(text):
+                            yield chunk
             except Exception as exc:
                 stream_error = exc
                 for chunk in parser.flush():
@@ -270,3 +296,87 @@ class ClaudeBackend:
                     await close_stream_once(stream_error)
                 except Exception as cleanup_exc:
                     _ = cleanup_exc
+
+    async def _stream_tool_events(
+        self,
+        stream: Any,
+        parser: StreamingArtifactParser,
+    ) -> AsyncIterator[StreamChunk]:
+        tool_buffers: dict[int, dict[str, Any]] = {}
+        async for event in stream:
+            event_type = _string_attr(event, "type")
+            index = _int_attr(event, "index")
+            if event_type == "content_block_start":
+                content_block = getattr(event, "content_block", None)
+                block_type = _string_attr(content_block, "type")
+                if block_type == "text":
+                    text = _string_attr(content_block, "text")
+                    if text:
+                        for chunk in parser.feed(text):
+                            yield chunk
+                elif block_type == "tool_use" and index is not None:
+                    tool_buffers[index] = {
+                        "id": _string_attr(content_block, "id") or f"tool-{index}",
+                        "name": _string_attr(content_block, "name") or "unknown_tool",
+                        "input": _dict_attr(content_block, "input"),
+                        "json_parts": [],
+                    }
+            elif event_type == "content_block_delta":
+                delta = getattr(event, "delta", None)
+                delta_type = _string_attr(delta, "type")
+                if delta_type == "text_delta":
+                    text = _string_attr(delta, "text")
+                    if text:
+                        for chunk in parser.feed(text):
+                            yield chunk
+                elif delta_type == "input_json_delta" and index in tool_buffers:
+                    partial_json = _string_attr(delta, "partial_json")
+                    if partial_json:
+                        cast(list[str], tool_buffers[index]["json_parts"]).append(
+                            partial_json
+                        )
+            elif event_type == "content_block_stop" and index in tool_buffers:
+                tool = tool_buffers.pop(index)
+                for chunk in parser.flush():
+                    yield chunk
+                yield StreamChunk(
+                    event_type="tool_call",
+                    agent_id=self.agent_id,
+                    call_id=cast(str, tool["id"]),
+                    tool_name=cast(str, tool["name"]),
+                    tool_arguments=_tool_arguments(
+                        cast(dict[str, Any] | None, tool["input"]),
+                        cast(list[str], tool["json_parts"]),
+                    ),
+                )
+
+
+def _string_attr(value: Any, name: str) -> str | None:
+    attr = getattr(value, name, None)
+    return attr if isinstance(attr, str) else None
+
+
+def _int_attr(value: Any, name: str) -> int | None:
+    attr = getattr(value, name, None)
+    return attr if isinstance(attr, int) else None
+
+
+def _dict_attr(value: Any, name: str) -> dict[str, Any] | None:
+    attr = getattr(value, name, None)
+    return dict(attr) if isinstance(attr, dict) else None
+
+
+def _tool_arguments(
+    initial_input: dict[str, Any] | None,
+    json_parts: list[str],
+) -> dict[str, Any]:
+    raw_json = "".join(json_parts).strip()
+    if raw_json:
+        try:
+            decoded = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return {"_raw_input": raw_json}
+        if isinstance(decoded, dict):
+            return decoded
+        return {"_value": decoded}
+    return initial_input or {}
