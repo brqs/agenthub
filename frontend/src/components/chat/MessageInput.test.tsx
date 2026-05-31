@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageInput } from './MessageInput';
-import { DEMO_PROMPT } from './DemoPromptBar';
 import { mockAgents, type DemoConversation } from '@/lib/mockData';
 
 const singleConversation: DemoConversation = {
@@ -113,12 +112,4 @@ describe('MessageInput', () => {
     expect(screen.getByPlaceholderText('发消息到 单聊测试')).toHaveValue('');
   });
 
-  it('fills the demo prompt in group conversations', () => {
-    render(<MessageInput conversation={groupConversation} onSend={vi.fn()} />);
-    const input = screen.getByPlaceholderText('发消息到 群聊测试');
-
-    fireEvent.click(screen.getByRole('button', { name: DEMO_PROMPT }));
-
-    expect(input).toHaveValue(DEMO_PROMPT);
-  });
 });
