@@ -40,6 +40,10 @@ def workspace_guard_prompt(workspace_path: Path) -> str:
             "you to.",
             "- Create, edit, read, and reference project files only inside the "
             "workspace root. Prefer relative paths from the workspace root.",
+            "- When the active request asks you to create or edit files, do the "
+            "file work directly. Do not enter a read-only planning mode, ask for "
+            "plan approval, or wait for user approval before writing the requested "
+            "workspace files.",
             "- Never write to /home/user, /home/ubuntu, /tmp, parent directories, "
             "or any absolute path outside the workspace root.",
             "- Do not run, suggest, or print shell commands for foreground or "

@@ -38,6 +38,7 @@ from app.agents.orchestrator.platform_facts import (
     platform_fact_intent,
     platform_fact_text,
 )
+from app.agents.orchestrator.quality import run_quality_gate
 from app.agents.orchestrator.react import react_enabled, run_react_loop
 from app.agents.orchestrator.summary import (
     fallback_summary_text as _fallback_summary_text,
@@ -324,6 +325,21 @@ class OrchestratorAdapter(BaseAgentAdapter):
             ):
                 next_block_index = updated_block_index
                 yield chunk
+        async for chunk, updated_block_index in run_quality_gate(
+            merged_config,
+            messages,
+            next_block_index,
+            workspace_path,
+            tool_specs,
+            run_context,
+            run_task=_run_task,
+            text_block_with_next=_text_block_with_next,
+            positive_int_config=_positive_int_config,
+        ):
+            next_block_index = updated_block_index
+            yield chunk
+            if chunk.event_type == "error":
+                return
         yield StreamChunk(
             event_type="done", agent_id=self.agent_id, total_blocks=next_block_index
         )

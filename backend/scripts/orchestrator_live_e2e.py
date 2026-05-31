@@ -22,19 +22,26 @@ PASSWORD = os.getenv("AGENTHUB_E2E_PASSWORD", "12345678")
 SSE_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_SSE_PATH",
-        "/tmp/agenthub_orchestrator_8082_sse.jsonl",  # noqa: S108 - documented output.
+        "/tmp/agenthub_orchestrator_quality_sse.jsonl",  # noqa: S108 - documented output.
     )
 )
 REPORT_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_REPORT_PATH",
-        "/tmp/agenthub_orchestrator_8082_report.json",  # noqa: S108 - documented output.
+        "/tmp/agenthub_orchestrator_quality_report.json",  # noqa: S108 - documented output.
+    )
+)
+BROWSER_REPORT_PATH = Path(
+    os.getenv(
+        "AGENTHUB_E2E_BROWSER_REPORT_PATH",
+        "/tmp/agenthub_orchestrator_quality_browser.json",  # noqa: S108 - documented output.
     )
 )
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
-    "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff 和网页预览的前端"
-    "开发演示，主题随机，部署在端口8082",
+    "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff、网页预览、"
+    "按钮交互和移动端适配的前端开发演示，主题随机，部署在端口8082，"
+    "并完成浏览器级质量验收",
 )
 AGENT_IDS = ["orchestrator", "claude-code", "opencode-helper", "codex-helper"]
 REQUIRED_FRONTEND_FILES = {"index.html", "styles.css", "app.js"}
@@ -165,6 +172,42 @@ def classify_tool_errors(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return failures
 
 
+def tool_results_by_name(events: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    names_by_call_id: dict[str, str] = {}
+    results: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        data = event.get("data") or {}
+        if event.get("event") == "tool_call":
+            call_id = data.get("call_id")
+            tool_name = data.get("tool_name")
+            if isinstance(call_id, str) and isinstance(tool_name, str):
+                names_by_call_id[call_id] = tool_name
+            continue
+        if event.get("event") != "tool_result":
+            continue
+        call_id = data.get("call_id")
+        if not isinstance(call_id, str):
+            continue
+        tool_name = names_by_call_id.get(call_id)
+        if tool_name:
+            results.setdefault(tool_name, []).append(event)
+    return results
+
+
+def parse_tool_json(event: dict[str, Any] | None) -> dict[str, Any]:
+    if not event:
+        return {}
+    data = event.get("data") or {}
+    raw = data.get("tool_output")
+    if not isinstance(raw, str):
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def main() -> None:
     started_at = time.time()
     SSE_PATH.write_text("", encoding="utf-8")
@@ -174,7 +217,11 @@ def main() -> None:
         "account": USERNAME,
         "prompt": PROMPT,
         "target_agent_ids": AGENT_IDS,
-        "artifacts": {"sse_jsonl": str(SSE_PATH), "report_json": str(REPORT_PATH)},
+        "artifacts": {
+            "sse_jsonl": str(SSE_PATH),
+            "report_json": str(REPORT_PATH),
+            "browser_report_json": str(BROWSER_REPORT_PATH),
+        },
         "checks": {},
         "bugs": [],
         "warnings": [],
@@ -242,6 +289,7 @@ def main() -> None:
             for event in events
             if event.get("event") == "agent_switch" and isinstance(event.get("data"), dict)
         ]
+        tool_results = tool_results_by_name(events)
 
         messages = client.get(f"/api/v1/conversations/{conv_id}/messages", headers=headers)
         messages.raise_for_status()
@@ -369,13 +417,80 @@ def main() -> None:
                 block for block in content_blocks if block.get("type") == "web_preview"
             ]
             report["checks"]["platform_preview_tool_called"] = bool(preview_tool_blocks)
+            report["checks"]["formal_preview_tool_called"] = any(
+                str(block.get("call_id", "")).startswith("orch.quality.")
+                for block in preview_tool_blocks
+            )
             report["checks"]["platform_preview_tool_succeeded"] = any(
                 block.get("status") == "ok" for block in preview_tool_blocks
+            )
+            verify_tool_blocks = [
+                block
+                for block in content_blocks
+                if block.get("type") == "tool_call"
+                and block.get("tool_name") == "verify_web_preview"
+            ]
+            report["checks"]["browser_verify_tool_called"] = bool(verify_tool_blocks)
+            report["checks"]["formal_browser_verify_tool_called"] = any(
+                str(block.get("call_id", "")).startswith("orch.quality.")
+                for block in verify_tool_blocks
+            )
+            report["checks"]["browser_verify_tool_succeeded"] = any(
+                block.get("status") == "ok" for block in verify_tool_blocks
             )
             report["checks"]["preview_url_in_agent_message"] = bool(
                 preview_message_blocks
                 and isinstance(preview_message_blocks[0].get("url"), str)
                 and preview_message_blocks[0]["url"].startswith("http")
+            )
+
+            verify_events = tool_results.get("verify_web_preview", [])
+            browser_report = parse_tool_json(verify_events[-1] if verify_events else None)
+            if browser_report:
+                report["browser_verification"] = browser_report
+                write_json(BROWSER_REPORT_PATH, browser_report)
+            screenshots = browser_report.get("screenshots") if browser_report else {}
+            if not isinstance(screenshots, dict):
+                screenshots = {}
+            checks = browser_report.get("checks") if browser_report else {}
+            if not isinstance(checks, dict):
+                checks = {}
+            report["checks"]["browser_verify_passed"] = (
+                browser_report.get("passed") is True if browser_report else False
+            )
+            report["checks"]["browser_desktop_screenshot_exists"] = Path(
+                str(screenshots.get("desktop", ""))
+            ).exists()
+            report["checks"]["browser_mobile_screenshot_exists"] = Path(
+                str(screenshots.get("mobile", ""))
+            ).exists()
+            report["checks"]["browser_no_console_errors"] = (
+                checks.get("no_console_errors") is True
+            )
+            report["checks"]["browser_no_page_errors"] = checks.get("no_page_errors") is True
+            report["checks"]["browser_no_failed_requests"] = (
+                checks.get("no_failed_requests") is True
+            )
+            report["checks"]["browser_mobile_no_horizontal_overflow"] = (
+                checks.get("mobile_no_horizontal_overflow") is not False
+            )
+            click_checks = [
+                value for key, value in checks.items() if key.endswith("_click_targets_ok")
+            ]
+            report["checks"]["browser_button_interaction_ok"] = (
+                bool(click_checks) and all(value is True for value in click_checks)
+            )
+            failed_verify_events = [
+                event
+                for event in verify_events[:-1]
+                if (event.get("data") or {}).get("tool_status") == "error"
+            ]
+            report["checks"]["browser_repaired_if_needed"] = (
+                not failed_verify_events
+                or (
+                    report["checks"]["browser_verify_passed"]
+                    and len(report["agent_switch_to_agents"]) >= 2
+                )
             )
 
             preview = client.get(
@@ -410,6 +525,11 @@ def main() -> None:
                     "platform_preview_tool_succeeded",
                     "platform_preview_auto_started",
                     "preview_url_in_agent_message",
+                    "formal_preview_tool_called",
+                    "browser_verify_tool_called",
+                    "formal_browser_verify_tool_called",
+                    "browser_verify_tool_succeeded",
+                    "browser_verify_passed",
                 )
             ):
                 report["bugs"].append(
@@ -496,12 +616,61 @@ def main() -> None:
                 "platform_preview_tool_called",
                 False,
             ),
+            "formal_preview_tool_called": report["checks"].get(
+                "formal_preview_tool_called",
+                False,
+            ),
             "platform_preview_auto_started": report["checks"].get(
                 "platform_preview_auto_started",
                 False,
             ),
             "preview_url_in_agent_message": report["checks"].get(
                 "preview_url_in_agent_message",
+                False,
+            ),
+            "browser_verify_tool_called": report["checks"].get(
+                "browser_verify_tool_called",
+                False,
+            ),
+            "formal_browser_verify_tool_called": report["checks"].get(
+                "formal_browser_verify_tool_called",
+                False,
+            ),
+            "browser_verify_tool_succeeded": report["checks"].get(
+                "browser_verify_tool_succeeded",
+                False,
+            ),
+            "browser_verify_passed": report["checks"].get("browser_verify_passed", False),
+            "browser_desktop_screenshot_exists": report["checks"].get(
+                "browser_desktop_screenshot_exists",
+                False,
+            ),
+            "browser_mobile_screenshot_exists": report["checks"].get(
+                "browser_mobile_screenshot_exists",
+                False,
+            ),
+            "browser_no_console_errors": report["checks"].get(
+                "browser_no_console_errors",
+                False,
+            ),
+            "browser_no_page_errors": report["checks"].get(
+                "browser_no_page_errors",
+                False,
+            ),
+            "browser_no_failed_requests": report["checks"].get(
+                "browser_no_failed_requests",
+                False,
+            ),
+            "browser_mobile_no_horizontal_overflow": report["checks"].get(
+                "browser_mobile_no_horizontal_overflow",
+                False,
+            ),
+            "browser_button_interaction_ok": report["checks"].get(
+                "browser_button_interaction_ok",
+                False,
+            ),
+            "browser_repaired_if_needed": report["checks"].get(
+                "browser_repaired_if_needed",
                 False,
             ),
             "dispatch_only_group_members": report["checks"].get(
@@ -524,6 +693,7 @@ def main() -> None:
     write_json(REPORT_PATH, report)
     print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
     print(f"report={REPORT_PATH}")
+    print(f"browser_report={BROWSER_REPORT_PATH}")
     print(f"sse={SSE_PATH}")
 
 
