@@ -160,15 +160,39 @@ async def _create_conversation(
     return response.json()
 
 
+async def _create_group_conversation(
+    client: AsyncClient,
+    headers: dict[str, str],
+    agent_ids: list[str],
+) -> dict[str, Any]:
+    response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Group memory stream test",
+            "mode": "group",
+            "agent_ids": agent_ids,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 async def _send_message(
     client: AsyncClient,
     headers: dict[str, str],
     conversation_id: str,
+    *,
+    target_agent_id: str | None = None,
+    text: str = "please use a tool",
 ) -> dict[str, Any]:
+    payload: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
+    if target_agent_id is not None:
+        payload["target_agent_id"] = target_agent_id
     response = await client.post(
         f"/api/v1/conversations/{conversation_id}/messages",
         headers=headers,
-        json={"content": [{"type": "text", "text": "please use a tool"}]},
+        json=payload,
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -490,6 +514,81 @@ async def test_stream_heartbeat_is_sse_only_not_persisted(
     assert "event: heartbeat" in body
     assert message.status == "done"
     assert message.content == []
+
+
+async def test_group_stream_passes_shared_memory_with_agent_labels(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    agent_a = await _insert_agent()
+    agent_b = await _insert_agent()
+    conversation = await _create_group_conversation(client, headers, [agent_a, agent_b])
+    captured: dict[str, list[Any]] = {}
+
+    class FakeAdapter:
+        def __init__(self, agent_id: str) -> None:
+            self.agent_id = agent_id
+
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            _ = system_prompt, config, workspace_path, tool_specs
+            captured[self.agent_id] = messages
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta=f"{self.agent_id} stored AgentHub detail",
+            )
+            yield StreamChunk(event_type="block_end", block_index=0)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter(agent_id)
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    first = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=agent_a,
+        text="Remember: AgentHub backend uses FastAPI.",
+    )
+    status_code, _ = await _stream_message(
+        client,
+        headers,
+        first["agent_message"]["id"],
+    )
+    assert status_code == 200
+
+    second = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=agent_b,
+        text="What did the first agent say?",
+    )
+    status_code, _ = await _stream_message(
+        client,
+        headers,
+        second["agent_message"]["id"],
+    )
+
+    assert status_code == 200
+    joined = "\n".join(message.content for message in captured[agent_b])
+    assert "group conversation" in joined
+    assert f"[Agent: {agent_a}]" in joined
+    assert f"{agent_a} stored AgentHub detail" in joined
+    assert "What did the first agent say?" in joined
 
 
 async def test_stream_persists_tool_call_block_error(
