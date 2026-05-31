@@ -54,6 +54,7 @@ services:
       - ./backend/tests:/app/tests
       - ./backend/alembic:/app/alembic
       - ./backend/alembic.ini:/app/alembic.ini
+      - ./shared:/shared:ro
       - ./workspaces:/workspaces
     depends_on:
       postgres:
