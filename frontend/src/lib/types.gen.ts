@@ -362,6 +362,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/{id}/orchestrator-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * List Orchestrator structured runs
+         * @description Development-only endpoint for Orchestrator memory debugging.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrchestratorRunList"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{id}/orchestrator-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get Orchestrator structured run detail
+         * @description Development-only endpoint for Orchestrator memory debugging.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    run_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OrchestratorRunDetail"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/context-compression/config": {
         parameters: {
             query?: never;
@@ -835,6 +927,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{conversation_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        /** Get workspace preview status */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Preview session */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspacePreviewResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        /** Start or reuse workspace static preview */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WorkspacePreviewRequest"];
+                };
+            };
+            responses: {
+                /** @description Preview session */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspacePreviewResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /** @description Preview start failed */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        /** Stop workspace preview */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Stopped preview session */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspacePreviewResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents": {
         parameters: {
             query?: never;
@@ -1147,6 +1343,91 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        OrchestratorRun: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversation_id: string;
+            /** Format: uuid */
+            agent_message_id?: string | null;
+            /** Format: uuid */
+            user_message_id?: string | null;
+            /** @enum {string} */
+            status: "running" | "done" | "error" | "cancelled";
+            user_request: string;
+            plan_source: string;
+            final_summary: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+        };
+        OrchestratorTask: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            run_id: string;
+            task_id: string;
+            agent_id: string;
+            title: string;
+            instruction: string;
+            depends_on: string[];
+            priority: number;
+            expected_output?: string | null;
+            include_history: boolean;
+            final_state: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        OrchestratorTaskAttempt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            run_id: string;
+            /** Format: uuid */
+            task_row_id: string;
+            task_id: string;
+            attempt_index: number;
+            agent_id: string;
+            state: string;
+            text_preview: string;
+            tool_summaries: string[];
+            artifact_paths: string[];
+            missing_artifact_paths: string[];
+            error?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+        };
+        OrchestratorRunEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            run_id: string;
+            event_type: string;
+            task_id?: string | null;
+            agent_id?: string | null;
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            created_at: string;
+        };
+        OrchestratorRunList: {
+            items: components["schemas"]["OrchestratorRun"][];
+            total: number;
+        };
+        OrchestratorRunDetail: {
+            run: components["schemas"]["OrchestratorRun"];
+            tasks: components["schemas"]["OrchestratorTask"][];
+            attempts: components["schemas"]["OrchestratorTaskAttempt"][];
+            events: components["schemas"]["OrchestratorRunEvent"][];
+        };
         ContextCompressionConfig: {
             /** @enum {string} */
             mode: "hybrid" | "rules";
@@ -1241,13 +1522,68 @@ export interface components {
              * @enum {string}
              */
             model_backend?: "claude" | "deepseek" | "openai";
+            /**
+             * @description ModelGateway backend for orchestrator direct answers.
+             * @enum {string}
+             */
+            answer_model_backend?: "claude" | "deepseek" | "openai";
+            /**
+             * @description ModelGateway backend for orchestrator LLM planning.
+             * @enum {string}
+             */
+            planner_model_backend?: "claude" | "deepseek" | "openai";
+            /** @description Whether Orchestrator uses LLM planning for task decomposition. */
+            llm_planning?: boolean;
+            /** @description Whether planner failures may fall back to legacy template tasks. */
+            planner_fallback_to_template?: boolean;
+            /** @description Model parameters shared by orchestrator planner/replanner. */
+            orchestrator_llm_config?: {
+                [key: string]: unknown;
+            };
             max_iterations?: number;
+            /** @description Whether builtin orchestrator uses ReAct dynamic task graph execution. */
+            react_enabled?: boolean;
+            /** @description Whether ReAct step/action/observation summaries are visible in chat output. */
+            react_trace_visible?: boolean;
+            react_decision_max_tokens?: number;
             mcp_servers?: {
                 [key: string]: unknown;
             }[];
             command?: string | string[];
             args?: string[];
             timeout_seconds?: number;
+            max_runtime_seconds?: number;
+            idle_timeout_seconds?: number;
+            heartbeat_interval_seconds?: number;
+            /** @description Whether external runtime agents may answer pure Q&A through ModelGateway without starting SDK/CLI. */
+            qa_short_circuit_enabled?: boolean;
+            /**
+             * @description ModelGateway backend for external direct chat.
+             * @enum {string}
+             */
+            qa_model_backend?: "claude" | "deepseek" | "openai";
+            qa_model?: string | null;
+            qa_classifier_model?: string | null;
+            qa_max_tokens?: number;
+            qa_classifier_max_tokens?: number;
+            qa_temperature?: number;
+            qa_request_timeout_seconds?: number;
+            /** @description Optional per-task fallback agents for orchestrator retries. */
+            task_fallback_agent_ids?: string[];
+            max_task_attempts?: number;
+            task_result_context_max_chars?: number;
+            task_result_item_max_chars?: number;
+            /** @description Whether Orchestrator writes and injects structured run memory. */
+            orchestrator_memory_enabled?: boolean;
+            orchestrator_memory_recent_runs?: number;
+            orchestrator_memory_context_max_chars?: number;
+            /** @description Whether Orchestrator uses native tool calling for ordinary task requests. */
+            orchestrator_tool_calling_enabled?: boolean;
+            /** @description Whether Orchestrator native tool_call/tool_result events are visible in chat output. */
+            orchestrator_tool_trace_visible?: boolean;
+            orchestrator_tool_max_iterations?: number;
+            orchestrator_tool_result_max_chars?: number;
+            orchestrator_tool_read_max_bytes?: number;
         } & {
             [key: string]: unknown;
         };
@@ -1297,6 +1633,37 @@ export interface components {
             /** @example /workspaces/00000000-0000-0000-0000-000000000000 */
             root: string;
             tree: components["schemas"]["WorkspaceTreeNode"];
+        };
+        WorkspacePreviewRequest: {
+            entry_path: string;
+            /**
+             * @default static
+             * @enum {string}
+             */
+            mode: "static";
+        };
+        WorkspacePreviewResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversation_id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            entry_path: string;
+            /** @enum {string} */
+            mode: "static";
+            port: number;
+            pid?: number | null;
+            url: string;
+            /** @enum {string} */
+            status: "starting" | "running" | "stopped" | "error";
+            error?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            last_accessed_at: string;
         };
     };
     responses: {

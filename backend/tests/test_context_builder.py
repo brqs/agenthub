@@ -42,7 +42,11 @@ def use_rules_compression_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "deepseek_api_key", "")
 
 
-async def _create_conversation() -> UUID:
+async def _create_conversation(
+    *,
+    mode: str = "single",
+    agent_ids: list[str] | None = None,
+) -> UUID:
     async with SessionFactory() as db:
         user = User(username=f"ctx_{uuid4().hex[:16]}", password_hash="hash")
         db.add(user)
@@ -50,8 +54,8 @@ async def _create_conversation() -> UUID:
         conversation = Conversation(
             user_id=user.id,
             title="Context test",
-            mode="single",
-            agent_ids=["test-agent"],
+            mode=mode,
+            agent_ids=agent_ids or ["test-agent"],
         )
         db.add(conversation)
         await db.commit()
@@ -82,6 +86,32 @@ async def _insert_text_messages(
     return ids
 
 
+async def _insert_group_messages(
+    conversation_id: UUID,
+    rows: list[tuple[str, str, str | None, str, bool]],
+    *,
+    start: datetime | None = None,
+) -> list[UUID]:
+    start = start or datetime.now(UTC)
+    ids: list[UUID] = []
+    async with SessionFactory() as db:
+        for index, (role, text, agent_id, status, is_pinned) in enumerate(rows):
+            message = Message(
+                conversation_id=conversation_id,
+                role=role,
+                agent_id=agent_id,
+                content=[{"type": "text", "text": text}],
+                status=status,
+                is_pinned=is_pinned,
+                created_at=start + timedelta(seconds=index),
+            )
+            db.add(message)
+            await db.flush()
+            ids.append(message.id)
+        await db.commit()
+    return ids
+
+
 async def test_small_history_returns_raw_messages_without_memory() -> None:
     conversation_id = await _create_conversation()
     await _insert_text_messages(
@@ -101,6 +131,35 @@ async def test_small_history_returns_raw_messages_without_memory() -> None:
     assert [message.role for message in context] == ["user", "assistant", "user"]
     assert "AgentHub" in context[0].content
     assert "FastAPI" in context[-1].content
+
+
+async def test_group_history_includes_group_notice_and_agent_labels() -> None:
+    conversation_id = await _create_conversation(
+        mode="group",
+        agent_ids=["claude-code", "codex-helper", "orchestrator"],
+    )
+    await _insert_group_messages(
+        conversation_id,
+        [
+            ("user", "Remember: AgentHub uses FastAPI.", None, "done", False),
+            ("agent", "I designed the backend API.", "claude-code", "done", False),
+            ("agent", "I reviewed the sandbox code.", "codex-helper", "done", False),
+            ("user", "What did each agent say?", None, "done", False),
+        ],
+    )
+
+    async with SessionFactory() as db:
+        context = await build_context(db, conversation_id)
+        memory = await db.get(ConversationMemory, conversation_id)
+
+    assert memory is None
+    assert context[0].role == "system"
+    assert "group conversation" in context[0].content
+    assert "claude-code" in context[0].content
+    joined = "\n".join(message.content for message in context)
+    assert "[Agent: claude-code]" in joined
+    assert "[Agent: codex-helper]" in joined
+    assert "I designed the backend API." in joined
 
 
 async def test_pending_and_error_messages_are_excluded() -> None:
@@ -132,6 +191,31 @@ async def test_pending_and_error_messages_are_excluded() -> None:
 
     joined = "\n".join(message.content for message in context)
     assert "keep me" in joined
+    assert "pending should not appear" not in joined
+    assert "error should not appear" not in joined
+
+
+async def test_group_pending_and_error_agent_messages_are_excluded() -> None:
+    conversation_id = await _create_conversation(
+        mode="group",
+        agent_ids=["claude-code", "codex-helper"],
+    )
+    await _insert_group_messages(
+        conversation_id,
+        [
+            ("user", "Keep this group fact.", None, "done", False),
+            ("agent", "done response", "claude-code", "done", False),
+            ("agent", "pending should not appear", "codex-helper", "pending", False),
+            ("agent", "error should not appear", "codex-helper", "error", False),
+        ],
+    )
+
+    async with SessionFactory() as db:
+        context = await build_context(db, conversation_id)
+
+    joined = "\n".join(message.content for message in context)
+    assert "[Agent: claude-code]" in joined
+    assert "done response" in joined
     assert "pending should not appear" not in joined
     assert "error should not appear" not in joined
 
@@ -186,6 +270,49 @@ async def test_key_facts_survive_long_history_summary() -> None:
     assert "AgentHub" in memory.summary_text
     assert "FastAPI" in memory.summary_text
     assert "PostgreSQL" in memory.summary_text
+
+
+async def test_group_long_history_creates_shared_memory_with_agent_labels() -> None:
+    conversation_id = await _create_conversation(
+        mode="group",
+        agent_ids=["claude-code", "codex-helper", "web-designer"],
+    )
+    rows: list[tuple[str, str, str | None, str, bool]] = [
+        (
+            "user",
+            "My project is AgentHub. The backend uses FastAPI. The database is PostgreSQL.",
+            None,
+            "done",
+            False,
+        )
+    ]
+    for index in range(40):
+        agent_id = "claude-code" if index % 2 == 0 else "codex-helper"
+        rows.append(
+            (
+                "agent" if index % 3 else "user",
+                f"Group memory filler {index}. AgentHub FastAPI PostgreSQL context. " * 25,
+                agent_id if index % 3 else None,
+                "done",
+                False,
+            )
+        )
+    await _insert_group_messages(conversation_id, rows)
+
+    async with SessionFactory() as db:
+        context = await build_context(db, conversation_id)
+        await db.commit()
+        memory = await db.get(ConversationMemory, conversation_id)
+
+    assert memory is not None
+    assert memory.algorithm_version == "rules-v2"
+    assert "AgentHub" in memory.summary_text
+    assert "FastAPI" in memory.summary_text
+    assert "PostgreSQL" in memory.summary_text
+    assert "[Agent: claude-code]" in memory.summary_text
+    joined = "\n".join(message.content for message in context)
+    assert "group conversation" in joined
+    assert "Earlier compressed conversation memory" in joined
 
 
 async def test_hybrid_compression_uses_deepseek_summary(
@@ -369,6 +496,56 @@ async def test_old_pinned_message_is_kept_with_memory_context() -> None:
     assert "项目名称是 AgentHub" in joined
     assert "PostgreSQL" in joined
     assert any(message.role == "system" for message in context)
+
+
+async def test_group_old_pinned_message_is_kept_with_memory_context() -> None:
+    conversation_id = await _create_conversation(
+        mode="group",
+        agent_ids=["claude-code", "codex-helper"],
+    )
+    pinned_id = (
+        await _insert_group_messages(
+            conversation_id,
+            [
+                (
+                    "user",
+                    "PIN: The project name is AgentHub and the database is PostgreSQL.",
+                    None,
+                    "done",
+                    False,
+                )
+            ],
+        )
+    )[0]
+    rows = [
+        (
+            "agent" if index % 2 else "user",
+            f"Long group filler {index}. " * 80,
+            "claude-code" if index % 2 else None,
+            "done",
+            False,
+        )
+        for index in range(36)
+    ]
+    await _insert_group_messages(
+        conversation_id,
+        rows,
+        start=datetime.now(UTC) + timedelta(days=1),
+    )
+
+    async with SessionFactory() as db:
+        pinned = await db.get(Message, pinned_id)
+        assert pinned is not None
+        pinned.is_pinned = True
+        await db.commit()
+
+    async with SessionFactory() as db:
+        context = await build_context(db, conversation_id)
+
+    joined = "\n".join(message.content for message in context)
+    assert "group conversation" in joined
+    assert "The project name is AgentHub" in joined
+    assert "PostgreSQL" in joined
 
 
 async def test_existing_memory_does_not_resummarize_same_messages() -> None:

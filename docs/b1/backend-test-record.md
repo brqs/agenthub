@@ -176,3 +176,36 @@ docker compose exec -T backend pytest -q
 docker compose exec -T backend ruff check
 All checks passed!
 ```
+
+## Group Conversation Memory
+
+Date: 2026-05-29
+
+| Item | Status | Coverage |
+| --- | --- | --- |
+| Group conversations reuse conversation-level memory | Done | `tests/test_context_builder.py` |
+| Group context starts with multi-agent system notice | Done | Group ContextBuilder assertions |
+| Agent messages include `[Agent: <agent_id>]` labels | Done | ContextBuilder + SSE stream tests |
+| Long group history creates shared compressed memory | Done | 40-message group compression case |
+| Group pinned messages survive compression | Done | Old pinned message case |
+| `pending` / `error` group agent messages stay excluded | Done | Group exclusion case |
+| Orchestrator passes group memory to sub-agents | Done | `tests/test_orchestrator.py` |
+
+Design note:
+
+- Memory remains scoped to one `conversation_id`; there is no per-agent long-term memory.
+- No database schema or public API changed.
+- B1 still assembles context in `ContextBuilder`; Orchestrator and adapters only consume normalized `ChatMessage` lists.
+
+Latest verification:
+
+```text
+docker compose exec -T backend pytest tests/test_context_builder.py tests/test_orchestrator.py tests/test_stream_tool_calls.py -q
+58 passed
+
+docker compose exec -T backend pytest -q
+330 passed, 7 skipped, 1 warning
+
+docker compose exec -T backend ruff check
+All checks passed!
+```

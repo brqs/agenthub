@@ -69,7 +69,9 @@ class Settings(BaseSettings):
     # Browser-level workspace preview verification
     browser_verify_enabled: bool = Field(default=True)
     browser_verify_timeout_seconds: int = Field(default=30)
-    browser_verify_screenshot_dir: str = Field(default="/tmp/agenthub_browser_verify")
+    browser_verify_screenshot_dir: str = Field(
+        default="/tmp/agenthub_browser_verify"  # noqa: S108 - container-local artifacts.
+    )
     orchestrator_quality_max_repair_rounds: int = Field(default=2)
     orchestrator_quality_repair_agent_order: str = Field(
         default="codex-helper,claude-code,opencode-helper"
