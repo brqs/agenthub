@@ -2,10 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { extractApiError } from '@/lib/api';
 import * as authAdapter from '@/lib/adapters/auth';
-import { env } from '@/lib/env';
 import { startClientSession } from '@/lib/session';
-
-export const MOCK_DEMO_TOKEN = 'mock-demo-token';
 
 export function LoginPage() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -14,16 +11,6 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-
-  function enterDemo() {
-    startClientSession(MOCK_DEMO_TOKEN, {
-      id: '00000000-0000-4000-8000-000000000001',
-      username: 'frontend-demo',
-      avatar_url: null,
-      created_at: new Date().toISOString(),
-    });
-    navigate('/chat');
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -85,20 +72,9 @@ export function LoginPage() {
           >
             {loading ? '...' : mode === 'login' ? '登 录' : '注 册'}
           </button>
-          {env.useMockApi && (
-            <button
-              type="button"
-              onClick={enterDemo}
-              className="w-full rounded-md border border-slate-300 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              进入前端 Demo
-            </button>
-          )}
-          {!env.useMockApi && (
-            <p className="text-center text-xs text-slate-500">
-              当前为真后端模式，请使用真实账号登录。
-            </p>
-          )}
+          <p className="text-center text-xs text-slate-500">
+            请使用真实账号登录。
+          </p>
         </form>
 
         <div className="text-center mt-6 text-sm text-gray-500 dark:text-slate-400">

@@ -1,9 +1,5 @@
 import { create } from 'zustand';
 import {
-  createMockReply,
-  getAgent,
-  mockConversations,
-  mockMessages,
   type DemoContentBlock,
   type DemoConversation,
   type DemoMessage,
@@ -18,18 +14,12 @@ interface ChatState {
   selectedConversationId: string;
   search: string;
   highlightedMessageId: string | null;
-  createConversation: (input: {
-    title: string;
-    mode: DemoConversation['mode'];
-    agentIds: string[];
-  }) => DemoConversation;
   setSelectedConversationId: (conversationId: string) => void;
   setSearch: (search: string) => void;
   setHighlightedMessageId: (messageId: string | null) => void;
   toggleMessagePin: (messageId: string) => void;
   toggleConversationPin: (conversationId: string) => void;
   toggleConversationArchive: (conversationId: string) => void;
-  createPendingExchange: (conversationId: string, text: string) => { agentMessageId: string } | null;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
   resetMessageForRetry: (messageId: string) => void;
   /** Prepend a freshly created conversation (returned by POST /conversations). */
@@ -47,38 +37,7 @@ interface ChatState {
   updateConversationLocal: (conversation: Conversation) => void;
   updateMessageLocal: (message: Message) => void;
   replaceMessageLocal: (oldMessageId: string, message: Message) => void;
-  resetChat: () => void;
   clearChat: () => void;
-}
-
-function createUserMessage(conversationId: string, text: string): DemoMessage {
-  return {
-    id: `user-${Date.now()}`,
-    conversation_id: conversationId,
-    role: 'user',
-    agent_id: null,
-    content: [{ type: 'text', text }],
-    reply_to_id: null,
-    status: 'done',
-    is_pinned: false,
-    created_at: new Date().toISOString(),
-  };
-}
-
-function getTargetAgent(conversation: DemoConversation, text: string): string {
-  if (conversation.mode === 'group') {
-    const mentionedAgent = conversation.agent_ids.find((agentId) => {
-      const normalized = text.toLowerCase();
-      return normalized.includes(`@${agentId.toLowerCase()}`);
-    });
-    if (mentionedAgent) return mentionedAgent;
-
-    return conversation.agent_ids.includes('orchestrator')
-      ? 'orchestrator'
-      : conversation.agent_ids[0];
-  }
-
-  return conversation.agent_ids[0];
 }
 
 function appendText(blocks: DemoContentBlock[], text: string): DemoContentBlock[] {
@@ -196,7 +155,7 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
       type: 'agent_switch',
       from_agent: event.data.from_agent,
       to_agent: event.data.to_agent,
-      task: event.data.task ?? `${getAgent(event.data.to_agent)?.name ?? event.data.to_agent} 接手任务`,
+      task: event.data.task ?? `${event.data.to_agent} 接手任务`,
     });
     return next;
   }
@@ -219,37 +178,12 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
   return next;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  conversations: mockConversations,
-  messagesByConversation: mockMessages,
-  selectedConversationId: mockConversations[0]?.id ?? '',
+export const useChatStore = create<ChatState>((set) => ({
+  conversations: [],
+  messagesByConversation: {},
+  selectedConversationId: '',
   search: '',
   highlightedMessageId: null,
-  createConversation: (input) => {
-    const createdAt = new Date().toISOString();
-    const conversation: DemoConversation = {
-      id: `conv-${Date.now()}`,
-      title: input.title,
-      mode: input.mode,
-      agent_ids: input.agentIds,
-      is_pinned: false,
-      is_archived: false,
-      last_message_at: createdAt,
-      last_message_preview: '新会话已创建，发送第一条消息开始协作。',
-      created_at: createdAt,
-    };
-
-    set((state) => ({
-      conversations: [conversation, ...state.conversations],
-      messagesByConversation: {
-        ...state.messagesByConversation,
-        [conversation.id]: [],
-      },
-      selectedConversationId: conversation.id,
-    }));
-
-    return conversation;
-  },
   setSelectedConversationId: (conversationId) => set({ selectedConversationId: conversationId }),
   setSearch: (search) => set({ search }),
   setHighlightedMessageId: (messageId) => set({ highlightedMessageId: messageId }),
@@ -293,36 +227,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
             : state.selectedConversationId,
       };
     });
-  },
-  createPendingExchange: (conversationId, text) => {
-    const conversation = get().conversations.find((item) => item.id === conversationId);
-    if (!conversation) return null;
-
-    const userMessage = createUserMessage(conversationId, text);
-    const agentId = getTargetAgent(conversation, text);
-    const reply = createMockReply(conversationId, agentId);
-
-    set((state) => ({
-      messagesByConversation: {
-        ...state.messagesByConversation,
-        [conversationId]: [
-          ...(state.messagesByConversation[conversationId] ?? []),
-          userMessage,
-          reply,
-        ],
-      },
-      conversations: state.conversations.map((item) =>
-        item.id === conversationId
-          ? {
-              ...item,
-              last_message_at: userMessage.created_at,
-              last_message_preview: text,
-            }
-          : item,
-      ),
-    }));
-
-    return { agentMessageId: reply.id };
   },
   applyStreamEvent: (messageId, event) => {
     set((state) => {
@@ -494,14 +398,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
   },
-  resetChat: () =>
-    set({
-      conversations: mockConversations,
-      messagesByConversation: structuredClone(mockMessages),
-      selectedConversationId: mockConversations[0]?.id ?? '',
-      search: '',
-      highlightedMessageId: null,
-    }),
   clearChat: () =>
     set({
       conversations: [],

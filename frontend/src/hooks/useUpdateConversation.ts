@@ -1,15 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as conversationsAdapter from '@/lib/adapters/conversations';
-import { env } from '@/lib/env';
 import type { Conversation, UpdateConversationRequest } from '@/lib/types';
 import { useChatStore } from '@/stores/chatStore';
 import type { ListConversationsParams } from '@/lib/adapters/conversations';
 
 export function useUpdateConversation() {
   const queryClient = useQueryClient();
-  const conversations = useChatStore((state) => state.conversations);
-  const toggleConversationPin = useChatStore((state) => state.toggleConversationPin);
-  const toggleConversationArchive = useChatStore((state) => state.toggleConversationArchive);
   const updateConversationLocal = useChatStore((state) => state.updateConversationLocal);
 
   const mutation = useMutation({
@@ -27,20 +23,9 @@ export function useUpdateConversation() {
     },
   });
 
-  async function update(
-    conversationId: string,
-    input: UpdateConversationRequest,
-  ): Promise<Conversation | null> {
-    if (env.useMockApi) {
-      if (input.is_pinned !== undefined) toggleConversationPin(conversationId);
-      if (input.is_archived !== undefined) toggleConversationArchive(conversationId);
-      return conversations.find((item) => item.id === conversationId) ?? null;
-    }
-    return mutation.mutateAsync({ conversationId, input });
-  }
-
   return {
-    update,
+    update: (conversationId: string, input: UpdateConversationRequest): Promise<Conversation> =>
+      mutation.mutateAsync({ conversationId, input }),
     isPending: mutation.isPending,
   };
 }
