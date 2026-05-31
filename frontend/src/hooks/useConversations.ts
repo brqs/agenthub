@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as conversationsAdapter from '@/lib/adapters/conversations';
-import { env } from '@/lib/env';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Conversation } from '@/lib/types';
 import { useAuthStore } from '@/stores/authStore';
@@ -17,8 +16,7 @@ interface UseConversationsResult {
 /**
  * Conversations list — single source of truth is `chatStore.conversations`.
  *
- * - Mock mode: chatStore is seeded with mockConversations and mutated locally.
- * - API mode: TanStack Query fetches once and hydrates into chatStore; downstream
+ * TanStack Query fetches once and hydrates into chatStore; downstream
  *   streaming/send mutations keep updating the store, so the UI shape is identical.
  */
 export function useConversations(params: ListConversationsParams = {}): UseConversationsResult {
@@ -39,18 +37,17 @@ export function useConversations(params: ListConversationsParams = {}): UseConve
   const query = useQuery({
     queryKey: [...queryKeys.conversations(userId), queryParams],
     queryFn: () => conversationsAdapter.listConversations(queryParams),
-    enabled: !env.useMockApi && Boolean(userId),
+    enabled: Boolean(userId),
   });
 
   useEffect(() => {
-    if (!env.useMockApi && query.data && !queryParams.archived) {
+    if (query.data && !queryParams.archived) {
       hydrate(query.data);
     }
   }, [query.data, hydrate, queryParams.archived]);
 
   const shouldUseHydratedStore =
-    env.useMockApi ||
-    (!queryParams.archived && !queryParams.pinnedOnly && !queryParams.search && !queryParams.page);
+    !queryParams.archived && !queryParams.pinnedOnly && !queryParams.search && !queryParams.page;
 
   const localData = useMemo(() => {
     if (!shouldUseHydratedStore) return query.data ?? [];
@@ -76,9 +73,9 @@ export function useConversations(params: ListConversationsParams = {}): UseConve
 
   return useMemo<UseConversationsResult>(
     () => ({
-      data: env.useMockApi || query.data ? localData : [],
-      isLoading: !env.useMockApi && query.isLoading,
-      error: env.useMockApi ? null : query.error,
+      data: query.data ? localData : [],
+      isLoading: query.isLoading,
+      error: query.error,
     }),
     [localData, query.data, query.isLoading, query.error],
   );

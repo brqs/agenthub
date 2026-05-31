@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as agentsAdapter from '@/lib/adapters/agents';
-import { env } from '@/lib/env';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Agent } from '@/lib/types';
 import { useAgentStore } from '@/stores/agentStore';
@@ -14,7 +13,7 @@ interface UseAgentsResult {
 }
 
 /**
- * Agent list — `agentStore` is the single source of truth. In API mode we
+ * Agent list — `agentStore` is the single source of truth. We
  * fetch via TanStack Query and hydrate the store so create/update mutations
  * keep working uniformly against the same render path.
  */
@@ -26,11 +25,11 @@ export function useAgents(): UseAgentsResult {
   const query = useQuery({
     queryKey: queryKeys.agents(userId),
     queryFn: () => agentsAdapter.listAgents(),
-    enabled: !env.useMockApi && Boolean(userId),
+    enabled: Boolean(userId),
   });
 
   useEffect(() => {
-    if (!env.useMockApi && query.data) {
+    if (query.data) {
       hydrateAgents(query.data);
     }
   }, [query.data, hydrateAgents]);
@@ -38,8 +37,8 @@ export function useAgents(): UseAgentsResult {
   return useMemo<UseAgentsResult>(
     () => ({
       data: agents,
-      isLoading: !env.useMockApi && query.isLoading,
-      error: env.useMockApi ? null : query.error,
+      isLoading: query.isLoading,
+      error: query.error,
     }),
     [agents, query.isLoading, query.error],
   );

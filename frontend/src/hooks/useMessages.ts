@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as messagesAdapter from '@/lib/adapters/messages';
-import { env } from '@/lib/env';
 import { queryKeys } from '@/lib/queryKeys';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
@@ -15,7 +14,7 @@ interface UseMessagesResult {
 
 /**
  * Messages for a conversation — chatStore.messagesByConversation is the
- * render-time source of truth in both modes. In API mode we fetch via
+ * render-time source of truth. We fetch via
  * TanStack Query and hydrate into chatStore so SSE/applyStreamEvent keeps
  * working unchanged.
  *
@@ -34,11 +33,11 @@ export function useMessages(conversationId: string | null | undefined): UseMessa
       conversationId
         ? messagesAdapter.listMessages(conversationId, { limit: 50, direction: 'before' })
         : Promise.resolve({ items: [], nextCursor: null, hasMore: false }),
-    enabled: Boolean(conversationId) && Boolean(userId) && !env.useMockApi,
+    enabled: Boolean(conversationId) && Boolean(userId),
   });
 
   useEffect(() => {
-    if (!env.useMockApi && conversationId && query.data) {
+    if (conversationId && query.data) {
       // Backend cursor pagination returns most-recent batch; ensure ascending order for the UI.
       const sorted = [...query.data.items].sort((a, b) =>
         a.created_at.localeCompare(b.created_at),
@@ -50,8 +49,8 @@ export function useMessages(conversationId: string | null | undefined): UseMessa
   return useMemo<UseMessagesResult>(
     () => ({
       data: conversationId ? messagesByConversation[conversationId] ?? [] : [],
-      isLoading: !env.useMockApi && Boolean(conversationId) && query.isLoading,
-      error: env.useMockApi ? null : query.error,
+      isLoading: Boolean(conversationId) && query.isLoading,
+      error: query.error,
     }),
     [conversationId, messagesByConversation, query.isLoading, query.error],
   );

@@ -628,10 +628,10 @@ export function TodoPanel() {
 
 ## 当前状态
 
-- Mock API hooks 已就绪。
-- Mock SSE 已按真实事件形态实现。
+- API hooks 已接入真实后端。
+- SSE 已按真实事件形态接入后端。
 - 富媒体消息块支持 Code、Diff、WebPreview、File。
-- 真实 API / SSE 可在 Hook 层替换。
+- Workspace 产物可在聊天工作台中预览。
 `,
         },
       ],
@@ -642,22 +642,3 @@ export function TodoPanel() {
     },
   ],
 };
-
-export function getAgent(agentId: string | null | undefined): Agent | undefined {
-  if (!agentId) return undefined;
-  return mockAgents.find((agent) => agent.id === agentId);
-}
-
-export function createMockReply(conversationId: string, agentId: string): DemoMessage {
-  return {
-    id: `msg-${agentId}-${Date.now()}`,
-    conversation_id: conversationId,
-    role: 'agent',
-    agent_id: agentId,
-    content: [{ type: 'text', text: '' }],
-    reply_to_id: null,
-    status: 'streaming',
-    is_pinned: false,
-    created_at: new Date().toISOString(),
-  };
-}

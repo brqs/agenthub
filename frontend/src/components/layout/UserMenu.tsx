@@ -1,5 +1,4 @@
 import { LogOut, UserRound } from 'lucide-react';
-import { env } from '@/lib/env';
 import type { User } from '@/lib/types';
 
 export function UserMenu({
@@ -19,9 +18,9 @@ export function UserMenu({
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-white">
-            {user?.username ?? 'frontend-demo'}
+            {user?.username ?? '未登录'}
           </div>
-          <div className="text-xs text-slate-500">{env.useMockApi ? 'Mock Demo' : 'Real API'}</div>
+          <div className="text-xs text-slate-500">Real API</div>
         </div>
       </div>
       <button
