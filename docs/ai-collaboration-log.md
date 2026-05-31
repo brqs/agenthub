@@ -890,7 +890,6 @@ Planner 不能只把 tool schema 传到 Orchestrator helper 层；ModelGateway b
 
 ### 经验
 Orchestrator 的 planner 不应承担所有对话形态；简单元信息问答应在调度前短路，复杂任务才进入结构化 planner。seed 中的 Orchestrator 配置变更必须部署后重新执行 seed，否则运行服务仍读取数据库里的旧配置。
-
 ## 2026-05-29 — Codex 实现 External Agent 对话 / Runtime 路由
 
 ### 任务
