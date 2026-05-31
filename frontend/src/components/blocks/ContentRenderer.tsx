@@ -7,12 +7,11 @@ import { ToolCallBlock } from './ToolCallBlock';
 import { UnknownBlock } from './UnknownBlock';
 import { WebPreviewBlock } from './WebPreviewBlock';
 import type { DemoContentBlock } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 
 export function ContentRenderer({
   blocks,
-  agents = mockAgents,
+  agents = [],
   streaming = false,
 }: {
   blocks: DemoContentBlock[];

@@ -281,9 +281,12 @@ async def stream_cli_text(
 def kill_process_tree(process: asyncio.subprocess.Process) -> None:
     pid = getattr(process, "pid", None)
     if os.name == "posix" and isinstance(pid, int):
+        killpg = getattr(os, "killpg", None)
+        sigkill = getattr(signal, "SIGKILL", signal.SIGTERM)
         with contextlib.suppress(ProcessLookupError):
-            os.killpg(pid, signal.SIGKILL)
-            return
+            if killpg is not None:
+                killpg(pid, sigkill)
+                return
     process.kill()
 
 

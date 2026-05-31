@@ -2,7 +2,6 @@ import { Bot, Loader2, MessageSquarePlus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
 import type { DemoMessage } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
 import { env } from '@/lib/env';
 import type { Agent } from '@/lib/types';
 
@@ -13,7 +12,7 @@ export function MessageList({
   onTogglePin,
   onRetry,
   onMentionAgent,
-  agents = mockAgents,
+  agents = [],
 }: {
   messages: DemoMessage[];
   highlightedMessageId?: string | null;

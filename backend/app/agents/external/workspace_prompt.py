@@ -40,6 +40,10 @@ def workspace_guard_prompt(workspace_path: Path) -> str:
             "you to.",
             "- Create, edit, read, and reference project files only inside the "
             "workspace root. Prefer relative paths from the workspace root.",
+            "- When the active request asks you to create or edit files, do the "
+            "file work directly. Do not enter a read-only planning mode, ask for "
+            "plan approval, or wait for user approval before writing the requested "
+            "workspace files.",
             "- Never write to /home/user, /home/ubuntu, /tmp, parent directories, "
             "or any absolute path outside the workspace root.",
             "- Do not run, suggest, or print shell commands for foreground or "
@@ -49,6 +53,10 @@ def workspace_guard_prompt(workspace_path: Path) -> str:
             "- If the user asks to preview or deploy on a port, create the files and "
             "state that AgentHub platform preview/deploy must be started outside the "
             "agent runtime. Do not provide terminal commands for port previews.",
+            "- For preview/deploy requests, do not create a Node/Express/Fastify/Koa/"
+            "Next/Vite server, server.js, package.json start/dev/preview scripts, "
+            "or server dependencies merely to expose a port. AgentHub platform owns "
+            "the preview port.",
             "- For web apps, write the files in the workspace and tell the user which "
             "files changed; preview is handled by AgentHub Workspace.",
         ]

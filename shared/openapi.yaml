@@ -247,6 +247,103 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
+    OrchestratorRun:
+      type: object
+      required: [id, conversation_id, status, user_request, plan_source, final_summary, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        agent_message_id: { type: string, format: uuid, nullable: true }
+        user_message_id: { type: string, format: uuid, nullable: true }
+        status: { type: string, enum: [running, done, error, cancelled] }
+        user_request: { type: string }
+        plan_source: { type: string }
+        final_summary: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+
+    OrchestratorTask:
+      type: object
+      required: [id, run_id, task_id, agent_id, title, instruction, depends_on, priority, include_history, final_state, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        run_id: { type: string, format: uuid }
+        task_id: { type: string }
+        agent_id: { type: string }
+        title: { type: string }
+        instruction: { type: string }
+        depends_on:
+          type: array
+          items: { type: string }
+        priority: { type: integer }
+        expected_output: { type: string, nullable: true }
+        include_history: { type: boolean }
+        final_state: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    OrchestratorTaskAttempt:
+      type: object
+      required: [id, run_id, task_row_id, task_id, attempt_index, agent_id, state, text_preview, tool_summaries, artifact_paths, missing_artifact_paths, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        run_id: { type: string, format: uuid }
+        task_row_id: { type: string, format: uuid }
+        task_id: { type: string }
+        attempt_index: { type: integer }
+        agent_id: { type: string }
+        state: { type: string }
+        text_preview: { type: string }
+        tool_summaries:
+          type: array
+          items: { type: string }
+        artifact_paths:
+          type: array
+          items: { type: string }
+        missing_artifact_paths:
+          type: array
+          items: { type: string }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+
+    OrchestratorRunEvent:
+      type: object
+      required: [id, run_id, event_type, payload, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        run_id: { type: string, format: uuid }
+        event_type: { type: string }
+        task_id: { type: string, nullable: true }
+        agent_id: { type: string, nullable: true }
+        payload: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+
+    OrchestratorRunList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrchestratorRun' }
+        total: { type: integer }
+
+    OrchestratorRunDetail:
+      type: object
+      required: [run, tasks, attempts, events]
+      properties:
+        run: { $ref: '#/components/schemas/OrchestratorRun' }
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/OrchestratorTask' }
+        attempts:
+          type: array
+          items: { $ref: '#/components/schemas/OrchestratorTaskAttempt' }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/OrchestratorRunEvent' }
+
     ContextCompressionConfig:
       type: object
       required:
@@ -409,7 +506,32 @@ components:
           type: string
           enum: [claude, deepseek, openai]
           description: ModelGateway backend for builtin agents.
+        answer_model_backend:
+          type: string
+          enum: [claude, deepseek, openai]
+          description: ModelGateway backend for orchestrator direct answers.
+        planner_model_backend:
+          type: string
+          enum: [claude, deepseek, openai]
+          description: ModelGateway backend for orchestrator LLM planning.
+        llm_planning:
+          type: boolean
+          description: Whether Orchestrator uses LLM planning for task decomposition.
+        planner_fallback_to_template:
+          type: boolean
+          description: Whether planner failures may fall back to legacy template tasks.
+        orchestrator_llm_config:
+          type: object
+          additionalProperties: true
+          description: Model parameters shared by orchestrator planner/replanner.
         max_iterations: { type: integer, minimum: 1, maximum: 50 }
+        react_enabled:
+          type: boolean
+          description: Whether builtin orchestrator uses ReAct dynamic task graph execution.
+        react_trace_visible:
+          type: boolean
+          description: Whether ReAct step/action/observation summaries are visible in chat output.
+        react_decision_max_tokens: { type: integer, minimum: 1, maximum: 4096 }
         mcp_servers:
           type: array
           items: { type: object, additionalProperties: true }
@@ -422,6 +544,47 @@ components:
           type: array
           items: { type: string }
         timeout_seconds: { type: number, minimum: 1, maximum: 3600 }
+        max_runtime_seconds: { type: number, minimum: 1, maximum: 3600 }
+        idle_timeout_seconds: { type: number, minimum: 1, maximum: 3600 }
+        heartbeat_interval_seconds: { type: number, minimum: 1, maximum: 3600 }
+        qa_short_circuit_enabled:
+          type: boolean
+          description: Whether external runtime agents may answer pure Q&A through ModelGateway without starting SDK/CLI.
+        qa_model_backend:
+          type: string
+          enum: [claude, deepseek, openai]
+          description: ModelGateway backend for external direct chat.
+        qa_model:
+          type: string
+          nullable: true
+        qa_classifier_model:
+          type: string
+          nullable: true
+        qa_max_tokens: { type: integer, minimum: 1, maximum: 32000 }
+        qa_classifier_max_tokens: { type: integer, minimum: 1, maximum: 1024 }
+        qa_temperature: { type: number, minimum: 0, maximum: 2 }
+        qa_request_timeout_seconds: { type: number, minimum: 1, maximum: 120 }
+        task_fallback_agent_ids:
+          type: array
+          items: { type: string }
+          description: Optional per-task fallback agents for orchestrator retries.
+        max_task_attempts: { type: integer, minimum: 1, maximum: 3 }
+        task_result_context_max_chars: { type: integer, minimum: 1, maximum: 32000 }
+        task_result_item_max_chars: { type: integer, minimum: 1, maximum: 8000 }
+        orchestrator_memory_enabled:
+          type: boolean
+          description: Whether Orchestrator writes and injects structured run memory.
+        orchestrator_memory_recent_runs: { type: integer, minimum: 1, maximum: 10 }
+        orchestrator_memory_context_max_chars: { type: integer, minimum: 1, maximum: 32000 }
+        orchestrator_tool_calling_enabled:
+          type: boolean
+          description: Whether Orchestrator uses native tool calling for ordinary task requests.
+        orchestrator_tool_trace_visible:
+          type: boolean
+          description: Whether Orchestrator native tool_call/tool_result events are visible in chat output.
+        orchestrator_tool_max_iterations: { type: integer, minimum: 1, maximum: 50 }
+        orchestrator_tool_result_max_chars: { type: integer, minimum: 1, maximum: 32000 }
+        orchestrator_tool_read_max_bytes: { type: integer, minimum: 1, maximum: 1048576 }
 
     Agent:
       type: object
@@ -494,6 +657,31 @@ components:
       properties:
         root: { type: string, example: /workspaces/00000000-0000-0000-0000-000000000000 }
         tree: { $ref: '#/components/schemas/WorkspaceTreeNode' }
+
+    WorkspacePreviewRequest:
+      type: object
+      required: [entry_path]
+      properties:
+        entry_path: { type: string, minLength: 1, maxLength: 512 }
+        mode: { type: string, enum: [static], default: static }
+
+    WorkspacePreviewResponse:
+      type: object
+      required: [id, conversation_id, workspace_id, entry_path, mode, port, url, status, created_at, updated_at, last_accessed_at]
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        entry_path: { type: string }
+        mode: { type: string, enum: [static] }
+        port: { type: integer }
+        pid: { type: integer, nullable: true }
+        url: { type: string }
+        status: { type: string, enum: [starting, running, stopped, error] }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_accessed_at: { type: string, format: date-time }
 
   # ─── 通用响应 ───
   responses:
@@ -697,6 +885,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ConversationMemory' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/conversations/{id}/orchestrator-runs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: List Orchestrator structured runs
+      tags: [Conversations]
+      description: Development-only endpoint for Orchestrator memory debugging.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrchestratorRunList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/conversations/{id}/orchestrator-runs/{run_id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: run_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get Orchestrator structured run detail
+      tags: [Conversations]
+      description: Development-only endpoint for Orchestrator memory debugging.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrchestratorRunDetail' }
         '404': { $ref: '#/components/responses/NotFound' }
 
   /api/v1/context-compression/config:
@@ -947,6 +1179,57 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/workspaces/{conversation_id}/preview:
+    parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Start or reuse workspace static preview
+      tags: [Workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkspacePreviewRequest' }
+      responses:
+        '201':
+          description: Preview session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: Preview start failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      summary: Get workspace preview status
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Preview session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Stop workspace preview
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Stopped preview session
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ─── Agents ───
   /api/v1/agents:

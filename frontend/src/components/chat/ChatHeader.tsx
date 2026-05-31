@@ -10,28 +10,34 @@ import {
 } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { DemoConversation } from '@/lib/mockData';
-import { getAgent } from '@/lib/mockData';
+import type { Agent } from '@/lib/types';
 
 export function ChatHeader({
   conversation,
+  agents = [],
   sidebarCollapsed = false,
   onExpandSidebar,
   rightPanelOpen = true,
   onOpenRightPanel,
 }: {
   conversation: DemoConversation;
+  agents?: Agent[];
   sidebarCollapsed?: boolean;
   onExpandSidebar?: () => void;
   rightPanelOpen?: boolean;
   onOpenRightPanel?: () => void;
 }) {
-  const agents = conversation.agent_ids.map(getAgent).filter((agent) => agent !== undefined);
-  const visibleAgents = agents.slice(0, 3);
-  const hiddenAgentCount = Math.max(agents.length - visibleAgents.length, 0);
+  const conversationAgents = conversation.agent_ids
+    .map((agentId) => agents.find((agent) => agent.id === agentId))
+    .filter((agent) => agent !== undefined);
+  const visibleAgents = conversationAgents.slice(0, 3);
+  const hiddenAgentCount = Math.max(conversation.agent_ids.length - visibleAgents.length, 0);
   const agentSummary =
     conversation.mode === 'group'
-      ? `${agents.length} Agents · ${agents.map((agent) => agent.name).join(', ')}`
-      : agents[0]?.name;
+      ? `${conversation.agent_ids.length} Agents · ${
+          conversationAgents.map((agent) => agent.name).join(', ') || conversation.agent_ids.join(', ')
+        }`
+      : conversationAgents[0]?.name ?? conversation.agent_ids[0];
 
   return (
     <header className="flex min-h-[76px] shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-5 py-3 backdrop-blur">

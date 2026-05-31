@@ -1,3 +1,50 @@
+## 2026-05-30 — B2 实现 Orchestrator Structured Memory v1
+
+### 任务
+实现 Orchestrator Memory & Context Manager v1，并同步数据库变更文档，避免其他开发者遗漏新增表和 debug API。
+
+### 关键 Prompt
+> 开始执行你的计划，执行完毕之后执行结果和spec文档作比较，写入真实的执行spec
+>
+> 检查当前数据库的更新与不同，请你同步其他文档更新，以免其他开发者不知道这一回事
+
+### AI 输出摘要
+新增 Orchestrator structured memory 数据模型、migration、service、writer protocol 和 stream 注入逻辑。Orchestrator 任务编排现在会记录 run、task、attempt、event 和 final summary；下一轮 Orchestrator 请求前会注入 `Previous Orchestrator structured memory` system context。新增 development-only debug API：`/api/v1/conversations/{conv_id}/orchestrator-runs` 和 `/api/v1/conversations/{conv_id}/orchestrator-runs/{run_id}`。
+
+新增数据库表：
+
+- `orchestrator_runs`
+- `orchestrator_tasks`
+- `orchestrator_task_attempts`
+- `orchestrator_run_events`
+
+同步更新文档：
+
+- `docs/b2/spec/orchestrator-memory-context-management.execution.spec.md`
+- `docs/b2/spec/orchestrator.spec.md`
+- `backend/alembic/README.md`
+- `docs/api-spec.md`
+- `docs/tech-architecture.md`
+- `README.md`
+
+### 验证
+已通过：
+
+```bash
+cd backend
+uv run python -m pytest tests/test_orchestrator.py tests/test_orchestrator_memory.py tests/test_context_builder.py tests/test_stream_tool_calls.py tests/test_registry.py tests/test_model_gateway.py tests/test_external_direct_chat.py tests/test_claude_code_external_adapter.py tests/test_codex_external_adapter.py tests/test_opencode_external_adapter.py tests/test_agent_config_validation.py -q
+# 211 passed, 1 skipped
+
+uv run python -m ruff check app tests alembic/versions/9a1b2c3d4e5f_add_orchestrator_memory.py
+# passed
+
+uv run python -m mypy app/agents app/services/orchestrator_memory.py app/schemas/agent.py app/schemas/conversation.py
+# passed
+```
+
+### 经验
+当 B2 需要新增 DB 表时，除了实现 model/migration，还必须同步 Orchestrator 主 spec、API spec、架构文档和 Alembic README；否则其他开发者只看到 agent 层变更，容易漏跑 migration 或误以为 Orchestrator 仍然只保留单轮内存。
+
 ## 2026-05-26 — F 实现 Mock ToolCall 与 Workspace 产物预览
 
 ### 任务
@@ -29,7 +76,7 @@ Pivot 后前端可以不等待真实 Agent runtime 完全接通，先用 Mock SS
 ### 人工调整
 云服务器 IP 由人工提供：`111.229.151.159`。服务器 Docker daemon 代理配置位于仓库外，文档中明确标记为服务器系统级配置。
 
-后续检查确认当前数据库仍为空库：`backend/alembic/versions/` 只有 `.gitkeep`，`alembic heads` 为空，数据库中不存在 `alembic_version` 表，也没有业务表。因此需要 B1 先补初始建表 migration，再执行 `alembic upgrade head` 和 `seed_agents`。
+历史状态记录：当时数据库仍为空库，`backend/alembic/versions/` 只有 `.gitkeep`，`alembic heads` 为空。该状态已过期；当前项目已经包含完整迁移链，新服务器部署应按最新文档执行 `alembic upgrade head` 和 `seed_agents`。
 
 ### 经验
 云端运行状态要和 Git 仓库保持边界清晰：可复用的配置说明和源码修复应提交到仓库，但 `.env`、API Key、数据库密码和服务器 daemon 代理配置不能提交。
@@ -409,10 +456,10 @@ B2-09 允许提前准备任务文档，但实现必须等待 `docs/b2/spec/orche
 启动 B2-11：为 Claude / OpenAI / DeepSeek / Custom Adapter 统一 retry、timeout、rate-limit 和上游错误映射策略。
 
 ### 关键 Prompt
-> 请执行 B2-11。先阅读 AGENTS.md，然后阅读 docs/b2/spec/provider-resilience.spec.md 和 docs/b2/task-dispatch/B2-11-provider-resilience.md。严格按文档实现：只修改 Provider Adapter 及其测试；setup 阶段 transient error 可配置重试；rate limit 默认不重试；timeout / connection / upstream error 输出标准 StreamChunk(error)；内容已经开始输出后不得重试，必须先 flush parser 再输出 error；DeepSeek 继承 OpenAI resilience；Custom 不做二次 retry，只转发上游 chunk。不要修改 BaseAgentAdapter / StreamChunk / OpenAPI / registry / API / frontend / .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
+> 请执行 B2-11。先阅读 AGENTS.md，然后阅读 docs/b2/spec/model-gateway.spec.md 和 docs/b2/task-dispatch/B2-11-provider-resilience.md。严格按文档实现：只修改 Provider Adapter 及其测试；setup 阶段 transient error 可配置重试；rate limit 默认不重试；timeout / connection / upstream error 输出标准 StreamChunk(error)；内容已经开始输出后不得重试，必须先 flush parser 再输出 error；DeepSeek 继承 OpenAI resilience；Custom 不做二次 retry，只转发上游 chunk。不要修改 BaseAgentAdapter / StreamChunk / OpenAPI / registry / API / frontend / .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
 
 ### AI 输出摘要
-1. 新增 `docs/b2/spec/provider-resilience.spec.md`：
+1. 新增 Provider resilience spec（后续合并到 `docs/b2/spec/model-gateway.spec.md`）：
    - 定义 retry 只发生在内容输出前。
    - 定义 `missing_api_key`、`rate_limit`、`timeout`、`connection_error`、`upstream_error` 五类标准错误码。
    - 定义 `max_retries`、`retry_backoff_seconds`、`request_timeout_seconds`、`retry_on_rate_limit` 配置。
@@ -438,10 +485,10 @@ B2-09 允许提前准备任务文档，但实现必须等待 `docs/b2/spec/orche
 并行准备 B2-12：为 Claude / OpenAI / DeepSeek / Custom Adapter 增加默认 fake smoke tests 和可选真实 API slow tests。
 
 ### 关键 Prompt
-> 请执行 B2-12。先阅读 AGENTS.md，然后阅读 docs/b2/spec/adapter-smoke-tests.spec.md 和 docs/b2/task-dispatch/B2-12-adapter-smoke-tests.md。严格按文档实现：默认 smoke tests 必须使用 fake/mock upstream，不访问真实网络；验证 Adapter stream chunk 序列、to_sse()、block_start/block_end 成对、done.total_blocks 和 B1 _ContentAccumulator 消费；新增可选真实 API slow tests 时必须默认 skip，仅在 AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1 且对应 API key 存在时运行；注册 pytest slow marker；不要修改 Adapter 生产代码、BaseAgentAdapter、StreamChunk、OpenAPI、registry、API、frontend 或 .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
+> 请执行 B2-12。先阅读 AGENTS.md，然后阅读 docs/b2/spec/agent-runtime-test-matrix.spec.md 和 docs/b2/task-dispatch/B2-12-adapter-smoke-tests.md。严格按文档实现：默认 smoke tests 必须使用 fake/mock upstream，不访问真实网络；验证 Adapter stream chunk 序列、to_sse()、block_start/block_end 成对、done.total_blocks 和 B1 _ContentAccumulator 消费；新增可选真实 API slow tests 时必须默认 skip，仅在 AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1 且对应 API key 存在时运行；注册 pytest slow marker；不要修改 Adapter 生产代码、BaseAgentAdapter、StreamChunk、OpenAPI、registry、API、frontend 或 .env。不要 commit，不要 push，不要创建 PR。完成后运行文档要求的 pytest / ruff / mypy / 全量 pytest，并交给 Codex 审阅。
 
 ### AI 输出摘要
-1. 新增 `docs/b2/spec/adapter-smoke-tests.spec.md`：
+1. 新增 adapter smoke tests spec（后续合并到 `docs/b2/spec/agent-runtime-test-matrix.spec.md`）：
    - 定义默认 fake smoke tests 与可选真实 API slow tests 的边界。
    - 明确默认测试不得访问真实 Provider。
    - 明确 `slow` marker、`AGENTHUB_RUN_LIVE_PROVIDER_TESTS=1` 和 provider API key 检查。
@@ -705,6 +752,47 @@ Registry provider cutover 不能只改 seed；需要同步 Pydantic schema、Ope
 ### 经验
 B2-20 复审通过后，B2-14 至 B2-20 的真实 Agent Runtime 接入线可以进入 Git/PR 阶段；但 OpenAPI/schema 已变更，前端生成类型与 Agent 创建 UI 必须作为后续协同项跟进。
 
+## 2026-05-29 — Codex 修复前端真实模式会话归档一致性
+
+### 任务
+继续前端真实后端接入，优先修复刷新恢复与会话归档/恢复状态一致性。
+
+### 关键 Prompt
+> 下一步
+> 开始吧
+
+### AI 输出摘要
+1. 分析 `useConversations`、`useUpdateConversation`、`chatStore` 与 `ChatPage` 后发现 API 模式下 query data 与 store 双数据源会导致操作后短暂不同步。
+2. 将真实模式主会话列表收敛到 hydrate 后的 `chatStore`，同时在初次请求前返回空列表避免 mock 闪烁。
+3. 在会话更新成功后同步修补所有 conversations query cache，使主列表与归档页能即时反映归档/恢复。
+4. 补充单测覆盖列表 reconcile、归档/恢复、过滤条件和远端会话 upsert，并用真实后端浏览器冒烟验证归档链路。
+
+### 人工调整
+本次只修改前端 hook/store/page 与前端文档；不修改 `shared/openapi.yaml`、后端代码或 Agent Runtime 契约。
+
+### 经验
+真实 API 模式不能让 Query cache 与 Zustand store 各自成为半个真相源；列表展示、乐观/成功更新、URL 选择迁移需要明确单一主数据源，并在 mutation 成功时同步修补相关查询缓存。
+
+## 2026-05-29 — Codex 补强前端深链刷新与侧栏分组测试
+
+### 任务
+继续真实后端接入质量收敛，补强 `/chat/:conversationId` 刷新恢复、置顶分组和搜索过滤。
+
+### 关键 Prompt
+> 下一步
+> 做吧
+
+### AI 输出摘要
+1. `ChatPage` 在会话列表加载中显示恢复态，避免深链刷新时短暂出现“还没有会话”。
+2. 深链命中当前会话后同步 `selectedConversationId`，让侧栏选中状态与 URL 保持一致。
+3. 新增 `ConversationSidebar` 组件测试，覆盖置顶/最近分组、标题搜索命中和搜索空态。
+4. 使用真实后端冒烟验证深链刷新恢复、Workspace 恢复、置顶与取消置顶分组迁移。
+
+### 人工调整
+本次只修改前端页面、组件测试和文档；不修改 OpenAPI、后端或 Agent Runtime。
+
+### 经验
+深链恢复的“加载态”不能复用空态，否则用户会看到会话丢失的错觉；搜索这种纯前端过滤逻辑适合用组件测试固定，真实浏览器冒烟优先覆盖会产生远端状态变化的置顶/归档链路。
 ## 2026-05-27 — Codex 增强 Orchestrator LLM 任务规划
 
 ### 任务
@@ -802,3 +890,63 @@ Planner 不能只把 tool schema 传到 Orchestrator helper 层；ModelGateway b
 
 ### 经验
 Orchestrator 的 planner 不应承担所有对话形态；简单元信息问答应在调度前短路，复杂任务才进入结构化 planner。seed 中的 Orchestrator 配置变更必须部署后重新执行 seed，否则运行服务仍读取数据库里的旧配置。
+
+## 2026-05-29 — Codex 实现 External Agent 对话 / Runtime 路由
+
+### 任务
+为 `claude-code`、`codex-helper`、`opencode-helper` 增加 direct chat routing：普通问答走 ModelGateway，任务型请求继续进入真实 external runtime。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: External Agent 对话 / Runtime 路由开发计划
+
+### AI 输出摘要
+1. 新增 external direct chat helper，使用 ModelGateway 分类最新用户请求，分类为 direct chat 时跳过 external SDK/CLI 并流式输出最终回答。
+2. 三个 external adapter 在 identity shortcut 后统一接入 direct chat helper，未命中时保留原 runtime、timeout、heartbeat 和 tool event 行为。
+3. 补齐 `qa_*` 配置校验、seed 默认配置、Pydantic AgentConfig 与 OpenAPI AgentConfig 字段。
+4. 增加 helper、adapter、config 和 OpenAPI 契约测试。
+
+### 人工调整
+未新增 API endpoint，未修改 BaseAgentAdapter / StreamChunk / 顶层 provider 列表。测试以 fake ModelGateway / fake SDK/CLI 为主，remote smoke 仍需在部署环境复验。
+
+### 经验
+External runtime 既要支持真实文件/命令能力，也要避免普通问答启动重型 SDK/CLI。路由应放在 adapter 内部，并且 direct chat 的 ModelGateway 中间分类结果不能进入 SSE 或消息持久化。
+
+## 2026-05-29 — Codex 更新 Orchestrator v1.2 Spec
+
+### 任务
+复审当前 Orchestrator 能力，更新 B2 spec，为 artifact-aware / context-aware orchestration 后续实现提供明确契约。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: B2 Orchestrator Spec 更新计划
+
+### AI 输出摘要
+1. `orchestrator.spec.md` 升级到 v1.2，新增单轮运行上下文、子任务结果注入、artifact_missing、per-task fallback、attempt summary 等契约。
+2. `orchestrator-task-planning.spec.md` 升级到 v1.1，明确 `expected_output` 可作为 artifact path 候选，并要求 planner 用 `depends_on` 表达结果消费关系。
+3. `agent-runtime-test-matrix.spec.md` 增加 Orchestrator run context、artifact_missing、fallback 和 tool_call flatten 测试要求。
+4. `workspace-artifact-preview.spec.md` 补充边界：Orchestrator 只做 artifact 存在性检查，preview/deploy 生命周期仍归平台。
+
+### 人工调整
+本次只更新文档，不修改 `BaseAgentAdapter`、`StreamChunk`、OpenAPI、后端运行代码或前端。
+
+### 经验
+Orchestrator 的增强应先把“单轮工作记忆”和“平台 preview 边界”写清楚，否则很容易把调度、artifact 校验、preview service 和持久化 task run 混成一团，导致实现范围失控。
+## 2026-05-29 — Codex 实现 Orchestrator v1.2
+
+### 任务
+实现 artifact-aware / context-aware Orchestrator：单轮内吸收子任务结果、注入依赖上下文、校验 workspace artifact，并支持可选 per-task fallback。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: B2 Orchestrator v1.2 执行计划
+
+### AI 输出摘要
+1. `OrchestratorAdapter` 增加内存 run context、task result、attempt 结构，并在子任务 stream 消费时累计文本、tool 摘要、错误和 artifact path。
+2. `_run_task()` 支持 `max_task_attempts` 与 `task_fallback_agent_ids`，失败或 `artifact_missing` 时可改派 fallback agent，最终仍输出标准 summary 和 `done`。
+3. 后续子任务会收到 `Previous sub-agent results` system message；`include_history=false` 不再阻止依赖结果注入。
+4. Artifact 判定只检查 workspace-relative path 是否存在，不读取文件、不执行命令、不启动 preview/deploy。
+5. `blocks_to_text()` 增加 tool_call block 摘要，AgentConfig/OpenAPI/config validation 补充 Orchestrator v1.2 可选配置字段。
+
+### 人工调整
+保持 `BaseAgentAdapter`、`StreamChunk`、SSE API 与数据库结构不变。新增测试覆盖 run context、dependency injection、artifact_missing、per-task fallback、attempt summary、tool_call flatten 和 config/OpenAPI 字段。
+
+### 经验
+Orchestrator 的增强应优先落在单轮内存态和只读校验上；per-task fallback 必须和 planning-level fallback adapter 分离，否则会混淆“规划失败降级”和“单个子任务重试”两类语义。

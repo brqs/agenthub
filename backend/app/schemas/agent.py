@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.agents.config_fields import numeric_field
 from app.schemas.common import OffsetPagination
 
 AgentProvider = Literal[
@@ -29,14 +30,123 @@ class AgentConfig(BaseModel):
         default=None,
         description="ModelGateway backend for builtin agents.",
     )
-    max_iterations: int | None = Field(default=None, ge=1, le=50)
+    answer_model_backend: ModelBackend | None = Field(
+        default=None,
+        description="ModelGateway backend for orchestrator direct answers.",
+    )
+    planner_model_backend: ModelBackend | None = Field(
+        default=None,
+        description="ModelGateway backend for orchestrator LLM planning.",
+    )
+    llm_planning: bool | None = None
+    planner_fallback_to_template: bool | None = None
+    orchestrator_llm_config: dict[str, Any] | None = None
+    max_iterations: int | None = Field(
+        default=None,
+        ge=numeric_field("max_iterations").minimum,
+        le=numeric_field("max_iterations").maximum,
+    )
+    react_enabled: bool | None = None
+    react_trace_visible: bool | None = None
+    react_decision_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("react_decision_max_tokens").minimum,
+        le=numeric_field("react_decision_max_tokens").maximum,
+    )
     mcp_servers: list[dict[str, Any]] | None = None
     command: str | list[str] | None = None
     args: list[str] | None = None
-    timeout_seconds: float | None = Field(default=None, ge=1, le=3600)
-    max_runtime_seconds: float | None = Field(default=None, ge=1, le=3600)
-    idle_timeout_seconds: float | None = Field(default=None, ge=1, le=3600)
-    heartbeat_interval_seconds: float | None = Field(default=None, ge=1, le=3600)
+    timeout_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("timeout_seconds").minimum,
+        le=numeric_field("timeout_seconds").maximum,
+    )
+    max_runtime_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("max_runtime_seconds").minimum,
+        le=numeric_field("max_runtime_seconds").maximum,
+    )
+    idle_timeout_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("idle_timeout_seconds").minimum,
+        le=numeric_field("idle_timeout_seconds").maximum,
+    )
+    heartbeat_interval_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("heartbeat_interval_seconds").minimum,
+        le=numeric_field("heartbeat_interval_seconds").maximum,
+    )
+    qa_short_circuit_enabled: bool | None = None
+    qa_model_backend: ModelBackend | None = Field(
+        default=None,
+        description="ModelGateway backend for external direct chat.",
+    )
+    qa_model: str | None = None
+    qa_classifier_model: str | None = None
+    qa_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("qa_max_tokens").minimum,
+        le=numeric_field("qa_max_tokens").maximum,
+    )
+    qa_classifier_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("qa_classifier_max_tokens").minimum,
+        le=numeric_field("qa_classifier_max_tokens").maximum,
+    )
+    qa_temperature: float | None = Field(
+        default=None,
+        ge=numeric_field("qa_temperature").minimum,
+        le=numeric_field("qa_temperature").maximum,
+    )
+    qa_request_timeout_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("qa_request_timeout_seconds").minimum,
+        le=numeric_field("qa_request_timeout_seconds").maximum,
+    )
+    task_fallback_agent_ids: list[str] | None = None
+    max_task_attempts: int | None = Field(
+        default=None,
+        ge=numeric_field("max_task_attempts").minimum,
+        le=numeric_field("max_task_attempts").maximum,
+    )
+    task_result_context_max_chars: int | None = Field(
+        default=None,
+        ge=numeric_field("task_result_context_max_chars").minimum,
+        le=numeric_field("task_result_context_max_chars").maximum,
+    )
+    task_result_item_max_chars: int | None = Field(
+        default=None,
+        ge=numeric_field("task_result_item_max_chars").minimum,
+        le=numeric_field("task_result_item_max_chars").maximum,
+    )
+    orchestrator_memory_enabled: bool | None = None
+    orchestrator_memory_recent_runs: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_memory_recent_runs").minimum,
+        le=numeric_field("orchestrator_memory_recent_runs").maximum,
+    )
+    orchestrator_memory_context_max_chars: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_memory_context_max_chars").minimum,
+        le=numeric_field("orchestrator_memory_context_max_chars").maximum,
+    )
+    orchestrator_tool_calling_enabled: bool | None = None
+    orchestrator_tool_trace_visible: bool | None = None
+    orchestrator_tool_max_iterations: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_tool_max_iterations").minimum,
+        le=numeric_field("orchestrator_tool_max_iterations").maximum,
+    )
+    orchestrator_tool_result_max_chars: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_tool_result_max_chars").minimum,
+        le=numeric_field("orchestrator_tool_result_max_chars").maximum,
+    )
+    orchestrator_tool_read_max_bytes: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_tool_read_max_bytes").minimum,
+        le=numeric_field("orchestrator_tool_read_max_bytes").maximum,
+    )
 
     # 允许额外 provider 专属字段
     model_config = ConfigDict(extra="allow")

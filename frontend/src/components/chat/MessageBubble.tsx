@@ -1,7 +1,6 @@
 import { ContentRenderer } from '@/components/blocks/ContentRenderer';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { DemoMessage } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
 import { Pin, RotateCcw } from 'lucide-react';
@@ -13,7 +12,7 @@ export function MessageBubble({
   onTogglePin,
   onRetry,
   onMentionAgent,
-  agents = mockAgents,
+  agents = [],
 }: {
   message: DemoMessage;
   highlighted?: boolean;
