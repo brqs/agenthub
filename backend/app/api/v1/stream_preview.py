@@ -37,11 +37,14 @@ async def maybe_autostart_platform_preview(
     history: list[ChatMessage],
     workspace_path: Path,
     block_index: int,
+    existing_blocks: list[dict[str, Any]] | None = None,
 ) -> tuple[list[StreamChunk], int]:
     """Start a platform-managed preview when the user explicitly asked for one."""
 
     user_request = await _latest_user_request(db, message, history)
     if not _wants_platform_preview(user_request):
+        return [], block_index
+    if _has_platform_preview_tool_call(existing_blocks):
         return [], block_index
 
     entry_path = _find_preview_entry(workspace_path)
@@ -186,6 +189,16 @@ async def _latest_user_request(
 
 def _wants_platform_preview(text: str) -> bool:
     return bool(text and DEPLOY_INTENT_RE.search(text))
+
+
+def _has_platform_preview_tool_call(blocks: list[dict[str, Any]] | None) -> bool:
+    if not blocks:
+        return False
+    return any(
+        block.get("type") == "tool_call"
+        and block.get("tool_name") == "start_workspace_preview"
+        for block in blocks
+    )
 
 
 def _requested_port(text: str) -> int | None:

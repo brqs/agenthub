@@ -91,6 +91,45 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
             },
         ),
         ToolSpec(
+            name="start_workspace_preview",
+            description=(
+                "Start or reuse a platform-managed static preview for a workspace HTML "
+                "artifact. Use this for user preview/deploy/port requests."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "entry_path": {"type": "string"},
+                    "mode": {"type": "string", "enum": ["static"], "default": "static"},
+                    "requested_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                },
+                "required": ["entry_path"],
+            },
+        ),
+        ToolSpec(
+            name="verify_web_preview",
+            description=(
+                "Run browser-level quality verification against the current platform "
+                "preview, including desktop/mobile rendering, JS errors, resources, "
+                "visible text, screenshots, and basic button interactions."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "required_text": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "viewports": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["desktop", "mobile"]},
+                    },
+                    "click_buttons": {"type": "boolean", "default": True},
+                    "max_clicks": {"type": "integer", "minimum": 0, "maximum": 10},
+                },
+            },
+        ),
+        ToolSpec(
             name="ask_user",
             description="Stop and ask the user for missing information.",
             parameters={

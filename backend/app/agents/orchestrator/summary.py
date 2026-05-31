@@ -28,6 +28,8 @@ def plan_source(tasks: list[SubTask]) -> str:
         return "legacy template"
     if all(task.task_id.startswith("direct-") for task in tasks):
         return "direct routing"
+    if all(task.task_id.startswith("frontend-") for task in tasks):
+        return "frontend quality plan"
     return "LLM planner/config"
 
 

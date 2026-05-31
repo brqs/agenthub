@@ -201,6 +201,67 @@ async def test_orchestrator_preserves_explicit_requirements_in_planned_tasks() -
     )
 
 
+async def test_frontend_deploy_planner_output_is_stabilized_for_quality_gate() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("claude plan only"))
+    codex = FakeSubAdapter("codex-helper", _text_chunks("created files"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("reviewed files"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "planner-claude",
+                            "claude-code",
+                            "Analyze request",
+                            "Analyze the frontend request.",
+                        )
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    request = (
+        "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff、网页预览、"
+        "按钮交互和移动端适配的前端开发演示，主题随机，部署在端口8082，"
+        "并完成浏览器级质量验收"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(planner.calls) == 1
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["opencode-helper"]
+    assert any(
+        "via frontend quality plan" in (chunk.text_delta or "") for chunk in chunks
+    )
+    assert claude.received_messages == []
+    assert codex.received_messages == []
+    assert "index.html, styles.css, app.js" in opencode.received_messages[-1].content
+    assert "Do not enter plan mode" in opencode.received_messages[-1].content
+    assert "移动端适配" in opencode.received_messages[-1].content
+
+
 async def test_orchestrator_filters_planner_port_service_tasks() -> None:
     web_designer = FakeSubAdapter("web-designer", _text_chunks("created snake.html"))
     planner = FakePlannerGateway(

@@ -1199,3 +1199,6 @@ async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() 
     assert isinstance(adapter, OrchestratorAdapter)
     assert callable(adapter.default_config["adapter_factory"])
     assert adapter.default_config["managed_agent_ids"]
+    assert adapter.default_config["llm_planning"] is True
+    assert adapter.default_config["react_enabled"] is True
+    assert adapter.default_config["planner_model_backend"] == "claude"
