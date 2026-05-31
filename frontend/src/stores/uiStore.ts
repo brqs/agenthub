@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type ThemeMode = 'dark' | 'light';
+export type ThemePreference = 'system' | ThemeMode;
+export type SystemTheme = ThemeMode | 'unknown';
 
 export const RIGHT_PANEL_MIN_WIDTH = 320;
 export const RIGHT_PANEL_DEFAULT_WIDTH = 380;
@@ -9,6 +11,9 @@ export const RIGHT_PANEL_MAX_WIDTH = 560;
 
 interface UiState {
   theme: ThemeMode;
+  themePreference: ThemePreference;
+  resolvedTheme: ThemeMode;
+  systemTheme: SystemTheme;
   settingsOpen: boolean;
   userMenuOpen: boolean;
   rightPanelOpen: boolean;
@@ -16,6 +21,8 @@ interface UiState {
   conversationSidebarCollapsed: boolean;
   setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
+  setThemePreference: (preference: ThemePreference) => void;
+  cycleThemePreference: () => void;
   setSettingsOpen: (open: boolean) => void;
   setUserMenuOpen: (open: boolean) => void;
   setRightPanelOpen: (open: boolean) => void;
@@ -24,28 +31,67 @@ interface UiState {
   toggleConversationSidebar: () => void;
 }
 
-function applyTheme(theme: ThemeMode) {
-  document.documentElement.classList.toggle('dark', theme === 'dark');
-  document.documentElement.style.colorScheme = theme;
+const THEME_CYCLE: ThemePreference[] = ['system', 'dark', 'light'];
+
+function getSystemTheme(): SystemTheme {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'unknown';
+  }
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
+
+function normalizeThemePreference(value: unknown): ThemePreference {
+  return value === 'system' || value === 'dark' || value === 'light' ? value : 'system';
+}
+
+function resolveTheme(preference: ThemePreference, systemTheme = getSystemTheme()): ThemeMode {
+  if (preference !== 'system') return preference;
+  return systemTheme === 'light' ? 'light' : 'dark';
+}
+
+function applyTheme(preference: ThemePreference, resolvedTheme: ThemeMode) {
+  document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
+  document.documentElement.dataset.theme = resolvedTheme;
+  document.documentElement.dataset.themePreference = preference;
+  document.documentElement.style.colorScheme = resolvedTheme;
+}
+
+function applyPreference(preference: ThemePreference) {
+  const systemTheme = getSystemTheme();
+  const resolvedTheme = resolveTheme(preference, systemTheme);
+  applyTheme(preference, resolvedTheme);
+  return {
+    theme: resolvedTheme,
+    themePreference: preference,
+    resolvedTheme,
+    systemTheme,
+  };
+}
+
+const initialTheme = applyPreference('system');
 
 export const useUiStore = create<UiState>()(
   persist(
     (set, get) => ({
-      theme: 'dark',
+      ...initialTheme,
       settingsOpen: false,
       userMenuOpen: false,
       rightPanelOpen: true,
       rightPanelWidth: RIGHT_PANEL_DEFAULT_WIDTH,
       conversationSidebarCollapsed: false,
       setTheme: (theme) => {
-        applyTheme(theme);
-        set({ theme });
+        set(applyPreference(theme));
       },
       toggleTheme: () => {
-        const nextTheme = get().theme === 'dark' ? 'light' : 'dark';
-        applyTheme(nextTheme);
-        set({ theme: nextTheme });
+        get().cycleThemePreference();
+      },
+      setThemePreference: (preference) => {
+        set(applyPreference(preference));
+      },
+      cycleThemePreference: () => {
+        const currentIndex = THEME_CYCLE.indexOf(get().themePreference);
+        const nextPreference = THEME_CYCLE[(currentIndex + 1) % THEME_CYCLE.length] ?? 'system';
+        set(applyPreference(nextPreference));
       },
       setSettingsOpen: (open) => set({ settingsOpen: open }),
       setUserMenuOpen: (open) => set({ userMenuOpen: open }),
@@ -63,17 +109,57 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'agenthub-ui',
+      version: 2,
+      migrate: (persisted) => {
+        const value = persisted as Partial<UiState> | undefined;
+        const themePreference = normalizeThemePreference(value?.themePreference ?? value?.theme);
+        return {
+          themePreference,
+          rightPanelOpen: value?.rightPanelOpen ?? true,
+          rightPanelWidth: value?.rightPanelWidth ?? RIGHT_PANEL_DEFAULT_WIDTH,
+          conversationSidebarCollapsed: value?.conversationSidebarCollapsed ?? false,
+        };
+      },
+      merge: (persisted, current) => {
+        const value = persisted as Partial<UiState> | undefined;
+        const themePreference = normalizeThemePreference(value?.themePreference ?? value?.theme);
+        return {
+          ...current,
+          ...value,
+          ...applyPreference(themePreference),
+        };
+      },
       partialize: (state) => ({
-        theme: state.theme,
+        themePreference: state.themePreference,
         rightPanelOpen: state.rightPanelOpen,
         rightPanelWidth: state.rightPanelWidth,
         conversationSidebarCollapsed: state.conversationSidebarCollapsed,
       }),
       onRehydrateStorage: () => (state) => {
-        applyTheme(state?.theme ?? 'dark');
+        const themePreference = normalizeThemePreference(state?.themePreference ?? state?.theme);
+        const nextTheme = applyPreference(themePreference);
+        applyTheme(nextTheme.themePreference, nextTheme.resolvedTheme);
       },
     },
   ),
 );
 
-applyTheme(useUiStore.getState().theme);
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  const media = window.matchMedia('(prefers-color-scheme: dark)');
+  const updateSystemTheme = () => {
+    const state = useUiStore.getState();
+    if (state.themePreference !== 'system') {
+      useUiStore.setState({ systemTheme: getSystemTheme() });
+      return;
+    }
+    useUiStore.setState(applyPreference('system'));
+  };
+  if (typeof media.addEventListener === 'function') {
+    media.addEventListener('change', updateSystemTheme);
+  } else {
+    media.addListener(updateSystemTheme);
+  }
+}
+
+const currentTheme = useUiStore.getState();
+applyTheme(currentTheme.themePreference, currentTheme.resolvedTheme);

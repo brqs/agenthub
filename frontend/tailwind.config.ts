@@ -7,8 +7,8 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          DEFAULT: '#6366F1',
-          hover: '#4F46E5',
+          DEFAULT: '#4F46E5',
+          hover: '#4338CA',
           light: '#818CF8',
         },
         agent: {
