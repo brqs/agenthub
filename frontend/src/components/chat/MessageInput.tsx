@@ -1,7 +1,6 @@
 import { AtSign, Paperclip, Send } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentMentionPicker } from './AgentMentionPicker';
-import { DemoPromptBar } from './DemoPromptBar';
 import type { DemoConversation } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 
@@ -77,13 +76,10 @@ export function MessageInput({
   return (
     <footer className="shrink-0 border-t border-slate-800 bg-slate-950 px-5 py-3 max-[800px]:py-2 [@media(max-height:800px)]:py-2">
       {conversation.mode === 'group' && (
-        <>
-          <DemoPromptBar onSelect={setText} />
-          <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 max-[800px]:hidden [@media(max-height:800px)]:hidden">
-            <AtSign className="h-3.5 w-3.5" />
-            输入 @ 可指定 Agent，默认由 Orchestrator 协调
-          </div>
-        </>
+        <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 max-[800px]:hidden [@media(max-height:800px)]:hidden">
+          <AtSign className="h-3.5 w-3.5" />
+          输入 @ 可指定 Agent，默认由 Orchestrator 协调
+        </div>
       )}
       {mentionQuery !== null && (
         <AgentMentionPicker agents={availableAgents} query={mentionQuery} onPick={pickAgent} />
