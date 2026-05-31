@@ -1,7 +1,6 @@
 import { ContentRenderer } from '@/components/blocks/ContentRenderer';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { DemoMessage } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
 import { Pin, RotateCcw } from 'lucide-react';
@@ -13,7 +12,7 @@ export function MessageBubble({
   onTogglePin,
   onRetry,
   onMentionAgent,
-  agents = mockAgents,
+  agents = [],
 }: {
   message: DemoMessage;
   highlighted?: boolean;
@@ -79,7 +78,7 @@ export function MessageBubble({
       )}
       <div className={cn(isUser ? 'order-1 flex max-w-[min(680px,78%)] flex-col items-end' : 'min-w-0 flex-1')}>
         <div className={cn('mb-1.5 flex items-center gap-2 px-1 text-xs text-slate-500', isUser && 'justify-end')}>
-          <span className="font-medium text-slate-300">{isUser ? '你' : agent?.name ?? 'Agent'}</span>
+          <span className="font-medium text-slate-800 dark:text-slate-300">{isUser ? '你' : agent?.name ?? 'Agent'}</span>
           <span>{formatTime(message.created_at)}</span>
           {message.status === 'streaming' && <span className="text-brand-light">正在输入</span>}
           {message.status === 'error' && <span className="text-red-400">需要重试</span>}
@@ -88,8 +87,8 @@ export function MessageBubble({
               type="button"
               onClick={() => onTogglePin(message.id)}
               className={cn(
-                'ml-1 rounded-md p-1 transition hover:bg-slate-800 hover:text-white group-hover:opacity-100',
-                message.is_pinned ? 'text-brand-light opacity-100' : 'text-slate-600 opacity-0',
+                'ml-1 rounded-md p-1 transition hover:bg-slate-100 hover:text-slate-950 group-hover:opacity-100 dark:hover:bg-slate-800 dark:hover:text-white',
+                message.is_pinned ? 'text-brand opacity-100 dark:text-brand-light' : 'text-slate-500 opacity-0 dark:text-slate-600',
               )}
               title={message.is_pinned ? '取消 Pin' : 'Pin 消息'}
               aria-label={message.is_pinned ? '取消 Pin' : 'Pin 消息'}
@@ -104,8 +103,8 @@ export function MessageBubble({
             isUser
               ? 'user-message-bubble w-fit max-w-full bg-brand px-4 py-2.5 text-white shadow-brand/10'
               : message.status === 'error'
-                ? 'border border-red-500/30 bg-red-950/20 text-slate-100'
-                : 'border border-slate-800 bg-slate-900/75 text-slate-100 shadow-black/10',
+                ? 'border border-red-300 bg-red-50 text-slate-950 dark:border-red-500/30 dark:bg-red-950/20 dark:text-slate-100'
+                : 'border border-slate-300 bg-white text-slate-950 shadow-black/5 dark:border-slate-800 dark:bg-slate-900/75 dark:text-slate-100 dark:shadow-black/10',
           )}
         >
           <ContentRenderer
@@ -117,7 +116,7 @@ export function MessageBubble({
             <button
               type="button"
               onClick={() => onRetry(message.id)}
-              className="mt-3 inline-flex items-center gap-2 rounded-md border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-100 hover:bg-red-500/10"
+              className="mt-3 inline-flex items-center gap-2 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:text-red-100 dark:hover:bg-red-500/10"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               重试
@@ -128,7 +127,7 @@ export function MessageBubble({
       {mentionMenuPosition && agent && (
         <div
           role="menu"
-          className="fixed z-50 min-w-40 overflow-hidden rounded-md border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/30"
+          className="fixed z-50 min-w-40 overflow-hidden rounded-md border border-slate-300 bg-white p-1 shadow-xl shadow-black/15 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/30"
           style={{ left: mentionMenuPosition.x, top: mentionMenuPosition.y }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -136,7 +135,7 @@ export function MessageBubble({
             type="button"
             role="menuitem"
             onClick={mentionAgent}
-            className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-brand/15 hover:text-brand-light"
+            className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-slate-900 transition hover:bg-brand/10 hover:text-brand dark:text-slate-200 dark:hover:bg-brand/15 dark:hover:text-brand-light"
           >
             @ {agent.name}
           </button>

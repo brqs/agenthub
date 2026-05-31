@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { StreamingStatusBar } from './StreamingStatusBar';
 import { getStreamingStatus } from './streamingStatus';
-import type { DemoMessage } from '@/lib/mockData';
+import { mockAgents, type DemoMessage } from '@/lib/mockData';
 
 const streamingMessage: DemoMessage = {
   id: 'msg-streaming',
@@ -17,7 +17,7 @@ const streamingMessage: DemoMessage = {
 
 describe('StreamingStatusBar', () => {
   it('derives status from the latest streaming message', () => {
-    expect(getStreamingStatus([streamingMessage])).toMatchObject({
+    expect(getStreamingStatus([streamingMessage], mockAgents)).toMatchObject({
       agentName: 'Codex Helper',
       blockType: 'code',
       label: '正在输出代码',
@@ -25,7 +25,7 @@ describe('StreamingStatusBar', () => {
   });
 
   it('renders streaming status', () => {
-    render(<StreamingStatusBar messages={[streamingMessage]} />);
+    render(<StreamingStatusBar messages={[streamingMessage]} agents={mockAgents} />);
 
     expect(screen.getByRole('status')).toHaveTextContent('Codex Helper 正在输出代码');
   });

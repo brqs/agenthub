@@ -462,6 +462,45 @@ async def test_orchestrator_does_not_require_database() -> None:
     assert adapter_a.received_config is None
 
 
+async def test_orchestrator_passes_group_memory_to_sub_agent() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("used group memory"))
+    messages = [
+        ChatMessage(
+            role="system",
+            content=(
+                "This is a group conversation. Assistant messages may come from "
+                "multiple agents."
+            ),
+        ),
+        ChatMessage(
+            role="system",
+            content="Earlier compressed conversation memory:\nAgentHub uses FastAPI.",
+        ),
+        ChatMessage(
+            role="assistant",
+            content="[Agent: claude-code]\nI created the backend API.",
+        ),
+        ChatMessage(role="user", content="@orchestrator continue the implementation"),
+    ]
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=messages,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Continue", "Continue the work")],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    joined = "\n".join(message.content for message in adapter_a.received_messages)
+    assert "group conversation" in joined
+    assert "Earlier compressed conversation memory" in joined
+    assert "[Agent: claude-code]" in joined
+    assert adapter_a.received_messages[-1].content == "Continue the work"
+
+
 async def test_orchestrator_derives_tasks_from_managed_agents() -> None:
     adapter_a = FakeSubAdapter("agent-a", _text_chunks("analysis done"))
     adapter_b = FakeSubAdapter("agent-b", _text_chunks("implementation done"))

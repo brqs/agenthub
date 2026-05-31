@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.types import ChatMessage
 from app.core.config import settings
+from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
 from app.models.message import Message
 from app.services.context_compression import (
@@ -24,8 +25,8 @@ from app.services.context_compression import (
     TOTAL_TOKEN_BUDGET,
     ContextCompressor,
     CriticalFactExtractor,
-    blocks_to_text,
     estimate_tokens,
+    message_to_text,
     truncate_text,
 )
 from app.services.model_gateway import has_configured_compression_api_key
@@ -38,11 +39,28 @@ def _message_role(message: Message) -> str | None:
     return role
 
 
-def _message_to_chat(message: Message, *, compressed_pin: bool = False) -> ChatMessage | None:
+def _group_context_message(agent_ids: list[str]) -> ChatMessage:
+    agents = ", ".join(agent_ids) if agent_ids else "unknown"
+    return ChatMessage(
+        role="system",
+        content=(
+            "This is a group conversation. Assistant messages may come from "
+            f"multiple agents: {agents}. Each agent message is prefixed with "
+            "[Agent: <agent_id>] so the current agent can distinguish who said it."
+        ),
+    )
+
+
+def _message_to_chat(
+    message: Message,
+    *,
+    compressed_pin: bool = False,
+    include_agent_label: bool = False,
+) -> ChatMessage | None:
     role = _message_role(message)
     if role is None:
         return None
-    text = blocks_to_text(message.content)
+    text = message_to_text(message, include_agent_label=include_agent_label)
     if compressed_pin:
         text = (
             "[Pinned message summary] "
@@ -83,6 +101,8 @@ async def _refresh_memory_if_needed(
     db: AsyncSession,
     conversation_id: UUID,
     messages: list[Message],
+    *,
+    include_agent_labels: bool = False,
 ) -> ConversationMemory | None:
     recent_raw_keep = max(settings.context_recent_raw_keep, 1)
     if len(messages) <= recent_raw_keep:
@@ -106,7 +126,10 @@ async def _refresh_memory_if_needed(
     end_index = max(len(messages) - recent_raw_keep, start_index)
     candidates = messages[start_index:end_index]
     candidate_tokens = sum(
-        estimate_tokens(blocks_to_text(message.content)) for message in candidates
+        estimate_tokens(
+            message_to_text(message, include_agent_label=include_agent_labels)
+        )
+        for message in candidates
     )
 
     should_compress = (
@@ -123,6 +146,7 @@ async def _refresh_memory_if_needed(
     summary_text, algorithm_version = await ContextCompressor().compress(
         candidates,
         existing_summary,
+        include_agent_labels=include_agent_labels,
     )
     memory.summary_text = summary_text
     memory.summarized_until_message_id = candidates[-1].id
@@ -161,6 +185,10 @@ async def build_context(
     max_tokens: int = TOTAL_TOKEN_BUDGET,
 ) -> list[ChatMessage]:
     """Build compressed context from memory, pinned messages, and recent messages."""
+    conversation = await db.get(Conversation, conversation_id)
+    is_group = conversation is not None and conversation.mode == "group"
+    agent_ids = list(conversation.agent_ids) if conversation is not None else []
+
     stmt = (
         select(Message)
         .where(Message.conversation_id == conversation_id)
@@ -168,11 +196,24 @@ async def build_context(
         .order_by(Message.created_at.asc())
     )
     messages = list((await db.execute(stmt)).scalars().all())
-    memory = await _refresh_memory_if_needed(db, conversation_id, messages)
+    memory = await _refresh_memory_if_needed(
+        db,
+        conversation_id,
+        messages,
+        include_agent_labels=is_group,
+    )
     critical_facts = CriticalFactExtractor.from_messages(messages)
 
     context: list[ChatMessage] = []
     used_tokens = 0
+
+    if is_group:
+        used_tokens = _append_with_budget(
+            context,
+            _group_context_message(agent_ids),
+            used_tokens,
+            min(max_tokens, 300),
+        )
 
     if memory and memory.summary_text.strip():
         summary_budget = min(max_tokens, max(settings.context_summary_max_tokens, 1))
@@ -213,7 +254,7 @@ async def build_context(
     ]
     pinned_used = 0
     for message in pinned_messages:
-        chat_message = _message_to_chat(message)
+        chat_message = _message_to_chat(message, include_agent_label=is_group)
         if chat_message is None:
             continue
         tokens = estimate_tokens(chat_message.content)
@@ -222,7 +263,11 @@ async def build_context(
             pinned_used += tokens
             used_tokens += tokens
             continue
-        compressed = _message_to_chat(message, compressed_pin=True)
+        compressed = _message_to_chat(
+            message,
+            compressed_pin=True,
+            include_agent_label=is_group,
+        )
         if compressed is not None:
             context.append(compressed)
             compressed_tokens = estimate_tokens(compressed.content)
@@ -235,7 +280,7 @@ async def build_context(
     for message in reversed(recent_candidates):
         if message.is_pinned and message.id not in recent_ids:
             continue
-        chat_message = _message_to_chat(message)
+        chat_message = _message_to_chat(message, include_agent_label=is_group)
         if chat_message is None:
             continue
         tokens = estimate_tokens(chat_message.content)

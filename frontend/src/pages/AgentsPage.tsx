@@ -8,7 +8,6 @@ import { useAgents } from '@/hooks/useAgents';
 import { useCreateAgent } from '@/hooks/useCreateAgent';
 import { useDeleteAgent } from '@/hooks/useDeleteAgent';
 import { useUpdateAgent } from '@/hooks/useUpdateAgent';
-import { env } from '@/lib/env';
 import type { Agent } from '@/lib/types';
 import { useAgentStore } from '@/stores/agentStore';
 
@@ -51,9 +50,7 @@ export function AgentsPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold text-white">Agent 管理</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                {env.useMockApi
-                  ? '管理内置 Agent 与自建 Agent。当前为 Mock 创建流程。'
-                  : '管理远端后端中的内置 Agent 与自建 Agent。'}
+                管理远端后端中的内置 Agent 与自建 Agent。
               </p>
             </div>
             <button

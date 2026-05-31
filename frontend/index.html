@@ -6,6 +6,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AgentHub</title>
     <meta name="description" content="像聊微信一样，与多个 AI 协作完成复杂任务" />
+    <script>
+      (() => {
+        const fallbackPreference = 'system';
+        const fallbackTheme = 'dark';
+        try {
+          const raw = window.localStorage.getItem('agenthub-ui');
+          const parsed = raw ? JSON.parse(raw) : null;
+          const state = parsed?.state ?? {};
+          const preference = state.themePreference ?? state.theme ?? fallbackPreference;
+          const systemDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
+          const resolvedTheme = preference === 'light' || (preference === 'system' && !systemDark)
+            ? 'light'
+            : fallbackTheme;
+          document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
+          document.documentElement.dataset.theme = resolvedTheme;
+          document.documentElement.dataset.themePreference = preference;
+          document.documentElement.style.colorScheme = resolvedTheme;
+        } catch {
+          document.documentElement.classList.add('dark');
+          document.documentElement.dataset.theme = fallbackTheme;
+          document.documentElement.dataset.themePreference = fallbackPreference;
+          document.documentElement.style.colorScheme = fallbackTheme;
+        }
+      })();
+    </script>
   </head>
   <body class="bg-white text-gray-900 dark:bg-slate-900 dark:text-slate-100 antialiased">
     <div id="root"></div>

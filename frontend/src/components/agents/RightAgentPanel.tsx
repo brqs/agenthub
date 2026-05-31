@@ -8,20 +8,13 @@ import {
   PanelRight,
   PanelRightClose,
   Pin,
-  ShieldCheck,
 } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact/ArtifactPreview';
 import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/WorkspaceFileTree';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
-import {
-  getMockArtifact,
-  getMockWorkspace,
-  getWorkspaceFilesFromMessages,
-} from '@/lib/mockWorkspace';
-import { env } from '@/lib/env';
+import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
 import { useWorkspaceFile, useWorkspaceTree, useWriteWorkspaceFile } from '@/hooks/useWorkspace';
 import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -66,7 +59,7 @@ function getDefaultTab(hasWorkspace: boolean): RightPanelTab {
 export function RightAgentPanel({
   conversation,
   messages,
-  agents = mockAgents,
+  agents = [],
   width = RIGHT_PANEL_DEFAULT_WIDTH,
   onWidthChange = () => undefined,
   onCollapse = () => undefined,
@@ -85,21 +78,12 @@ export function RightAgentPanel({
     .filter((agent) => agent !== undefined);
   const pinned = messages.filter((message) => message.is_pinned);
   const snapshot = getOrchestratorSnapshot(conversation, messages, agents);
-  const mockWorkspace = useMemo(() => getMockWorkspace(conversation.id), [conversation.id]);
-  const [activeTab, setActiveTab] = useState<RightPanelTab>(() =>
-    getDefaultTab(Boolean(mockWorkspace) || !env.useMockApi),
-  );
-  const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<RightPanelTab>(() => getDefaultTab(true));
   const touchedFiles = getWorkspaceFilesFromMessages(messages);
-  const selectedArtifact = getMockArtifact(conversation.id, selectedArtifactPath);
 
   useEffect(() => {
-    setSelectedArtifactPath(getFirstWorkspacePath(mockWorkspace));
-  }, [mockWorkspace]);
-
-  useEffect(() => {
-    setActiveTab(getDefaultTab(Boolean(mockWorkspace) || !env.useMockApi));
-  }, [mockWorkspace]);
+    setActiveTab(getDefaultTab(true));
+  }, [conversation.id]);
 
   return (
     <aside
@@ -154,25 +138,12 @@ export function RightAgentPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin max-[800px]:p-3 [@media(max-height:800px)]:p-3">
         {activeTab === 'workspace' && (
-          env.useMockApi ? (
-            <WorkspacePanel
-              workspace={mockWorkspace}
-              isLoading={false}
-              error={null}
-              touchedFilesCount={touchedFiles.length}
-              selectedArtifactPath={selectedArtifactPath}
-              selectedArtifact={selectedArtifact}
-              onSelectArtifact={setSelectedArtifactPath}
-            />
-          ) : (
-            <RealWorkspacePanel conversationId={conversation.id} touchedFilesCount={touchedFiles.length} />
-          )
+          <RealWorkspacePanel conversationId={conversation.id} touchedFilesCount={touchedFiles.length} />
         )}
         {activeTab === 'context' && (
           <ContextPanel
             agents={conversationAgents}
             messages={messages}
-            isMockMode={env.useMockApi}
             activeAgentId={snapshot.currentAgentId}
             pinned={pinned}
             onSelectPinnedMessage={onSelectPinnedMessage}
@@ -306,6 +277,7 @@ function WorkspacePanel({
   workspace,
   isLoading,
   error,
+  artifactError,
   touchedFilesCount,
   selectedArtifactPath,
   selectedArtifact,
@@ -316,11 +288,12 @@ function WorkspacePanel({
   workspace: { root: string; tree: WorkspaceNode[] } | null;
   isLoading: boolean;
   error: unknown;
+  artifactError?: unknown;
   touchedFilesCount: number;
   selectedArtifactPath: string | null;
   selectedArtifact: PreviewArtifactFile | null;
   onSelectArtifact: (path: string) => void;
-  onSaveArtifact?: (path: string, content: string, mimeType: string) => Promise<void> | void;
+  onSaveArtifact?: (path: string, content: string | Blob, mimeType: string) => Promise<void> | void;
   isSavingArtifact?: boolean;
 }) {
   return (
@@ -347,11 +320,17 @@ function WorkspacePanel({
               onSelectFile={onSelectArtifact}
             />
           </div>
-          <ArtifactPreview
-            artifact={selectedArtifact}
-            onSave={onSaveArtifact}
-            isSaving={isSavingArtifact}
-          />
+          {artifactError ? (
+            <div className="rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
+              文件预览加载失败，请稍后重试。
+            </div>
+          ) : (
+            <ArtifactPreview
+              artifact={selectedArtifact}
+              onSave={onSaveArtifact}
+              isSaving={isSavingArtifact}
+            />
+          )}
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm leading-6 text-slate-500">
@@ -381,6 +360,7 @@ function RealWorkspacePanel({
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
   const artifactQuery = useWorkspaceFile(conversationId, selectedArtifactPath);
   const writeWorkspaceFile = useWriteWorkspaceFile(conversationId);
+  const realTouchedFilesCount = workspace ? flattenFiles(workspace.tree).length : touchedFilesCount;
 
   useEffect(() => {
     setSelectedArtifactPath(getFirstWorkspacePath(workspace));
@@ -391,7 +371,7 @@ function RealWorkspacePanel({
       workspace={workspace}
       isLoading={workspaceQuery.isLoading}
       error={workspaceQuery.error ?? artifactQuery.error}
-      touchedFilesCount={touchedFilesCount}
+      touchedFilesCount={realTouchedFilesCount}
       selectedArtifactPath={selectedArtifactPath}
       selectedArtifact={artifactQuery.data ?? null}
       onSelectArtifact={setSelectedArtifactPath}
@@ -420,14 +400,12 @@ function ContextPanel({
   messages,
   activeAgentId,
   pinned,
-  isMockMode,
   onSelectPinnedMessage,
 }: {
   agents: Agent[];
   messages: DemoMessage[];
   activeAgentId: string;
   pinned: DemoMessage[];
-  isMockMode: boolean;
   onSelectPinnedMessage?: (messageId: string) => void;
 }) {
   return (
@@ -456,17 +434,6 @@ function ContextPanel({
         )}
       </section>
 
-      {isMockMode && (
-        <section className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-white">
-            <ShieldCheck className="h-4 w-4 text-emerald-400" />
-            Mock 模式
-          </div>
-          <p className="text-sm leading-6 text-slate-500">
-            当前 UI 使用本地 Mock 数据，可切换到真后端模式联调 API 与 SSE。
-          </p>
-        </section>
-      )}
     </div>
   );
 }

@@ -1,6 +1,29 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RightAgentPanel } from './RightAgentPanel';
-import type { DemoConversation, DemoMessage } from '@/lib/mockData';
+import { mockAgents, type DemoConversation, type DemoMessage } from '@/lib/mockData';
+
+vi.mock('@/lib/adapters/workspaces', () => ({
+  getWorkspaceTree: vi.fn().mockResolvedValue({
+    root: '/workspaces/conv-panel',
+    tree: {
+      type: 'directory',
+      name: 'conv-panel',
+      path: '',
+      children: [
+        { type: 'file', name: 'demo.html', path: 'demo.html', size: 10, mime_type: 'text/html' },
+      ],
+    },
+  }),
+  readWorkspaceFile: vi.fn().mockResolvedValue({
+    path: 'demo.html',
+    name: 'demo.html',
+    size: 10,
+    mime_type: 'text/html',
+    content: '<h1>Demo</h1>',
+  }),
+  writeWorkspaceFile: vi.fn(),
+}));
 
 const conversation: DemoConversation = {
   id: 'conv-panel',
@@ -39,8 +62,14 @@ const messages: DemoMessage[] = [
 ];
 
 describe('RightAgentPanel', () => {
+  function renderPanel(panel: React.ReactNode) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={queryClient}>{panel}</QueryClientProvider>);
+  }
+
   it('shows active, done, and idle agent states derived from tasks', () => {
-    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+    renderPanel(<RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />);
+    fireEvent.click(screen.getByRole('button', { name: /Context/ }));
 
     expect(screen.getAllByText('Codex Helper').length).toBeGreaterThan(0);
     expect(screen.getByText('Active')).toBeInTheDocument();
@@ -49,7 +78,7 @@ describe('RightAgentPanel', () => {
   });
 
   it('keeps the panel header compact and avoids duplicated conversation status', () => {
-    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+    renderPanel(<RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />);
 
     expect(screen.getByText('工作台')).toBeInTheDocument();
     expect(screen.getByText('Group')).toBeInTheDocument();
@@ -59,10 +88,11 @@ describe('RightAgentPanel', () => {
     expect(screen.queryByText('群聊协作中')).not.toBeInTheDocument();
   });
 
-  it('shows mock workspace files for the demo conversation', () => {
-    render(
+  it('shows files returned by the workspace API', async () => {
+    renderPanel(
       <RightAgentPanel
         conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
         messages={[
           {
             ...messages[0],
@@ -82,14 +112,12 @@ describe('RightAgentPanel', () => {
       />,
     );
 
-    expect(screen.getAllByText('Workspace').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('demo.html').length).toBeGreaterThan(0);
-    expect(screen.getByText('RuntimeDemo.tsx')).toBeInTheDocument();
+    expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
     expect(screen.getByText('1 outputs')).toBeInTheDocument();
   });
 
   it('keeps agents and pinned messages in the context tab', () => {
-    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+    renderPanel(<RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Context/ }));
 

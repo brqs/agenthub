@@ -4,6 +4,14 @@ import { useUpdateAgent } from './useUpdateAgent';
 import { mockAgents } from '@/lib/mockData';
 import { useAgentStore } from '@/stores/agentStore';
 
+vi.mock('@/lib/adapters/agents', () => ({
+  updateAgent: vi.fn().mockImplementation(async (agentId, input) => ({
+    ...mockAgents.find((agent) => agent.id === agentId),
+    ...input,
+    id: agentId,
+  })),
+}));
+
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
@@ -17,7 +25,7 @@ describe('useUpdateAgent', () => {
     });
   });
 
-  it('updates local agent state in mock mode', async () => {
+  it('updates local agent state after the backend confirms the update', async () => {
     const { result } = renderHook(() => useUpdateAgent(), { wrapper });
 
     await act(async () => {
@@ -38,21 +46,4 @@ describe('useUpdateAgent', () => {
     });
   });
 
-  it('rejects when updating an unknown mock agent', async () => {
-    const { result } = renderHook(() => useUpdateAgent(), { wrapper });
-    let error: unknown;
-
-    await act(async () => {
-      try {
-        await result.current.mutateAsync({
-          agentId: 'missing-agent',
-          input: { name: 'Missing' },
-        });
-      } catch (caught) {
-        error = caught;
-      }
-    });
-
-    expect(error).toEqual(new Error('Agent not found'));
-  });
 });

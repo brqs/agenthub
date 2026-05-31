@@ -2,8 +2,6 @@ import { Bot, Loader2, MessageSquarePlus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
 import type { DemoMessage } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
-import { env } from '@/lib/env';
 import type { Agent } from '@/lib/types';
 
 export function MessageList({
@@ -13,7 +11,7 @@ export function MessageList({
   onTogglePin,
   onRetry,
   onMentionAgent,
-  agents = mockAgents,
+  agents = [],
 }: {
   messages: DemoMessage[];
   highlightedMessageId?: string | null;
@@ -53,7 +51,7 @@ export function MessageList({
           </p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-md bg-slate-900 px-3 py-2 text-xs text-slate-500">
             <Bot className="h-3.5 w-3.5" />
-            {env.useMockSse ? 'Mock SSE 会模拟流式回复' : '真后端 SSE 会流式返回 Agent 回复'}
+            真后端 SSE 会流式返回 Agent 回复
           </div>
         </div>
       </div>

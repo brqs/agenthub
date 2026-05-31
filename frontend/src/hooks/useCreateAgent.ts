@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as agentsAdapter from '@/lib/adapters/agents';
-import { env } from '@/lib/env';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Agent } from '@/lib/types';
 import { useAgentStore, type CreateAgentInput } from '@/stores/agentStore';
@@ -59,9 +57,7 @@ export function buildAgentConfig(input: CreateAgentInput): Record<string, unknow
 export function useCreateAgent() {
   const queryClient = useQueryClient();
   const userId = useAuthStore((state) => state.user?.id);
-  const createMockAgent = useAgentStore((state) => state.createAgent);
   const addAgent = useAgentStore((state) => state.addAgent);
-  const [mockPending, setMockPending] = useState(false);
 
   const apiMutation = useMutation({
     mutationFn: (input: CreateAgentInput) =>
@@ -79,21 +75,8 @@ export function useCreateAgent() {
     },
   });
 
-  async function mutateAsync(input: CreateAgentInput): Promise<Agent> {
-    if (env.useMockApi) {
-      setMockPending(true);
-      try {
-        await new Promise((resolve) => window.setTimeout(resolve, 120));
-        return createMockAgent(input);
-      } finally {
-        setMockPending(false);
-      }
-    }
-    return apiMutation.mutateAsync(input);
-  }
-
   return {
-    mutateAsync,
-    isPending: env.useMockApi ? mockPending : apiMutation.isPending,
+    mutateAsync: (input: CreateAgentInput): Promise<Agent> => apiMutation.mutateAsync(input),
+    isPending: apiMutation.isPending,
   };
 }

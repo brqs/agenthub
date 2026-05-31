@@ -96,7 +96,6 @@ Thumbs.db
 # 如果将来想让队友共享部署能力，再把 deploy.sh / docker-compose.yml / .env.example 单独 !-反屏蔽。
 deploy/
 frontend/Dockerfile
-frontend/nginx.conf
 frontend/.dockerignore
 
 # ─── Misc ───
