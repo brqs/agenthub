@@ -293,7 +293,7 @@ function WorkspacePanel({
   selectedArtifactPath: string | null;
   selectedArtifact: PreviewArtifactFile | null;
   onSelectArtifact: (path: string) => void;
-  onSaveArtifact?: (path: string, content: string, mimeType: string) => Promise<void> | void;
+  onSaveArtifact?: (path: string, content: string | Blob, mimeType: string) => Promise<void> | void;
   isSavingArtifact?: boolean;
 }) {
   return (
