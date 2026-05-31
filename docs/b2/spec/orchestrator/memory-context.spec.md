@@ -2,7 +2,7 @@
 
 > 定义 AgentHub 当前上下文/记忆体系、真实 external agent 的消息管理方式，以及 Orchestrator 结构化长期记忆的目标设计。
 >
-> 状态：Implemented（真实执行结果见 [orchestrator-memory-context-management.execution.spec.md](orchestrator-memory-context-management.execution.spec.md)）
+> 状态：Implemented（真实执行结果见 [memory-context.execution.spec.md](memory-context.execution.spec.md)）
 > 最后更新：2026-05-30
 
 ---
@@ -491,8 +491,10 @@ uv run python -m mypy app/agents app/services app/schemas/agent.py
 - `backend/app/services/orchestrator_memory.py`
 - `backend/app/api/v1/conversations.py`
 - `backend/app/api/v1/stream.py`
-- `backend/app/agents/orchestrator.py`
-- `backend/app/agents/orchestrator_react.py`
+- `backend/app/api/v1/stream_orchestrator_context.py`
+- `backend/app/agents/orchestrator/adapter.py`
+- `backend/app/agents/orchestrator/memory_hooks.py`
+- `backend/app/agents/orchestrator/react.py`
 - `backend/app/agents/config_validation.py`
 - `backend/app/schemas/agent.py`
 - `backend/app/schemas/conversation.py`
@@ -512,9 +514,9 @@ uv run python -m mypy app/agents app/services app/schemas/agent.py
 
 ## 10. 与现有 Spec 的关系
 
-- [orchestrator.spec.md](orchestrator.spec.md) 描述当前 Orchestrator 主行为契约，已包含 structured memory 边界。
-- [orchestrator-task-planning.spec.md](orchestrator-task-planning.spec.md) 描述 planner 和 task schema。
-- [orchestrator-react-dynamic-task-graph.spec.md](orchestrator-react-dynamic-task-graph.spec.md) 描述动态任务图。
+- [core.spec.md](core.spec.md) 描述当前 Orchestrator 主行为契约，已包含 structured memory 边界。
+- [task-planning.spec.md](task-planning.spec.md) 描述 planner 和 task schema。
+- [react-dynamic-task-graph.proposal.md](react-dynamic-task-graph.proposal.md) 描述动态任务图。
 - 本文档描述 Orchestrator 跨轮结构化记忆和上下文注入。
 
-真实实现与本设计的差异、验证命令和保留项记录在 [orchestrator-memory-context-management.execution.spec.md](orchestrator-memory-context-management.execution.spec.md)。
+真实实现与本设计的差异、验证命令和保留项记录在 [memory-context.execution.spec.md](memory-context.execution.spec.md)。

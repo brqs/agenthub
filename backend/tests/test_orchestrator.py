@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from typing import Any
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
@@ -12,6 +14,10 @@ from app.agents.orchestrator.artifacts import (
     finalize_artifact_candidates,
 )
 from app.agents.orchestrator.types import SubTask, TaskAttempt, TaskState
+from app.agents.orchestrator.workspace_changes import (
+    diff_workspace_snapshots,
+    snapshot_workspace,
+)
 from app.agents.registry import get_adapter
 from app.agents.types import ChatMessage, StreamChunk
 from app.models.agent import Agent
@@ -26,6 +32,66 @@ from tests.orchestrator_fakes import (
     _task,
     _text_chunks,
 )
+
+
+class BarrierAdapter(BaseAgentAdapter):
+    provider = "fake"
+
+    def __init__(
+        self,
+        agent_id: str,
+        started: set[str],
+        all_started: asyncio.Event,
+        expected_count: int,
+    ) -> None:
+        super().__init__(agent_id=agent_id)
+        self.started = started
+        self.all_started = all_started
+        self.expected_count = expected_count
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ):
+        _ = messages, system_prompt, config, workspace_path, tool_specs
+        self.started.add(self.agent_id)
+        if len(self.started) >= self.expected_count:
+            self.all_started.set()
+        await asyncio.wait_for(self.all_started.wait(), timeout=1)
+        yield StreamChunk(event_type="start", agent_id=self.agent_id)
+        yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+        yield StreamChunk(
+            event_type="delta",
+            block_index=0,
+            text_delta=f"{self.agent_id} done",
+        )
+        yield StreamChunk(event_type="block_end", block_index=0)
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+
+def test_workspace_snapshot_diff_ignores_runtime_metadata(tmp_path: Path) -> None:
+    (tmp_path / ".agenthub").mkdir()
+    (tmp_path / ".agenthub" / "manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "x.js").write_text("ignored", encoding="utf-8")
+    (tmp_path / "README.md").write_text("before", encoding="utf-8")
+
+    before = snapshot_workspace(tmp_path)
+    (tmp_path / "README.md").write_text("after", encoding="utf-8")
+    (tmp_path / "app.py").write_text("print('ok')", encoding="utf-8")
+    after = snapshot_workspace(tmp_path)
+
+    assert sorted(before) == ["README.md"]
+    assert diff_workspace_snapshots(before, after) == {
+        "created": ["app.py"],
+        "modified": ["README.md"],
+        "deleted": [],
+    }
 
 
 def test_artifact_check_resolves_unique_basename_in_nested_workspace(
@@ -45,6 +111,29 @@ def test_artifact_check_resolves_unique_basename_in_nested_workspace(
     assert attempt.state == TaskState.SUCCEEDED
     assert attempt.artifact_paths == ["frontend-demo/index.html"]
     assert attempt.missing_artifact_paths == []
+
+
+def test_artifact_check_accepts_workspace_prefixed_expected_output(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "parallel-claude.md").write_text("ok", encoding="utf-8")
+    attempt = TaskAttempt(
+        attempt_index=1,
+        agent_id="agent-a",
+        artifact_paths=["workspace/parallel-claude.md"],
+    )
+
+    check_attempt_artifacts(attempt, tmp_path)
+
+    assert attempt.state == TaskState.SUCCEEDED
+    assert attempt.artifact_paths == ["parallel-claude.md"]
+    assert attempt.missing_artifact_paths == []
+
+
+def test_artifact_extraction_accepts_absolute_workspace_tool_paths() -> None:
+    assert extract_artifact_paths_from_text(
+        "/workspaces/abc-123/parallel-opencode.md"
+    ) == ["parallel-opencode.md"]
 
 
 def test_artifact_check_keeps_ambiguous_basename_missing(tmp_path: Path) -> None:
@@ -86,6 +175,25 @@ def test_artifact_candidates_prefer_observed_outputs_over_instruction_context() 
     assert attempt.artifact_paths == ["styles.css"]
 
 
+def test_artifact_candidates_use_expected_output_as_required_contract() -> None:
+    attempt = TaskAttempt(
+        attempt_index=1,
+        agent_id="agent-a",
+        artifact_paths=["review.md", "sitemap.xml"],
+    )
+    task = SubTask(
+        task_id="task-a",
+        agent_id="agent-a",
+        title="Create review",
+        instruction="Create review.md and mention sitemap.xml as a future idea.",
+        expected_output="workspace 文件 review.md",
+    )
+
+    finalize_artifact_candidates(attempt, task)
+
+    assert attempt.artifact_paths == ["review.md"]
+
+
 async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -> None:
     adapter_a = FakeSubAdapter("agent-a", _text_chunks("backend done"))
     adapter_b = FakeSubAdapter("agent-b", _text_chunks("frontend done"))
@@ -121,6 +229,138 @@ async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -
     assert any(chunk.text_delta == "backend done" for chunk in chunks)
     assert any(chunk.text_delta == "frontend done" for chunk in chunks)
     assert any("Execution summary" in (chunk.text_delta or "") for chunk in chunks)
+
+
+async def test_orchestrator_parallel_executes_independent_tasks_concurrently() -> None:
+    started: set[str] = set()
+    all_started = asyncio.Event()
+    adapter_a = BarrierAdapter("agent-a", started, all_started, expected_count=2)
+    adapter_b = BarrierAdapter("agent-b", started, all_started, expected_count=2)
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "orchestrator_parallel_enabled": True,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task("task-b", "agent-b", "Task B", "Do B", priority=1),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert started == {"agent-a", "agent-b"}
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert any(chunk.text_delta == "agent-a done" for chunk in chunks)
+    assert any(chunk.text_delta == "agent-b done" for chunk in chunks)
+    _assert_blocks_balanced(chunks)
+
+
+async def test_orchestrator_parallel_takes_precedence_over_react_for_multi_task() -> None:
+    started: set[str] = set()
+    all_started = asyncio.Event()
+    adapter_a = BarrierAdapter("agent-a", started, all_started, expected_count=2)
+    adapter_b = BarrierAdapter("agent-b", started, all_started, expected_count=2)
+    react_gateway = FakePlannerGateway([])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "orchestrator_parallel_enabled": True,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task("task-b", "agent-b", "Task B", "Do B", priority=1),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert started == {"agent-a", "agent-b"}
+    assert react_gateway.calls == []
+    assert chunks[-1].event_type == "done"
+
+
+async def test_orchestrator_parallel_skips_failed_dependency() -> None:
+    failing = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="boom",
+                error="failed",
+            ),
+        ],
+    )
+    dependent = FakeSubAdapter("agent-b", _text_chunks("should not run"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "orchestrator_parallel_enabled": True,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Task B",
+                    "Do B",
+                    priority=2,
+                    depends_on=["task-a"],
+                ),
+            ],
+            "sub_adapters": {"agent-a": failing, "agent-b": dependent},
+        },
+    )
+
+    assert not dependent.received_messages
+    summary = "\n".join(chunk.text_delta or "" for chunk in chunks)
+    assert "failed: @agent-a - Task A" in summary
+    assert "skipped: @agent-b - Task B" in summary
+
+
+async def test_orchestrator_records_workspace_conflicts_in_summary(
+    tmp_path: Path,
+) -> None:
+    writer_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("a wrote shared"),
+        write_path="shared.txt",
+        content="from a",
+    )
+    writer_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("b wrote shared"),
+        write_path="shared.txt",
+        content="from b",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Write shared"),
+                _task("task-b", "agent-b", "Task B", "Write shared"),
+            ],
+            "sub_adapters": {"agent-a": writer_a, "agent-b": writer_b},
+        },
+    )
+
+    summary = "\n".join(chunk.text_delta or "" for chunk in chunks)
+    assert "conflicts: shared.txt" in summary
+    assert "Workspace conflicts:" in summary
+    assert "@agent-a/task-a" in summary
+    assert "@agent-b/task-b" in summary
 
 
 async def test_orchestrator_remaps_block_indices_without_collisions() -> None:
@@ -337,6 +577,120 @@ async def test_orchestrator_derives_direct_tasks_for_named_agents() -> None:
         assert "Message:\nhello, what model are you?" in instruction
         assert "@orchestrator" not in instruction
         assert "Do not contact, invoke, or simulate other agents" in instruction
+
+
+async def test_orchestrator_uses_planner_for_named_agent_file_tasks() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("created claude file"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("created opencode file"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "write-claude",
+                            "claude-code",
+                            "Write Claude file",
+                            "Create parallel-claude.md.",
+                            priority=1,
+                            expected_output="parallel-claude.md",
+                        ),
+                        _task(
+                            "write-opencode",
+                            "opencode-helper",
+                            "Write OpenCode file",
+                            "Create parallel-opencode.md.",
+                            priority=1,
+                            expected_output="parallel-opencode.md",
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 让 claude-code 生成 parallel-claude.md，"
+                    "让 opencode-helper 生成 parallel-opencode.md。"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(planner.calls) == 1
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code", "opencode-helper"]
+
+
+async def test_orchestrator_derives_workspace_conflict_plan_without_llm(
+    tmp_path: Path,
+) -> None:
+    claude = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("wrote design"),
+        "shared-conflict.md",
+        "设计视角",
+    )
+    opencode = FakeWorkspaceWriterAdapter(
+        "opencode-helper",
+        _text_chunks("wrote implementation"),
+        "shared-conflict.md",
+        "实现视角",
+    )
+    planner = FakePlannerGateway([])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 请测试 workspace 冲突处理：先创建 "
+                    "shared-conflict.md，然后安排 claude-code 和 opencode-helper "
+                    "在同一个 run 内分别修改同一文件。"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "planner_gateway": planner,
+            "orchestrator_parallel_enabled": True,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert planner.calls == []
+    assert (tmp_path / "shared-conflict.md").exists()
+    assert "Workspace conflicts" in text
+    assert "shared-conflict.md" in text
 
 
 async def test_orchestrator_smoke_flows_create_then_verify_html(
@@ -1239,5 +1593,6 @@ async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() 
     assert callable(adapter.default_config["adapter_factory"])
     assert adapter.default_config["managed_agent_ids"]
     assert adapter.default_config["llm_planning"] is True
+    assert adapter.default_config["orchestrator_parallel_enabled"] is True
     assert adapter.default_config["react_enabled"] is True
     assert adapter.default_config["planner_model_backend"] == "claude"

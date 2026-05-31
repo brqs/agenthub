@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,9 @@ from app.agents.orchestrator.artifacts import (
 )
 from app.agents.orchestrator.memory_hooks import (
     finish_run as _memory_finish_run,
+)
+from app.agents.orchestrator.memory_hooks import (
+    record_event as _memory_record_event,
 )
 from app.agents.orchestrator.memory_hooks import (
     record_task_result as _memory_record_task_result,
@@ -46,6 +50,11 @@ from app.agents.orchestrator.types import (
     TaskAttempt,
     TaskResult,
     TaskState,
+)
+from app.agents.orchestrator.workspace_changes import (
+    diff_workspace_snapshots,
+    refresh_workspace_conflicts,
+    snapshot_workspace,
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
@@ -116,6 +125,19 @@ async def _run_static_tasks(
     tool_specs: list[ToolSpec] | None,
     run_context: OrchestratorRunContext | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
+    if _parallel_enabled(config):
+        async for chunk, updated_block_index in _run_parallel_tasks(
+            config,
+            tasks,
+            messages,
+            next_block_index,
+            workspace_path,
+            tool_specs,
+            run_context,
+        ):
+            yield chunk, updated_block_index
+        return
+
     task_states = {task.task_id: TaskState.PENDING for task in tasks}
     run_context = run_context or OrchestratorRunContext()
     for task in tasks:
@@ -142,7 +164,9 @@ async def _run_static_tasks(
             next_block_index = updated_block_index
             yield chunk, updated_block_index
         task_states[task.task_id] = run_context.results[task.task_id].final_state
+        await _refresh_and_record_workspace_conflicts(config, run_context)
 
+    refresh_workspace_conflicts(run_context)
     final_summary = _summary_text(tasks, task_states, run_context)
     await _memory_finish_run(config, run_context, "done", final_summary)
     for chunk, updated_block_index in _text_block_with_next(
@@ -177,12 +201,25 @@ async def _run_task(
 
         attempt = TaskAttempt(attempt_index=attempt_index, agent_id=agent_id)
         task_result.attempts.append(attempt)
+        before_snapshot = snapshot_workspace(workspace_path)
         await _memory_record_task_started(
             config,
             run_context,
             task,
             agent_id,
             attempt_index,
+        )
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="workspace_snapshot",
+            task_id=task.task_id,
+            agent_id=agent_id,
+            payload={
+                "stage": "before",
+                "attempt_index": attempt_index,
+                "file_count": len(before_snapshot),
+            },
         )
 
         yield _agent_switch(task, agent_id), next_block_index
@@ -244,6 +281,34 @@ async def _run_task(
                 _finalize_artifact_candidates(attempt, task)
                 _check_attempt_artifacts(attempt, workspace_path)
 
+        after_snapshot = snapshot_workspace(workspace_path)
+        attempt.file_changes = _changes_for_attempt_artifacts(
+            diff_workspace_snapshots(before_snapshot, after_snapshot),
+            attempt.artifact_paths,
+        )
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="workspace_snapshot",
+            task_id=task.task_id,
+            agent_id=agent_id,
+            payload={
+                "stage": "after",
+                "attempt_index": attempt_index,
+                "file_count": len(after_snapshot),
+            },
+        )
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="workspace_file_changes",
+            task_id=task.task_id,
+            agent_id=agent_id,
+            payload={
+                "attempt_index": attempt_index,
+                "changes": attempt.file_changes,
+            },
+        )
         task_result.final_state = attempt.state
         if attempt.state == TaskState.SUCCEEDED:
             break
@@ -261,7 +326,146 @@ async def _run_task(
             )
         )
     run_context.record(task_result)
+    refresh_workspace_conflicts(run_context)
+    await _refresh_and_record_workspace_conflicts(config, run_context)
     await _memory_record_task_result(config, run_context, task, task_result)
+
+
+async def _run_parallel_tasks(
+    config: Mapping[str, Any],
+    tasks: list[SubTask],
+    messages: list[ChatMessage],
+    next_block_index: int,
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
+    run_context: OrchestratorRunContext | None = None,
+) -> AsyncIterator[tuple[StreamChunk, int]]:
+    task_states = {task.task_id: TaskState.PENDING for task in tasks}
+    pending = {task.task_id for task in tasks}
+    task_by_id = {task.task_id: task for task in tasks}
+    run_context = run_context or OrchestratorRunContext()
+    max_concurrency = _parallel_max_concurrency(config)
+
+    while pending:
+        runnable = [
+            task_by_id[task_id]
+            for task_id in pending
+            if _dependencies_satisfied(task_by_id[task_id], task_states)
+        ]
+        if not runnable:
+            for task_id in sorted(pending):
+                task = task_by_id[task_id]
+                task_states[task_id] = TaskState.SKIPPED
+                skipped_result = TaskResult(
+                    task_id=task.task_id,
+                    title=task.title,
+                    final_state=TaskState.SKIPPED,
+                )
+                run_context.record(skipped_result)
+                await _memory_record_task_result(config, run_context, task, skipped_result)
+            break
+
+        batch = sorted(runnable, key=lambda task: (task.priority, task.task_id))[
+            :max_concurrency
+        ]
+        collected = await asyncio.gather(
+            *[
+                _collect_task_chunks(
+                    config,
+                    task,
+                    messages,
+                    run_context,
+                    workspace_path,
+                    tool_specs,
+                )
+                for task in batch
+            ]
+        )
+        for task, chunks in collected:
+            pending.discard(task.task_id)
+            task_states[task.task_id] = run_context.results[task.task_id].final_state
+            remapped, next_block_index = _remap_collected_chunks(chunks, next_block_index)
+            for chunk in remapped:
+                yield chunk, next_block_index
+        await _refresh_and_record_workspace_conflicts(config, run_context)
+
+    refresh_workspace_conflicts(run_context)
+    final_summary = _summary_text(tasks, task_states, run_context)
+    await _memory_finish_run(config, run_context, "done", final_summary)
+    for chunk, updated_block_index in _text_block_with_next(
+        next_block_index,
+        final_summary,
+    ):
+        yield chunk, updated_block_index
+
+
+async def _collect_task_chunks(
+    config: Mapping[str, Any],
+    task: SubTask,
+    messages: list[ChatMessage],
+    run_context: OrchestratorRunContext,
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
+) -> tuple[SubTask, list[StreamChunk]]:
+    chunks: list[StreamChunk] = []
+    async for chunk, _updated_block_index in _run_task(
+        config,
+        task,
+        messages,
+        0,
+        run_context,
+        workspace_path,
+        tool_specs,
+    ):
+        chunks.append(chunk)
+    return task, chunks
+
+
+def _remap_collected_chunks(
+    chunks: list[StreamChunk],
+    next_block_index: int,
+) -> tuple[list[StreamChunk], int]:
+    index_map: dict[int, int] = {}
+    remapped: list[StreamChunk] = []
+    for chunk in chunks:
+        if chunk.block_index is None:
+            remapped.append(chunk)
+            continue
+        source_index = chunk.block_index
+        if source_index not in index_map:
+            index_map[source_index] = next_block_index
+            next_block_index += 1
+        remapped.append(chunk.model_copy(update={"block_index": index_map[source_index]}))
+    return remapped, next_block_index
+
+
+async def _refresh_and_record_workspace_conflicts(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+) -> None:
+    conflicts = refresh_workspace_conflicts(run_context)
+    for conflict in conflicts:
+        path = str(conflict.get("path") or "")
+        writers = conflict.get("writers")
+        writer_keys = []
+        if isinstance(writers, list):
+            for writer in writers:
+                if not isinstance(writer, dict):
+                    continue
+                task_id = writer.get("task_id")
+                agent_id = writer.get("agent_id")
+                if isinstance(task_id, str) and isinstance(agent_id, str):
+                    writer_keys.append(f"{task_id}:{agent_id}")
+        event_key = f"{path}|{'|'.join(sorted(writer_keys))}"
+        if not path or event_key in run_context.workspace_conflict_event_keys:
+            continue
+        run_context.workspace_conflict_event_keys.add(event_key)
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="workspace_conflict_detected",
+            payload=conflict,
+        )
 
 
 def _task_messages(
@@ -335,6 +539,30 @@ def _max_task_attempts(config: Mapping[str, Any]) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return DEFAULT_MAX_TASK_ATTEMPTS
     return int(min(max(value, 1), MAX_TASK_ATTEMPTS_LIMIT))
+
+
+def _parallel_enabled(config: Mapping[str, Any]) -> bool:
+    return config.get("orchestrator_parallel_enabled") is True
+
+
+def _parallel_max_concurrency(config: Mapping[str, Any]) -> int:
+    value = config.get("orchestrator_parallel_max_concurrency", 3)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 3
+    return max(1, min(value, 10))
+
+
+def _changes_for_attempt_artifacts(
+    changes: dict[str, list[str]],
+    artifact_paths: list[str],
+) -> dict[str, list[str]]:
+    if not artifact_paths:
+        return changes
+    allowed = set(artifact_paths)
+    return {
+        key: [path for path in paths if path in allowed]
+        for key, paths in changes.items()
+    }
 
 
 def _task_result_context_max_chars(config: Mapping[str, Any]) -> int:

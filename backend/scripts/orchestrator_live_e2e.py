@@ -19,32 +19,90 @@ import httpx
 BASE_URL = os.getenv("AGENTHUB_E2E_BASE_URL", "http://154.44.25.94:1573")
 USERNAME = os.getenv("AGENTHUB_E2E_USERNAME", "12345678")
 PASSWORD = os.getenv("AGENTHUB_E2E_PASSWORD", "12345678")
+SCENARIO = os.getenv("AGENTHUB_E2E_SCENARIO", "quality").strip().lower()
+FULLSTACK_SCENARIO = SCENARIO == "fullstack"
+DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
+DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
+DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
+DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
+DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
+)
+DEFAULT_QUALITY_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
+)
 SSE_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_SSE_PATH",
-        "/tmp/agenthub_orchestrator_quality_sse.jsonl",  # noqa: S108 - documented output.
+        DEFAULT_FULLSTACK_SSE_PATH if FULLSTACK_SCENARIO else DEFAULT_QUALITY_SSE_PATH,
     )
 )
 REPORT_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_REPORT_PATH",
-        "/tmp/agenthub_orchestrator_quality_report.json",  # noqa: S108 - documented output.
+        (
+            DEFAULT_FULLSTACK_REPORT_PATH
+            if FULLSTACK_SCENARIO
+            else DEFAULT_QUALITY_REPORT_PATH
+        ),
     )
 )
 BROWSER_REPORT_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_BROWSER_REPORT_PATH",
-        "/tmp/agenthub_orchestrator_quality_browser.json",  # noqa: S108 - documented output.
+        (
+            DEFAULT_FULLSTACK_BROWSER_REPORT_PATH
+            if FULLSTACK_SCENARIO
+            else DEFAULT_QUALITY_BROWSER_REPORT_PATH
+        ),
+    )
+)
+FULLSTACK_PROMPT = "\n".join(
+    (
+        "@orchestrator 请完成一个前后端产品交付演示，主题是“团队 OKR 轻量看板”。",
+        "",
+        "流程要求：",
+        "1. 先产出 planning.md，包含产品目标、页面结构、后端 API、数据模型、"
+        "前后端分工、验收标准。",
+        "2. 然后并行调度 claude-code 和 opencode-helper：",
+        "   - claude-code 按 planning.md 实现前端，生成 index.html、styles.css、"
+        "app.js。",
+        "   - opencode-helper 按 planning.md 实现后端代码产物，生成 "
+        "backend_app.py、api.md、backend_tests.md。",
+        "   两个任务互不依赖，必须并行执行。",
+        "3. 等前端和后端产物都完成后，调度 codex-helper 进行审阅测试，生成 "
+        "review.md，检查前后端接口一致性、文件完整性、代码风险、测试建议。",
+        "4. 最后由 orchestrator 调用平台 preview tool，把前端上线到端口8082，"
+        "并完成浏览器级质量验收。",
+        "5. 最终总结必须列出任务拆解、并行执行情况、代码产物、Diff/变更摘要、"
+        "测试审阅结果、8082 预览 URL 和已知限制。",
+        "",
+        "当前平台不要求启动后端长驻服务；后端交付以 workspace 代码产物、"
+        "API 文档和测试说明为准。",
     )
 )
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
-    "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff、网页预览、"
-    "按钮交互和移动端适配的前端开发演示，主题随机，部署在端口8082，"
-    "并完成浏览器级质量验收",
+    FULLSTACK_PROMPT
+    if FULLSTACK_SCENARIO
+    else (
+        "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff、网页预览、"
+        "按钮交互和移动端适配的前端开发演示，主题随机，部署在端口8082，"
+        "并完成浏览器级质量验收"
+    ),
 )
 AGENT_IDS = ["orchestrator", "claude-code", "opencode-helper", "codex-helper"]
 REQUIRED_FRONTEND_FILES = {"index.html", "styles.css", "app.js"}
+REQUIRED_FULLSTACK_FILES = {
+    "planning.md",
+    "index.html",
+    "styles.css",
+    "app.js",
+    "backend_app.py",
+    "api.md",
+    "backend_tests.md",
+    "review.md",
+}
 SERVER_COMMAND_RE = re.compile(
     r"npm\s+run\s+dev|pnpm\s+dev|vite\s+--host|python\d*\s+-m\s+http\.server|"
     r"http-server|next\s+dev|npm\s+(?:run\s+)?start|node\s+server\.js|"
@@ -145,6 +203,38 @@ def block_text(blocks: list[dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
+def visible_agent_text(blocks: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for block in blocks:
+        for key in ("text", "code", "url", "title", "description", "filename"):
+            value = block.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+        if block.get("type") == "tool_call":
+            output = block.get("output_preview")
+            if isinstance(output, str):
+                parts.append(output)
+    return "\n".join(parts)
+
+
+def shell_command_text(events: list[dict[str, Any]]) -> str:
+    commands: list[str] = []
+    for event in events:
+        if event.get("event") != "tool_call":
+            continue
+        data = event.get("data") or {}
+        tool_name = str(data.get("tool_name") or "").lower()
+        if tool_name not in {"bash", "shell", "run_command"}:
+            continue
+        arguments = data.get("tool_arguments") or data.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            continue
+        command = arguments.get("command")
+        if isinstance(command, str):
+            commands.append(command)
+    return "\n".join(commands)
+
+
 def classify_tool_errors(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     failures: list[dict[str, Any]] = []
     tool_names_by_call_id: dict[str, str] = {}
@@ -208,6 +298,138 @@ def parse_tool_json(event: dict[str, Any] | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def file_by_basename(files: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for item in files:
+        path = str(item.get("path", ""))
+        name = path.rsplit("/", 1)[-1]
+        if name and name not in result:
+            result[name] = item
+    return result
+
+
+def read_workspace_file(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    path: str,
+) -> str:
+    response = client.get(f"/api/v1/workspaces/{conv_id}/files/{path}", headers=headers)
+    response.raise_for_status()
+    return response.text
+
+
+def task_text(task: dict[str, Any]) -> str:
+    return "\n".join(
+        str(task.get(key) or "")
+        for key in ("task_id", "agent_id", "title", "instruction", "expected_output")
+    ).lower()
+
+
+def find_task(tasks: list[dict[str, Any]], markers: tuple[str, ...]) -> dict[str, Any] | None:
+    normalized_markers = tuple(marker.lower() for marker in markers)
+    for task in tasks:
+        text = task_text(task)
+        if any(marker in text for marker in normalized_markers):
+            return task
+    return None
+
+
+def find_task_by_id(tasks: list[dict[str, Any]], task_id: str) -> dict[str, Any] | None:
+    for task in tasks:
+        if task.get("task_id") == task_id:
+            return task
+    return None
+
+
+def fullstack_parallel_report(run_detail: dict[str, Any]) -> dict[str, Any]:
+    tasks = run_detail.get("tasks") if isinstance(run_detail, dict) else []
+    events = run_detail.get("events") if isinstance(run_detail, dict) else []
+    if not isinstance(tasks, list):
+        tasks = []
+    if not isinstance(events, list):
+        events = []
+
+    frontend_task = find_task_by_id(tasks, "frontend_impl") or find_task(
+        tasks,
+        ("index.html", "styles.css", "app.js", "前端"),
+    )
+    backend_task = find_task_by_id(tasks, "backend_impl") or find_task(
+        tasks,
+        ("backend_app.py", "api.md", "backend_tests.md", "后端"),
+    )
+    review_task = find_task_by_id(tasks, "review") or find_task(
+        tasks,
+        ("review.md", "审阅", "review"),
+    )
+
+    frontend_id = str(frontend_task.get("task_id")) if frontend_task else ""
+    backend_id = str(backend_task.get("task_id")) if backend_task else ""
+    review_deps = set(review_task.get("depends_on") or []) if review_task else set()
+    frontend_deps = set(frontend_task.get("depends_on") or []) if frontend_task else set()
+    backend_deps = set(backend_task.get("depends_on") or []) if backend_task else set()
+
+    started_order = [
+        str(event.get("task_id"))
+        for event in events
+        if event.get("event_type") == "task_started" and event.get("task_id")
+    ]
+    result_order = [
+        str(event.get("task_id"))
+        for event in events
+        if event.get("event_type") == "task_result" and event.get("task_id")
+    ]
+
+    review_after_front_backend = False
+    if review_task:
+        review_id = str(review_task.get("task_id"))
+        if (
+            review_id in started_order
+            and frontend_id in result_order
+            and backend_id in result_order
+        ):
+            review_started = started_order.index(review_id)
+            frontend_done = result_order.index(frontend_id)
+            backend_done = result_order.index(backend_id)
+            review_after_front_backend = (
+                frontend_done < review_started and backend_done < review_started
+            )
+        elif frontend_id and backend_id:
+            review_after_front_backend = {frontend_id, backend_id}.issubset(review_deps)
+
+    independent_front_backend = (
+        bool(frontend_task)
+        and bool(backend_task)
+        and backend_id not in frontend_deps
+        and frontend_id not in backend_deps
+    )
+    review_depends_on_both = (
+        bool(review_task)
+        and bool(frontend_id)
+        and bool(backend_id)
+        and {frontend_id, backend_id}.issubset(review_deps)
+    )
+
+    return {
+        "frontend_task": frontend_task,
+        "backend_task": backend_task,
+        "review_task": review_task,
+        "frontend_backend_independent": independent_front_backend,
+        "review_depends_on_frontend_backend": review_depends_on_both,
+        "review_after_frontend_backend": review_after_front_backend,
+        "task_started_order": started_order,
+        "task_result_order": result_order,
+        "passed": bool(
+            frontend_task
+            and backend_task
+            and review_task
+            and independent_front_backend
+            and review_depends_on_both
+            and review_after_front_backend
+        ),
+    }
+
+
 def main() -> None:
     started_at = time.time()
     SSE_PATH.write_text("", encoding="utf-8")
@@ -215,6 +437,7 @@ def main() -> None:
         "started_at": utc_now(),
         "base_url": BASE_URL,
         "account": USERNAME,
+        "scenario": SCENARIO,
         "prompt": PROMPT,
         "target_agent_ids": AGENT_IDS,
         "artifacts": {
@@ -240,18 +463,37 @@ def main() -> None:
 
         agents = client.get("/api/v1/agents", headers=headers)
         agents.raise_for_status()
-        agent_items = agents.json().get("items", [])
+        agent_items: list[dict[str, Any]] = agents.json().get("items", [])
         agent_ids = {item.get("id") for item in agent_items}
         missing_agents = [agent_id for agent_id in AGENT_IDS if agent_id not in agent_ids]
         report["checks"]["target_agents_present"] = not missing_agents
         if missing_agents:
             raise RuntimeError(f"missing target agents: {missing_agents}")
+        orchestrator_item: dict[str, Any] = next(
+            (item for item in agent_items if item.get("id") == "orchestrator"),
+            {},
+        )
+        orchestrator_config = orchestrator_item.get("config") or {}
+        report["orchestrator_config"] = orchestrator_config
+        report["checks"]["orchestrator_llm_planning_enabled"] = (
+            orchestrator_config.get("llm_planning") is True
+        )
+        report["checks"]["orchestrator_parallel_enabled"] = (
+            orchestrator_config.get("orchestrator_parallel_enabled") is True
+        )
+        report["checks"]["orchestrator_parallel_concurrency_3"] = (
+            orchestrator_config.get("orchestrator_parallel_max_concurrency") == 3
+        )
 
         conversation = client.post(
             "/api/v1/conversations",
             headers=headers,
             json={
-                "title": f"Orchestrator Real Flow 8082 Demo {int(started_at)}",
+                "title": (
+                    f"Orchestrator Fullstack Flow {int(started_at)}"
+                    if FULLSTACK_SCENARIO
+                    else f"Orchestrator Real Flow 8082 Demo {int(started_at)}"
+                ),
                 "mode": "group",
                 "agent_ids": AGENT_IDS,
             },
@@ -260,6 +502,7 @@ def main() -> None:
         conv = conversation.json()
         conv_id = conv["id"]
         report["conversation"] = conv
+        report["conversation_id"] = conv_id
 
         send = client.post(
             f"/api/v1/conversations/{conv_id}/messages",
@@ -303,6 +546,17 @@ def main() -> None:
             run_items = runs.json().get("items", [])
             report["orchestrator_runs"] = run_items
             if run_items:
+                run_id = run_items[0].get("id")
+                run_detail: dict[str, Any] = {}
+                if isinstance(run_id, str):
+                    detail = client.get(
+                        f"/api/v1/conversations/{conv_id}/orchestrator-runs/{run_id}",
+                        headers=headers,
+                    )
+                    if detail.status_code == 200:
+                        run_detail = detail.json()
+                        report["orchestrator_run_detail"] = run_detail
+                        report["parallel_tasks"] = fullstack_parallel_report(run_detail)
                 report["checks"]["planner_used_llm"] = (
                     run_items[0].get("plan_source") != "legacy template"
                 )
@@ -335,6 +589,7 @@ def main() -> None:
         report["workspace_tree"] = tree.json()
         files = flatten_tree(report["workspace_tree"]["tree"])
         report["workspace_files"] = files
+        files_by_name = file_by_basename(files)
         file_names = {str(item.get("path", "")).rsplit("/", 1)[-1] for item in files}
         missing_frontend_files = sorted(REQUIRED_FRONTEND_FILES - file_names)
         report["checks"]["workspace_has_required_frontend_files"] = (
@@ -352,6 +607,23 @@ def main() -> None:
                     "workspace_files": [item.get("path") for item in files],
                 }
             )
+        if FULLSTACK_SCENARIO:
+            missing_fullstack_files = sorted(REQUIRED_FULLSTACK_FILES - file_names)
+            report["checks"]["workspace_has_required_fullstack_files"] = (
+                not missing_fullstack_files
+            )
+            if missing_fullstack_files:
+                report["bugs"].append(
+                    {
+                        "code": "missing_required_fullstack_files",
+                        "symptom": (
+                            "Workspace did not contain the required fullstack "
+                            "delivery artifacts."
+                        ),
+                        "missing": missing_fullstack_files,
+                        "workspace_files": [item.get("path") for item in files],
+                    }
+                )
         entry = first_html(files)
         report["entry_html"] = entry
         report["checks"]["has_html_artifact"] = entry is not None
@@ -364,47 +636,73 @@ def main() -> None:
             )
             file_response.raise_for_status()
             html_text = file_response.text
-            report["checks"]["html_has_task_breakdown"] = bool(
-                re.search(r"任务|拆解|task", html_text, re.I)
-            )
-            report["checks"]["html_has_code_artifact"] = bool(
-                re.search(r"代码|code|artifact|产物", html_text, re.I)
-            )
-            report["checks"]["html_has_diff"] = bool(
-                re.search(r"\bDiff\b|diff|---|\+\+\+|差异", html_text, re.I)
-            )
-            report["checks"]["html_has_preview"] = bool(
-                re.search(r"预览|preview|iframe|viewport|网页", html_text, re.I)
-            )
-            if not all(
-                report["checks"].get(key, False)
-                for key in (
-                    "html_has_task_breakdown",
-                    "html_has_code_artifact",
-                    "html_has_diff",
-                    "html_has_preview",
+            if FULLSTACK_SCENARIO:
+                report["checks"]["html_has_okr_product"] = bool(
+                    re.search(r"OKR|目标|Objective|Key Result|看板|团队", html_text, re.I)
                 )
-            ):
-                report["bugs"].append(
-                    {
-                        "code": "artifact_missing_required_sections",
-                        "symptom": (
-                            "The entry HTML did not visibly cover all requested "
-                            "demo sections: task breakdown, code artifacts, Diff, "
-                            "and webpage preview."
-                        ),
-                        "checks": {
-                            key: report["checks"].get(key, False)
-                            for key in (
-                                "html_has_task_breakdown",
-                                "html_has_code_artifact",
-                                "html_has_diff",
-                                "html_has_preview",
-                            )
-                        },
-                        "entry_html": entry["path"],
-                    }
+                report["checks"]["html_links_css_js"] = (
+                    "styles.css" in html_text and "app.js" in html_text
                 )
+                if not all(
+                    report["checks"].get(key, False)
+                    for key in ("html_has_okr_product", "html_links_css_js")
+                ):
+                    report["bugs"].append(
+                        {
+                            "code": "frontend_artifact_missing_fullstack_product_markers",
+                            "symptom": (
+                                "The entry HTML did not look like the requested "
+                                "team OKR product or did not link CSS/JS artifacts."
+                            ),
+                            "checks": {
+                                key: report["checks"].get(key, False)
+                                for key in ("html_has_okr_product", "html_links_css_js")
+                            },
+                            "entry_html": entry["path"],
+                        }
+                    )
+            else:
+                report["checks"]["html_has_task_breakdown"] = bool(
+                    re.search(r"任务|拆解|task", html_text, re.I)
+                )
+                report["checks"]["html_has_code_artifact"] = bool(
+                    re.search(r"代码|code|artifact|产物", html_text, re.I)
+                )
+                report["checks"]["html_has_diff"] = bool(
+                    re.search(r"\bDiff\b|diff|---|\+\+\+|差异", html_text, re.I)
+                )
+                report["checks"]["html_has_preview"] = bool(
+                    re.search(r"预览|preview|iframe|viewport|网页", html_text, re.I)
+                )
+                if not all(
+                    report["checks"].get(key, False)
+                    for key in (
+                        "html_has_task_breakdown",
+                        "html_has_code_artifact",
+                        "html_has_diff",
+                        "html_has_preview",
+                    )
+                ):
+                    report["bugs"].append(
+                        {
+                            "code": "artifact_missing_required_sections",
+                            "symptom": (
+                                "The entry HTML did not visibly cover all requested "
+                                "demo sections: task breakdown, code artifacts, Diff, "
+                                "and webpage preview."
+                            ),
+                            "checks": {
+                                key: report["checks"].get(key, False)
+                                for key in (
+                                    "html_has_task_breakdown",
+                                    "html_has_code_artifact",
+                                    "html_has_diff",
+                                    "html_has_preview",
+                                )
+                            },
+                            "entry_html": entry["path"],
+                        }
+                    )
 
             content_blocks = (target or {}).get("content") or []
             preview_tool_blocks = [
@@ -501,6 +799,7 @@ def main() -> None:
             if preview.status_code == 200:
                 preview_body = preview.json()
                 report["preview_8082"] = preview_body
+                report["preview_url"] = preview_body.get("url")
                 report["checks"]["preview_uses_requested_8082"] = (
                     preview_body.get("port") == 8082
                     and ":8082/" in str(preview_body.get("url", ""))
@@ -553,9 +852,99 @@ def main() -> None:
                     }
                 )
 
-        text = block_text((target or {}).get("content") or [])
+        if FULLSTACK_SCENARIO:
+            planning_item = files_by_name.get("planning.md")
+            review_item = files_by_name.get("review.md")
+            api_item = files_by_name.get("api.md")
+            backend_tests_item = files_by_name.get("backend_tests.md")
+            review_text = (
+                read_workspace_file(client, conv_id, headers, str(review_item["path"]))
+                if review_item
+                else ""
+            )
+            planning_text = (
+                read_workspace_file(client, conv_id, headers, str(planning_item["path"]))
+                if planning_item
+                else ""
+            )
+            api_text = (
+                read_workspace_file(client, conv_id, headers, str(api_item["path"]))
+                if api_item
+                else ""
+            )
+            backend_tests_text = (
+                read_workspace_file(client, conv_id, headers, str(backend_tests_item["path"]))
+                if backend_tests_item
+                else ""
+            )
+            report["checks"]["planning_mentions_frontend_backend"] = bool(
+                re.search(r"前端|frontend", planning_text, re.I)
+                and re.search(r"后端|backend|API", planning_text, re.I)
+            )
+            report["checks"]["api_doc_mentions_okr_api"] = bool(
+                re.search(r"OKR|目标|objective|key result|API|接口", api_text, re.I)
+            )
+            report["checks"]["backend_tests_has_test_plan"] = bool(
+                re.search(r"测试|test|pytest|验收", backend_tests_text, re.I)
+            )
+            report["checks"]["review_checks_api_consistency"] = bool(
+                re.search(r"接口|API|一致", review_text, re.I)
+            )
+            report["checks"]["review_has_test_or_risk"] = bool(
+                re.search(r"测试|风险|建议|risk|test", review_text, re.I)
+            )
+            parallel_tasks = report.get("parallel_tasks")
+            report["checks"]["fullstack_parallel_dag"] = (
+                isinstance(parallel_tasks, dict) and parallel_tasks.get("passed") is True
+            )
+            report["known_limits"] = [
+                "Backend service deployment is not part of this platform preview test; "
+                "backend is validated as workspace source code, API documentation, "
+                "test notes, and review evidence."
+            ]
+            fullstack_quality_checks = (
+                "planning_mentions_frontend_backend",
+                "api_doc_mentions_okr_api",
+                "backend_tests_has_test_plan",
+                "review_checks_api_consistency",
+                "review_has_test_or_risk",
+                "fullstack_parallel_dag",
+            )
+            if not all(report["checks"].get(key, False) for key in fullstack_quality_checks):
+                report["bugs"].append(
+                    {
+                        "code": "fullstack_review_or_parallel_validation_failed",
+                        "symptom": (
+                            "Fullstack delivery artifacts, review evidence, or DAG "
+                            "parallel validation did not satisfy the test plan."
+                        ),
+                        "checks": {
+                            key: report["checks"].get(key, False)
+                            for key in fullstack_quality_checks
+                        },
+                        "parallel_tasks": report.get("parallel_tasks"),
+                    }
+                )
+            report["warnings"].append(
+                {
+                    "code": "backend_not_deployed_by_platform",
+                    "message": (
+                        "Backend code is generated and reviewed, but the current "
+                        "platform preview only publishes the static frontend."
+                    ),
+                }
+            )
+
+        message_blocks = (target or {}).get("content") or []
+        text = block_text(message_blocks)
+        server_command_scan_text = "\n".join(
+            part
+            for part in (visible_agent_text(message_blocks), shell_command_text(events))
+            if part
+        )
+        report["server_command_scan_text_length"] = len(server_command_scan_text)
         report["checks"]["agent_output_no_long_running_server_command"] = (
-            SERVER_COMMAND_RE.search(text) is None
+            SERVER_COMMAND_RE.search(server_command_scan_text) is None
         )
         report["checks"]["dispatch_only_group_members"] = all(
             agent_id in {"claude-code", "opencode-helper", "codex-helper"}
@@ -588,21 +977,25 @@ def main() -> None:
             )
 
         hard_checks = {
+            "target_agents_present": report["checks"].get("target_agents_present", False),
+            "orchestrator_llm_planning_enabled": report["checks"].get(
+                "orchestrator_llm_planning_enabled",
+                False,
+            ),
+            "orchestrator_parallel_enabled": report["checks"].get(
+                "orchestrator_parallel_enabled",
+                False,
+            ),
+            "orchestrator_parallel_concurrency_3": report["checks"].get(
+                "orchestrator_parallel_concurrency_3",
+                False,
+            ),
             "message_done": report["checks"].get("message_done", False),
             "planner_used_llm": report["checks"].get("planner_used_llm", False),
             "has_html_artifact": report["checks"].get("has_html_artifact", False),
             "workspace_has_required_frontend_files": report["checks"].get(
                 "workspace_has_required_frontend_files",
                 False,
-            ),
-            "artifact_covers_required_sections": all(
-                report["checks"].get(key, False)
-                for key in (
-                    "html_has_task_breakdown",
-                    "html_has_code_artifact",
-                    "html_has_diff",
-                    "html_has_preview",
-                )
             ),
             "preview_8082_public_accessible": report["checks"].get(
                 "preview_8082_public_accessible",
@@ -686,10 +1079,62 @@ def main() -> None:
                 False,
             ),
         }
+        if FULLSTACK_SCENARIO:
+            hard_checks.update(
+                {
+                    "workspace_has_required_fullstack_files": report["checks"].get(
+                        "workspace_has_required_fullstack_files",
+                        False,
+                    ),
+                    "html_has_okr_product": report["checks"].get(
+                        "html_has_okr_product",
+                        False,
+                    ),
+                    "html_links_css_js": report["checks"].get(
+                        "html_links_css_js",
+                        False,
+                    ),
+                    "planning_mentions_frontend_backend": report["checks"].get(
+                        "planning_mentions_frontend_backend",
+                        False,
+                    ),
+                    "api_doc_mentions_okr_api": report["checks"].get(
+                        "api_doc_mentions_okr_api",
+                        False,
+                    ),
+                    "backend_tests_has_test_plan": report["checks"].get(
+                        "backend_tests_has_test_plan",
+                        False,
+                    ),
+                    "review_checks_api_consistency": report["checks"].get(
+                        "review_checks_api_consistency",
+                        False,
+                    ),
+                    "review_has_test_or_risk": report["checks"].get(
+                        "review_has_test_or_risk",
+                        False,
+                    ),
+                    "fullstack_parallel_dag": report["checks"].get(
+                        "fullstack_parallel_dag",
+                        False,
+                    ),
+                }
+            )
+        else:
+            hard_checks["artifact_covers_required_sections"] = all(
+                report["checks"].get(key, False)
+                for key in (
+                    "html_has_task_breakdown",
+                    "html_has_code_artifact",
+                    "html_has_diff",
+                    "html_has_preview",
+                )
+            )
         report["acceptance"] = {**hard_checks, "passed": all(hard_checks.values())}
 
     report["finished_at"] = utc_now()
     report["duration_seconds"] = round(time.time() - started_at, 3)
+    report["passed"] = bool(report.get("acceptance", {}).get("passed"))
     write_json(REPORT_PATH, report)
     print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
     print(f"report={REPORT_PATH}")

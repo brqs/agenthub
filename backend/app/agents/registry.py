@@ -6,6 +6,7 @@ B1 should NEVER import a specific adapter class. Always go through `get_adapter(
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,10 +71,13 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
         raise AgentNotFoundError(f"Agent {agent_id!r} not found")
 
     if agent.id == ORCHESTRATOR_AGENT_ID:
+        adapter_factory_lock = asyncio.Lock()
+
         async def adapter_factory(sub_agent_id: str) -> BaseAgentAdapter:
             if sub_agent_id == ORCHESTRATOR_AGENT_ID:
                 raise ValueError("orchestrator cannot dispatch to itself")
-            return await get_adapter(sub_agent_id, db)
+            async with adapter_factory_lock:
+                return await get_adapter(sub_agent_id, db)
 
         default_config = {**ORCHESTRATOR_DEFAULTS, **dict(agent.config or {})}
         default_config.setdefault(

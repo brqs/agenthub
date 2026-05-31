@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
@@ -114,6 +115,7 @@ async def apply_orchestrator_stream_context(
             agent_message_id=message.id,
             user_message_id=message.reply_to_id,
         )
+        stream_config["orchestrator_memory_lock"] = asyncio.Lock()
     stream_config["orchestrator_platform_tool_executor"] = OrchestratorPlatformToolExecutor(
         db=db,
         conversation_id=message.conversation_id,

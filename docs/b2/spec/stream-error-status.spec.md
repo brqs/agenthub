@@ -1,5 +1,10 @@
 # Stream Error Status Spec
 
+> 状态：Implemented historical boundary
+> 最后更新：2026-05-31
+
+> 维护说明：本文档记录 B2-06 时 B1 SSE 层消费 B2 `StreamChunk(error)` 的协同规则。当前代码已将 stream 入口拆薄，相关逻辑分散在 `backend/app/api/v1/stream.py`、`stream_accumulator.py`、`stream_orchestrator_context.py` 和 `stream_preview.py`；本文保留为错误状态持久化规则，不作为 stream 模块结构索引。
+
 ## 目标
 
 明确 B1 SSE 层消费 B2 `StreamChunk` 时的错误状态持久化规则，避免上游 Agent 已经失败但消息仍被标记为 `done`，或失败前已生成的内容被意外丢弃。

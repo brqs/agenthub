@@ -70,12 +70,18 @@ class Settings(BaseSettings):
     browser_verify_enabled: bool = Field(default=True)
     browser_verify_timeout_seconds: int = Field(default=30)
     browser_verify_screenshot_dir: str = Field(
-        default="/tmp/agenthub_browser_verify"  # noqa: S108 - container-local artifacts.
+        default="/tmp/agenthub_browser_verify"  # noqa: S108 - browser reports are temp artifacts.
     )
     orchestrator_quality_max_repair_rounds: int = Field(default=2)
     orchestrator_quality_repair_agent_order: str = Field(
         default="codex-helper,claude-code,opencode-helper"
     )
+
+    # Orchestrator default behavior. Built-in agent DB config may still override
+    # these per deployment or per custom agent.
+    orchestrator_llm_planning_default: bool = Field(default=True)
+    orchestrator_parallel_enabled_default: bool = Field(default=True)
+    orchestrator_parallel_max_concurrency_default: int = Field(default=3)
 
     # ─── CORS ───
     cors_origins: str = Field(default="http://localhost:5173")

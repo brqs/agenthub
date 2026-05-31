@@ -1,11 +1,13 @@
 # Orchestrator Memory & Context Manager v1 Execution Spec
 
 > 记录 Orchestrator 结构化记忆 v1 的真实实现结果，并对照
-> [orchestrator-memory-context-management.spec.md](orchestrator-memory-context-management.spec.md)
+> [memory-context.spec.md](memory-context.spec.md)
 > 中的 Proposed 方案说明完成度、偏差和后续边界。
 >
 > 状态：Implemented
-> 最后更新：2026-05-30
+> 最后更新：2026-05-31
+
+> 维护说明：本文是 Orchestrator structured memory v1 的实现报告，部分历史段落仍保留当时的旧路径描述。当前 Orchestrator 已 package 化，主入口为 `backend/app/agents/orchestrator/adapter.py`，memory hooks 为 `backend/app/agents/orchestrator/memory_hooks.py`，stream 注入为 `backend/app/api/v1/stream_orchestrator_context.py`。
 
 ---
 
@@ -131,8 +133,9 @@ commit message + memory rows
 
 更新：
 
-- `backend/app/agents/orchestrator.py`
-- `backend/app/agents/orchestrator_react.py`
+- `backend/app/agents/orchestrator/adapter.py`
+- `backend/app/agents/orchestrator/memory_hooks.py`
+- `backend/app/agents/orchestrator/react.py`
 
 写入点：
 

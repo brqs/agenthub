@@ -1,9 +1,11 @@
 # Orchestrator ReAct Dynamic Task Graph Spec
 
-> 定义 Orchestrator 从当前 `plan once -> execute sequentially -> summarize` 升级为 ReAct-style 动态任务图编排器的设计契约。
+> 定义 Orchestrator 从 `plan once -> execute -> summarize` 升级为 ReAct-style 动态任务图编排器的设计契约。
 >
-> 状态：Proposed
-> 最后更新：2026-05-30
+> 状态：Backlog proposal（非当前默认执行主链）
+> 最后更新：2026-05-31
+
+> 维护说明：当前 P0 已选择 `llm_planning=true` + 静态 DAG 并行 executor 作为默认主链，并已通过真实 E2E。本文档保留为后续“动态任务图 / replanner”方案参考，不作为当前代码事实来源；当前行为以 [core.spec.md](core.spec.md) 和 [task-planning.spec.md](task-planning.spec.md) 为准。
 
 ---
 
@@ -14,7 +16,7 @@
 必须锁定以下边界，避免实现时破坏现有契约：
 
 - `react_enabled` 在运行时默认 `false`，旧配置和旧测试继续走现有静态执行流。
-- seed 里的 builtin `orchestrator` 默认设置 `react_enabled=true`，让产品默认体验启用 ReAct。
+- 历史方案曾建议 seed 中开启 `react_enabled=true`；当前默认体验以 [core.spec.md](core.spec.md) 记录的 LLM planning + DAG 并行为准。
 - ReAct 不新增 endpoint、不改 DB schema、不改 `BaseAgentAdapter`、`StreamChunk` 或 SSE wire contract。
 - ReAct 不暴露模型内部 `thought` / `chain_of_thought`；用户只看到步骤、动作和 observation 的摘要。
 - ReAct 仍然单任务顺序执行；本版本不实现并行调度。
@@ -24,7 +26,7 @@
 
 ## 2. 目标
 
-当前 Orchestrator 是一次性规划执行器：
+原始提案假设的 Orchestrator 基线是一次性规划执行器：
 
 ```text
 initial plan -> for task in tasks -> collect result -> final summary
@@ -121,7 +123,7 @@ Observation 不包含模型内部推理。
 
 ## 5. Replanner 契约
 
-建议新增 helper 模块 `backend/app/agents/orchestrator_react.py`，负责 replanner prompt、JSON 解析、action 校验和 action 应用。
+当前 helper 模块为 `backend/app/agents/orchestrator/react.py`，负责 replanner prompt、JSON 解析、action 校验和 action 应用。
 
 replanner 输入：
 
@@ -250,4 +252,3 @@ uv run python -m mypy app/agents app/schemas/agent.py
 - 前端专用 ReAct timeline event type。
 - 暴露完整模型推理链。
 - 让子 agent 互相直接通信；所有交接仍经过 Orchestrator。
-

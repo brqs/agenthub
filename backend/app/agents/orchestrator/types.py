@@ -101,6 +101,10 @@ class TaskAttempt:
     tool_summaries: list[str] = field(default_factory=list)
     artifact_paths: list[str] = field(default_factory=list)
     missing_artifact_paths: list[str] = field(default_factory=list)
+    file_changes: dict[str, list[str]] = field(
+        default_factory=lambda: {"created": [], "modified": [], "deleted": []}
+    )
+    conflict_paths: list[str] = field(default_factory=list)
     error: str | None = None
 
 
@@ -110,6 +114,7 @@ class TaskResult:
     title: str
     final_state: TaskState = TaskState.PENDING
     attempts: list[TaskAttempt] = field(default_factory=list)
+    workspace_conflicts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -117,6 +122,7 @@ class OrchestratorRunContext:
     results: dict[str, TaskResult] = field(default_factory=dict)
     result_order: list[str] = field(default_factory=list)
     memory_run_id: UUID | None = None
+    workspace_conflict_event_keys: set[str] = field(default_factory=set)
 
     def record(self, result: TaskResult) -> None:
         if result.task_id not in self.results:
