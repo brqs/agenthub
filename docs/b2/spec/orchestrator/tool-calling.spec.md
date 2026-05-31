@@ -2,8 +2,8 @@
 
 > 定义将 Orchestrator 从“程序化多 Agent 调度器 + LLM planner/replanner”升级为“具备原生 tool calling 的 autonomous manager agent”的技术设计。
 >
-> 状态：v1 implemented in current codebase
-> 最后更新：2026-05-30
+> 状态：v1 implemented / platform tools extended
+> 最后更新：2026-05-31
 
 ---
 
@@ -58,20 +58,30 @@
 5. 子 agent 的真实 SSE 输出仍然透传给用户，保持可观察性。
 6. 不改 `BaseAgentAdapter`、`StreamChunk`、SSE wire contract。
 
-v1 范围：
+v1 已实现范围：
 
 - `dispatch_agent`
 - `inspect_workspace`
 - `read_artifact`
 - `validate_html`
 - `ask_user`
+- `start_workspace_preview`
+- `verify_web_preview`
+- `create_custom_agent`
+
+Proposed deployment extension：
+
+- `create_deployment`
+- `get_deployment_status`
+- `package_workspace_source`
 
 非目标：
 
 - 不让 Orchestrator 任意执行 shell。
 - v1 不实现 `run_test` / 通用 bash；测试命令 runner 进入 v1.1 或后续版本。
+- v1 不让 Orchestrator 或子 agent 直接执行 Netlify、Vercel、SSH、Docker、`npm run dev`、`vite --host`、`python -m http.server` 等部署/长驻服务命令。
 - 不替换 Claude Code / Codex / OpenCode 的真实 runtime。
-- 不实现并行 tool execution。
+- 不实现并行 tool execution；默认 DAG 并行属于 [core.spec.md](core.spec.md) 的静态任务执行器能力，不通过本 tool loop 承载。
 - 不暴露模型 hidden thought / chain of thought。
 - 不新增前端交互协议；`ask_user` v1 只通过最终文本请求用户补充。
 
@@ -105,11 +115,12 @@ seed 默认建议先保持 `orchestrator_tool_calling_enabled=false`，等 smoke
 
 ## 4. Tool Loop
 
-建议新增模块：
+当前实现模块：
 
 ```text
-backend/app/agents/orchestrator_tool_loop.py
-backend/app/agents/orchestrator_tools.py
+backend/app/agents/orchestrator/tool_loop.py
+backend/app/agents/orchestrator/tools.py
+backend/app/services/orchestrator_platform_tools.py
 ```
 
 loop 形态复用 BuiltinAgent 的 model/tool 模式，但工具执行器是 Orchestrator 专属：
@@ -162,7 +173,7 @@ system prompt 约束：
 - 不要请求 preview/deploy/server 长驻命令。
 - 最终回答必须基于 tool results。
 - 当前 `messages` 里可能已经包含 `Previous Orchestrator structured memory`，模型应把它当作历史事实摘要，但最终判断仍以本轮 tool results 为准。
-- `tool_specs` 入参继续透传给子 agent；Orchestrator 自身 tools 由 `orchestrator_tools.py` 内部定义，不从外部请求直接接受任意 tool schema。
+- `tool_specs` 入参继续透传给子 agent；Orchestrator 自身 tools 由 `orchestrator/tools.py` 内部定义，不从外部请求直接接受任意 tool schema。
 
 ---
 
@@ -312,9 +323,205 @@ Schema：
 - v1 只做静态验证，不启动浏览器。
 - 检查 title、input、button、script 和 required text。
 - 输出 `passed`、`checks`、`errors`。
-- 动态点击验证不在 v1 内；如需真实浏览器行为，后续新增 `validate_browser_behavior`。
+- `validate_html` 本身不做动态点击；真实浏览器行为由平台 `verify_web_preview` 覆盖。
 
-### 5.5 `run_test`（v1.1+，不在 v1 默认范围）
+### 5.5 `start_workspace_preview`
+
+通过平台 preview service 启动 workspace 静态预览。Orchestrator 只发起请求，实际端口、进程和生命周期由平台管理。
+
+Schema：
+
+```json
+{
+  "name": "start_workspace_preview",
+  "description": "Start or reuse a platform-managed static preview for the current workspace.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "entry_path": {"type": "string"},
+      "requested_port": {"type": "integer"},
+      "mode": {"type": "string", "enum": ["static"]}
+    }
+  }
+}
+```
+
+规则：
+
+- 仅支持 `mode="static"`。
+- `entry_path` 必须是 workspace-relative HTML 文件。
+- 指定 `requested_port=8082` 时必须使用 8082；端口不可用时返回失败，不静默 fallback。
+- 禁止 agent runtime 通过 `npm run dev`、`vite --host`、`python -m http.server` 等命令自行启动服务。
+- 返回 preview URL、port、entry path、session 状态。
+
+### 5.6 `verify_web_preview`
+
+使用平台 Playwright verifier 对已启动 preview 做浏览器级质量验收。
+
+Schema：
+
+```json
+{
+  "name": "verify_web_preview",
+  "description": "Verify a platform preview with Chromium desktop and mobile checks.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "url": {"type": "string"},
+      "required_text": {
+        "type": "array",
+        "items": {"type": "string"}
+      },
+      "click_selector": {"type": "string"}
+    }
+  }
+}
+```
+
+规则：
+
+- 检查桌面端和移动端。
+- 捕获 `pageerror`、`console.error`、同源资源加载失败。
+- 保存验证 JSON 和截图到 `/tmp/agenthub_browser_verify/{conversation_id}/`。
+- 至少一次按钮点击后不得新增 JS error。
+- 返回 `passed`、检查项、错误列表、截图路径。
+
+### 5.7 `create_custom_agent`
+
+在聊天中创建自建 Agent，并可加入当前 group conversation。
+
+Schema：
+
+```json
+{
+  "name": "create_custom_agent",
+  "description": "Create a custom AgentHub agent for the current user and optionally add it to the current group conversation.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "name": {"type": "string"},
+      "provider": {"type": "string", "enum": ["builtin", "claude_code", "codex", "opencode"]},
+      "system_prompt": {"type": "string"},
+      "capabilities": {
+        "type": "array",
+        "items": {"type": "string"}
+      },
+      "config": {"type": "object"},
+      "add_to_conversation": {"type": "boolean"}
+    },
+    "required": ["name", "provider", "system_prompt"]
+  }
+}
+```
+
+规则：
+
+- 使用当前用户身份创建 Agent。
+- 复用 `validate_agent_config`。
+- 缺少必要字段时返回 `needs_user_input=true`，不创建半成品。
+- `add_to_conversation=true` 时，将新 Agent id 加入当前 group conversation 的 `agent_ids`。
+- 返回 id、name、provider、capabilities。
+
+平台执行：
+
+- executor 位于 `backend/app/services/orchestrator_platform_tools.py`。
+- tool spec 位于 `backend/app/agents/orchestrator/tools.py`。
+- tool loop 路由位于 `backend/app/agents/orchestrator/tool_loop.py`。
+- 即使未启用完整 autonomous tool loop，Orchestrator 也可以在明确自建 Agent 意图下发出正式 `create_custom_agent` tool_call/tool_result，保证聊天流可观察。
+
+验收：
+
+- `/api/v1/agents` 能查到新 Agent。
+- 当前 group conversation 的 `agent_ids` 包含新 Agent id。
+- 缺少 `name/provider/system_prompt` 时返回 `needs_user_input=true`，且数据库中不产生半成品。
+- 非法 provider 或非法 config 返回 tool error。
+
+### 5.8 Proposed `create_deployment`
+
+创建一次平台受控 deployment。用于用户明确说“部署 / 发布 / 上线”。
+
+Schema：
+
+```json
+{
+  "name": "create_deployment",
+  "description": "Create a platform-managed workspace deployment or source export.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string",
+        "enum": ["static_site", "source_zip", "container"]
+      },
+      "entry_path": {"type": "string"},
+      "requested_port": {"type": "integer"}
+    },
+    "required": ["kind"]
+  }
+}
+```
+
+规则：
+
+- `static_site` 必须指定 workspace-relative HTML `entry_path`。
+- `source_zip` 不要求 `entry_path`，由平台打包当前 workspace。
+- `container` 本阶段返回 `not_supported`，不得执行 Docker 或 shell。
+- 返回 deployment id、kind、status、url/download_url、error、logs preview。
+- 成功或失败都应产生 `deployment_status` 消息块，方便前端展示状态卡片。
+
+### 5.9 Proposed `get_deployment_status`
+
+查询 deployment 状态。
+
+Schema：
+
+```json
+{
+  "name": "get_deployment_status",
+  "description": "Read the current status of a platform-managed deployment.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "deployment_id": {"type": "string"}
+    },
+    "required": ["deployment_id"]
+  }
+}
+```
+
+规则：
+
+- 只能查询当前 conversation 下的 deployment。
+- 返回状态、URL、下载 URL、错误和日志摘要。
+- 不读取部署产物文件内容。
+
+### 5.10 Proposed `package_workspace_source`
+
+打包当前 workspace 源码供下载。语义上等价于 `create_deployment(kind="source_zip")`，但作为独立 tool 可以更好匹配“下载源码 / 打包源码”意图。
+
+Schema：
+
+```json
+{
+  "name": "package_workspace_source",
+  "description": "Package the current workspace into a downloadable source archive.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "format": {"type": "string", "enum": ["zip"]}
+    }
+  }
+}
+```
+
+规则：
+
+- v1 只支持 `zip`。
+- 排除 `.agenthub/`、`.git/`、`node_modules/`、`.venv/`、`__pycache__/`。
+- 禁止打包 `.env`、`.ssh`、`secrets/`。
+- 返回 export id、download URL、文件大小和状态。
+
+### 5.8 `run_test`（v1.1+，不在 v1 默认范围）
 
 `run_test` 是后续增强，不进入第一版 Orchestrator tool calling v1。原因：
 
@@ -360,7 +567,7 @@ Schema：
 - env 使用安全 allowlist，不透出 API key。
 - stdout/stderr 截断到 tool result budget。
 
-### 5.6 `ask_user`
+### 5.9 `ask_user`
 
 请求用户补充信息。
 
@@ -525,22 +732,23 @@ model tool_call
 
 长期方向：
 
-- tool loop 稳定后，可将 `orchestrator_react.py` 的 JSON replanner 能力收敛到 tool loop。
+- tool loop 稳定后，可将 `orchestrator/react.py` 的 JSON replanner 能力收敛到 tool loop。
 - task graph 仍可作为 memory/summary 视图存在，而不是执行入口。
 
 ---
 
 ## 10. 实现入口建议
 
-建议新增：
+当前实现入口：
 
-- `backend/app/agents/orchestrator_tool_loop.py`
-- `backend/app/agents/orchestrator_tools.py`
+- `backend/app/agents/orchestrator/tool_loop.py`
+- `backend/app/agents/orchestrator/tools.py`
+- `backend/app/services/orchestrator_platform_tools.py`
 - `backend/tests/test_orchestrator_tool_calling.py`
 
-建议修改：
+当前已修改：
 
-- `backend/app/agents/orchestrator.py`
+- `backend/app/agents/orchestrator/adapter.py`
   - 增加 tool calling 分支。
   - 分支位置在 platform fact / direct answer / explicit `config.tasks` 之后、`_resolve_tasks()` 之前。
   - 将 `_run_task()`、block remap、summary/format callbacks 传给 tool loop。
@@ -631,10 +839,10 @@ uv run python -m mypy app/agents app/schemas/agent.py
 
 ## 12. 与其他 Spec 的关系
 
-- [builtin-agent-framework.spec.md](builtin-agent-framework.spec.md) 定义通用 model/tool loop 参考。
-- [orchestrator.spec.md](orchestrator.spec.md) 定义当前程序化任务调度契约。
-- [orchestrator-react-dynamic-task-graph.spec.md](orchestrator-react-dynamic-task-graph.spec.md) 定义 task graph ReAct。
-- [orchestrator-memory-context-management.spec.md](orchestrator-memory-context-management.spec.md) 定义结构化 run memory。
+- [../builtin-agent-framework.spec.md](../builtin-agent-framework.spec.md) 定义通用 model/tool loop 参考。
+- [core.spec.md](core.spec.md) 定义当前程序化任务调度契约。
+- [react-dynamic-task-graph.proposal.md](react-dynamic-task-graph.proposal.md) 定义 task graph ReAct。
+- [memory-context.spec.md](memory-context.spec.md) 定义结构化 run memory。
 - 本文档定义 Orchestrator 原生 tool calling 执行模型。
 
 实现后，Orchestrator 将从：
@@ -658,19 +866,24 @@ tool results drive next model action
 
 已落地：
 
-- 新增 `backend/app/agents/orchestrator_tools.py`
+- 新增 `backend/app/agents/orchestrator/tools.py`
   - 定义 `dispatch_agent`、`inspect_workspace`、`read_artifact`、`validate_html`、`ask_user`。
+  - 后续扩展 `start_workspace_preview`、`verify_web_preview`、`create_custom_agent`。
   - workspace 工具限制在 `workspace_path` 内，拒绝绝对路径、`..`、drive path、敏感路径。
   - `validate_html` v1 只做静态检查，不启动浏览器。
-- 新增 `backend/app/agents/orchestrator_tool_loop.py`
+- 新增 `backend/app/agents/orchestrator/tool_loop.py`
   - 使用 `ModelGateway.stream(..., tools=...)` 驱动 Orchestrator 自身 tool loop。
   - 支持多轮 tool result 注入当前模型上下文。
   - 支持 `orchestrator_tool_trace_visible=false` 隐藏 Orchestrator 自身 tool card。
   - tool loop 超限返回 `loop_max_iterations`。
-- 更新 `backend/app/agents/orchestrator.py`
+- 新增 `backend/app/services/orchestrator_platform_tools.py`
+  - 执行平台级 tool：preview、browser verify、自建 Agent。
+  - 平台 tool 可以访问 db、conversation、workspace、preview service。
+- 更新 `backend/app/agents/orchestrator/adapter.py`
   - 入口顺序为 platform fact -> direct answer -> explicit `config.tasks` -> tool loop -> existing planner/ReAct/static。
   - `dispatch_agent` 复用 `_run_task()`，子 agent 输出继续透传，子 tool call id 前缀为 `orch.<iteration>.<call>.child.*`。
   - `dispatch_agent` 只允许当前 `available_agents` / overridden `managed_agent_ids` 内的 agent。
+  - 对聊天中的自建 Agent 意图，即使未开启完整 tool loop，也可通过正式 `create_custom_agent` tool_call/tool_result 执行平台创建。
 - 更新 config/schema/openapi/seed：
   - `orchestrator_tool_calling_enabled`
   - `orchestrator_tool_trace_visible`
@@ -698,4 +911,20 @@ uv run python -m mypy app/agents app/schemas/agent.py
 尚未落地：
 
 - `run_test` / 通用命令执行工具仍保留在 v1.1+。
-- 浏览器级点击验证仍保留为后续 `validate_browser_behavior`。
+- 浏览器级点击验证已由平台 `verify_web_preview` 覆盖；通用 `validate_browser_behavior` 可作为后续跨产物/跨页面增强。
+
+## 14. Platform Tool Extension 验证记录
+
+已通过真实 E2E：
+
+- `start_workspace_preview` 作为正式 Orchestrator tool 调用，启动 `8082` static preview。
+- `verify_web_preview` 作为正式 Orchestrator tool 调用，生成桌面/移动端截图和浏览器校验 JSON。
+- `create_custom_agent` 作为正式 platform tool 调用，创建 `LiveCopywriter-{timestamp}` 并加入当前群聊。
+
+报告：
+
+- `/tmp/agenthub_b2_p0_live_report.json`
+- `/tmp/agenthub_orchestrator_quality_report.json`
+- `/tmp/agenthub_orchestrator_quality_browser.json`
+
+详细验收记录见 [live-e2e-report.spec.md](live-e2e-report.spec.md)。

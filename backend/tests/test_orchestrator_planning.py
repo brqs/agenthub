@@ -262,6 +262,49 @@ async def test_frontend_deploy_planner_output_is_stabilized_for_quality_gate() -
     assert "移动端适配" in opencode.received_messages[-1].content
 
 
+async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("created frontend"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("created backend"))
+    codex = FakeSubAdapter("codex-helper", _text_chunks("created review"))
+    planner = FakePlannerGateway([])
+    request = (
+        "@orchestrator 请完成一个前后端产品交付演示，主题是“团队 OKR 轻量看板”。"
+        "先产出 planning.md，然后并行调度 claude-code 生成 index.html、styles.css、"
+        "app.js，并让 opencode-helper 生成 backend_app.py、api.md、backend_tests.md。"
+        "最后调度 codex-helper 生成 review.md，并部署到端口8082。"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+                "codex-helper": codex,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert planner.calls == []
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code", "claude-code", "opencode-helper", "codex-helper"]
+    assert any("Planned 4 sub-task" in (chunk.text_delta or "") for chunk in chunks)
+    assert any("Implement frontend artifacts" in (chunk.text_delta or "") for chunk in chunks)
+    assert any("Implement backend artifacts" in (chunk.text_delta or "") for chunk in chunks)
+    assert any("Review fullstack delivery" in (chunk.text_delta or "") for chunk in chunks)
+    assert "Do not automatically request /api/okrs" in claude.received_messages[-1].content
+    assert "backend_app.py, api.md, backend_tests.md" in (
+        opencode.received_messages[-1].content
+    )
+    assert "frontend/backend API consistency" in codex.received_messages[-1].content
+
+
 async def test_orchestrator_filters_planner_port_service_tasks() -> None:
     web_designer = FakeSubAdapter("web-designer", _text_chunks("created snake.html"))
     planner = FakePlannerGateway(

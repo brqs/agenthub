@@ -124,7 +124,7 @@ pnpm build                                        # 构建
 docker compose down -v   # 删除所有数据
 ```
 
-当前迁移链包含 Orchestrator structured memory 表。更新代码后请确认已执行 `alembic upgrade head`，否则 Orchestrator 编排记忆和调试接口不可用。详见 [backend/alembic/README.md](backend/alembic/README.md) 与 [Orchestrator Memory 执行 Spec](docs/b2/spec/orchestrator-memory-context-management.execution.spec.md)。
+当前迁移链包含 Orchestrator structured memory 表。更新代码后请确认已执行 `alembic upgrade head`，否则 Orchestrator 编排记忆和调试接口不可用。详见 [backend/alembic/README.md](backend/alembic/README.md) 与 [Orchestrator Memory 执行 Spec](docs/b2/spec/orchestrator/memory-context.execution.spec.md)。
 
 ## 🧪 技术栈
 

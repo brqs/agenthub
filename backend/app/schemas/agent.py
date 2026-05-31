@@ -147,6 +147,12 @@ class AgentConfig(BaseModel):
         ge=numeric_field("orchestrator_tool_read_max_bytes").minimum,
         le=numeric_field("orchestrator_tool_read_max_bytes").maximum,
     )
+    orchestrator_parallel_enabled: bool | None = None
+    orchestrator_parallel_max_concurrency: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_parallel_max_concurrency").minimum,
+        le=numeric_field("orchestrator_parallel_max_concurrency").maximum,
+    )
 
     # 允许额外 provider 专属字段
     model_config = ConfigDict(extra="allow")

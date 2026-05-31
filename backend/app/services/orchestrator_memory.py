@@ -167,10 +167,13 @@ class OrchestratorMemoryStore:
                         "state": attempt.state.value,
                         "artifact_paths": attempt.artifact_paths,
                         "missing_artifact_paths": attempt.missing_artifact_paths,
+                        "file_changes": attempt.file_changes,
+                        "conflict_paths": attempt.conflict_paths,
                         "error": attempt.error,
                     }
                     for attempt in result.attempts
                 ],
+                "workspace_conflicts": result.workspace_conflicts,
             },
         )
 

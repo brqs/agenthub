@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from app.agents.model_gateway import ModelGateway
 from app.agents.orchestrator.tools import (
@@ -38,7 +38,11 @@ TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
 LatestUserRequest = Callable[[list[ChatMessage]], str]
 PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
 FormatTaskResultContext = Callable[[str, TaskResult, int], str]
-PLATFORM_TOOL_NAMES = {"start_workspace_preview", "verify_web_preview"}
+PLATFORM_TOOL_NAMES = {
+    "start_workspace_preview",
+    "verify_web_preview",
+    "create_custom_agent",
+}
 
 
 class RunTaskWithPrefix(Protocol):
@@ -325,7 +329,8 @@ def _tool_system_prompt(config: Mapping[str, Any]) -> str:
         "Do not dispatch orchestrator to itself. Do not request preview/deploy/server "
         "long-running commands from sub-agents. For preview/deploy requests, use "
         "start_workspace_preview after files exist, then verify_web_preview for browser "
-        "quality. Use read_artifact, inspect_workspace, and validate_html when useful. "
+        "quality. Use create_custom_agent when the user asks to create a new Agent. "
+        "Use read_artifact, inspect_workspace, and validate_html when useful. "
         "Final answers must be based on tool results. Keep user-visible text concise "
         "and do not reveal hidden reasoning."
     )
@@ -347,7 +352,7 @@ async def _execute_non_dispatch_tool(
                 output=f"platform tool executor is not available: {call.name}",
                 error_code="platform_tool_unavailable",
             )
-        result = await executor(call.name, call.arguments)
+        result = cast(OrchestratorToolResult, await executor(call.name, call.arguments))
         if result.output_truncated:
             return result
         output, truncated = _truncate(result.output, result_max_chars)

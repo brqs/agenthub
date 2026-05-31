@@ -1,5 +1,9 @@
 # B2 子任务分发记录
 
+> 归档状态：Historical AI collaboration evidence
+>
+> 说明：本目录原位于 `docs/b2/task-dispatch/`，现已移入 `docs/archive/b2-task-dispatch/`。当前 B2 任务分发和复审流程请使用 [../../ai-skills/b2-ai-collaboration/SKILL.md](../../ai-skills/b2-ai-collaboration/SKILL.md)。
+
 本目录记录 B2 Agent Runtime Layer 中，Codex 拆解后交给 OpenCode 执行的具体子任务。
 
 B2-01 至 B2-13 是 Agent Runtime Pivot 前的历史任务，主要沉淀 raw LLM Provider Adapter、ArtifactParser、Provider resilience 和 Orchestrator 基线。B2-14 起进入真实 Agent Runtime 接入阶段，产品侧 runtime 范围固定包含 Claude Code / Codex / OpenCode，以及团队自建 BuiltinAgent。
@@ -13,7 +17,7 @@ B2-01 至 B2-13 是 Agent Runtime Pivot 前的历史任务，主要沉淀 raw LL
 
 Git/PR 操作规范见 [../../archive/git-pr-ops/README.md](../../archive/git-pr-ops/README.md)。
 
-B2 总体目标框架和后续任务路线图见 [B2-roadmap.md](B2-roadmap.md)。
+B2 历史总体目标框架和任务路线图见 [B2-roadmap.md](B2-roadmap.md)。
 
 ## 本地 Python 环境
 
@@ -67,5 +71,4 @@ conda run -n LLMAgent python -m pytest tests/test_artifact_parser.py
 
 ## 模板
 
-通用分发模板见 [../ai-task-dispatch-template.md](../ai-task-dispatch-template.md)。
-Codex 复审模板见 [../codex-review-template.md](../codex-review-template.md)。
+通用分发与 Codex 复审流程已归并到 [../../ai-skills/b2-ai-collaboration/SKILL.md](../../ai-skills/b2-ai-collaboration/SKILL.md)。

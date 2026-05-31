@@ -130,6 +130,31 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
             },
         ),
         ToolSpec(
+            name="create_custom_agent",
+            description=(
+                "Create a user-owned AgentHub custom agent from a conversational "
+                "request. Use this when the user asks to create or add a new agent."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "provider": {
+                        "type": "string",
+                        "enum": ["builtin", "claude_code", "codex", "opencode"],
+                    },
+                    "system_prompt": {"type": "string"},
+                    "capabilities": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "config": {"type": "object"},
+                    "add_to_conversation": {"type": "boolean", "default": True},
+                },
+                "required": ["name", "provider", "system_prompt"],
+            },
+        ),
+        ToolSpec(
             name="ask_user",
             description="Stop and ask the user for missing information.",
             parameters={
