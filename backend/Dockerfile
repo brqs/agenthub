@@ -34,6 +34,11 @@ RUN HTTP_PROXY="${HTTP_PROXY:-$http_proxy}" \
     && pip install 'bcrypt>=4.0.0,<5.0.0'
 
 # 复制源代码
+# Browser preview verification needs Chromium and its system libraries.
+RUN python -m playwright install-deps chromium \
+    && python -m playwright install chromium \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 EXPOSE 8000
