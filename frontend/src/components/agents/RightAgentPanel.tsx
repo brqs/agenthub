@@ -305,6 +305,7 @@ function WorkspacePanel({
   workspace,
   isLoading,
   error,
+  artifactError,
   touchedFilesCount,
   selectedArtifactPath,
   selectedArtifact,
@@ -315,6 +316,7 @@ function WorkspacePanel({
   workspace: { root: string; tree: WorkspaceNode[] } | null;
   isLoading: boolean;
   error: unknown;
+  artifactError?: unknown;
   touchedFilesCount: number;
   selectedArtifactPath: string | null;
   selectedArtifact: PreviewArtifactFile | null;
@@ -346,11 +348,17 @@ function WorkspacePanel({
               onSelectFile={onSelectArtifact}
             />
           </div>
-          <ArtifactPreview
-            artifact={selectedArtifact}
-            onSave={onSaveArtifact}
-            isSaving={isSavingArtifact}
-          />
+          {artifactError ? (
+            <div className="rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
+              文件预览加载失败，请稍后重试。
+            </div>
+          ) : (
+            <ArtifactPreview
+              artifact={selectedArtifact}
+              onSave={onSaveArtifact}
+              isSaving={isSavingArtifact}
+            />
+          )}
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm leading-6 text-slate-500">

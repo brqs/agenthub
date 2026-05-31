@@ -19,6 +19,7 @@ import { useStream } from '@/hooks/useStream';
 import { useUpdateConversation } from '@/hooks/useUpdateConversation';
 import { useUpdateMessage } from '@/hooks/useUpdateMessage';
 import type { Agent } from '@/lib/types';
+import { resolveConversation } from '@/pages/chatPageUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -52,9 +53,11 @@ export function ChatPage() {
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
 
   const visibleConversations = conversations.filter((item) => !item.is_archived);
-  const activeConversationId = conversationId ?? selectedConversationId;
-  const conversation =
-    conversations.find((item) => item.id === activeConversationId) ?? visibleConversations[0];
+  const conversation = resolveConversation(
+    visibleConversations,
+    conversationId,
+    selectedConversationId,
+  );
   const { data: messages, isLoading: messagesLoading } = useMessages(conversation?.id);
   const updateConversation = useUpdateConversation();
   const updateMessage = useUpdateMessage();
