@@ -1,5 +1,3 @@
-import { env } from '@/lib/env';
-import { mockAgents, mockConversations } from '@/lib/mockData';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { resetClientSession, startClientSession } from '@/lib/session';
@@ -26,8 +24,8 @@ describe('session state reset', () => {
   beforeEach(() => {
     queryClient.clear();
     useAuthStore.setState({ token: null, user: null });
-    useAgentStore.getState().resetAgents();
-    useChatStore.getState().resetChat();
+    useAgentStore.getState().clearAgents();
+    useChatStore.getState().clearChat();
   });
 
   it('scopes query keys by session identity', () => {
@@ -85,9 +83,7 @@ describe('session state reset', () => {
 
     expect(useAuthStore.getState()).toMatchObject({ token: null, user: null });
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
-    expect(useAgentStore.getState().agents).toEqual(env.useMockApi ? mockAgents : []);
-    expect(useChatStore.getState().conversations).toEqual(
-      env.useMockApi ? mockConversations : [],
-    );
+    expect(useAgentStore.getState().agents).toEqual([]);
+    expect(useChatStore.getState().conversations).toEqual([]);
   });
 });

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import * as messagesAdapter from '@/lib/adapters/messages';
-import { env } from '@/lib/env';
 import { useChatStore } from '@/stores/chatStore';
 
 /** Parse `@agent-id` from group-chat input. Returns null for single chat or no mention. */
@@ -28,7 +27,6 @@ export function resolveTargetAgentId(
 
 export function useSendMessage() {
   const [isPending, setIsPending] = useState(false);
-  const createPendingExchange = useChatStore((state) => state.createPendingExchange);
   const appendRemoteExchange = useChatStore((state) => state.appendRemoteExchange);
   const conversations = useChatStore((state) => state.conversations);
 
@@ -38,11 +36,6 @@ export function useSendMessage() {
   ): Promise<{ agentMessageId: string } | null> {
     setIsPending(true);
     try {
-      if (env.useMockApi) {
-        await new Promise((resolve) => window.setTimeout(resolve, 120));
-        return createPendingExchange(conversationId, text);
-      }
-
       const conversation = conversations.find((c) => c.id === conversationId);
       const targetAgentId = conversation
         ? resolveTargetAgentId(text, conversation.mode, conversation.agent_ids)
