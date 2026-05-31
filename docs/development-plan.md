@@ -926,7 +926,9 @@ agenthub/
 │       ├── auth.spec.md
 │       ├── conversation.spec.md
 │       ├── streaming.spec.md
-│       └── orchestrator.spec.md
+│       └── orchestrator/
+│           ├── README.md
+│           └── core.spec.md
 │
 ├── shared/                           # 前后端共享契约
 │   ├── openapi.yaml                  # OpenAPI 规范（唯一真相源）

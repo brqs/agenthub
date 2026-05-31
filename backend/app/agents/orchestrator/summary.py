@@ -64,10 +64,17 @@ def summary_text(
             lines.append(f"  artifacts: {', '.join(artifacts)}")
         if missing and state == TaskState.ARTIFACT_MISSING:
             lines.append(f"  missing: {', '.join(missing)}")
+        conflicts = _dedupe_strings(
+            path
+            for attempt in result.attempts
+            for path in attempt.conflict_paths
+        )
+        if conflicts:
+            lines.append(f"  conflicts: {', '.join(conflicts)}")
         if len(result.attempts) > 1 or state in {
             TaskState.FAILED,
             TaskState.ARTIFACT_MISSING,
-        }:
+        } or conflicts:
             lines.append("  attempts:")
             for attempt in result.attempts:
                 detail = (
@@ -78,7 +85,12 @@ def summary_text(
                     detail += f" - {attempt.error}"
                 elif attempt.missing_artifact_paths:
                     detail += f" - missing {', '.join(attempt.missing_artifact_paths)}"
+                if attempt.conflict_paths:
+                    detail += f" - conflicts {', '.join(attempt.conflict_paths)}"
                 lines.append(detail)
+    conflict_lines = _workspace_conflict_summary(run_context)
+    if conflict_lines:
+        lines.extend(["", "Workspace conflicts:", *conflict_lines])
     return "\n".join(lines) + "\n"
 
 
@@ -137,6 +149,8 @@ def format_task_result_context(
         lines.append(f"  Error: {final_attempt.error}")
     if final_attempt.missing_artifact_paths:
         lines.append(f"  Missing: {', '.join(final_attempt.missing_artifact_paths)}")
+    if final_attempt.conflict_paths:
+        lines.append(f"  Conflicts: {', '.join(final_attempt.conflict_paths)}")
     return truncate_preserving_edges("\n".join(lines), max_chars)
 
 
@@ -149,6 +163,8 @@ def format_attempt_context(attempt: TaskAttempt, max_chars: int) -> str:
         text += f": {attempt.error}"
     elif attempt.missing_artifact_paths:
         text += f": missing {', '.join(attempt.missing_artifact_paths)}"
+    if attempt.conflict_paths:
+        text += f": conflicts {', '.join(attempt.conflict_paths)}"
     return truncate_preserving_edges(text, max_chars)
 
 
@@ -188,3 +204,32 @@ def _dedupe_strings(values: Any) -> list[str]:
         seen.add(item)
         output.append(item)
     return output
+
+
+def _workspace_conflict_summary(
+    run_context: OrchestratorRunContext | None,
+) -> list[str]:
+    if run_context is None:
+        return []
+    conflicts: dict[str, list[str]] = {}
+    for result in run_context.results.values():
+        for conflict in result.workspace_conflicts:
+            path = str(conflict.get("path") or "")
+            if not path:
+                continue
+            writers = conflict.get("writers")
+            if not isinstance(writers, list):
+                continue
+            labels = []
+            for writer in writers:
+                if not isinstance(writer, dict):
+                    continue
+                agent_id = writer.get("agent_id")
+                task_id = writer.get("task_id")
+                if isinstance(agent_id, str) and isinstance(task_id, str):
+                    labels.append(f"@{agent_id}/{task_id}")
+            conflicts[path] = _dedupe_strings(labels)
+    return [
+        f"- {path}: {', '.join(labels)}"
+        for path, labels in sorted(conflicts.items())
+    ]

@@ -12,6 +12,8 @@
 | [api-spec.md](api-spec.md) | 人类可读 API 说明 |
 | [team-division.md](team-division.md) | 三人分工与所有权 |
 | [ai-collaboration-log.md](ai-collaboration-log.md) | AI 协作记录 |
+| [ai-skills/b2-ai-collaboration/SKILL.md](ai-skills/b2-ai-collaboration/SKILL.md) | B2 AI 任务分发与 Codex 复审 Skill |
+| [ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md](ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md) | Orchestrator 真实 E2E 失败修复闭环 Skill |
 | [spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md) | Agent Runtime Pivot 决策记录 |
 
 ## 角色文档

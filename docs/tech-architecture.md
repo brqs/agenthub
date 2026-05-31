@@ -233,7 +233,7 @@ async for chunk in adapter.stream(...):
 | **WorkspaceService** ✨ | Service | `services/workspace_service.py` | Workspace CRUD + 路径校验（**pivot 新增**） |
 | **BaseAgentAdapter v2** | Agent | `agents/base.py` | Adapter 抽象基类（含 workspace_path / tool_specs） |
 | **AgentRegistry v2** | Agent | `agents/registry.py` | 注册 ExternalAgent / BuiltinAgent / Orchestrator |
-| **Orchestrator** | Agent | `agents/orchestrator.py` | 任务拆解 + 分派（保留，子 Agent 升级为真 Agent） |
+| **Orchestrator** | Agent | `agents/orchestrator/adapter.py` | 任务拆解 + 分派（保留，子 Agent 升级为真 Agent） |
 | **ArtifactParser** | Agent | `agents/artifact_parser.py` | 流式输出 → ContentBlock（保留） |
 | **Layer A — ExternalAgentAdapter** ✨ | Agent | `agents/external/` | 嵌入 Claude Agent SDK / OpenAI Agents SDK / OpenCode CLI，复用其内置 loop/tool/MCP 或 CLI runtime（**pivot 新增**） |
 | **Layer B — BuiltinAgentAdapter** ✨ | Agent | `agents/builtin/` | 自建 AgentLoop + ToolRegistry + MCPClient + Memory（**pivot 新增**） |
@@ -903,9 +903,9 @@ class StreamingArtifactParser:
 
 ### 6.6 Orchestrator 实现（v1.1 — 子 Agent 升级为真 Agent）
 
-> v1.1 改动：Orchestrator 框架不变，但子 Adapter 通过 BaseAgentAdapter v2 接口拿到，因此现在可以是 ExternalAgentAdapter（Claude Code / Codex / OpenCode）或 BuiltinAgentAdapter；call_id 在跨子 Agent 时按 `task_id.<原 call_id>` 重映射，避免冲突。详见 [orchestrator.spec.md](b2/spec/orchestrator.spec.md) 与 [agent-runtime-adapter.spec.md §5.3](b2/spec/agent-runtime-adapter.spec.md)。
+> v1.1 改动：Orchestrator 框架不变，但子 Adapter 通过 BaseAgentAdapter v2 接口拿到，因此现在可以是 ExternalAgentAdapter（Claude Code / Codex / OpenCode）或 BuiltinAgentAdapter；call_id 在跨子 Agent 时按 `task_id.<原 call_id>` 重映射，避免冲突。详见 [orchestrator/core.spec.md](b2/spec/orchestrator/core.spec.md) 与 [agent-runtime-adapter.spec.md §5.3](b2/spec/agent-runtime-adapter.spec.md)。
 
-下面的 v1 代码示意保留以说明框架；实际生产代码见 [backend/app/agents/orchestrator.py](../backend/app/agents/orchestrator.py)。
+下面的 v1 代码示意保留以说明框架；实际生产代码见 [backend/app/agents/orchestrator/adapter.py](../backend/app/agents/orchestrator/adapter.py)。
 
 
 ```python

@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator.tools import OrchestratorToolResult
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 
@@ -170,6 +171,26 @@ class FakeMemoryWriter:
         )
 
 
+class FakePlatformExecutor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    async def __call__(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> OrchestratorToolResult:
+        self.calls.append((tool_name, arguments))
+        return OrchestratorToolResult(
+            status="ok",
+            output=(
+                '{"status":"ok","agent":{"id":"custom-1","name":"LiveCopywriter",'
+                '"provider":"builtin","capabilities":["copywriting","review"],'
+                '"is_builtin":false},"added_to_conversation":true}'
+            ),
+        )
+
+
 async def _collect(
     adapter: OrchestratorAdapter,
     *,
@@ -185,6 +206,52 @@ async def _collect(
             workspace_path=workspace_path,
         )
     ]
+
+
+async def test_conversational_custom_agent_uses_platform_tool_without_tool_loop() -> None:
+    executor = FakePlatformExecutor()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 请创建一个新的自建 Agent，名字为 LiveCopywriter，"
+                    "provider 使用 builtin，system_prompt 为“你是中文文案 Agent”，"
+                    "capabilities 设置为 copywriting、review，并把它加入当前群聊。"
+                ),
+            )
+        ],
+        config={
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_tool_calling_enabled": False,
+        },
+    )
+
+    assert executor.calls == [
+        (
+            "create_custom_agent",
+            {
+                "name": "LiveCopywriter",
+                "provider": "builtin",
+                "system_prompt": "你是中文文案 Agent",
+                "capabilities": ["copywriting", "review"],
+                "config": {},
+                "add_to_conversation": True,
+            },
+        )
+    ]
+    assert [chunk.tool_name for chunk in chunks if chunk.event_type == "tool_call"] == [
+        "create_custom_agent"
+    ]
+    assert [chunk.tool_status for chunk in chunks if chunk.event_type == "tool_result"] == [
+        "ok"
+    ]
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "custom-1" in text
+    assert chunks[-1].event_type == "done"
 
 
 def _tool_call(
@@ -287,6 +354,7 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
         "validate_html",
         "start_workspace_preview",
         "verify_web_preview",
+        "create_custom_agent",
         "ask_user",
     }
     assert "Tool dispatch_agent (orch.1.1) ok" in gateway.calls[1]["messages"][-1].content
@@ -294,7 +362,11 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
     assert memory.started[0]["plan_source"] == "tool_calling"
     assert memory.started_tasks[0]["task_id"] == "create-html"
     assert memory.task_results[0]["state"] == "succeeded"
-    assert [event["payload"]["tool_name"] for event in memory.events] == [
+    assert [
+        event["payload"]["tool_name"]
+        for event in memory.events
+        if event["event_type"] == "tool_call"
+    ] == [
         "dispatch_agent",
         "validate_html",
     ]

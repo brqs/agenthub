@@ -436,7 +436,7 @@ backend/
 
 ## 5. B2（Agent 集成）详细任务清单
 
-> B2 当前更细的执行路线图和任务编号以 [docs/b2/task-dispatch/B2-roadmap.md](b2/task-dispatch/B2-roadmap.md) 为准；本节保留团队级分工视角。
+> B2 历史执行路线图和任务编号已归档到 [docs/archive/b2-task-dispatch/B2-roadmap.md](archive/b2-task-dispatch/B2-roadmap.md)；当前 B2 入口以 [docs/b2/README.md](b2/README.md) 和 [docs/b2/spec/README.md](b2/spec/README.md) 为准。
 
 ### 5.1 职责范围
 
@@ -471,7 +471,7 @@ Python 3.11
 | 设计 Adapter Registry | `agents/registry.py` | `get_adapter(agent_id)` 工作 |
 | 与 B1 对齐 SSE 事件类型 | `shared/openapi.yaml` + `docs/spec/streaming.spec.md` | 文档化所有事件 |
 | 阅读 Anthropic + OpenAI SDK 流式 API | 文档阅读笔记 | 输出 `docs/spec/llm-api-notes.md` |
-| **设计 Orchestrator Spec** | `docs/b2/spec/orchestrator.spec.md` | 决定任务拆解方式 |
+| **设计 Orchestrator Spec** | `docs/b2/spec/orchestrator/core.spec.md` | 决定任务拆解方式 |
 
 **Day 2 验收**：B1 用 MockAdapter 即可跑通 SSE 端到端。
 
@@ -685,7 +685,7 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
 
 ## 7. Sprint × 角色 任务矩阵
 
-> v1.1 调整：Sprint 0-4 已完成（按 v1.0 计划交付，详见 [docs/b2/task-dispatch/B2-roadmap.md](b2/task-dispatch/B2-roadmap.md) 与 [docs/b1/backend-test-record.md](b1/backend-test-record.md)）。Sprint 5 为 pivot 后剩余 8 天计划。
+> v1.1 调整：Sprint 0-4 已完成（按 v1.0 计划交付，历史路线图见 [docs/archive/b2-task-dispatch/B2-roadmap.md](archive/b2-task-dispatch/B2-roadmap.md)，B1 记录见 [docs/b1/backend-test-record.md](b1/backend-test-record.md)）。Sprint 5 为 pivot 后剩余 8 天计划。
 
 ### 7.0 Sprint 0-4（已完成，保留为附录）
 

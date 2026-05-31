@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.core.config import settings
+
 SUPPORTED_UPSTREAM_PROVIDERS: set[str] = {"claude", "deepseek", "openai"}
 TOP_LEVEL_PROVIDERS: set[str] = {
     "claude_code",
@@ -53,6 +55,7 @@ BUILTIN_ORCHESTRATOR_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("orchestrator_tool_max_iterations", 1, 50, allow_float=False),
     NumericConfigField("orchestrator_tool_result_max_chars", 1, 32000, allow_float=False),
     NumericConfigField("orchestrator_tool_read_max_bytes", 1, 1048576, allow_float=False),
+    NumericConfigField("orchestrator_parallel_max_concurrency", 1, 10, allow_float=False),
 )
 
 NUMERIC_CONFIG_FIELDS: dict[str, NumericConfigField] = {
@@ -83,7 +86,7 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "model_backend": "claude",
     "answer_model_backend": "deepseek",
     "planner_model_backend": "claude",
-    "llm_planning": True,
+    "llm_planning": settings.orchestrator_llm_planning_default,
     "react_enabled": True,
     "react_trace_visible": True,
     "direct_answer_on_planner_failure": True,
@@ -98,4 +101,8 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "orchestrator_tool_max_iterations": 12,
     "orchestrator_tool_result_max_chars": 4000,
     "orchestrator_tool_read_max_bytes": 65536,
+    "orchestrator_parallel_enabled": settings.orchestrator_parallel_enabled_default,
+    "orchestrator_parallel_max_concurrency": (
+        settings.orchestrator_parallel_max_concurrency_default
+    ),
 }

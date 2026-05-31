@@ -1,15 +1,19 @@
-# Workspace Artifact / Preview Spec
+# Workspace Artifact / Preview / Deployment Spec
+
+> 状态：Artifact / Preview 为 Current contract；Deployment 发布能力为 Proposed / Backlog。
+> 最后更新：2026-05-31
 
 ## 目标
 
-统一定义 workspace 中 agent 产物的识别、记录、展示、预览和部署边界。该 Spec 合并原 artifact contract 与 preview/deploy 边界，作为 artifact/preview 的唯一事实来源。
+统一定义 workspace 中 agent 产物的识别、记录、展示、预览和部署边界。该 Spec 合并原 artifact contract 与 preview/deploy 边界，作为 artifact / preview / deployment 的唯一事实来源。
 
 核心原则：
 
 - Agent runtime 只负责生成文件。
-- 平台负责识别 artifact、维护 manifest、启动 preview、生成 URL。
-- 端口、PID、URL、生命周期不归 agent runtime 管。
+- 平台负责识别 artifact、维护 manifest、启动 preview / deployment、生成 URL。
+- 端口、PID、URL、deployment record、生命周期不归 agent runtime 管。
 - `web_preview.url` 必须来自平台 service，不能由 agent 编造。
+- Deploy 不等同 preview：preview 是临时开发预览，deployment 是可追踪的发布记录。
 
 ## Artifact 定义
 
@@ -133,6 +137,11 @@ class WorkspacePreviewSession(Base):
 | `POST` | `/api/v1/workspaces/{conversation_id}/preview` | 启动或复用 preview |
 | `GET` | `/api/v1/workspaces/{conversation_id}/preview` | 查询 preview 状态 |
 | `DELETE` | `/api/v1/workspaces/{conversation_id}/preview` | 停止 preview |
+| `POST` | `/api/v1/workspaces/{conversation_id}/deployments` | Proposed：创建一次部署 / 打包 |
+| `GET` | `/api/v1/workspaces/{conversation_id}/deployments` | Proposed：列出部署历史 |
+| `GET` | `/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}` | Proposed：查询部署状态 |
+| `DELETE` | `/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}` | Proposed：停止可停止部署 |
+| `GET` | `/api/v1/workspaces/{conversation_id}/exports/{export_id}/download` | Proposed：下载源码包 |
 
 `POST preview` body：
 
@@ -190,21 +199,87 @@ StreamChunk(
 - Artifact manifest 不进入 `message.content`。
 - 如果 preview 尚未实现或启动失败，final summary 只能说明平台预览处理状态，不能提供 terminal 命令。
 
-## Deploy MVP
+## Deployment Proposed v1
 
-Deploy 不等同 preview。MVP 定义为平台记录一次可发布 artifact：
+Deploy 不等同 preview：
+
+- `preview`：临时开发预览，端口池管理，适合浏览器验收。
+- `deployment`：一次可追踪发布记录，有状态、URL、日志、失败原因和历史。
+- `source_export`：源码 zip 打包下载，不等同部署。
+- `container_deploy`：本阶段只返回 `not_supported`，不执行 Docker。
+
+Proposed v1 定义为平台记录一次 deployment：
 
 ```python
 class WorkspaceDeployment(Base):
     id: UUID
     conversation_id: UUID
+    workspace_id: UUID
+    kind: Literal["static_site", "source_zip", "container"]
     artifact_path: str
-    status: Literal["created", "publishing", "published", "failed"]
+    status: Literal[
+        "queued",
+        "publishing",
+        "published",
+        "failed",
+        "stopped",
+        "not_supported",
+    ]
     url: str | None
+    download_url: str | None
+    error: str | None
+    logs: list[str]
     created_at: datetime
+    updated_at: datetime
 ```
 
-本轮不允许 agent runtime 执行 Netlify/Vercel/SSH 等部署命令。
+### Deployment Kinds
+
+| kind | 行为 | v1 状态 |
+|---|---|---|
+| `static_site` | 校验 workspace HTML 入口，创建 deployment record，复用平台静态服务返回 URL | Proposed |
+| `source_zip` | 打包 workspace 源码，返回下载 URL | Proposed |
+| `container` | 返回 `not_supported` 状态卡，说明容器化部署未开放 | Proposed placeholder |
+
+`POST deployments` body：
+
+```json
+{
+  "kind": "static_site",
+  "entry_path": "index.html",
+  "requested_port": 8082
+}
+```
+
+`source_zip` 必须排除 `.agenthub/`、`.git/`、`node_modules/`、`.venv/`、`__pycache__/`，且禁止打包 `.env`、`.ssh`、`secrets/`。
+
+本轮不允许 agent runtime 执行 Netlify、Vercel、SSH、Docker、`npm run dev`、`vite --host`、`python -m http.server` 等部署或长驻服务命令。
+
+## Deployment Status Block Proposed
+
+聊天流中应新增部署状态卡片：
+
+```ts
+type DeploymentStatusBlock = {
+  type: "deployment_status";
+  deployment_id: string;
+  kind: "static_site" | "source_zip" | "container";
+  status: "queued" | "publishing" | "published" | "failed" | "stopped" | "not_supported";
+  title?: string;
+  url?: string;
+  download_url?: string;
+  error?: string;
+  logs_preview?: string;
+};
+```
+
+卡片职责：
+
+- `published`：展示访问 URL、复制和打开入口。
+- `source_zip`：展示源码下载入口。
+- `failed`：展示错误原因和日志摘要。
+- `not_supported`：展示容器化部署未开放说明。
+- `stopped`：展示已停止状态。
 
 ## 生命周期
 
@@ -214,13 +289,16 @@ class WorkspaceDeployment(Base):
 | agent run 结束 | diff snapshot，更新 artifact manifest |
 | 用户启动 preview | 分配端口，启动平台静态 server |
 | 用户重复启动 preview | 复用或重启当前 conversation session |
+| 用户发送部署/发布/上线 | Proposed：创建 deployment record，执行平台受控部署 |
+| 用户请求源码打包下载 | Proposed：创建 source zip export，返回下载 URL |
+| 用户请求容器化部署 | Proposed：创建 `not_supported` 状态记录，不执行 Docker |
 | SSE 断开 | 不影响已启动 preview；preview 由 TTL 管理 |
 | Conversation 删除 | 停止 preview，清理 session/deployment |
 | Workspace 删除 | 停止 preview |
 
 ## Orchestrator 集成
 
-Orchestrator 只做 workspace artifact 的只读存在性检查，不负责 preview session 生命周期。平台 preview / deploy API 仍是唯一能启动、复用和停止 preview service 的组件。
+Orchestrator 只做 workspace artifact 的只读存在性检查，不直接接管 preview / deployment 生命周期。平台 preview / deployment API 仍是唯一能启动、复用、停止 service 和生成 URL 的组件。
 
 Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 artifact path 的子任务必须检查 artifact：
 
@@ -228,6 +306,13 @@ Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 art
 - 子 agent `done` 但没有 artifact：任务 `artifact_missing`。
 - `artifact_missing` 可触发 fallback agent。
 - 不读取 `.env`、`.ssh`、`secrets/`、`.agenthub/`，不执行 shell，不监听端口。
+
+Proposed deployment tools：
+
+- 用户只说“预览”时，Orchestrator 使用 `start_workspace_preview`。
+- 用户说“部署 / 发布 / 上线”时，Orchestrator 使用 `create_deployment(kind="static_site")`。
+- 用户说“源码打包 / 下载源码”时，Orchestrator 使用 `package_workspace_source`。
+- 用户说“容器化部署”时，Orchestrator 使用 `create_deployment(kind="container")`，返回 `not_supported`。
 
 ## 安全规则
 
@@ -237,6 +322,8 @@ Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 art
 - 默认禁止目录列表。
 - HTML 预览必须设置 sandbox / CSP。
 - 平台 preview 进程不接收 provider API key。
+- Deployment / source export 不打包或暴露敏感目录。
+- Container deployment 在未实现隔离前只能返回 `not_supported`。
 
 ## 测试计划
 
@@ -247,6 +334,9 @@ Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 art
 - 平台 preview API 为 artifact 返回 URL。
 - 删除 conversation 后 preview PID 被清理。
 - Orchestrator 能把 `done` 但无文件判为 `artifact_missing`。
+- Proposed：`static_site` deployment 返回 deployment status 和 URL。
+- Proposed：`source_zip` 可下载且不包含敏感目录。
+- Proposed：`container` 请求返回 `not_supported` 且不执行 Docker。
 
 ## 验收标准
 
@@ -254,3 +344,5 @@ Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 art
 - 可静态预览 artifact 由平台 preview service 提供 URL。
 - 8082 只由平台 service 管理。
 - Agent runtime 不通过启动服务来证明 artifact 可用。
+- Proposed：聊天中“部署”指令返回 `deployment_status` 卡片。
+- Proposed：一键静态发布和源码打包下载由平台 tool 完成。
