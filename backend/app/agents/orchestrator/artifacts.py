@@ -30,6 +30,9 @@ def finalize_artifact_candidates(attempt: TaskAttempt, task: SubTask) -> None:
     candidates: list[str] = []
     if task.expected_output:
         candidates.extend(extract_artifact_paths_from_text(task.expected_output))
+        if candidates:
+            attempt.artifact_paths = _dedupe_strings(candidates)
+            return
     candidates.extend(attempt.artifact_paths)
     if not candidates:
         candidates.extend(extract_artifact_paths_from_text(task.instruction))
@@ -46,7 +49,8 @@ def check_attempt_artifacts(
     resolved_paths: list[str] = []
     missing: list[str] = []
     for path in attempt.artifact_paths:
-        resolved = _resolve_artifact_path(workspace_path, path)
+        normalized = _normalize_artifact_path(path) or path
+        resolved = _resolve_artifact_path(workspace_path, normalized)
         if resolved is None:
             missing.append(path)
             continue
@@ -116,11 +120,20 @@ def _normalize_artifact_path(raw_path: str) -> str | None:
     if not cleaned:
         return None
     cleaned = cleaned.replace("\\", "/")
-    candidate = Path(cleaned)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        return None
     parts = [part for part in cleaned.split("/") if part]
+    if cleaned.startswith("/workspaces/") and len(parts) >= 3:
+        parts = parts[2:]
+    elif cleaned.startswith("/workspace/") and len(parts) >= 2:
+        parts = parts[1:]
+    else:
+        candidate = Path(cleaned)
+        if candidate.is_absolute():
+            return None
+    if parts and parts[0] == "workspace":
+        parts = parts[1:]
     if not parts or any(part in SENSITIVE_ARTIFACT_PARTS for part in parts):
+        return None
+    if ".." in parts:
         return None
     if any(part.startswith(".") and part not in {".well-known"} for part in parts):
         return None

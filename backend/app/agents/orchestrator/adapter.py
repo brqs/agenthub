@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import json
+import re
+from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -156,6 +158,48 @@ class OrchestratorAdapter(BaseAgentAdapter):
             )
             return
 
+        custom_agent_args = _custom_agent_tool_arguments(_latest_user_request(messages))
+        if merged_config.get("tasks") is None and custom_agent_args is not None:
+            call_id = "orch.custom_agent.create"
+            yield StreamChunk(
+                event_type="tool_call",
+                call_id=call_id,
+                tool_name="create_custom_agent",
+                tool_arguments=custom_agent_args,
+            )
+            executor = merged_config.get("orchestrator_platform_tool_executor")
+            if executor is None:
+                tool_status = "error"
+                tool_output = json.dumps(
+                    {
+                        "status": "error",
+                        "error": "platform tool executor is not available: create_custom_agent",
+                    },
+                    ensure_ascii=False,
+                )
+            else:
+                result = await executor("create_custom_agent", custom_agent_args)
+                tool_status = result.status
+                tool_output = result.output
+            yield StreamChunk(
+                event_type="tool_result",
+                call_id=call_id,
+                tool_name="create_custom_agent",
+                tool_status=tool_status,
+                tool_output=tool_output,
+                tool_output_truncated=False,
+            )
+            final_text = _custom_agent_result_text(tool_status, tool_output)
+            for chunk in _text_block(next_block_index, final_text):
+                yield chunk
+            next_block_index += 1
+            yield StreamChunk(
+                event_type="done",
+                agent_id=self.agent_id,
+                total_blocks=next_block_index,
+            )
+            return
+
         if merged_config.get("tasks") is None and tool_calling_enabled(merged_config):
             run_context = OrchestratorRunContext()
             try:
@@ -293,7 +337,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             yield chunk
         next_block_index += 1
 
-        if react_enabled(merged_config):
+        use_parallel_static = (
+            merged_config.get("orchestrator_parallel_enabled") is True
+            and len(tasks) > 1
+        )
+        if react_enabled(merged_config) and not use_parallel_static:
             async for chunk, updated_block_index in run_react_loop(
                 merged_config,
                 tasks,
@@ -343,3 +391,117 @@ class OrchestratorAdapter(BaseAgentAdapter):
         yield StreamChunk(
             event_type="done", agent_id=self.agent_id, total_blocks=next_block_index
         )
+
+
+def _custom_agent_tool_arguments(user_request: str) -> dict[str, Any] | None:
+    if not _looks_like_custom_agent_request(user_request):
+        return None
+    name = _extract_named_value(
+        user_request,
+        (
+            r"(?:名字|名称|name)\s*(?:为|是|叫|=|:)\s*[\"'“”‘’]?([^，,。；;\n\"'“”‘’]+)",
+        ),
+    )
+    provider = _extract_named_value(
+        user_request,
+        (
+            r"provider\s*(?:使用|为|是|=|:)\s*[\"'“”‘’]?([A-Za-z0-9_-]+)",
+            r"(?:提供商|类型)\s*(?:使用|为|是|=|:)\s*[\"'“”‘’]?([A-Za-z0-9_-]+)",
+        ),
+    )
+    system_prompt = _extract_named_value(
+        user_request,
+        (
+            r"system_prompt\s*(?:为|是|=|:)\s*[\"“](.+?)[\"”]",
+            r"(?:系统提示词|角色设定)\s*(?:为|是|=|:)\s*[\"“](.+?)[\"”]",
+        ),
+    )
+    if not name or not provider or not system_prompt:
+        return None
+
+    capabilities = _extract_capabilities(user_request)
+    return {
+        "name": name,
+        "provider": provider,
+        "system_prompt": system_prompt,
+        "capabilities": capabilities,
+        "config": {},
+        "add_to_conversation": _should_add_custom_agent_to_conversation(user_request),
+    }
+
+
+def _looks_like_custom_agent_request(user_request: str) -> bool:
+    lowered = user_request.lower()
+    return (
+        ("agent" in lowered or "智能体" in user_request or "代理" in user_request)
+        and any(marker in user_request for marker in ("创建", "新建", "新增", "create"))
+    )
+
+
+def _extract_named_value(text: str, patterns: tuple[str, ...]) -> str | None:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.I | re.S)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        value = value.strip(" \t\r\n\"'“”‘’")
+        if value:
+            return value
+    return None
+
+
+def _extract_capabilities(user_request: str) -> list[str]:
+    match = re.search(
+        r"(?:capabilities|能力标签|能力)\s*(?:设置为|为|是|=|:)\s*([^。；;\n]+)",
+        user_request,
+        re.I,
+    )
+    if not match:
+        return []
+    raw = match.group(1)
+    parts = re.split(r"[,，、/]\s*", raw)
+    capabilities: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        value = part.strip().strip("\"'“”‘’")
+        if not value or value in seen:
+            continue
+        if any(stop in value for stop in ("并", "然后", "加入")):
+            value = re.split(r"并|然后|加入", value, maxsplit=1)[0].strip()
+        if value:
+            seen.add(value)
+            capabilities.append(value)
+    return capabilities
+
+
+def _should_add_custom_agent_to_conversation(user_request: str) -> bool:
+    if "不加入" in user_request:
+        return False
+    return "加入" in user_request and ("群聊" in user_request or "当前" in user_request)
+
+
+def _custom_agent_result_text(status: str, output: str | None) -> str:
+    payload: Mapping[str, Any] = {}
+    if output:
+        try:
+            parsed = json.loads(output)
+            if isinstance(parsed, Mapping):
+                payload = parsed
+        except json.JSONDecodeError:
+            payload = {}
+    if status == "ok":
+        agent = payload.get("agent")
+        if isinstance(agent, Mapping):
+            return (
+                "已创建自建 Agent 并加入当前群聊。\n"
+                f"- id: {agent.get('id')}\n"
+                f"- name: {agent.get('name')}\n"
+                f"- provider: {agent.get('provider')}\n"
+                f"- capabilities: {', '.join(str(item) for item in agent.get('capabilities', []))}"
+            )
+        return "已创建自建 Agent。"
+    missing = payload.get("missing_fields")
+    if isinstance(missing, list) and missing:
+        return "创建自建 Agent 还缺少信息：" + ", ".join(str(item) for item in missing)
+    error = payload.get("error") if isinstance(payload.get("error"), str) else None
+    return f"创建自建 Agent 失败：{error or output or 'unknown error'}"

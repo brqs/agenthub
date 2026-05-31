@@ -516,6 +516,7 @@ components:
           description: ModelGateway backend for orchestrator LLM planning.
         llm_planning:
           type: boolean
+          default: true
           description: Whether Orchestrator uses LLM planning for task decomposition.
         planner_fallback_to_template:
           type: boolean
@@ -585,6 +586,11 @@ components:
         orchestrator_tool_max_iterations: { type: integer, minimum: 1, maximum: 50 }
         orchestrator_tool_result_max_chars: { type: integer, minimum: 1, maximum: 32000 }
         orchestrator_tool_read_max_bytes: { type: integer, minimum: 1, maximum: 1048576 }
+        orchestrator_parallel_enabled:
+          type: boolean
+          default: true
+          description: Whether Orchestrator may execute independent DAG tasks concurrently.
+        orchestrator_parallel_max_concurrency: { type: integer, minimum: 1, maximum: 10, default: 3 }
 
     Agent:
       type: object

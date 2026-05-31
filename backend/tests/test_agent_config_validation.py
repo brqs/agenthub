@@ -106,6 +106,8 @@ class TestValidConfigs:
             "orchestrator_tool_max_iterations": 12,
             "orchestrator_tool_result_max_chars": 4000,
             "orchestrator_tool_read_max_bytes": 65536,
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_parallel_max_concurrency": 3,
         }
         result = validate_agent_config(
             provider="builtin",
@@ -446,6 +448,28 @@ class TestNumericValidation:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "orchestrator_tool_read_max_bytes" in exc_info.value.message
+
+    def test_invalid_orchestrator_parallel_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_parallel_enabled": "yes"},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_orchestrator_parallel_concurrency_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_parallel_max_concurrency": 0},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_parallel_max_concurrency" in exc_info.value.message
 
 
 class TestImmutability:

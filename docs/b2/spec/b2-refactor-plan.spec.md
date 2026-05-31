@@ -2,8 +2,10 @@
 
 > 目标：降低 B2 Agent Runtime Layer 的业务代码复杂度、重复实现和文档分叉风险，同时保持现有 `BaseAgentAdapter`、`StreamChunk`、SSE、DB schema 和前端契约稳定。
 >
-> 状态：business-main refactor implemented / orchestrator package implemented
-> 最后更新：2026-05-30
+> 状态：business-main refactor implemented / orchestrator package implemented / P0 gaps implemented
+> 最后更新：2026-05-31
+
+> 维护说明：本文是长篇重构执行记录和历史索引，不再作为新人首读文档。当前接手请先读 [README.md](README.md)；本文中保留的旧路径、旧行数和阶段性计划用于追溯，不逐条改写为当前代码事实。
 
 ---
 
@@ -19,6 +21,7 @@
 | Phase 4 External runtime common layer | mostly implemented | 抽出 external runtime prelude、SDK stream folding、argv/error/truncate runtime utils |
 | Phase 5 Config schema single source | mostly implemented | 抽出 numeric config metadata、seed 默认值，并让 validation / `AgentConfig` / OpenAPI contract 测试共用 |
 | Phase 6 Docs re-index | implemented | README 已建立 spec 入口，本文件记录当前状态与不继续扩大的边界 |
+| B2 P0 gap closure | implemented | 并行 DAG、workspace conflict detection、`create_custom_agent` 已实现并通过真实 E2E；验收证据见 [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)，能力契约见 Orchestrator / Workspace / Tool specs |
 
 当前仍未完成：
 
@@ -28,6 +31,29 @@
 - 未把全部 spec 迁移到 `current/proposals/execution` 目录；当前选择保留历史链接稳定，只在 B2 README 建立接手入口。
 
 最近一次已记录的综合验证：
+
+```bash
+cd backend
+uv run pytest -q
+# 440 passed, 7 skipped, 1 warning
+
+uv run ruff check app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/browser_preview_verifier.py app/core/config.py app/schemas/agent.py app/api/v1/stream_orchestrator_context.py app/agents/registry.py
+# passed
+
+uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/browser_preview_verifier.py app/core/config.py app/schemas/agent.py
+# passed
+```
+
+真实部署链路验证：
+
+- `/tmp/agenthub_b2_p0_live_report.json`：`passed=true`
+- Case 0：Orchestrator 默认 `llm_planning=true`、`orchestrator_parallel_enabled=true`、`orchestrator_parallel_max_concurrency=3`
+- Case 1：8082 preview + browser verify 质量门通过
+- Case 2：并行 DAG 通过
+- Case 3：workspace conflict detection 通过
+- Case 4：聊天创建自建 Agent 通过
+
+上一轮重构验证记录：
 
 ```bash
 cd backend

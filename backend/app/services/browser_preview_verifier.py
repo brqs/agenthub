@@ -241,7 +241,7 @@ def _safe_key(text: str) -> str:
 
 def _same_origin(parsed_preview: Any, url: str) -> bool:
     parsed = urlparse(url)
-    return (
+    return bool(
         parsed.scheme == parsed_preview.scheme
         and parsed.hostname == parsed_preview.hostname
         and parsed.port == parsed_preview.port

@@ -8,8 +8,12 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
+from app.agents.config_validation import AgentConfigValidationError, validate_agent_config
 from app.agents.orchestrator.tools import OrchestratorToolResult
+from app.models.agent import Agent
+from app.models.conversation import Conversation
 from app.services.browser_preview_verifier import (
     BrowserPreviewVerifier,
     BrowserPreviewVerifyDisabledError,
@@ -26,7 +30,12 @@ from app.services.workspace_service import (
     WorkspaceViolation,
 )
 
-PLATFORM_TOOL_NAMES = {"start_workspace_preview", "verify_web_preview"}
+PLATFORM_TOOL_NAMES = {
+    "start_workspace_preview",
+    "verify_web_preview",
+    "create_custom_agent",
+}
+CREATABLE_PROVIDERS = {"builtin", "claude_code", "codex", "opencode"}
 
 
 class OrchestratorPlatformToolExecutor:
@@ -54,6 +63,8 @@ class OrchestratorPlatformToolExecutor:
             return await self._start_workspace_preview(arguments)
         if tool_name == "verify_web_preview":
             return await self._verify_web_preview(arguments)
+        if tool_name == "create_custom_agent":
+            return await self._create_custom_agent(arguments)
         return OrchestratorToolResult(
             status="error",
             output=f"platform tool is not allowed: {tool_name}",
@@ -127,11 +138,106 @@ class OrchestratorPlatformToolExecutor:
             error_code=None if report.get("passed") is True else "browser_verification_failed",
         )
 
+    async def _create_custom_agent(
+        self,
+        arguments: Mapping[str, Any],
+    ) -> OrchestratorToolResult:
+        missing = [
+            field
+            for field in ("name", "provider", "system_prompt")
+            if not isinstance(arguments.get(field), str) or not arguments.get(field, "").strip()
+        ]
+        if missing:
+            return OrchestratorToolResult(
+                status="error",
+                output=_json_output(
+                    {
+                        "status": "error",
+                        "error": "missing required fields for custom agent",
+                        "missing_fields": missing,
+                    }
+                ),
+                error_code="missing_required_agent_fields",
+                needs_user_input=True,
+            )
+
+        name = str(arguments["name"]).strip()
+        provider = str(arguments["provider"]).strip()
+        system_prompt = str(arguments["system_prompt"]).strip()
+        if provider not in CREATABLE_PROVIDERS:
+            return _tool_error(
+                "provider must be one of: builtin, claude_code, codex, opencode",
+                "invalid_provider",
+            )
+        capabilities = _string_list(arguments.get("capabilities"))
+        raw_config = arguments.get("config", {})
+        if not isinstance(raw_config, Mapping):
+            return _tool_error("config must be an object", "invalid_arguments")
+        config = dict(raw_config)
+        try:
+            normalized_config = validate_agent_config(
+                provider=provider,
+                config=config,
+                system_prompt=system_prompt,
+            )
+        except AgentConfigValidationError as exc:
+            return _tool_error(exc.message, exc.code)
+
+        conversation = await self._db.get(Conversation, self._conversation_id)
+        if conversation is None:
+            return _tool_error("conversation not found", "conversation_not_found")
+
+        agent = Agent(
+            id=Agent.new_id(),
+            user_id=conversation.user_id,
+            name=name,
+            provider=provider,
+            avatar_url=_optional_str(arguments.get("avatar_url")) or "",
+            capabilities=capabilities,
+            system_prompt=system_prompt,
+            config=normalized_config,
+            is_builtin=False,
+        )
+        self._db.add(agent)
+        add_to_conversation = arguments.get("add_to_conversation") is True
+        if add_to_conversation and conversation.mode == "group":
+            agent_ids = [
+                item for item in conversation.agent_ids if isinstance(item, str)
+            ]
+            if agent.id not in agent_ids:
+                conversation.agent_ids = [*agent_ids, agent.id]
+                flag_modified(conversation, "agent_ids")
+        await self._db.flush()
+        return OrchestratorToolResult(
+            status="ok",
+            output=_json_output(
+                {
+                    "status": "ok",
+                    "agent": {
+                        "id": agent.id,
+                        "name": agent.name,
+                        "provider": agent.provider,
+                        "capabilities": agent.capabilities,
+                        "is_builtin": agent.is_builtin,
+                    },
+                    "added_to_conversation": add_to_conversation
+                    and conversation.mode == "group",
+                }
+            ),
+        )
+
 
 def _required_str(value: object, field: str) -> str | OrchestratorToolResult:
     if not isinstance(value, str) or not value.strip():
         return _tool_error(f"{field} must be a non-empty string", "invalid_arguments")
     return value.strip()
+
+
+def _optional_str(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
 
 
 def _optional_port(value: object) -> int | None | OrchestratorToolResult:

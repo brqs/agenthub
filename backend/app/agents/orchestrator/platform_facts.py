@@ -158,7 +158,9 @@ def _rule_platform_fact_intent(
     agent_ids = agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))
     explicit_mentions = explicit_agent_mentions(agent_ids, user_request)
 
-    if len(explicit_mentions) >= 2 or (explicit_mentions and has_task_intent(normalized)):
+    if has_task_intent(normalized):
+        return []
+    if len(explicit_mentions) >= 2:
         return []
 
     intents: list[str] = []
