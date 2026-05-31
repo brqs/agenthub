@@ -72,6 +72,106 @@
 
 ---
 
+## 2026-05-29 — 深链刷新与会话侧栏分组补测
+
+### 改动范围
+- `frontend/src/pages/ChatPage.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.test.tsx`
+
+### 更新内容
+- `ChatPage` 在会话列表加载期间显示“正在恢复会话”，避免直接刷新 `/chat/:conversationId` 时短暂落到“还没有会话”的空态。
+- 深链命中当前会话后同步 `selectedConversationId`，让刷新、直接打开链接、导航回聊天页时侧栏选中状态保持一致。
+- 新增 `ConversationSidebar` 测试，覆盖置顶 / 最近分组、标题搜索命中、搜索空态。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `pnpm exec vitest run` ✅ 31 files / 96 tests
+- `pnpm tsc --noEmit` ✅
+- `pnpm lint` ✅
+- `pnpm build` ✅（仅 Vite 大 chunk 既有提醒）
+- 真实后端浏览器冒烟：直接刷新 `/chat/e4a1366f-5d61-4cdf-a186-6ebf7a24ade9` 后标题、消息、Workspace 均恢复且不出现空态；置顶后进入“置顶”分组，取消置顶后恢复到最近列表 ✅
+- 搜索真实浏览器输入因当前 Browser 插件虚拟剪贴板限制未完成中文输入，已用组件测试覆盖过滤逻辑。
+
+### 后续事项
+- 后续可补消息搜索、Header Pin/更多菜单等仍偏展示态的交互闭环。
+
+---
+
+## 2026-05-29 — 真实模式会话归档与刷新一致性
+
+### 改动范围
+- `frontend/src/hooks/useConversations.ts`
+- `frontend/src/hooks/useUpdateConversation.ts`
+- `frontend/src/hooks/useUpdateConversation.test.ts`
+- `frontend/src/stores/chatStore.ts`
+- `frontend/src/stores/chatStore.test.ts`
+- `frontend/src/pages/ChatPage.tsx`
+
+### 更新内容
+- `useConversations` 在真实 API 模式下改为“初次请求前返回空列表，请求成功后由 `chatStore` 作为主数据源”，避免页面先吃到 mock 或旧 query 数据造成刷新/操作闪烁。
+- `useUpdateConversation` 成功后同步修补所有 `conversations` query cache：归档会话会从主列表移除并加入归档列表，恢复时反向移除/加入，置顶和搜索过滤也按当前查询参数保持一致。
+- `chatStore.updateConversationLocal` 支持远端会话 upsert；当前选中的会话被归档时，会自动迁移到下一个可见会话，避免聊天页继续显示已归档会话。
+- `ChatPage` 在 URL 中的会话不再属于当前可见列表时，会 replace 到可见会话或空态，修复归档当前会话后路由与页面内容不同步。
+- 新增单测覆盖会话列表 reconcile、归档/恢复、search/pinned 过滤和远端会话 upsert。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `pnpm exec vitest run` ✅ 30 files / 94 tests
+- `pnpm tsc --noEmit` ✅
+- `pnpm lint` ✅
+- `pnpm build` ✅（仅 Vite 大 chunk 既有提醒）
+- 真实后端浏览器冒烟：登录测试账号 → 归档当前群聊 → 主聊天列表变空 → 归档页出现该会话 → 取消归档 → 归档页变空 → 回聊天页会话恢复 ✅
+
+### 后续事项
+- 下一步建议继续补会话搜索、置顶排序、刷新深链恢复的浏览器自动化冒烟，减少真实模式回归成本。
+
+---
+
+## 2026-05-29 — 真实模式 Agent 渲染与 Workspace 刷新硬化
+
+### 改动范围
+- `frontend/src/components/chat/ChatHeader.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/components/chat/MessageList.tsx`
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/components/chat/StreamingStatusBar.tsx`
+- `frontend/src/components/chat/streamingStatus.ts`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+- `frontend/src/components/blocks/TaskCardBlock.tsx`
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/pages/ChatPage.tsx`
+- `frontend/src/hooks/useSendMessage.ts`
+- `frontend/src/lib/adapters/workspaces.test.ts`
+
+### 更新内容
+- 去掉聊天渲染链路里组件级默认读取 `mockAgents` 的行为，改为由页面层注入当前 Agent 列表；真实 API 模式下 Header、任务卡、Agent switch、StreamingStatusBar、MessageBubble 都使用后端 hydrate 到 store 的 Agent 数据。
+- `ChatPage` 记录流式期间的 `tool_call`，在对应 `tool_result` 命中写文件类工具后立即 invalidates `workspace-tree`，让右侧 Workspace 更快出现真 Agent 写入产物。
+- 真实 Workspace 面板的输出数量改为从文件树统计，避免继续依赖消息里的 Mock touched files 推导。
+- 导出并测试群聊发送 fallback：显式 `@agent-id` 优先，其次 Orchestrator，最后第一个 Agent。
+- 新增 Workspace adapter 测试，覆盖 tree normalization、文本文件读取和嵌套路径编码。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `pnpm exec vitest run` ✅ 29 files / 89 tests
+- `pnpm tsc --noEmit` ✅
+- `pnpm lint` ✅
+- `pnpm build` ✅（仅 Vite 大 chunk 既有提醒）
+
+### 后续事项
+- 下一刀建议继续做真实模式浏览器冒烟：登录 / 新建会话 / SSE / ToolCall / Workspace 预览保存。
+- Header 顶部 Pin、搜索、更多按钮仍偏展示态，后续可补可用入口。
+
+---
+
 ## 2026-05-25 — 重写 TextBlock 走 Claude.ai 风格 components 映射，彻底修复 KaTeX 下标错位
 
 ### 改动范围

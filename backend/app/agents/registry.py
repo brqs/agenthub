@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.adapters.mock import MockAdapter
 from app.agents.base import BaseAgentAdapter
 from app.agents.builtin.adapter import BuiltinAgentAdapter
+from app.agents.config_fields import ORCHESTRATOR_DEFAULTS
 from app.agents.external.claude_code import ClaudeCodeAdapter
 from app.agents.external.codex import CodexAdapter
 from app.agents.external.opencode import OpenCodeAdapter
@@ -74,7 +75,7 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
                 raise ValueError("orchestrator cannot dispatch to itself")
             return await get_adapter(sub_agent_id, db)
 
-        default_config = dict(agent.config or {})
+        default_config = {**ORCHESTRATOR_DEFAULTS, **dict(agent.config or {})}
         default_config.setdefault(
             "managed_agent_ids",
             DEFAULT_ORCHESTRATOR_SUB_AGENT_IDS,

@@ -77,6 +77,71 @@ async def _insert_agent() -> str:
     return agent_id
 
 
+async def _ensure_orchestrator_group_agents() -> None:
+    specs = [
+        {
+            "id": "orchestrator",
+            "name": "Orchestrator",
+            "provider": "builtin",
+            "avatar_url": "/avatars/orchestrator.png",
+            "capabilities": ["task_decomposition", "coordination"],
+            "config": {
+                "model_backend": "claude",
+                "answer_model_backend": "deepseek",
+                "planner_model_backend": "claude",
+                "managed_agent_ids": [
+                    "claude-code",
+                    "codex-helper",
+                    "opencode-helper",
+                    "web-designer",
+                ],
+            },
+        },
+        {
+            "id": "claude-code",
+            "name": "Claude Code",
+            "provider": "claude_code",
+            "avatar_url": "/avatars/claude.png",
+            "capabilities": ["coding", "files", "analysis"],
+            "config": {"api_key": "should-not-leak", "env": {"TOKEN": "hidden"}},
+        },
+        {
+            "id": "codex-helper",
+            "name": "Codex Helper",
+            "provider": "codex",
+            "avatar_url": "/avatars/openai.png",
+            "capabilities": ["coding", "sandbox"],
+            "config": {
+                "runtime": "cli",
+                "qa_model_backend": "deepseek",
+                "qa_model": "deepseek-chat",
+                "cli_args": ["--secret", "hidden"],
+            },
+        },
+        {
+            "id": "opencode-helper",
+            "name": "OpenCode Helper",
+            "provider": "opencode",
+            "avatar_url": "/avatars/opencode.png",
+            "capabilities": ["coding", "cli", "files"],
+            "config": {"sdk_options": {"token": "hidden"}},
+        },
+    ]
+    async with SessionFactory() as db:
+        for spec in specs:
+            agent = await db.get(Agent, spec["id"])
+            if agent is None:
+                db.add(Agent(**spec, is_builtin=True))
+                continue
+            agent.name = spec["name"]
+            agent.provider = spec["provider"]
+            agent.avatar_url = spec["avatar_url"]
+            agent.capabilities = spec["capabilities"]
+            agent.config = spec["config"]
+            agent.is_builtin = True
+        await db.commit()
+
+
 async def _create_conversation(
     client: AsyncClient,
     headers: dict[str, str],
@@ -231,6 +296,178 @@ async def test_stream_persists_tool_call_block_ok(
             "output_truncated": False,
         }
     ]
+
+
+async def test_stream_orchestrator_group_agents_uses_conversation_members(
+    client: AsyncClient,
+) -> None:
+    await _ensure_orchestrator_group_agents()
+    _, headers = await _register(client)
+    conversation_response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Orchestrator group members",
+            "mode": "group",
+            "agent_ids": [
+                "orchestrator",
+                "claude-code",
+                "codex-helper",
+                "opencode-helper",
+            ],
+        },
+    )
+    assert conversation_response.status_code == 201, conversation_response.text
+    conversation = conversation_response.json()
+    message_response = await client.post(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+        json={
+            "content": [{"type": "text", "text": "@orchestrator 当前群聊有哪些 agent"}],
+            "target_agent_id": "orchestrator",
+        },
+    )
+    assert message_response.status_code == 201, message_response.text
+    agent_message_id = message_response.json()["agent_message"]["id"]
+
+    status_code, body = await _stream_message(client, headers, agent_message_id)
+    message = await _stored_message(agent_message_id)
+    text = "\n".join(
+        block.get("text", "") for block in message.content if block.get("type") == "text"
+    )
+
+    assert status_code == 200
+    assert "event: delta" in body
+    assert message.status == "done"
+    assert "当前群聊包含 4 个 agent" in text
+    assert "Orchestrator" in text
+    assert "Claude Code" in text
+    assert "Codex Helper" in text
+    assert "OpenCode Helper" in text
+    assert "Planner" not in text
+    assert "Specialist Agents" not in text
+    assert "web-designer" not in text
+
+
+async def test_stream_orchestrator_group_models_uses_safe_agent_context(
+    client: AsyncClient,
+) -> None:
+    await _ensure_orchestrator_group_agents()
+    _, headers = await _register(client)
+    conversation_response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Orchestrator group models",
+            "mode": "group",
+            "agent_ids": [
+                "orchestrator",
+                "claude-code",
+                "codex-helper",
+                "opencode-helper",
+            ],
+        },
+    )
+    assert conversation_response.status_code == 201, conversation_response.text
+    conversation = conversation_response.json()
+    message_response = await client.post(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+        json={
+            "content": [{"type": "text", "text": "@orchestrator 当前群聊有哪些模型"}],
+            "target_agent_id": "orchestrator",
+        },
+    )
+    assert message_response.status_code == 201, message_response.text
+    agent_message_id = message_response.json()["agent_message"]["id"]
+
+    status_code, body = await _stream_message(client, headers, agent_message_id)
+    message = await _stored_message(agent_message_id)
+    text = "\n".join(
+        block.get("text", "") for block in message.content if block.get("type") == "text"
+    )
+
+    assert status_code == 200
+    assert "event: delta" in body
+    assert message.status == "done"
+    assert "可见的模型/运行时配置" in text
+    assert "Orchestrator" in text
+    assert "answer_model_backend: deepseek" in text
+    assert "planner_model_backend: claude" in text
+    assert "Claude Code" in text
+    assert "执行模型: 未在 AgentHub 配置中暴露" in text
+    assert "Codex Helper" in text
+    assert "runtime: cli" in text
+    assert "qa_model_backend: deepseek" in text
+    assert "qa_model: deepseek-chat" in text
+    assert "OpenCode Helper" in text
+    assert "web-designer" not in text
+    assert "api_key" not in text
+    assert "should-not-leak" not in text
+    assert "TOKEN" not in text
+    assert "cli_args" not in text
+    assert "sdk_options" not in text
+    assert "GPT-4" not in text
+    assert "Gemini" not in text
+    assert "Llama" not in text
+    assert "Mistral" not in text
+
+
+async def test_stream_orchestrator_combined_group_agents_and_self_model(
+    client: AsyncClient,
+) -> None:
+    await _ensure_orchestrator_group_agents()
+    _, headers = await _register(client)
+    conversation_response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Orchestrator combined platform facts",
+            "mode": "group",
+            "agent_ids": [
+                "orchestrator",
+                "claude-code",
+                "codex-helper",
+                "opencode-helper",
+            ],
+        },
+    )
+    assert conversation_response.status_code == 201, conversation_response.text
+    conversation = conversation_response.json()
+    message_response = await client.post(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+        json={
+            "content": [
+                {
+                    "type": "text",
+                    "text": "@orchestrator 当前群聊有哪些agent，你又是什么模型",
+                }
+            ],
+            "target_agent_id": "orchestrator",
+        },
+    )
+    assert message_response.status_code == 201, message_response.text
+    agent_message_id = message_response.json()["agent_message"]["id"]
+
+    status_code, body = await _stream_message(client, headers, agent_message_id)
+    message = await _stored_message(agent_message_id)
+    text = "\n".join(
+        block.get("text", "") for block in message.content if block.get("type") == "text"
+    )
+
+    assert status_code == 200
+    assert "event: delta" in body
+    assert message.status == "done"
+    assert "当前群聊包含 4 个 agent" in text
+    assert "Claude Code" in text
+    assert "Codex Helper" in text
+    assert "OpenCode Helper" in text
+    assert "我是 AgentHub Orchestrator" in text
+    assert "direct answer backend: deepseek" in text
+    assert "planner backend: claude" in text
+    assert "可见的模型/运行时配置" not in text
+    assert "web-designer" not in text
 
 
 async def test_stream_heartbeat_is_sse_only_not_persisted(

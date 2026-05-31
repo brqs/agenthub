@@ -119,7 +119,41 @@ def blocks_to_text(blocks: list[dict[str, Any]]) -> str:
             parts.append(f"[Web Preview: {title or block.get('url')}]")
         elif block_type == "file":
             parts.append(f"[File: {block.get('filename')}]")
+        elif block_type == "tool_call":
+            parts.append(_tool_call_block_to_text(block))
     return "\n".join(part for part in parts if part)
+
+
+def _tool_call_block_to_text(block: dict[str, Any]) -> str:
+    tool_name = block.get("tool_name") or "tool"
+    call_id = block.get("call_id") or "unknown"
+    status = block.get("status") or "pending"
+    arguments = block.get("arguments")
+    paths = _tool_call_argument_paths(arguments)
+    output = block.get("output_preview")
+
+    details = [f"Tool call: {tool_name}", f"status={status}", f"call_id={call_id}"]
+    if paths:
+        details.append(f"paths={', '.join(paths)}")
+    if isinstance(output, str) and output.strip():
+        details.append(f"output={truncate_text(output, 240)}")
+    return "[" + "; ".join(details) + "]"
+
+
+def _tool_call_argument_paths(arguments: object) -> list[str]:
+    if not isinstance(arguments, dict):
+        return []
+    path_keys = {"path", "file_path", "filepath", "filename", "file", "target_path"}
+    paths: list[str] = []
+    for key, value in arguments.items():
+        if isinstance(value, str) and str(key).lower() in path_keys:
+            paths.append(value)
+        elif isinstance(value, dict):
+            paths.extend(_tool_call_argument_paths(value))
+        elif isinstance(value, list):
+            for item in value:
+                paths.extend(_tool_call_argument_paths(item))
+    return _dedupe_items(paths)[:5]
 
 
 def message_to_text(message: Message, *, include_agent_label: bool = False) -> str:

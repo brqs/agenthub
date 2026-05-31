@@ -58,6 +58,23 @@ class Settings(BaseSettings):
     workspace_base_dir: str = Field(default="/workspaces")
     workspace_max_read_bytes: int = Field(default=1_048_576)
 
+    # Workspace preview service
+    preview_enabled: bool = Field(default=True)
+    preview_port_start: int = Field(default=8082)
+    preview_port_end: int = Field(default=8182)
+    preview_public_base_url: str = Field(default="http://111.229.151.159")
+    preview_idle_ttl_seconds: int = Field(default=1800)
+    preview_start_timeout_seconds: int = Field(default=15)
+
+    # Browser-level workspace preview verification
+    browser_verify_enabled: bool = Field(default=True)
+    browser_verify_timeout_seconds: int = Field(default=30)
+    browser_verify_screenshot_dir: str = Field(default="/tmp/agenthub_browser_verify")
+    orchestrator_quality_max_repair_rounds: int = Field(default=2)
+    orchestrator_quality_repair_agent_order: str = Field(
+        default="codex-helper,claude-code,opencode-helper"
+    )
+
     # ─── CORS ───
     cors_origins: str = Field(default="http://localhost:5173")
 

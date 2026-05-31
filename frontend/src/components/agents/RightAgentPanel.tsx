@@ -15,7 +15,6 @@ import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact
 import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/WorkspaceFileTree';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
-import { mockAgents } from '@/lib/mockData';
 import {
   getMockArtifact,
   getMockWorkspace,
@@ -66,7 +65,7 @@ function getDefaultTab(hasWorkspace: boolean): RightPanelTab {
 export function RightAgentPanel({
   conversation,
   messages,
-  agents = mockAgents,
+  agents = [],
   width = RIGHT_PANEL_DEFAULT_WIDTH,
   onWidthChange = () => undefined,
   onCollapse = () => undefined,
@@ -381,6 +380,7 @@ function RealWorkspacePanel({
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
   const artifactQuery = useWorkspaceFile(conversationId, selectedArtifactPath);
   const writeWorkspaceFile = useWriteWorkspaceFile(conversationId);
+  const realTouchedFilesCount = workspace ? flattenFiles(workspace.tree).length : touchedFilesCount;
 
   useEffect(() => {
     setSelectedArtifactPath(getFirstWorkspacePath(workspace));
@@ -391,7 +391,7 @@ function RealWorkspacePanel({
       workspace={workspace}
       isLoading={workspaceQuery.isLoading}
       error={workspaceQuery.error ?? artifactQuery.error}
-      touchedFilesCount={touchedFilesCount}
+      touchedFilesCount={realTouchedFilesCount}
       selectedArtifactPath={selectedArtifactPath}
       selectedArtifact={artifactQuery.data ?? null}
       onSelectArtifact={setSelectedArtifactPath}

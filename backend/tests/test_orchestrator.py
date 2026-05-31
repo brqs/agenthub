@@ -2,158 +2,88 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator.artifacts import (
+    check_attempt_artifacts,
+    extract_artifact_paths_from_text,
+    finalize_artifact_candidates,
+)
+from app.agents.orchestrator.types import SubTask, TaskAttempt, TaskState
 from app.agents.registry import get_adapter
-from app.agents.types import ChatMessage, StreamChunk, ToolSpec
+from app.agents.types import ChatMessage, StreamChunk
 from app.models.agent import Agent
+from tests.orchestrator_fakes import (
+    FakePartialThenExceptionAdapter,
+    FakePlannerGateway,
+    FakeSubAdapter,
+    FakeWorkspaceVerifierAdapter,
+    FakeWorkspaceWriterAdapter,
+    _assert_blocks_balanced,
+    _collect,
+    _task,
+    _text_chunks,
+)
 
 
-async def _collect(
-    adapter: OrchestratorAdapter,
-    config: dict[str, Any] | None = None,
-    messages: list[ChatMessage] | None = None,
-) -> list[StreamChunk]:
-    return [
-        chunk
-        async for chunk in adapter.stream(
-            messages=messages or [ChatMessage(role="user", content="Build a todo app")],
-            config=config,
-        )
-    ]
+def test_artifact_check_resolves_unique_basename_in_nested_workspace(
+    tmp_path: Path,
+) -> None:
+    nested = tmp_path / "frontend-demo"
+    nested.mkdir()
+    (nested / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    attempt = TaskAttempt(
+        attempt_index=1,
+        agent_id="agent-a",
+        artifact_paths=["index.html"],
+    )
+
+    check_attempt_artifacts(attempt, tmp_path)
+
+    assert attempt.state == TaskState.SUCCEEDED
+    assert attempt.artifact_paths == ["frontend-demo/index.html"]
+    assert attempt.missing_artifact_paths == []
 
 
-def _assert_blocks_balanced(chunks: list[StreamChunk]) -> None:
-    stack: list[int] = []
-    for chunk in chunks:
-        if chunk.event_type == "block_start" and chunk.block_index is not None:
-            stack.append(chunk.block_index)
-        elif chunk.event_type == "block_end" and chunk.block_index is not None:
-            assert stack, f"Unexpected block_end for block_index={chunk.block_index}"
-            assert (
-                stack.pop() == chunk.block_index
-            ), f"Mismatched block_end for block_index={chunk.block_index}"
-    assert not stack, f"Unclosed blocks: {stack}"
+def test_artifact_check_keeps_ambiguous_basename_missing(tmp_path: Path) -> None:
+    for dirname in ("a", "b"):
+        nested = tmp_path / dirname
+        nested.mkdir()
+        (nested / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    attempt = TaskAttempt(
+        attempt_index=1,
+        agent_id="agent-a",
+        artifact_paths=["index.html"],
+    )
+
+    check_attempt_artifacts(attempt, tmp_path)
+
+    assert attempt.state == TaskState.ARTIFACT_MISSING
+    assert attempt.missing_artifact_paths == ["index.html"]
 
 
-class FakeSubAdapter(BaseAgentAdapter):
-    provider = "fake"
-
-    def __init__(
-        self,
-        agent_id: str,
-        chunks: list[StreamChunk],
-        system_prompt: str | None = "fake prompt",
-    ) -> None:
-        super().__init__(agent_id=agent_id, system_prompt=system_prompt)
-        self._chunks = chunks
-        self.received_messages: list[ChatMessage] = []
-        self.received_system_prompt: str | None = None
-        self.received_config: dict[str, Any] | None = None
-
-    async def stream(
-        self,
-        messages: list[ChatMessage],
-        *,
-        system_prompt: str | None = None,
-        config: dict[str, Any] | None = None,
-        workspace_path: Path | None = None,
-        tool_specs: list[Any] | None = None,
-    ) -> AsyncIterator[StreamChunk]:
-        self.received_messages = messages
-        self.received_system_prompt = system_prompt
-        self.received_config = config
-        for chunk in self._chunks:
-            yield chunk
+def test_artifact_extraction_ignores_hidden_workspace_metadata() -> None:
+    assert extract_artifact_paths_from_text(".agenthub/manifest.json") == []
 
 
-class FakePartialThenExceptionAdapter(BaseAgentAdapter):
-    """Yields some chunks then raises an exception mid-stream."""
+def test_artifact_candidates_prefer_observed_outputs_over_instruction_context() -> None:
+    attempt = TaskAttempt(
+        attempt_index=1,
+        agent_id="agent-a",
+        artifact_paths=["styles.css"],
+    )
+    task = SubTask(
+        task_id="task-a",
+        agent_id="agent-a",
+        title="Create CSS",
+        instruction="Read index.html for context, then create styles.css.",
+    )
 
-    provider = "fake"
+    finalize_artifact_candidates(attempt, task)
 
-    def __init__(self, agent_id: str, chunks: list[StreamChunk], exc: Exception) -> None:
-        super().__init__(agent_id=agent_id)
-        self._chunks = chunks
-        self._exc = exc
-
-    async def stream(
-        self,
-        messages: list[ChatMessage],
-        *,
-        system_prompt: str | None = None,
-        config: dict[str, Any] | None = None,
-        workspace_path: Path | None = None,
-        tool_specs: list[Any] | None = None,
-    ) -> AsyncIterator[StreamChunk]:
-        for chunk in self._chunks:
-            yield chunk
-        raise self._exc
-
-
-class FakePlannerGateway:
-    def __init__(self, chunks: list[StreamChunk]) -> None:
-        self._chunks = chunks
-        self.calls: list[dict[str, Any]] = []
-
-    async def stream(
-        self,
-        messages: list[ChatMessage],
-        *,
-        system_prompt: str | None = None,
-        config: dict[str, Any] | None = None,
-        tools: list[ToolSpec] | None = None,
-    ) -> AsyncIterator[StreamChunk]:
-        self.calls.append(
-            {
-                "messages": messages,
-                "system_prompt": system_prompt,
-                "config": config,
-                "tools": tools,
-            }
-        )
-        for chunk in self._chunks:
-            yield chunk
-
-
-class FakeAnswerGateway(FakePlannerGateway):
-    pass
-
-
-def _task(
-    task_id: str,
-    agent_id: str,
-    title: str,
-    instruction: str,
-    priority: int = 0,
-    depends_on: list[str] | None = None,
-) -> dict[str, Any]:
-    return {
-        "task_id": task_id,
-        "agent_id": agent_id,
-        "title": title,
-        "instruction": instruction,
-        "depends_on": depends_on or [],
-        "priority": priority,
-    }
-
-
-def _text_chunks(text: str, block_index: int = 0) -> list[StreamChunk]:
-    return [
-        StreamChunk(event_type="start", agent_id="sub-agent"),
-        StreamChunk(
-            event_type="block_start",
-            block_index=block_index,
-            block_type="text",
-        ),
-        StreamChunk(event_type="delta", block_index=block_index, text_delta=text),
-        StreamChunk(event_type="block_end", block_index=block_index),
-        StreamChunk(event_type="done", agent_id="sub-agent", total_blocks=1),
-    ]
+    assert attempt.artifact_paths == ["styles.css"]
 
 
 async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -> None:
@@ -398,105 +328,60 @@ async def test_orchestrator_derives_direct_tasks_for_named_agents() -> None:
         for chunk in chunks
     )
 
+    assert len(claude.received_messages) == 1
+    assert len(opencode.received_messages) == 2
+    assert len(codex.received_messages) == 2
+
     for adapter in (claude, opencode, codex):
-        assert len(adapter.received_messages) == 1
-        instruction = adapter.received_messages[0].content
+        instruction = adapter.received_messages[-1].content
         assert "Message:\nhello, what model are you?" in instruction
         assert "@orchestrator" not in instruction
         assert "Do not contact, invoke, or simulate other agents" in instruction
 
 
-async def test_orchestrator_answers_meta_question_without_planner() -> None:
-    planner = FakePlannerGateway(
-        [StreamChunk(event_type="error", error_code="unexpected", error="planner used")]
-    )
-    answer = FakeAnswerGateway(_text_chunks("我是 AgentHub Orchestrator。"))
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        messages=[ChatMessage(role="user", content="@orchestrator 你是什么模型")],
-        config={
-            "planner_gateway": planner,
-            "answer_gateway": answer,
-            "managed_agent_ids": ["claude-code", "codex-helper"],
-        },
-    )
-
-    assert chunks[-1].event_type == "done"
-    assert planner.calls == []
-    assert len(answer.calls) == 1
-    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
-    assert any(
-        chunk.event_type == "delta" and "AgentHub Orchestrator" in (chunk.text_delta or "")
-        for chunk in chunks
-    )
-    assert "Do not create or describe a task plan" in answer.calls[0]["messages"][0].content
-
-
-async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
-    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
-    planner = FakePlannerGateway(
+async def test_orchestrator_smoke_flows_create_then_verify_html(
+    tmp_path: Path,
+) -> None:
+    html_path = "orchestrator-flow-smoke.html"
+    html_content = """<!doctype html>
+<html>
+<head><title>Orchestrator Flow Smoke Test</title></head>
+<body>
+  <h1>Orchestrator Flow Smoke Test</h1>
+  <input id="smoke-input" />
+  <button id="smoke-button">Show</button>
+  <p id="smoke-output"></p>
+  <script>
+    document.getElementById("smoke-button").addEventListener("click", () => {
+      document.getElementById("smoke-output").textContent =
+        document.getElementById("smoke-input").value;
+    });
+  </script>
+</body>
+</html>
+"""
+    creator = FakeWorkspaceWriterAdapter(
+        "codex-helper",
         [
-            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(event_type="start", agent_id="codex-helper"),
             StreamChunk(
                 event_type="tool_call",
-                call_id="plan-1",
-                tool_name="submit_task_plan",
-                tool_arguments={
-                    "tasks": [
-                        _task(
-                            "task-b",
-                            "agent-b",
-                            "Second",
-                            "Reply from agent-b.",
-                            priority=2,
-                        ),
-                        _task(
-                            "task-a",
-                            "agent-a",
-                            "First",
-                            "Reply from agent-a.",
-                            priority=1,
-                        ),
-                    ]
-                },
+                call_id="write-1",
+                tool_name="write_file",
+                tool_arguments={"path": html_path, "content": html_content},
             ),
-            StreamChunk(event_type="done", agent_id="planner"),
-        ]
+            StreamChunk(
+                event_type="tool_result",
+                call_id="write-1",
+                tool_status="ok",
+                tool_output=f"wrote {html_path}",
+            ),
+            *_text_chunks(f"Created {html_path}")[1:],
+        ],
+        write_path=html_path,
+        content=html_content,
     )
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        messages=[ChatMessage(role="user", content="Ask both agents who they are")],
-        config={
-            "planner_gateway": planner,
-            "managed_agent_ids": ["agent-a", "agent-b"],
-            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
-        },
-    )
-
-    assert chunks[-1].event_type == "done"
-    assert [
-        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["agent-a", "agent-b"]
-    assert adapter_a.received_messages[-1].content == "Reply from agent-a."
-    assert adapter_b.received_messages[-1].content == "Reply from agent-b."
-    assert planner.calls[0]["tools"][0].name == "submit_task_plan"
-    assert planner.calls[0]["config"]["tool_choice"] == {"type": "auto"}
-    assert "Ask both agents who they are" in planner.calls[0]["messages"][0].content
-    assert "Port preview/deploy requests must not become" in (
-        planner.calls[0]["messages"][0].content
-    )
-    assert "Do not create tasks that start, deploy, preview" in (
-        planner.calls[0]["system_prompt"] or ""
-    )
-
-
-async def test_orchestrator_filters_planner_port_service_tasks() -> None:
-    web_designer = FakeSubAdapter("web-designer", _text_chunks("created snake.html"))
+    verifier = FakeWorkspaceVerifierAdapter("opencode-helper", html_path)
     planner = FakePlannerGateway(
         [
             StreamChunk(event_type="start", agent_id="planner"),
@@ -507,17 +392,23 @@ async def test_orchestrator_filters_planner_port_service_tasks() -> None:
                 tool_arguments={
                     "tasks": [
                         _task(
-                            "task-create",
-                            "web-designer",
-                            "Create snake.html",
-                            "Create a complete snake.html game file.",
+                            "create-html",
+                            "codex-helper",
+                            "Create smoke HTML",
+                            f"Create {html_path} with title, input, button, and display logic.",
+                            priority=1,
+                            expected_output=html_path,
                         ),
                         _task(
-                            "task-preview",
-                            "claude-code",
-                            "Start 8082 preview service",
-                            "Set up the port preview service and verify the game.",
+                            "verify-html",
+                            "opencode-helper",
+                            "Verify smoke HTML",
+                            (
+                                f"Verify {html_path} contains the title, input, button, "
+                                "and click display behavior. Do not regenerate the file."
+                            ),
                             priority=2,
+                            depends_on=["create-html"],
                         ),
                     ]
                 },
@@ -532,242 +423,75 @@ async def test_orchestrator_filters_planner_port_service_tasks() -> None:
         messages=[
             ChatMessage(
                 role="user",
-                content="Create snake.html and preview it on port 8082.",
+                content=(
+                    "@orchestrator 请编排当前群聊里的 agent 协作完成一个极简 HTML "
+                    f"文件 `{html_path}`。第一个子任务只负责创建 HTML 文件，"
+                    "第二个子任务必须基于第一个子任务的结果进行检查。"
+                ),
             )
         ],
+        workspace_path=tmp_path,
         config={
             "planner_gateway": planner,
-            "managed_agent_ids": ["web-designer", "claude-code"],
-            "sub_adapters": {"web-designer": web_designer},
-        },
-    )
-
-    planning_text = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert chunks[-1].event_type == "done"
-    assert "via LLM planner/config" in planning_text
-    assert "Start 8082 preview service" not in planning_text
-    assert [
-        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["web-designer"]
-
-
-async def test_orchestrator_plans_tasks_from_llm_json_text() -> None:
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
-    planner = FakePlannerGateway(
-        [
-            StreamChunk(event_type="start", agent_id="planner"),
-            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
-            StreamChunk(
-                event_type="delta",
-                block_index=0,
-                text_delta=(
-                    '```json\n{"tasks":[{"task_id":"task-a","agent_id":"agent-a",'
-                    '"title":"Answer","instruction":"Answer directly.",'
-                    '"priority":0}]}\n```'
-                ),
-            ),
-            StreamChunk(event_type="block_end", block_index=0),
-            StreamChunk(event_type="done", agent_id="planner"),
-        ]
-    )
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        config={
-            "planner_gateway": planner,
-            "managed_agent_ids": ["agent-a"],
-            "sub_adapters": {"agent-a": adapter_a},
-        },
-    )
-
-    assert chunks[-1].event_type == "done"
-    assert [chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"] == [
-        "agent-a"
-    ]
-    assert adapter_a.received_messages[-1].content == "Answer directly."
-
-
-async def test_orchestrator_rejects_planner_unknown_agent() -> None:
-    planner = FakePlannerGateway(
-        [
-            StreamChunk(
-                event_type="tool_call",
-                tool_name="submit_task_plan",
-                tool_arguments={
-                    "tasks": [
-                        _task("task-a", "unknown-agent", "Bad", "Do work"),
-                    ]
+            "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper"],
+            "available_agents": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files", "analysis"],
                 },
-            )
-        ]
-    )
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        config={
-            "planner_gateway": planner,
-            "managed_agent_ids": ["agent-a"],
-            "sub_adapters": {"agent-a": FakeSubAdapter("agent-a", _text_chunks("unused"))},
+                {
+                    "id": "codex-helper",
+                    "name": "Codex Helper",
+                    "provider": "codex",
+                    "capabilities": ["coding", "sandbox"],
+                },
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "capabilities": ["coding", "cli", "files"],
+                },
+            ],
+            "sub_adapters": {
+                "codex-helper": creator,
+                "opencode-helper": verifier,
+            },
         },
     )
 
-    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
-    assert chunks[1].error_code == "invalid_task_plan"
-    assert "unknown agent_id" in (chunks[1].error or "")
-
-
-async def test_orchestrator_planner_error_does_not_use_template_by_default() -> None:
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
-    planner = FakePlannerGateway(
-        [
-            StreamChunk(
-                event_type="error",
-                error_code="timeout",
-                error="planner timeout",
-            )
-        ]
-    )
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        messages=[ChatMessage(role="user", content="Build a launch plan")],
-        config={
-            "planner_gateway": planner,
-            "managed_agent_ids": ["agent-a"],
-            "sub_adapters": {"agent-a": adapter_a},
-        },
-    )
-
-    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
-    assert chunks[1].error_code == "missing_task_plan"
-    assert "timeout: planner timeout" in (chunks[1].error or "")
-    assert adapter_a.received_messages == []
-
-
-async def test_orchestrator_planner_empty_output_is_visible_error() -> None:
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
-    planner = FakePlannerGateway([])
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        messages=[ChatMessage(role="user", content="Build a launch plan")],
-        config={
-            "planner_gateway": planner,
-            "managed_agent_ids": ["agent-a"],
-            "sub_adapters": {"agent-a": adapter_a},
-        },
-    )
-
-    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
-    assert chunks[1].error_code == "missing_task_plan"
-    assert "empty_planner_output" in (chunks[1].error or "")
-    assert adapter_a.received_messages == []
-
-
-async def test_orchestrator_planner_invalid_json_is_visible_error() -> None:
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
-    planner = FakePlannerGateway(
-        [
-            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
-            StreamChunk(
-                event_type="delta",
-                block_index=0,
-                text_delta="not a task plan",
-            ),
-            StreamChunk(event_type="block_end", block_index=0),
-        ]
-    )
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        messages=[ChatMessage(role="user", content="Build a launch plan")],
-        config={
-            "planner_gateway": planner,
-            "managed_agent_ids": ["agent-a"],
-            "sub_adapters": {"agent-a": adapter_a},
-        },
-    )
-
-    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
-    assert chunks[1].error_code == "invalid_task_plan"
-    assert "invalid_json" in (chunks[1].error or "")
-    assert adapter_a.received_messages == []
-
-
-async def test_orchestrator_planner_invalid_json_can_fallback_to_direct_answer() -> None:
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("unused"))
-    planner = FakePlannerGateway(
-        [
-            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
-            StreamChunk(
-                event_type="delta",
-                block_index=0,
-                text_delta="not a task plan",
-            ),
-            StreamChunk(event_type="block_end", block_index=0),
-        ]
-    )
-    answer = FakeAnswerGateway(_text_chunks("Direct answer fallback."))
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        messages=[ChatMessage(role="user", content="Build a launch plan")],
-        config={
-            "planner_gateway": planner,
-            "answer_gateway": answer,
-            "direct_answer_on_planner_failure": True,
-            "managed_agent_ids": ["agent-a"],
-            "sub_adapters": {"agent-a": adapter_a},
-        },
-    )
+    persisted_html = (tmp_path / html_path).read_text(encoding="utf-8")
+    planning_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    planner_prompt = planner.calls[0]["messages"][0].content
+    verifier_system_messages = [
+        message for message in verifier.received_messages if message.role == "system"
+    ]
+    summary = planning_text.split("Execution summary", 1)[1]
 
     assert chunks[-1].event_type == "done"
-    assert len(planner.calls) == 1
-    assert len(answer.calls) == 1
-    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
-    assert any(chunk.text_delta == "Direct answer fallback." for chunk in chunks)
-    assert adapter_a.received_messages == []
-
-
-async def test_orchestrator_planner_template_fallback_requires_flag() -> None:
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
-    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
-    planner = FakePlannerGateway(
-        [
-            StreamChunk(
-                event_type="error",
-                error_code="timeout",
-                error="planner timeout",
-            )
-        ]
-    )
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        messages=[ChatMessage(role="user", content="Build a launch plan")],
-        config={
-            "planner_gateway": planner,
-            "planner_fallback_to_template": True,
-            "managed_agent_ids": ["agent-a", "agent-b"],
-            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
-        },
-    )
-
-    assert chunks[-1].event_type == "done"
+    assert "Planned 2 sub-task(s) via LLM planner/config" in planning_text
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["agent-a", "agent-b"]
-    assert any(
-        "via legacy template" in (chunk.text_delta or "") for chunk in chunks
-    )
-    assert adapter_a.received_messages[-1].content.startswith("Analyze the user's request")
+    ] == ["codex-helper", "opencode-helper"]
+    assert "web-designer" not in planner_prompt
+    assert "Previous sub-agent results" in verifier_system_messages[0].content
+    assert "create-html @codex-helper succeeded" in verifier_system_messages[0].content
+    assert html_path in verifier_system_messages[0].content
+    assert "Created orchestrator-flow-smoke.html" in verifier_system_messages[0].content
+    assert "- succeeded: @codex-helper - Create smoke HTML" in summary
+    assert "- succeeded: @opencode-helper - Verify smoke HTML" in summary
+    assert f"artifacts: {html_path}" in summary
+    assert "Checked orchestrator-flow-smoke.html" in planning_text
+    assert "title=True" in planning_text
+    assert "input=True" in planning_text
+    assert "button=True" in planning_text
+    assert "display=True" in planning_text
+    assert "Orchestrator Flow Smoke Test" in persisted_html
+    assert "<input" in persisted_html
+    assert "<button" in persisted_html
+    assert "textContent" in persisted_html
+    assert verifier.verified_content == persisted_html
 
 
 async def test_orchestrator_forwards_tool_events_with_remapped_call_ids() -> None:
@@ -808,29 +532,300 @@ async def test_orchestrator_forwards_tool_events_with_remapped_call_ids() -> Non
     assert tool_result.tool_status == "ok"
 
 
-async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() -> None:
-    class FakeDb:
-        async def get(self, model: object, key: str) -> Agent | None:
-            assert model is Agent
-            if key != "orchestrator":
-                return None
-            return Agent(
-                id="orchestrator",
-                user_id=None,
-                name="Orchestrator",
-                provider="builtin",
-                avatar_url="/avatars/orchestrator.png",
-                capabilities=["task_decomposition", "coordination"],
-                system_prompt="Coordinate sub agents.",
-                config={"model_backend": "claude"},
-                is_builtin=True,
+async def test_orchestrator_injects_dependency_result_context() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("Created snake.html"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Reviewed result"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Create", "Create snake.html"),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Review",
+                    "Review the prior artifact",
+                    depends_on=["task-a"],
+                ),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    system_messages = [
+        message for message in adapter_b.received_messages if message.role == "system"
+    ]
+    assert len(system_messages) == 1
+    assert "Previous sub-agent results" in system_messages[0].content
+    assert "task-a @agent-a succeeded" in system_messages[0].content
+    assert "Created snake.html" in system_messages[0].content
+
+
+async def test_orchestrator_include_history_false_still_injects_dependency_context() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("Analysis complete"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Second result"))
+    user_message = ChatMessage(role="user", content="Original user request")
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[user_message],
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Analyze", "Analyze request"),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Direct",
+                    "Use dependency only",
+                    depends_on=["task-a"],
+                    include_history=False,
+                ),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert user_message not in adapter_b.received_messages
+    assert adapter_b.received_messages[0].role == "system"
+    assert "Analysis complete" in adapter_b.received_messages[0].content
+    assert adapter_b.received_messages[-1].content == "Use dependency only"
+
+
+async def test_orchestrator_marks_missing_expected_artifact(tmp_path: Path) -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("Created snake.html"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Create HTML",
+                    "Create snake.html",
+                    expected_output="snake.html",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- artifact_missing: @agent-a - Create HTML" in summary
+    assert "missing: snake.html" in summary
+
+
+async def test_orchestrator_does_not_treat_future_text_mentions_as_artifacts(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="write-1",
+                tool_name="write_file",
+                tool_arguments={"path": "TASK_BREAKDOWN.md"},
+            ),
+            StreamChunk(
+                event_type="tool_result",
+                call_id="write-1",
+                tool_status="ok",
+                tool_output="wrote TASK_BREAKDOWN.md",
+            ),
+            *_text_chunks("Next steps will create index.html, styles.css, and app.js")[1:],
+        ],
+        write_path="TASK_BREAKDOWN.md",
+        content="# plan",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write plan",
+                    "Write TASK_BREAKDOWN.md",
+                    expected_output="TASK_BREAKDOWN.md",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- succeeded: @agent-a - Write plan" in summary
+    assert "missing:" not in summary
+
+
+async def test_orchestrator_artifact_missing_triggers_per_task_fallback(
+    tmp_path: Path,
+) -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("Created snake.html"))
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        [
+            StreamChunk(event_type="start", agent_id="agent-b"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="c-1",
+                tool_name="write_file",
+                tool_arguments={"path": "snake.html"},
+            ),
+            StreamChunk(
+                event_type="tool_result",
+                call_id="c-1",
+                tool_status="ok",
+                tool_output="wrote snake.html",
+            ),
+            *_text_chunks("Fallback created snake.html")[1:],
+        ],
+        write_path="snake.html",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Create HTML",
+                    "Create snake.html",
+                    expected_output="snake.html",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    tool_call = next(chunk for chunk in chunks if chunk.event_type == "tool_call")
+    assert (tmp_path / "snake.html").exists()
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert tool_call.call_id == "task-a.attempt-2.c-1"
+    assert "- succeeded: @agent-b - Create HTML" in summary
+    assert "attempt 1 @agent-a: artifact_missing" in summary
+    assert "artifacts: snake.html" in summary
+
+
+async def test_orchestrator_subagent_error_triggers_per_task_fallback() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="runtime_idle_timeout",
+                error="idle timeout",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert "Previous attempt failure" in adapter_b.received_messages[-2].content
+    assert "idle timeout" in adapter_b.received_messages[-2].content
+    assert "- succeeded: @agent-b - Work" in summary
+    assert "attempt 1 @agent-a: failed - idle timeout" in summary
+
+
+async def test_orchestrator_fallbacks_are_limited_to_current_agents() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="runtime_error",
+                error="boom",
             )
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
 
-    adapter = await get_adapter("orchestrator", FakeDb())  # type: ignore[arg-type]
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["web-designer", "agent-b"],
+            "max_task_attempts": 3,
+        },
+    )
 
-    assert isinstance(adapter, OrchestratorAdapter)
-    assert callable(adapter.default_config["adapter_factory"])
-    assert adapter.default_config["managed_agent_ids"]
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert "web-designer" not in summary
+    assert "- succeeded: @agent-b - Work" in summary
+
+
+async def test_orchestrator_all_fallback_attempts_fail_still_done() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [StreamChunk(event_type="error", error_code="boom", error="first failed")],
+    )
+    adapter_b = FakeSubAdapter(
+        "agent-b",
+        [StreamChunk(event_type="error", error_code="boom", error="second failed")],
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- failed: @agent-b - Work" in summary
+    assert "attempt 1 @agent-a: failed - first failed" in summary
+    assert "attempt 2 @agent-b: failed - second failed" in summary
 
 
 async def test_orchestrator_requires_task_plan_or_emits_clear_error() -> None:
@@ -1218,3 +1213,31 @@ async def test_orchestrator_fallback_closes_open_block_on_exception() -> None:
         for chunk in chunks
     )
     _assert_blocks_balanced(chunks)
+
+
+async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() -> None:
+    class FakeDb:
+        async def get(self, model: object, key: str) -> Agent | None:
+            assert model is Agent
+            if key != "orchestrator":
+                return None
+            return Agent(
+                id="orchestrator",
+                user_id=None,
+                name="Orchestrator",
+                provider="builtin",
+                avatar_url="/avatars/orchestrator.png",
+                capabilities=["task_decomposition", "coordination"],
+                system_prompt="Coordinate sub agents.",
+                config={"model_backend": "claude"},
+                is_builtin=True,
+            )
+
+    adapter = await get_adapter("orchestrator", FakeDb())  # type: ignore[arg-type]
+
+    assert isinstance(adapter, OrchestratorAdapter)
+    assert callable(adapter.default_config["adapter_factory"])
+    assert adapter.default_config["managed_agent_ids"]
+    assert adapter.default_config["llm_planning"] is True
+    assert adapter.default_config["react_enabled"] is True
+    assert adapter.default_config["planner_model_backend"] == "claude"
