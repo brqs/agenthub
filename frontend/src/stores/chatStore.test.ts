@@ -203,4 +203,32 @@ describe('chatStore', () => {
     expect(archived?.is_archived).toBe(true);
     expect(state.selectedConversationId).not.toBe('conv-demo-flow');
   });
+
+  it('upserts remote conversation updates and moves selection away from archived conversations', () => {
+    useChatStore.setState({
+      conversations: [],
+      messagesByConversation: {},
+      selectedConversationId: 'remote-conv',
+    });
+
+    useChatStore.getState().updateConversationLocal({
+      id: 'remote-conv',
+      title: '远端归档会话',
+      mode: 'single',
+      agent_ids: ['claude-code'],
+      is_pinned: false,
+      is_archived: true,
+      last_message_at: '2026-05-29T12:00:00.000Z',
+      last_message_preview: null,
+      created_at: '2026-05-29T12:00:00.000Z',
+    });
+
+    const state = useChatStore.getState();
+    expect(state.conversations).toHaveLength(1);
+    expect(state.conversations[0]).toMatchObject({
+      id: 'remote-conv',
+      is_archived: true,
+    });
+    expect(state.selectedConversationId).toBe('');
+  });
 });

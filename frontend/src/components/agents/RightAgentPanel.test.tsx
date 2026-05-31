@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { RightAgentPanel } from './RightAgentPanel';
-import type { DemoConversation, DemoMessage } from '@/lib/mockData';
+import { mockAgents, type DemoConversation, type DemoMessage } from '@/lib/mockData';
 
 const conversation: DemoConversation = {
   id: 'conv-panel',
@@ -40,7 +40,7 @@ const messages: DemoMessage[] = [
 
 describe('RightAgentPanel', () => {
   it('shows active, done, and idle agent states derived from tasks', () => {
-    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+    render(<RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />);
 
     expect(screen.getAllByText('Codex Helper').length).toBeGreaterThan(0);
     expect(screen.getByText('Active')).toBeInTheDocument();
@@ -49,7 +49,7 @@ describe('RightAgentPanel', () => {
   });
 
   it('keeps the panel header compact and avoids duplicated conversation status', () => {
-    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+    render(<RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />);
 
     expect(screen.getByText('工作台')).toBeInTheDocument();
     expect(screen.getByText('Group')).toBeInTheDocument();
@@ -63,6 +63,7 @@ describe('RightAgentPanel', () => {
     render(
       <RightAgentPanel
         conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
         messages={[
           {
             ...messages[0],
@@ -89,7 +90,7 @@ describe('RightAgentPanel', () => {
   });
 
   it('keeps agents and pinned messages in the context tab', () => {
-    render(<RightAgentPanel conversation={conversation} messages={messages} />);
+    render(<RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />);
 
     fireEvent.click(screen.getByRole('button', { name: /Context/ }));
 

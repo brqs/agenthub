@@ -752,6 +752,47 @@ Registry provider cutover 不能只改 seed；需要同步 Pydantic schema、Ope
 ### 经验
 B2-20 复审通过后，B2-14 至 B2-20 的真实 Agent Runtime 接入线可以进入 Git/PR 阶段；但 OpenAPI/schema 已变更，前端生成类型与 Agent 创建 UI 必须作为后续协同项跟进。
 
+## 2026-05-29 — Codex 修复前端真实模式会话归档一致性
+
+### 任务
+继续前端真实后端接入，优先修复刷新恢复与会话归档/恢复状态一致性。
+
+### 关键 Prompt
+> 下一步
+> 开始吧
+
+### AI 输出摘要
+1. 分析 `useConversations`、`useUpdateConversation`、`chatStore` 与 `ChatPage` 后发现 API 模式下 query data 与 store 双数据源会导致操作后短暂不同步。
+2. 将真实模式主会话列表收敛到 hydrate 后的 `chatStore`，同时在初次请求前返回空列表避免 mock 闪烁。
+3. 在会话更新成功后同步修补所有 conversations query cache，使主列表与归档页能即时反映归档/恢复。
+4. 补充单测覆盖列表 reconcile、归档/恢复、过滤条件和远端会话 upsert，并用真实后端浏览器冒烟验证归档链路。
+
+### 人工调整
+本次只修改前端 hook/store/page 与前端文档；不修改 `shared/openapi.yaml`、后端代码或 Agent Runtime 契约。
+
+### 经验
+真实 API 模式不能让 Query cache 与 Zustand store 各自成为半个真相源；列表展示、乐观/成功更新、URL 选择迁移需要明确单一主数据源，并在 mutation 成功时同步修补相关查询缓存。
+
+## 2026-05-29 — Codex 补强前端深链刷新与侧栏分组测试
+
+### 任务
+继续真实后端接入质量收敛，补强 `/chat/:conversationId` 刷新恢复、置顶分组和搜索过滤。
+
+### 关键 Prompt
+> 下一步
+> 做吧
+
+### AI 输出摘要
+1. `ChatPage` 在会话列表加载中显示恢复态，避免深链刷新时短暂出现“还没有会话”。
+2. 深链命中当前会话后同步 `selectedConversationId`，让侧栏选中状态与 URL 保持一致。
+3. 新增 `ConversationSidebar` 组件测试，覆盖置顶/最近分组、标题搜索命中和搜索空态。
+4. 使用真实后端冒烟验证深链刷新恢复、Workspace 恢复、置顶与取消置顶分组迁移。
+
+### 人工调整
+本次只修改前端页面、组件测试和文档；不修改 OpenAPI、后端或 Agent Runtime。
+
+### 经验
+深链恢复的“加载态”不能复用空态，否则用户会看到会话丢失的错觉；搜索这种纯前端过滤逻辑适合用组件测试固定，真实浏览器冒烟优先覆盖会产生远端状态变化的置顶/归档链路。
 ## 2026-05-27 — Codex 增强 Orchestrator LLM 任务规划
 
 ### 任务

@@ -14,7 +14,7 @@ function parseMentionedAgent(
   return agentIds.find((id) => lower.includes(`@${id.toLowerCase()}`)) ?? null;
 }
 
-function resolveTargetAgentId(
+export function resolveTargetAgentId(
   text: string,
   mode: 'single' | 'group',
   agentIds: string[],
