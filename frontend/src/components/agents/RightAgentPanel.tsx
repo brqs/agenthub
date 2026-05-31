@@ -398,8 +398,7 @@ function RealWorkspacePanel({
     <WorkspacePanel
       workspace={workspace}
       isLoading={workspaceQuery.isLoading}
-      error={workspaceQuery.error}
-      artifactError={artifactQuery.error}
+      error={workspaceQuery.error ?? artifactQuery.error}
       touchedFilesCount={realTouchedFilesCount}
       selectedArtifactPath={selectedArtifactPath}
       selectedArtifact={artifactQuery.data ?? null}
