@@ -1,7 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { MessageInput } from './MessageInput';
-import { DEMO_PROMPT } from './DemoPromptBar';
-import type { DemoConversation } from '@/lib/mockData';
+import { mockAgents, type DemoConversation } from '@/lib/mockData';
 
 const singleConversation: DemoConversation = {
   id: 'conv-test-single',
@@ -69,7 +68,7 @@ describe('MessageInput', () => {
   });
 
   it('shows mention picker in group conversations and inserts selected agent', () => {
-    render(<MessageInput conversation={groupConversation} onSend={vi.fn()} />);
+    render(<MessageInput conversation={groupConversation} agents={mockAgents} onSend={vi.fn()} />);
     const input = screen.getByPlaceholderText('发消息到 群聊测试');
 
     fireEvent.change(input, { target: { value: '@' } });
@@ -113,12 +112,4 @@ describe('MessageInput', () => {
     expect(screen.getByPlaceholderText('发消息到 单聊测试')).toHaveValue('');
   });
 
-  it('fills the demo prompt in group conversations', () => {
-    render(<MessageInput conversation={groupConversation} onSend={vi.fn()} />);
-    const input = screen.getByPlaceholderText('发消息到 群聊测试');
-
-    fireEvent.click(screen.getByRole('button', { name: DEMO_PROMPT }));
-
-    expect(input).toHaveValue(DEMO_PROMPT);
-  });
 });

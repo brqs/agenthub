@@ -4,6 +4,18 @@ import { AgentsPage } from './AgentsPage';
 import { mockAgents } from '@/lib/mockData';
 import { useAgentStore } from '@/stores/agentStore';
 
+vi.mock('@/lib/adapters/agents', () => ({
+  listAgents: vi.fn().mockResolvedValue([]),
+  createAgent: vi.fn().mockImplementation(async (input) => ({
+    id: 'planner-agent',
+    ...input,
+    is_builtin: false,
+    created_at: '2026-05-31T00:00:00.000Z',
+  })),
+  updateAgent: vi.fn(),
+  deleteAgent: vi.fn(),
+}));
+
 function renderAgentsPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(

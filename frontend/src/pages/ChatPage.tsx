@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -19,6 +19,7 @@ import { useStream } from '@/hooks/useStream';
 import { useUpdateConversation } from '@/hooks/useUpdateConversation';
 import { useUpdateMessage } from '@/hooks/useUpdateMessage';
 import type { Agent } from '@/lib/types';
+import { resolveConversation } from '@/pages/chatPageUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -27,12 +28,13 @@ export function ChatPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const streamingToolNamesRef = useRef<Record<string, string>>({});
   const [newConversationOpen, setNewConversationOpen] = useState(false);
   const [mentionInsertRequest, setMentionInsertRequest] = useState<{
     agentId: string;
     requestId: number;
   } | null>(null);
-  const { data: conversations } = useConversations();
+  const { data: conversations, isLoading: conversationsLoading } = useConversations();
   const { data: agents } = useAgents();
   const createConversation = useCreateConversation();
   const selectedConversationId = useChatStore((state) => state.selectedConversationId);
@@ -51,9 +53,11 @@ export function ChatPage() {
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
 
   const visibleConversations = conversations.filter((item) => !item.is_archived);
-  const activeConversationId = conversationId ?? selectedConversationId;
-  const conversation =
-    conversations.find((item) => item.id === activeConversationId) ?? visibleConversations[0];
+  const conversation = resolveConversation(
+    visibleConversations,
+    conversationId,
+    selectedConversationId,
+  );
   const { data: messages, isLoading: messagesLoading } = useMessages(conversation?.id);
   const updateConversation = useUpdateConversation();
   const updateMessage = useUpdateMessage();
@@ -62,6 +66,16 @@ export function ChatPage() {
   useStream(streamingMessageId, {
     onEvent: (event) => {
       if (streamingMessageId) applyStreamEvent(streamingMessageId, event);
+      if (event.event === 'tool_call') {
+        streamingToolNamesRef.current[event.data.call_id] = event.data.tool_name;
+      }
+      if (event.event === 'tool_result') {
+        const toolName = streamingToolNamesRef.current[event.data.call_id];
+        if (conversation?.id && isWorkspaceWritingTool(toolName)) {
+          void queryClient.invalidateQueries({ queryKey: ['workspace-tree', conversation.id] });
+        }
+        delete streamingToolNamesRef.current[event.data.call_id];
+      }
     },
     onDone: () => {
       if (conversation?.id) {
@@ -74,10 +88,21 @@ export function ChatPage() {
   });
 
   useEffect(() => {
+    streamingToolNamesRef.current = {};
+  }, [streamingMessageId]);
+
+  useEffect(() => {
     if (!conversationId && conversation?.id) {
       navigate(`/chat/${conversation.id}`, { replace: true });
     }
-  }, [conversationId, conversation?.id, navigate]);
+    if (conversationId && conversation?.id === conversationId) {
+      setSelectedConversationId(conversation.id);
+    }
+    if (conversationId && conversation?.id && conversation.id !== conversationId) {
+      setSelectedConversationId(conversation.id);
+      navigate(`/chat/${conversation.id}`, { replace: true });
+    }
+  }, [conversationId, conversation?.id, navigate, setSelectedConversationId]);
 
   useEffect(() => {
     if (!highlightedMessageId) return undefined;
@@ -132,6 +157,7 @@ export function ChatPage() {
           <>
             <ChatHeader
               conversation={conversation}
+              agents={agents}
               sidebarCollapsed={conversationSidebarCollapsed}
               onExpandSidebar={() => setConversationSidebarCollapsed(false)}
               rightPanelOpen={rightPanelOpen}
@@ -163,6 +189,8 @@ export function ChatPage() {
               }}
             />
           </>
+        ) : conversationsLoading ? (
+          <LoadingChatPlaceholder />
         ) : (
           <EmptyChatPlaceholder onNew={() => setNewConversationOpen(true)} />
         )}
@@ -189,6 +217,22 @@ export function ChatPage() {
           selectConversation(created.id);
         }}
       />
+    </div>
+  );
+}
+
+function isWorkspaceWritingTool(toolName: string | undefined): boolean {
+  if (!toolName) return false;
+  const normalized = toolName.toLowerCase();
+  return normalized.includes('write') || normalized.includes('file');
+}
+
+function LoadingChatPlaceholder() {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-slate-950 p-8">
+      <div className="rounded-md border border-slate-800 bg-slate-900 px-5 py-4 text-sm text-slate-400">
+        正在恢复会话
+      </div>
     </div>
   );
 }

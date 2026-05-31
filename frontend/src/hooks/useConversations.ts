@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as conversationsAdapter from '@/lib/adapters/conversations';
-import { env } from '@/lib/env';
 import { queryKeys } from '@/lib/queryKeys';
 import type { Conversation } from '@/lib/types';
 import { useAuthStore } from '@/stores/authStore';
@@ -17,8 +16,7 @@ interface UseConversationsResult {
 /**
  * Conversations list — single source of truth is `chatStore.conversations`.
  *
- * - Mock mode: chatStore is seeded with mockConversations and mutated locally.
- * - API mode: TanStack Query fetches once and hydrates into chatStore; downstream
+ * TanStack Query fetches once and hydrates into chatStore; downstream
  *   streaming/send mutations keep updating the store, so the UI shape is identical.
  */
 export function useConversations(params: ListConversationsParams = {}): UseConversationsResult {
@@ -39,21 +37,46 @@ export function useConversations(params: ListConversationsParams = {}): UseConve
   const query = useQuery({
     queryKey: [...queryKeys.conversations(userId), queryParams],
     queryFn: () => conversationsAdapter.listConversations(queryParams),
-    enabled: !env.useMockApi && Boolean(userId),
+    enabled: Boolean(userId),
   });
 
   useEffect(() => {
-    if (!env.useMockApi && query.data && !queryParams.archived) {
+    if (query.data && !queryParams.archived) {
       hydrate(query.data);
     }
   }, [query.data, hydrate, queryParams.archived]);
 
+  const shouldUseHydratedStore =
+    !queryParams.archived && !queryParams.pinnedOnly && !queryParams.search && !queryParams.page;
+
+  const localData = useMemo(() => {
+    if (!shouldUseHydratedStore) return query.data ?? [];
+    return conversations.filter((conversation) => {
+      if (!queryParams.archived && conversation.is_archived) return false;
+      if (queryParams.pinnedOnly && !conversation.is_pinned) return false;
+      if (
+        queryParams.search &&
+        !conversation.title.toLowerCase().includes(queryParams.search.toLowerCase())
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [
+    conversations,
+    query.data,
+    queryParams.archived,
+    queryParams.pinnedOnly,
+    queryParams.search,
+    shouldUseHydratedStore,
+  ]);
+
   return useMemo<UseConversationsResult>(
     () => ({
-      data: env.useMockApi ? conversations : query.data ?? [],
-      isLoading: !env.useMockApi && query.isLoading,
-      error: env.useMockApi ? null : query.error,
+      data: query.data ? localData : [],
+      isLoading: query.isLoading,
+      error: query.error,
     }),
-    [conversations, query.data, query.isLoading, query.error],
+    [localData, query.data, query.isLoading, query.error],
   );
 }

@@ -1,6 +1,5 @@
 import { Bot, CheckCircle2, Code2, Edit3, Loader2, MessageSquarePlus, ShieldCheck, Trash2 } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
-import { env } from '@/lib/env';
 import type { Agent } from '@/lib/types';
 
 export function AgentDetailPanel({
@@ -108,7 +107,7 @@ export function AgentDetailPanel({
         <div className="space-y-2 text-sm text-slate-400">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-            {env.useMockApi ? '本地 Agent 列表可用' : '远端 Agent 注册表已连接'}
+            远端 Agent 注册表已连接
           </div>
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-400" />
