@@ -23,8 +23,19 @@ from app.schemas.conversation import (
     ConversationMemoryOut,
     ConversationOut,
     CreateConversationRequest,
+    OrchestratorRunDetailOut,
+    OrchestratorRunEventOut,
+    OrchestratorRunList,
+    OrchestratorRunOut,
+    OrchestratorTaskAttemptOut,
+    OrchestratorTaskOut,
     UpdateConversationRequest,
 )
+from app.services.orchestrator_memory import (
+    get_orchestrator_run_detail,
+    list_orchestrator_runs,
+)
+from app.services.workspace_preview import WorkspacePreviewService
 
 router = APIRouter()
 
@@ -182,6 +193,60 @@ async def get_conversation_memory(
     return ConversationMemoryOut.model_validate(memory)
 
 
+@router.get("/{conv_id}/orchestrator-runs", response_model=OrchestratorRunList)
+async def list_conversation_orchestrator_runs(
+    conv_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=20, ge=1, le=100),
+) -> OrchestratorRunList:
+    if not settings.is_development:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Not found"}},
+        )
+    await _get_owned_conversation(db, user.id, conv_id)
+    runs = await list_orchestrator_runs(db, conv_id, limit=limit)
+    return OrchestratorRunList(
+        items=[OrchestratorRunOut.model_validate(run) for run in runs],
+        total=len(runs),
+    )
+
+
+@router.get(
+    "/{conv_id}/orchestrator-runs/{run_id}",
+    response_model=OrchestratorRunDetailOut,
+)
+async def get_conversation_orchestrator_run(
+    conv_id: UUID,
+    run_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> OrchestratorRunDetailOut:
+    if not settings.is_development:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "NOT_FOUND", "message": "Not found"}},
+        )
+    await _get_owned_conversation(db, user.id, conv_id)
+    detail = await get_orchestrator_run_detail(db, conv_id, run_id)
+    if detail is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"error": {"code": "ORCHESTRATOR_RUN_NOT_FOUND", "message": "Not found"}},
+        )
+    run, tasks, attempts, events = detail
+    return OrchestratorRunDetailOut(
+        run=OrchestratorRunOut.model_validate(run),
+        tasks=[OrchestratorTaskOut.model_validate(task) for task in tasks],
+        attempts=[
+            OrchestratorTaskAttemptOut.model_validate(attempt)
+            for attempt in attempts
+        ],
+        events=[OrchestratorRunEventOut.model_validate(event) for event in events],
+    )
+
+
 @router.patch("/{conv_id}", response_model=ConversationOut)
 async def update_conversation(
     conv_id: UUID,
@@ -207,4 +272,5 @@ async def delete_conversation(
     user: Annotated[User, Depends(get_current_user)],
 ) -> None:
     conv = await _get_owned_conversation(db, user.id, conv_id)
+    await WorkspacePreviewService().stop(db, conv_id)
     await db.delete(conv)

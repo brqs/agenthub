@@ -9,6 +9,31 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.external.cli_runtime import CliCompleted, stream_cli_text
+from app.agents.external.direct_chat import maybe_stream_direct_chat
+from app.agents.external.runtime_budget import (
+    DEFAULT_IDLE_TIMEOUT_SECONDS,
+    RuntimeTimeoutError,
+    runtime_budget_config,
+)
+from app.agents.external.runtime_prelude import (
+    external_runtime_prelude,
+    text_result_chunks,
+)
+from app.agents.external.runtime_utils import (
+    argv,
+    classify_external_exception,
+    external_error_chunk,
+    safe_runtime_output,
+)
+from app.agents.external.sdk_stream import stream_sdk_events
+from app.agents.external.workspace_prompt import (
+    format_runtime_messages,
+    workspace_guard_prompt,
+)
+from app.agents.runtime_guard import (
+    sanitize_preview_deploy_text,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "claude_agent_sdk"
@@ -34,60 +59,140 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
     ) -> AsyncIterator[StreamChunk]:
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
 
-        if workspace_path is None:
-            yield self._error_chunk("workspace_violation", "workspace_path is required")
+        prelude = await external_runtime_prelude(
+            adapter=self,
+            provider=self.provider,
+            messages=messages,
+            system_prompt=system_prompt,
+            config=config,
+            workspace_path=workspace_path,
+            workspace_error="workspace_path is required",
+            error_chunk=self._error_chunk,
+            direct_chat=maybe_stream_direct_chat,
+        )
+        if prelude.handled and prelude.stream is not None:
+            async for chunk in prelude.stream:
+                yield chunk
             return
+        merged = prelude.merged_config
+        assert workspace_path is not None
+
+        budget_config = runtime_budget_config(
+            merged,
+            default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
+        )
 
         try:
             sdk = self._load_sdk()
-            prompt = self._format_prompt(messages, system_prompt)
-            stream = await self._open_sdk_stream(sdk, prompt, workspace_path, config)
-        except Exception as exc:  # noqa: BLE001
-            yield self._error_chunk(self._classify_exception(exc), self._safe_error_message(exc))
-            return
-
-        block_open = False
-        block_index = 0
-        total_blocks = 0
-        try:
-            async for sdk_event in stream:
-                for chunk in self._map_sdk_event(sdk_event):
-                    if chunk.event_type == "delta":
-                        if not block_open:
-                            yield StreamChunk(
-                                event_type="block_start",
-                                block_index=block_index,
-                                block_type="text",
-                            )
-                            block_open = True
-                        chunk.block_index = block_index
-                        yield chunk
-                        continue
-
-                    if block_open:
-                        yield StreamChunk(event_type="block_end", block_index=block_index)
-                        total_blocks += 1
-                        block_index += 1
-                        block_open = False
+            prompt = self._format_prompt(messages, system_prompt, workspace_path)
+            stream = await self._open_sdk_stream(sdk, prompt, workspace_path, merged)
+        except ModuleNotFoundError as exc:
+            if exc.name == SDK_MODULE_NAME:
+                async for chunk in self._stream_cli(
+                    messages,
+                    system_prompt,
+                    merged,
+                    workspace_path,
+                ):
                     yield chunk
+                return
+            yield self._error_chunk(self._classify_exception(exc), self._safe_error_message(exc))
+            return
         except Exception as exc:  # noqa: BLE001
-            if block_open:
-                yield StreamChunk(event_type="block_end", block_index=block_index)
             yield self._error_chunk(self._classify_exception(exc), self._safe_error_message(exc))
             return
 
-        if block_open:
-            yield StreamChunk(event_type="block_end", block_index=block_index)
-            total_blocks += 1
+        async def exception_stream(
+            exc: BaseException,
+            saw_runtime_chunk: bool,
+        ) -> AsyncIterator[StreamChunk]:
+            _ = saw_runtime_chunk
+            yield self._error_chunk(
+                self._classify_exception(exc),
+                self._safe_error_message(exc),
+            )
 
-        yield StreamChunk(
-            event_type="done",
+        async for chunk in stream_sdk_events(
+            stream,
+            budget_config=budget_config,
             agent_id=self.agent_id,
-            total_blocks=total_blocks,
-        )
+            provider=self.provider,
+            map_event=self._map_sdk_event,
+            timeout_error_chunk=lambda exc: self._error_chunk(exc.error_code, str(exc)),
+            exception_stream=exception_stream,
+        ):
+            yield chunk
 
     def _load_sdk(self) -> Any:
         return importlib.import_module(SDK_MODULE_NAME)
+
+    async def _stream_cli(
+        self,
+        messages: list[ChatMessage],
+        system_prompt: str | None,
+        config: dict[str, Any],
+        workspace_path: Path,
+    ) -> AsyncIterator[StreamChunk]:
+        budget_config = runtime_budget_config(
+            config,
+            default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
+        )
+        prompt = self._format_prompt(messages, system_prompt, workspace_path)
+        command = [
+            *argv(config.get("command", "claude"), default=("claude",), drop_empty=True),
+            "-p",
+            "--output-format",
+            "text",
+            "--permission-mode",
+            "acceptEdits",
+            "--no-session-persistence",
+            prompt,
+        ]
+        result = None
+        try:
+            async for event in stream_cli_text(
+                command,
+                cwd=workspace_path,
+                budget_config=budget_config,
+                agent_id=self.agent_id,
+                provider=self.provider,
+            ):
+                if isinstance(event, StreamChunk):
+                    yield event
+                elif isinstance(event, CliCompleted):
+                    result = event.result
+        except RuntimeTimeoutError as exc:
+            output = self._safe_runtime_output(exc.stderr or exc.stdout)
+            yield self._error_chunk(exc.error_code, f"Claude Code CLI timed out: {output}")
+            return
+        except Exception as exc:  # noqa: BLE001
+            yield self._error_chunk("external_runtime_error", self._safe_error_message(exc))
+            return
+
+        if result is None:
+            yield self._error_chunk(
+                "external_runtime_error",
+                "Claude Code CLI ended without result",
+            )
+            return
+
+        if result.return_code != 0:
+            output = self._safe_runtime_output(result.stderr or result.stdout)
+            yield self._error_chunk(
+                "external_runtime_error",
+                f"Claude Code CLI exited with code {result.return_code}: {output}",
+            )
+            return
+
+        text = sanitize_preview_deploy_text(result.stdout.strip())
+        total_blocks = 0
+        if text:
+            for chunk in text_result_chunks(text, self.agent_id):
+                if chunk.event_type == "done":
+                    continue
+                yield chunk
+            total_blocks = 1
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=total_blocks)
 
     async def _open_sdk_stream(
         self,
@@ -124,23 +229,24 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
     def _sdk_options(self, config: dict[str, Any]) -> dict[str, Any]:
         options = config.get("sdk_options", {})
         if not isinstance(options, dict):
-            return {}
-        return dict(options)
+            options = {}
+        sdk_options = dict(options)
+        sdk_options.setdefault("permission_mode", "acceptEdits")
+        return sdk_options
 
     def _format_prompt(
         self,
         messages: list[ChatMessage],
         system_prompt: str | None,
+        workspace_path: Path,
     ) -> str:
         effective_system = self.effective_system_prompt(system_prompt)
-        lines: list[str] = []
+        lines: list[str] = [f"System: {workspace_guard_prompt(workspace_path)}"]
         if effective_system:
             lines.append(f"System: {effective_system}")
-        for message in messages:
-            if message.role == "system":
-                lines.append(f"System: {message.content}")
-            elif message.content:
-                lines.append(f"{message.role.title()}: {message.content}")
+        conversation = format_runtime_messages(messages)
+        if conversation:
+            lines.append(conversation)
         return "\n\n".join(lines)
 
     def _map_sdk_event(self, event: Any) -> list[StreamChunk]:
@@ -246,19 +352,19 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         return dict(value)
 
     def _error_chunk(self, error_code: str, error: str) -> StreamChunk:
-        return StreamChunk(
-            event_type="error",
+        return external_error_chunk(
             agent_id=self.agent_id,
+            provider=self.provider,
             error_code=error_code,
             error=error,
-            metadata={"provider": self.provider},
         )
 
     def _classify_exception(self, exc: BaseException) -> str:
-        lowered = f"{exc.__class__.__name__}: {exc}".lower()
-        if "api key" in lowered or "authentication" in lowered or "unauthorized" in lowered:
-            return "missing_api_key"
-        return "external_runtime_error"
+        return classify_external_exception(exc)
 
     def _safe_error_message(self, exc: BaseException) -> str:
         return str(exc) or exc.__class__.__name__
+
+    @staticmethod
+    def _safe_runtime_output(output: str) -> str:
+        return safe_runtime_output(output, max_chars=500)

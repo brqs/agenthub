@@ -21,6 +21,17 @@ async def test_builtin_workspace_tools_read_and_write_inside_workspace(
     assert content == "export default 1"
 
 
+async def test_builtin_workspace_tools_accept_safe_workspace_absolute_aliases(
+    tmp_path: Path,
+) -> None:
+    await write_file(tmp_path, "/workspace/snake.html", "alias")
+    await write_file(tmp_path, str(tmp_path / "nested" / "app.html"), "absolute")
+
+    assert (tmp_path / "snake.html").read_text(encoding="utf-8") == "alias"
+    assert (tmp_path / "nested" / "app.html").read_text(encoding="utf-8") == "absolute"
+    assert await read_file(tmp_path, str(tmp_path / "snake.html")) == "alias"
+
+
 @pytest.mark.parametrize(
     "rel_path",
     [

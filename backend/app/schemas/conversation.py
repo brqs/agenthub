@@ -60,6 +60,83 @@ class ConversationMemoryOut(BaseModel):
     updated_at: datetime
 
 
+class OrchestratorTaskAttemptOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    run_id: UUID
+    task_row_id: UUID
+    task_id: str
+    attempt_index: int
+    agent_id: str
+    state: str
+    text_preview: str
+    tool_summaries: list[str] = Field(default_factory=list)
+    artifact_paths: list[str] = Field(default_factory=list)
+    missing_artifact_paths: list[str] = Field(default_factory=list)
+    error: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class OrchestratorTaskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    run_id: UUID
+    task_id: str
+    agent_id: str
+    title: str
+    instruction: str
+    depends_on: list[str] = Field(default_factory=list)
+    priority: int
+    expected_output: str | None = None
+    include_history: bool
+    final_state: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class OrchestratorRunEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    run_id: UUID
+    event_type: str
+    task_id: str | None = None
+    agent_id: str | None = None
+    payload: dict[str, object] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class OrchestratorRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID
+    agent_message_id: UUID | None = None
+    user_message_id: UUID | None = None
+    status: str
+    user_request: str
+    plan_source: str
+    final_summary: str
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+
+
+class OrchestratorRunList(BaseModel):
+    items: list[OrchestratorRunOut]
+    total: int
+
+
+class OrchestratorRunDetailOut(BaseModel):
+    run: OrchestratorRunOut
+    tasks: list[OrchestratorTaskOut]
+    attempts: list[OrchestratorTaskAttemptOut]
+    events: list[OrchestratorRunEventOut]
+
+
 class ContextCompressionConfigOut(BaseModel):
     mode: str
     provider: str
