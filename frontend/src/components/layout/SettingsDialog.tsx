@@ -1,10 +1,6 @@
 import { X } from 'lucide-react';
 import { env } from '@/lib/env';
 
-function modeLabel(enabled: boolean) {
-  return enabled ? 'Mock' : 'Real';
-}
-
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
 
@@ -28,11 +24,11 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         </header>
 
         <div className="space-y-3 p-5">
-          <SettingRow label="API 模式" value={modeLabel(env.useMockApi)} />
-          <SettingRow label="SSE 模式" value={modeLabel(env.useMockSse)} />
+          <SettingRow label="API 模式" value="Real" />
+          <SettingRow label="SSE 模式" value="Real" />
           <SettingRow label="Base URL" value={env.apiBaseUrl || 'Vite /api proxy'} />
-          <SettingRow label="本地演示数据" value={env.useMockApi ? 'Enabled' : 'Disabled'} />
-          <SettingRow label="Build" value="frontend-demo" />
+          <SettingRow label="本地演示数据" value="Disabled" />
+          <SettingRow label="Build" value="frontend-api" />
         </div>
       </section>
     </div>

@@ -4,6 +4,10 @@ import { useDeleteAgent } from './useDeleteAgent';
 import { mockAgents } from '@/lib/mockData';
 import { useAgentStore } from '@/stores/agentStore';
 
+vi.mock('@/lib/adapters/agents', () => ({
+  deleteAgent: vi.fn().mockResolvedValue(undefined),
+}));
+
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
@@ -17,7 +21,7 @@ describe('useDeleteAgent', () => {
     });
   });
 
-  it('removes local agent state and advances selection in mock mode', async () => {
+  it('removes local agent state after the backend confirms deletion', async () => {
     const { result } = renderHook(() => useDeleteAgent(), { wrapper });
 
     await act(async () => {
