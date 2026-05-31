@@ -448,11 +448,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
   },
   updateConversationLocal: (conversation) => {
-    set((state) => ({
-      conversations: state.conversations.map((item) =>
-        item.id === conversation.id ? (conversation as DemoConversation) : item,
-      ),
-    }));
+    set((state) => {
+      const nextConversation = conversation as DemoConversation;
+      const exists = state.conversations.some((item) => item.id === conversation.id);
+      const conversations = exists
+        ? state.conversations.map((item) =>
+            item.id === conversation.id ? nextConversation : item,
+          )
+        : [nextConversation, ...state.conversations];
+      const nextVisible = conversations.find(
+        (item) => item.id !== conversation.id && !item.is_archived,
+      );
+
+      return {
+        conversations,
+        selectedConversationId:
+          conversation.is_archived && state.selectedConversationId === conversation.id
+            ? nextVisible?.id ?? ''
+            : state.selectedConversationId,
+      };
+    });
   },
   updateMessageLocal: (message) => {
     set((state) => ({
