@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ContentRenderer } from './ContentRenderer';
 import { mockAgents, type DemoContentBlock } from '@/lib/mockData';
 
@@ -11,6 +12,15 @@ vi.mock('./CodeBlock', () => ({
 }));
 
 describe('ContentRenderer', () => {
+  function renderBlocks(blocks: DemoContentBlock[]) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <ContentRenderer blocks={blocks} agents={mockAgents} />
+      </QueryClientProvider>,
+    );
+  }
+
   it('renders supported content block types', () => {
     const blocks: DemoContentBlock[] = [
       { type: 'text', text: 'Hello **AgentHub**' },
@@ -59,7 +69,7 @@ describe('ContentRenderer', () => {
       },
     ];
 
-    render(<ContentRenderer blocks={blocks} agents={mockAgents} />);
+    renderBlocks(blocks);
 
     expect(screen.getByText('AgentHub')).toBeInTheDocument();
     expect(screen.getByText('code:tsx:export function Demo() {}')).toBeInTheDocument();
@@ -76,11 +86,7 @@ describe('ContentRenderer', () => {
   });
 
   it('renders fallback UI for unknown block types', () => {
-    render(
-      <ContentRenderer
-        blocks={[{ type: 'chart', title: 'Demo Chart' } as unknown as DemoContentBlock]}
-      />,
-    );
+    renderBlocks([{ type: 'chart', title: 'Demo Chart' } as unknown as DemoContentBlock]);
 
     expect(screen.getByText('未支持的消息块')).toBeInTheDocument();
     expect(screen.getByText(/chart/)).toBeInTheDocument();

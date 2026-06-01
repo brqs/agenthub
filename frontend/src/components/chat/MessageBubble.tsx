@@ -111,6 +111,7 @@ export function MessageBubble({
             blocks={message.content}
             agents={agents}
             streaming={message.status === 'streaming'}
+            conversationId={message.conversation_id}
           />
           {message.status === 'error' && onRetry && (
             <button

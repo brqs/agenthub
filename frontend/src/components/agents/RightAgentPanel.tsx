@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact/ArtifactPreview';
+import { DeploymentHistory } from '@/components/artifact/DeploymentHistory';
 import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/WorkspaceFileTree';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
@@ -275,6 +276,7 @@ function AgentsPanel({
 
 function WorkspacePanel({
   workspace,
+  conversationId,
   isLoading,
   error,
   artifactError,
@@ -286,6 +288,7 @@ function WorkspacePanel({
   isSavingArtifact = false,
 }: {
   workspace: { root: string; tree: WorkspaceNode[] } | null;
+  conversationId: string;
   isLoading: boolean;
   error: unknown;
   artifactError?: unknown;
@@ -297,7 +300,8 @@ function WorkspacePanel({
   isSavingArtifact?: boolean;
 }) {
   return (
-    <section>
+    <section className="space-y-5">
+      <div>
       <PanelHeader icon={Box} title="Workspace" meta={`${touchedFilesCount} outputs`} />
 
       {isLoading ? (
@@ -337,6 +341,8 @@ function WorkspacePanel({
           当前会话还没有 workspace 产物。真 Agent 调用 write_file 后会在这里出现。
         </div>
       )}
+      </div>
+      <DeploymentHistory conversationId={conversationId} />
     </section>
   );
 }
@@ -369,6 +375,7 @@ function RealWorkspacePanel({
   return (
     <WorkspacePanel
       workspace={workspace}
+      conversationId={conversationId}
       isLoading={workspaceQuery.isLoading}
       error={workspaceQuery.error ?? artifactQuery.error}
       touchedFilesCount={realTouchedFilesCount}
