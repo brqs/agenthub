@@ -102,6 +102,21 @@ components:
         size: { type: integer }
         mime_type: { type: string }
 
+    DeploymentStatusBlock:
+      type: object
+      required: [type, deployment_id, kind, status]
+      properties:
+        type: { type: string, enum: [deployment_status] }
+        deployment_id: { type: string }
+        kind: { type: string, enum: [static_site, source_zip, container] }
+        status: { type: string, enum: [publishing, published, failed, stopped, not_supported] }
+        title: { type: string, nullable: true }
+        url: { type: string, nullable: true }
+        download_url: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        logs_preview: { type: string, nullable: true }
+        size_bytes: { type: integer, nullable: true }
+
     ToolCallBlock:
       type: object
       required: [type, call_id, tool_name, arguments, status]
@@ -124,6 +139,7 @@ components:
         - $ref: '#/components/schemas/DiffBlock'
         - $ref: '#/components/schemas/WebPreviewBlock'
         - $ref: '#/components/schemas/FileBlock'
+        - $ref: '#/components/schemas/DeploymentStatusBlock'
         - $ref: '#/components/schemas/ToolCallBlock'
       discriminator:
         propertyName: type
@@ -133,6 +149,7 @@ components:
           diff: '#/components/schemas/DiffBlock'
           web_preview: '#/components/schemas/WebPreviewBlock'
           file: '#/components/schemas/FileBlock'
+          deployment_status: '#/components/schemas/DeploymentStatusBlock'
           tool_call: '#/components/schemas/ToolCallBlock'
 
     # ─── User ───
@@ -670,6 +687,7 @@ components:
       properties:
         entry_path: { type: string, minLength: 1, maxLength: 512 }
         mode: { type: string, enum: [static], default: static }
+        requested_port: { type: integer, minimum: 1, maximum: 65535, nullable: true }
 
     WorkspacePreviewResponse:
       type: object
@@ -688,6 +706,40 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         last_accessed_at: { type: string, format: date-time }
+
+    WorkspaceDeploymentRequest:
+      type: object
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [static_site, source_zip, container] }
+        entry_path: { type: string, minLength: 1, maxLength: 512, nullable: true }
+        requested_port: { type: integer, minimum: 1, maximum: 65535, nullable: true }
+
+    WorkspaceDeploymentResponse:
+      type: object
+      required: [id, conversation_id, workspace_id, kind, status, logs, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        conversation_id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        kind: { type: string, enum: [static_site, source_zip, container] }
+        status: { type: string, enum: [publishing, published, failed, stopped, not_supported] }
+        entry_path: { type: string, nullable: true }
+        url: { type: string, nullable: true }
+        download_url: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        logs: { type: array, items: { type: string } }
+        size_bytes: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WorkspaceDeploymentListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
 
   # ─── 通用响应 ───
   responses:
@@ -1234,6 +1286,101 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workspaces/{conversation_id}/deployments:
+    parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      summary: Create a workspace deployment or source export
+      tags: [Workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WorkspaceDeploymentRequest' }
+      responses:
+        '201':
+          description: Deployment record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: Deployment failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      summary: List workspace deployments
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Deployment records
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceDeploymentListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}:
+    parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: deployment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Get workspace deployment status
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Deployment record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      summary: Stop a workspace deployment or delete its source export
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Stopped deployment record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download:
+    parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: deployment_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Download a workspace source export
+      tags: [Workspaces]
+      responses:
+        '200':
+          description: Source zip archive
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 

@@ -9,6 +9,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
+def _default_preview_viewports() -> list[Literal["desktop", "mobile"]]:
+    return ["desktop", "mobile"]
+
+
 class WorkspaceTreeNode(BaseModel):
     name: str
     path: str
@@ -50,7 +54,7 @@ class WorkspacePreviewResponse(BaseModel):
 class WorkspacePreviewVerifyRequest(BaseModel):
     required_text: list[str] = Field(default_factory=list)
     viewports: list[Literal["desktop", "mobile"]] = Field(
-        default_factory=lambda: ["desktop", "mobile"]
+        default_factory=_default_preview_viewports
     )
     click_buttons: bool = True
     max_clicks: int = Field(default=5, ge=0, le=10)
@@ -66,3 +70,41 @@ class WorkspacePreviewVerifyResponse(BaseModel):
     failed_requests: list[str]
     duration_ms: int
     report_path: str | None = None
+
+
+DeploymentKind = Literal["static_site", "source_zip", "container"]
+DeploymentStatus = Literal[
+    "publishing",
+    "published",
+    "failed",
+    "stopped",
+    "not_supported",
+]
+
+
+class WorkspaceDeploymentRequest(BaseModel):
+    kind: DeploymentKind
+    entry_path: str | None = Field(default=None, min_length=1, max_length=512)
+    requested_port: int | None = Field(default=None, ge=1, le=65535)
+
+
+class WorkspaceDeploymentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID
+    workspace_id: UUID
+    kind: DeploymentKind
+    status: DeploymentStatus
+    entry_path: str | None = None
+    url: str | None = None
+    download_url: str | None = None
+    error: str | None = None
+    logs: list[str] = Field(default_factory=list)
+    size_bytes: int | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkspaceDeploymentListResponse(BaseModel):
+    items: list[WorkspaceDeploymentResponse]

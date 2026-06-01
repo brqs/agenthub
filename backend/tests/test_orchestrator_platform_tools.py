@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import zipfile
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -14,6 +16,8 @@ from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.services.orchestrator_platform_tools import OrchestratorPlatformToolExecutor
+from app.services.workspace_preview import WorkspacePreviewService
+from app.services.workspace_service import WorkspaceService
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -165,3 +169,104 @@ async def test_create_custom_agent_tool_does_not_create_on_error() -> None:
         ).scalars().all()
 
         assert count == []
+
+
+async def test_create_deployment_tool_publishes_static_site(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings
+
+    conversation = await _conversation()
+    preview_port = _free_port()
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path / "workspaces"))
+    monkeypatch.setattr(settings, "preview_port_start", preview_port)
+    monkeypatch.setattr(settings, "preview_port_end", preview_port)
+    monkeypatch.setattr(settings, "preview_public_base_url", "http://127.0.0.1")
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, conversation.id)
+        WorkspaceService().write_file(
+            workspace,
+            "index.html",
+            b"<!doctype html><html><body>Tool deploy</body></html>",
+        )
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+        )
+
+        result = await executor(
+            "create_deployment",
+            {
+                "kind": "static_site",
+                "entry_path": "index.html",
+                "requested_port": preview_port,
+            },
+        )
+
+        assert result.status == "ok", result.output
+        payload = json.loads(result.output)
+        assert payload["kind"] == "static_site"
+        assert payload["status"] == "published"
+        assert payload["status_card"]["type"] == "deployment_status"
+        assert payload["url"].endswith(f":{preview_port}/index.html")
+        await WorkspacePreviewService().stop(db, conversation.id)
+
+
+async def test_package_workspace_source_tool_excludes_sensitive_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings
+
+    conversation = await _conversation()
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path / "workspaces"))
+    monkeypatch.setattr(settings, "deployment_export_dir", str(tmp_path / "exports"))
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, conversation.id)
+        root = Path(workspace.root_path)
+        WorkspaceService().write_file(workspace, "index.html", b"<html></html>")
+        (root / ".env").write_text("SECRET=1", encoding="utf-8")
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+        )
+
+        result = await executor("package_workspace_source", {"format": "zip"})
+
+        assert result.status == "ok", result.output
+        payload = json.loads(result.output)
+        assert payload["kind"] == "source_zip"
+        assert payload["download_url"].endswith("/download")
+        export_path = Path(settings.deployment_export_dir) / str(conversation.id) / (
+            payload["deployment_id"] + ".zip"
+        )
+        with zipfile.ZipFile(export_path) as archive:
+            names = set(archive.namelist())
+        assert "index.html" in names
+        assert ".env" not in names
+
+
+async def test_create_deployment_tool_returns_container_not_supported() -> None:
+    conversation = await _conversation()
+    async with SessionFactory() as db:
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+        )
+
+        result = await executor("create_deployment", {"kind": "container"})
+
+        assert result.status == "ok"
+        payload = json.loads(result.output)
+        assert payload["kind"] == "container"
+        assert payload["status"] == "not_supported"
+        assert payload["status_card"]["status"] == "not_supported"
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])

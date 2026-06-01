@@ -46,6 +46,19 @@ class FileBlock(BaseModel):
     mime_type: str
 
 
+class DeploymentStatusBlock(BaseModel):
+    type: Literal["deployment_status"] = "deployment_status"
+    deployment_id: str
+    kind: Literal["static_site", "source_zip", "container"]
+    status: Literal["publishing", "published", "failed", "stopped", "not_supported"]
+    title: str | None = None
+    url: str | None = None
+    download_url: str | None = None
+    error: str | None = None
+    logs_preview: str | None = None
+    size_bytes: int | None = None
+
+
 class ToolCallBlock(BaseModel):
     type: Literal["tool_call"] = "tool_call"
     call_id: str
@@ -58,7 +71,13 @@ class ToolCallBlock(BaseModel):
 
 
 ContentBlock = Annotated[
-    TextBlock | CodeBlock | DiffBlock | WebPreviewBlock | FileBlock | ToolCallBlock,
+    TextBlock
+    | CodeBlock
+    | DiffBlock
+    | WebPreviewBlock
+    | FileBlock
+    | DeploymentStatusBlock
+    | ToolCallBlock,
     Field(discriminator="type"),
 ]
 

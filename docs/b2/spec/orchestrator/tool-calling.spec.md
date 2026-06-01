@@ -68,9 +68,6 @@ v1 已实现范围：
 - `start_workspace_preview`
 - `verify_web_preview`
 - `create_custom_agent`
-
-Proposed deployment extension：
-
 - `create_deployment`
 - `get_deployment_status`
 - `package_workspace_source`
@@ -436,7 +433,7 @@ Schema：
 - 缺少 `name/provider/system_prompt` 时返回 `needs_user_input=true`，且数据库中不产生半成品。
 - 非法 provider 或非法 config 返回 tool error。
 
-### 5.8 Proposed `create_deployment`
+### 5.8 `create_deployment`
 
 创建一次平台受控 deployment。用于用户明确说“部署 / 发布 / 上线”。
 
@@ -469,7 +466,7 @@ Schema：
 - 返回 deployment id、kind、status、url/download_url、error、logs preview。
 - 成功或失败都应产生 `deployment_status` 消息块，方便前端展示状态卡片。
 
-### 5.9 Proposed `get_deployment_status`
+### 5.9 `get_deployment_status`
 
 查询 deployment 状态。
 
@@ -495,7 +492,7 @@ Schema：
 - 返回状态、URL、下载 URL、错误和日志摘要。
 - 不读取部署产物文件内容。
 
-### 5.10 Proposed `package_workspace_source`
+### 5.10 `package_workspace_source`
 
 打包当前 workspace 源码供下载。语义上等价于 `create_deployment(kind="source_zip")`，但作为独立 tool 可以更好匹配“下载源码 / 打包源码”意图。
 
