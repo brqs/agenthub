@@ -55,7 +55,11 @@ async def _event_generator(
             return
 
         adapter = await get_adapter(message.agent_id, db)
-        history = await build_context(db, message.conversation_id)
+        history = await build_context(
+            db,
+            message.conversation_id,
+            current_agent_id=message.agent_id,
+        )
         workspace = await WorkspaceService().get_or_create(db, message.conversation_id)
         history, stream_config = await apply_orchestrator_stream_context(
             db,
