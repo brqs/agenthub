@@ -14,10 +14,12 @@ export function ContentRenderer({
   blocks,
   agents = [],
   streaming = false,
+  conversationId,
 }: {
   blocks: DemoContentBlock[];
   agents?: Agent[];
   streaming?: boolean;
+  conversationId?: string;
 }) {
   return (
     <div className="min-w-0 space-y-2">
@@ -42,7 +44,13 @@ export function ContentRenderer({
           return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;
         }
         if (block.type === 'deployment_status') {
-          return <DeploymentStatusBlock key={`${block.type}-${block.deployment_id}`} block={block} />;
+          return (
+            <DeploymentStatusBlock
+              key={`${block.type}-${block.deployment_id}`}
+              block={block}
+              conversationId={conversationId}
+            />
+          );
         }
         if (block.type === 'agent_switch') {
           const fromAgent = agents.find((agent) => agent.id === block.from_agent);

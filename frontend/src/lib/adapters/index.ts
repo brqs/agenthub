@@ -13,3 +13,4 @@ export * as conversationsAdapter from './conversations';
 export * as agentsAdapter from './agents';
 export * as messagesAdapter from './messages';
 export * as workspacesAdapter from './workspaces';
+export * as deploymentsAdapter from './deployments';

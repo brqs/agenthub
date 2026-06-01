@@ -40,6 +40,11 @@ export type ConversationList = Override<
 export type CreateConversationRequest = Schemas['CreateConversationRequest'];
 export type UpdateConversationRequest = Schemas['UpdateConversationRequest'];
 
+// ─── Workspace deployments ───
+export type WorkspaceDeploymentRequest = Schemas['WorkspaceDeploymentRequest'];
+export type WorkspaceDeploymentResponse = Schemas['WorkspaceDeploymentResponse'];
+export type WorkspaceDeploymentListResponse = Schemas['WorkspaceDeploymentListResponse'];
+
 // ─── Content blocks ───
 export type TextBlock = Schemas['TextBlock'];
 export type CodeBlock = Schemas['CodeBlock'];
