@@ -355,6 +355,9 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
         "start_workspace_preview",
         "verify_web_preview",
         "create_custom_agent",
+        "create_deployment",
+        "get_deployment_status",
+        "package_workspace_source",
         "ask_user",
     }
     assert "Tool dispatch_agent (orch.1.1) ok" in gateway.calls[1]["messages"][-1].content

@@ -155,6 +155,45 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
             },
         ),
         ToolSpec(
+            name="create_deployment",
+            description=(
+                "Create a platform-managed workspace deployment. Use static_site "
+                "for deploy/publish/go-live requests, source_zip for source export, "
+                "and container only to return a not_supported deployment status."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["static_site", "source_zip", "container"],
+                    },
+                    "entry_path": {"type": "string"},
+                    "requested_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                },
+                "required": ["kind"],
+            },
+        ),
+        ToolSpec(
+            name="get_deployment_status",
+            description="Read the status of a platform-managed deployment.",
+            parameters={
+                "type": "object",
+                "properties": {"deployment_id": {"type": "string"}},
+                "required": ["deployment_id"],
+            },
+        ),
+        ToolSpec(
+            name="package_workspace_source",
+            description="Package the current workspace into a downloadable source zip.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "format": {"type": "string", "enum": ["zip"], "default": "zip"}
+                },
+            },
+        ),
+        ToolSpec(
             name="ask_user",
             description="Stop and ask the user for missing information.",
             parameters={

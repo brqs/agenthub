@@ -217,7 +217,7 @@ uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/
 
 ## 3. P1 TODO - 影响产物交付完整度
 
-### B2-GAP-04 完整 Deployment / Release Tool
+### B2-GAP-04 完整 Deployment / Release Tool（已实现）
 
 PDF 对应要求：
 
@@ -226,12 +226,12 @@ PDF 对应要求：
 
 当前状态：
 
-- 已实现平台 static preview。
-- Orchestrator 有正式 `start_workspace_preview` tool。
-- 8082 是 preview port，不是完整发布系统。
-- 尚未实现 deployment record、部署状态卡片、源码 zip 下载、容器化部署。
+- 已实现平台 static preview 和可追踪 `WorkspaceDeployment` record。
+- Orchestrator 有正式 `create_deployment`、`get_deployment_status`、`package_workspace_source` tool。
+- 已实现 `deployment_status` 消息块、前端卡片、静态站点发布和源码 zip 下载。
+- 容器化部署返回 `not_supported`，不执行 Docker 或 shell。
 
-待办：
+实现内容：
 
 - 新增正式平台 deployment tools：
   - `create_deployment`

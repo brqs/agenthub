@@ -11,7 +11,7 @@ from app.models.orchestrator_memory import (
     OrchestratorTaskAttempt,
 )
 from app.models.user import User
-from app.models.workspace import Workspace, WorkspacePreviewSession
+from app.models.workspace import Workspace, WorkspaceDeployment, WorkspacePreviewSession
 
 __all__ = [
     "Agent",
@@ -24,5 +24,6 @@ __all__ = [
     "OrchestratorTaskAttempt",
     "User",
     "Workspace",
+    "WorkspaceDeployment",
     "WorkspacePreviewSession",
 ]

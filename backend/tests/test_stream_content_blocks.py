@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 from app.agents.types import StreamChunk
+from app.api.v1.stream_accumulator import StreamContentAccumulator
 from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
@@ -21,6 +22,36 @@ from app.models.agent import Agent
 from app.models.message import Message
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
+
+
+async def test_stream_accumulator_persists_deployment_status_block() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="deployment_status",
+            metadata={
+                "deployment_id": "deployment-1",
+                "kind": "static_site",
+                "status": "published",
+                "title": "Static site deployment",
+                "url": "http://127.0.0.1:8082/index.html",
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    assert accumulator.to_list() == [
+        {
+            "type": "deployment_status",
+            "deployment_id": "deployment-1",
+            "kind": "static_site",
+            "status": "published",
+            "title": "Static site deployment",
+            "url": "http://127.0.0.1:8082/index.html",
+        }
+    ]
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True)

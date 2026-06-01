@@ -16,6 +16,9 @@ from app.core.config import settings
 DEPLOY_INTENT_RE = re.compile(
     r"(?i)(部署|发布|上线|端口|preview\s+(?:on|at|to)|deploy(?:ed|ment)?|port\s*\d{2,5})"
 )
+RELEASE_INTENT_RE = re.compile(r"(?i)(部署|发布|上线|deploy(?:ed|ment)?)")
+SOURCE_EXPORT_INTENT_RE = re.compile(r"(?i)(源码|源代码|打包|下载|source|zip)")
+CONTAINER_INTENT_RE = re.compile(r"(?i)(容器|容器化|docker|container)")
 FRONTEND_INTENT_RE = re.compile(r"(?i)(前端|网页|页面|html|css|javascript|js|frontend|web)")
 BROWSER_VERIFY_INTENT_RE = re.compile(
     r"(?i)(浏览器|质量验收|移动端|按钮|交互|browser|quality|viewport|mobile)"
@@ -176,6 +179,15 @@ async def run_quality_gate(
         yield _tool_result(verify_call_id, verify_result), next_block_index
         verify_payload = _json_payload(verify_result.output)
         if verify_result.status == "ok" and verify_payload.get("passed") is True:
+            async for chunk, updated_block_index in _run_deployment_tools(
+                executor=executor,
+                user_request=user_request,
+                entry_path=entry_path,
+                requested_port=requested_port,
+                next_block_index=next_block_index,
+            ):
+                next_block_index = updated_block_index
+                yield chunk, updated_block_index
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 "Browser quality verification passed.\n",
@@ -248,6 +260,93 @@ def _requested_port(text: str) -> int | None:
     if 1 <= port <= 65535:
         return port
     return None
+
+
+async def _run_deployment_tools(
+    *,
+    executor: Any,
+    user_request: str,
+    entry_path: str | None,
+    requested_port: int | None,
+    next_block_index: int,
+) -> AsyncIterator[tuple[StreamChunk, int]]:
+    if RELEASE_INTENT_RE.search(user_request) and entry_path:
+        args: dict[str, Any] = {
+            "kind": "static_site",
+            "entry_path": entry_path,
+        }
+        if requested_port is not None:
+            args["requested_port"] = requested_port
+        async for item in _call_deployment_tool(
+            executor,
+            "orch.deployment.static_site",
+            "create_deployment",
+            args,
+            next_block_index,
+        ):
+            chunk, next_block_index = item
+            yield chunk, next_block_index
+
+    if SOURCE_EXPORT_INTENT_RE.search(user_request):
+        async for item in _call_deployment_tool(
+            executor,
+            "orch.deployment.source_zip",
+            "package_workspace_source",
+            {"format": "zip"},
+            next_block_index,
+        ):
+            chunk, next_block_index = item
+            yield chunk, next_block_index
+
+    if CONTAINER_INTENT_RE.search(user_request):
+        async for item in _call_deployment_tool(
+            executor,
+            "orch.deployment.container",
+            "create_deployment",
+            {"kind": "container"},
+            next_block_index,
+        ):
+            chunk, next_block_index = item
+            yield chunk, next_block_index
+
+
+async def _call_deployment_tool(
+    executor: Any,
+    call_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    next_block_index: int,
+) -> AsyncIterator[tuple[StreamChunk, int]]:
+    yield _tool_call(call_id, tool_name, arguments), next_block_index
+    result = await executor(tool_name, arguments)
+    yield _tool_result(call_id, result), next_block_index
+    status_card = _deployment_status_card(result.output)
+    if status_card is not None:
+        yield StreamChunk(
+            event_type="block_start",
+            block_index=next_block_index,
+            block_type="deployment_status",
+            metadata=status_card,
+        ), next_block_index + 1
+        yield StreamChunk(
+            event_type="block_end",
+            block_index=next_block_index,
+        ), next_block_index + 1
+
+
+def _deployment_status_card(output: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    card = payload.get("status_card")
+    if not isinstance(card, dict):
+        return None
+    if not isinstance(card.get("deployment_id"), str) or not card["deployment_id"]:
+        return None
+    return card
 
 
 def _find_preview_entry(workspace_path: Path) -> str | None:

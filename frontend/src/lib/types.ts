@@ -46,6 +46,18 @@ export type CodeBlock = Schemas['CodeBlock'];
 export type DiffBlock = Schemas['DiffBlock'];
 export type WebPreviewBlock = Schemas['WebPreviewBlock'];
 export type FileBlock = Schemas['FileBlock'];
+export interface DeploymentStatusBlock {
+  type: 'deployment_status';
+  deployment_id: string;
+  kind: 'static_site' | 'source_zip' | 'container';
+  status: 'publishing' | 'published' | 'failed' | 'stopped' | 'not_supported';
+  title?: string;
+  url?: string;
+  download_url?: string;
+  error?: string;
+  logs_preview?: string;
+  size_bytes?: number;
+}
 export interface ToolCallBlock {
   type: 'tool_call';
   call_id: string;
@@ -63,6 +75,7 @@ export type ContentBlock =
   | DiffBlock
   | WebPreviewBlock
   | FileBlock
+  | DeploymentStatusBlock
   | ToolCallBlock;
 
 // ─── Messages ───
