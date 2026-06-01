@@ -585,7 +585,9 @@ async def test_group_stream_passes_shared_memory_with_agent_labels(
 
     assert status_code == 200
     joined = "\n".join(message.content for message in captured[agent_b])
-    assert "group conversation" in joined
+    assert f"You are Agent: {agent_b}" in joined
+    assert "observing a group conversation" in joined
+    assert "not your own statements" in joined
     assert f"[Agent: {agent_a}]" in joined
     assert f"{agent_a} stored AgentHub detail" in joined
     assert "What did the first agent say?" in joined
