@@ -19,7 +19,7 @@ Use this skill when the user asks to:
 - B2 owner：决定优先级、验收口径和最终取舍。
 - Codex：总览、拆解、协调、边界检查、最终复审。
 - OpenCode：按任务文档执行具体实现和测试。
-- Claude Code：可执行代码任务；若作为 Git/PR 角色，只负责 status、commit、push、PR，不改业务代码。
+- Claude Code：可执行代码任务；若作为 Git/PR 角色，只负责 status、commit、push 任务分支、创建 PR，不改业务代码，也不执行合并。
 
 ## Task Dispatch Template
 
@@ -65,6 +65,7 @@ uv run mypy <paths>
 
 交付要求：
 - 不 commit / push / PR，除非明确指定。
+- 如明确要求推送，必须创建 PR 并返回链接；不得直接 push 到 main，不得执行 merge 或 auto-merge。
 - 汇报修改文件、核心思路、测试结果、未覆盖风险。
 ```
 

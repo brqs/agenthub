@@ -201,6 +201,8 @@ StreamChunk(
 
 ## Deployment v1
 
+> 当前状态：MVP 已实现。静态发布与 Preview 生命周期解耦、不可变 release snapshot、真实 stop 和 container 安全底座见 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)。
+
 Deploy 不等同 preview：
 
 - `preview`：临时开发预览，端口池管理，适合浏览器验收。
@@ -208,7 +210,7 @@ Deploy 不等同 preview：
 - `source_export`：源码 zip 打包下载，不等同部署。
 - `container_deploy`：本阶段只返回 `not_supported`，不执行 Docker。
 
-Proposed v1 定义为平台记录一次 deployment：
+v1 平台记录一次 deployment：
 
 ```python
 class WorkspaceDeployment(Base):
@@ -255,7 +257,7 @@ class WorkspaceDeployment(Base):
 
 本轮不允许 agent runtime 执行 Netlify、Vercel、SSH、Docker、`npm run dev`、`vite --host`、`python -m http.server` 等部署或长驻服务命令。
 
-## Deployment Status Block Proposed
+## Deployment Status Block
 
 聊天流中应新增部署状态卡片：
 
