@@ -333,8 +333,8 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
         recalled = await self.memory.recall(conv_id=...)
         full_system = build_system_prompt(self.system_prompt, recalled)
 
-        # 2. 合并 tools（native + MCP）
-        all_tools = (tool_specs or list(TOOLS.values())) + await self.mcp_client.list_tools()
+        # 2. 合并 tools（native + MCP）；传入 tool_specs 时对两类工具统一过滤
+        all_tools = await self._available_tools(tool_specs)
 
         # 3. 启动 AgentLoop
         async for chunk in run_agent_loop(
@@ -343,6 +343,13 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
         ):
             yield chunk
 ```
+
+当前权限边界：
+
+- Adapter 入口支持通过 `tool_specs` 对 native tools 和 MCP tools 做统一过滤。
+- 但对话式 `create_custom_agent` v1 尚未提供独立 `allowed_tools` 字段，也没有把持久化 allowlist 自动转换为 `tool_specs`。
+- 未显式传入 `tool_specs` 时，Builtin Agent 会获得全部 native tools 和 MCP tools。
+- 后续必须补充持久化 `allowed_tools` schema、最小权限默认值和 config validation，避免将“支持运行时过滤”误写成“自建 Agent 已完成工具集配置”。
 
 ---
 
