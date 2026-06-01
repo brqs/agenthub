@@ -2,7 +2,7 @@
 
 > 这里只放前端相关文档。前端 Spec 收在 [docs/frontend/spec/](spec/)。
 > Owner：F。涉及契约（OpenAPI / ContentBlock）变更时同步 B1 / B2。
-> 最后更新：2026-05-25
+> 最后更新：2026-06-01
 
 ---
 
@@ -26,6 +26,9 @@
 | [content-blocks](spec/frontend-content-blocks.spec.md) | 富媒体消息块 |
 | [agent-management](spec/frontend-agent-management.spec.md) | Agent 管理页 |
 | [demo-polish](spec/frontend-demo-polish.spec.md) | Demo 体验状态打磨 |
+| [theme-auto-optimization](spec/frontend-theme-auto-optimization.spec.md) | 深色 / 浅色主题可读性优化 |
+| [orchestrated-message-rendering](spec/orchestrated-message-rendering.spec.md) | 多 Agent 消息拆分渲染 |
+| [mobile-development](spec/frontend-mobile-development.spec.md) | 移动 Web、PWA 与 Capacitor 分阶段适配 |
 
 ---
 
