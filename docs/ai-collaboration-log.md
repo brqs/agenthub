@@ -1,3 +1,37 @@
+## 2026-06-01 — Codex 补强 B1 AI 协作范式四件套
+
+### 任务
+围绕群聊旁观者上下文和 ContentBlock attribution，补齐比赛评分需要的 spec、skill、rules 与 collaboration log 证据链。
+
+### 关键 Prompt
+> 为了满足“考察与 AI 协作范式”的要求，我们不要只交代码，还要把协作过程沉淀成可复用资产：spec、skill、rules、collaboration log。
+
+### AI 输出摘要
+在 `docs/b1/spec/group-observer-context.spec.md` 追加 P1/P2 待处理任务，明确 Orchestrator / 子 Agent observer semantics 和后续调试回归方向。新增 `docs/ai-skills/b1-contract-change/SKILL.md`，沉淀 B1 API/schema/OpenAPI/SSE 契约变更的标准工作流。同步更新 `AGENTS.md` 的 AI Collaboration Artifacts 规则，并在 `docs/README.md` 暴露 B1 skill 入口。
+
+### 人工调整
+本次只沉淀协作规范和任务文档，不实现 `message-content-block-attribution.spec.md` 的代码部分。B1 的代码实现仍应按该 spec 单独执行和验证。
+
+### 经验
+比赛型 AI 协作证据不应只靠聊天记录。稳定契约写 spec，可复用流程写 skill，长期规范写 AGENTS，关键决策写 collaboration log；这样下一位 AI 可以直接接手，答辩时也能展示协作方法论。
+
+## 2026-06-01 — Codex 实现 B1 ContentBlock Attribution 持久化
+
+### 任务
+按 `message-content-block-attribution.spec.md` 实现 B1 侧 ContentBlock `agent_id` schema、OpenAPI 与 SSE 持久化闭环。
+
+### 关键 Prompt
+> B1 只保存结构化 attribution，不解析正文里的 `@agent`；B2 生产真实 `StreamChunk.agent_id`，F 使用 `block.agent_id ?? message.agent_id` 渲染。
+
+### AI 输出摘要
+为所有 ContentBlock Pydantic schema 和 `shared/openapi.yaml` 增加 optional `agent_id`。`StreamContentAccumulator` 在 block/tool 创建时保存 `chunk.agent_id`，缺省时兼容 `metadata["agent_id"]`，并在 tool_result 与 diff finalize 时保留原 block 归属。
+
+### 人工调整
+保持字段 optional，未新增 endpoint、未新增 migration，不改变 `Message.agent_id` 顶层语义；B1 不实现 B2 Orchestrator 的真实 attribution 生成，也不改前端渲染。
+
+### 经验
+跨 B1/B2/F 的 attribution 变更必须把 owner 边界写在 spec、skill、日志和 PR 描述里。结构化字段优先于文本约定，旧消息无 `agent_id` 时继续兼容。
+
 ## 2026-05-31 — Codex 将 Orchestrator Spec 收敛为 Package
 
 ### 任务

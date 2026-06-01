@@ -168,6 +168,46 @@ async def test_group_history_includes_group_notice_and_agent_labels() -> None:
     assert "I designed the backend API." in joined
 
 
+async def test_group_turn_taking_marks_current_and_other_agents() -> None:
+    conversation_id = await _create_conversation(
+        mode="group",
+        agent_ids=[
+            "orchestrator",
+            "claude-code",
+            "codex-helper",
+            "opencode-helper",
+        ],
+    )
+    await _insert_group_messages(
+        conversation_id,
+        [
+            ("user", "Compare each agent's recommendation.", None, "done", False),
+            ("agent", "Use FastAPI service boundaries.", "claude-code", "done", False),
+            ("agent", "Keep workspace writes sandboxed.", "codex-helper", "done", False),
+            ("agent", "Verify CLI runtime output.", "opencode-helper", "done", False),
+            ("user", "Codex, summarize the other agents.", None, "done", False),
+        ],
+    )
+
+    async with SessionFactory() as db:
+        context = await build_context(
+            db,
+            conversation_id,
+            current_agent_id="codex-helper",
+        )
+
+    assert context[0].role == "system"
+    assert "You are Agent: codex-helper" in context[0].content
+    assert "Other agents: orchestrator, claude-code, opencode-helper" in context[0].content
+    assert "When referring to another agent's work, name that agent explicitly" in (
+        context[0].content
+    )
+    joined = "\n".join(message.content for message in context)
+    assert "[Agent: claude-code]\nUse FastAPI service boundaries." in joined
+    assert "[Agent: codex-helper]\nKeep workspace writes sandboxed." in joined
+    assert "[Agent: opencode-helper]\nVerify CLI runtime output." in joined
+
+
 async def test_single_context_does_not_add_group_observer_prompt() -> None:
     conversation_id = await _create_conversation(agent_ids=["codex-helper"])
     await _insert_text_messages(
@@ -328,7 +368,11 @@ async def test_group_long_history_creates_shared_memory_with_agent_labels() -> N
     await _insert_group_messages(conversation_id, rows)
 
     async with SessionFactory() as db:
-        context = await build_context(db, conversation_id)
+        context = await build_context(
+            db,
+            conversation_id,
+            current_agent_id="codex-helper",
+        )
         await db.commit()
         memory = await db.get(ConversationMemory, conversation_id)
 
@@ -338,6 +382,9 @@ async def test_group_long_history_creates_shared_memory_with_agent_labels() -> N
     assert "FastAPI" in memory.summary_text
     assert "PostgreSQL" in memory.summary_text
     assert "[Agent: claude-code]" in memory.summary_text
+    assert context[0].role == "system"
+    assert "You are Agent: codex-helper" in context[0].content
+    assert "observing a group conversation" in context[0].content
     joined = "\n".join(message.content for message in context)
     assert "group conversation" in joined
     assert "Earlier compressed conversation memory" in joined
@@ -574,6 +621,60 @@ async def test_group_old_pinned_message_is_kept_with_memory_context() -> None:
     assert "group conversation" in joined
     assert "The project name is AgentHub" in joined
     assert "PostgreSQL" in joined
+
+
+async def test_group_old_pinned_agent_message_keeps_agent_label() -> None:
+    conversation_id = await _create_conversation(
+        mode="group",
+        agent_ids=["claude-code", "codex-helper"],
+    )
+    pinned_id = (
+        await _insert_group_messages(
+            conversation_id,
+            [
+                (
+                    "agent",
+                    "PIN: Claude created the FastAPI endpoint contract.",
+                    "claude-code",
+                    "done",
+                    False,
+                )
+            ],
+        )
+    )[0]
+    rows = [
+        (
+            "user" if index % 2 == 0 else "agent",
+            f"Recent filler {index}. " * 80,
+            None if index % 2 == 0 else "codex-helper",
+            "done",
+            False,
+        )
+        for index in range(36)
+    ]
+    await _insert_group_messages(
+        conversation_id,
+        rows,
+        start=datetime.now(UTC) + timedelta(days=1),
+    )
+
+    async with SessionFactory() as db:
+        pinned = await db.get(Message, pinned_id)
+        assert pinned is not None
+        pinned.is_pinned = True
+        await db.commit()
+
+    async with SessionFactory() as db:
+        context = await build_context(
+            db,
+            conversation_id,
+            current_agent_id="codex-helper",
+        )
+
+    assert context[0].role == "system"
+    joined = "\n".join(message.content for message in context)
+    assert "[Agent: claude-code]" in joined
+    assert "PIN: Claude created the FastAPI endpoint contract." in joined
 
 
 async def test_existing_memory_does_not_resummarize_same_messages() -> None:

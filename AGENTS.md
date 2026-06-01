@@ -529,10 +529,18 @@ Spec 越具体，AI 生成的代码越精准。
 
 ### 9.3 Skill 和 Rules
 
-- **Skill**（`.Codex/skills/<name>.md`）：可重用的复杂任务模板
-- **Rules**（`.Codex/rules/<name>.md`）：项目专属编码规则（细则）
+- **Skill**（`docs/ai-skills/<name>/SKILL.md`）：可重用的复杂任务模板
+- **Rules**（本文件或目录级 `AGENTS.md`）：长期稳定的项目协作规则
 
 每发现一个值得复用的 Prompt 模式，就沉淀为 Skill 或 Rules。
+
+### 9.4 协作资产规则
+
+- 契约变更必须有 spec：API、schema、SSE、ContentBlock、Agent runtime contract 等变化都要更新对应 `docs/**/spec/*.spec.md`。
+- 可复用流程必须沉淀为 skill：当同一类任务第二次出现时，优先整理到 `docs/ai-skills/<name>/SKILL.md`。
+- 关键 AI 协作决策必须写入 `docs/ai-collaboration-log.md`，说明 Prompt、AI 输出、人工取舍和经验。
+- Owner 边界必须写清楚：例如 B1 保存 attribution，B2 生产 attribution，F 消费 attribution。
+- 不把一次性任务细节写进全局 rules；阶段性任务应放在 spec、skill、协作日志或 archive 中。
 
 ---
 
