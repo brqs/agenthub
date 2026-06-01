@@ -217,7 +217,7 @@ uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/
 
 ## 3. P1 TODO - 影响产物交付完整度
 
-### B2-GAP-04 完整 Deployment / Release Tool（已实现）
+### B2-GAP-04 Deployment / Release Tool（MVP 已实现，完整 P2 继续完善）
 
 PDF 对应要求：
 
@@ -230,6 +230,16 @@ PDF 对应要求：
 - Orchestrator 有正式 `create_deployment`、`get_deployment_status`、`package_workspace_source` tool。
 - 已实现 `deployment_status` 消息块、前端卡片、静态站点发布和源码 zip 下载。
 - 容器化部署返回 `not_supported`，不执行 Docker 或 shell。
+- 当前静态发布仍复用 Preview 生命周期；尚未形成不可变 release snapshot。
+- 当前停止 static deployment 只更新 record，没有真正停止独立发布 runtime。
+- 远端前端尚未重新发布状态卡 UI。
+- 真正容器化发布仍未实现。
+
+后续完善计划：
+
+- 见 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)。
+- 先完成静态发布与 Preview 解耦、snapshot、真实 stop、资源清理和前端发布准备。
+- Container 先补安全底座和默认关闭的 feature flag；真实 E2E 等用户后续明确命令再执行。
 
 实现内容：
 
@@ -432,8 +442,8 @@ PDF 对应要求：
 
 建议按照以下顺序推进：
 
-1. B2-GAP-04 完整 Deploy Tool  
-   直接补齐 PDF 中“部署发布”的演示缺口，也能复用当前 preview tool 基础。
+1. B2-GAP-04 Deployment hardening
+   MVP 已补齐演示缺口；下一步按 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md) 将静态发布与 Preview 解耦，并补 container 安全底座。
 
 2. B2-GAP-05 Workflow 产物支持  
    补课题背景中“Workflow 等产物”的覆盖面。
@@ -458,12 +468,12 @@ PDF 对应要求：
 |---|---:|---|
 | 群聊 @orchestrator 做前端页面 | 可以 | 保持稳定 |
 | 自动生成 workspace 代码产物 | 可以 | 保持稳定 |
-| 8082 静态预览 | 可以 | 升级为 preview + deploy 双能力 |
+| 8082 静态预览 | 可以 | Preview 保持临时验收职责，Static release 使用独立生命周期 |
 | 浏览器质量验收 | 可以 | 通用 evaluation framework |
 | 并行调用多个 Agent | 可以 | 继续补并行可观测性和更复杂依赖图 |
 | 多 Agent 修改同一文件冲突检测 | 可以 | 冲突报告 + 修复/合并策略 |
 | 聊天中创建自建 Agent | 可以 | 补前端联系人管理和更多工具白名单 UI |
 | 生成 Workflow 产物 | 不可以 | workflow schema + validator |
-| 完整部署状态卡片 | 不完整 | deployment record + status + logs + 前端卡片 |
-| 源码打包下载 | 不可以 | source zip export + download URL |
-| 容器化部署 | 不可以 | 先返回 not_supported，后续补隔离运行 |
+| 部署状态卡片 | 仓库内已实现，远端前端待发布 | 发布前端构建，并补状态刷新、停止入口和部署历史 |
+| 源码打包下载 | 可以 | 补限额、digest、过期清理和更多安全测试 |
+| 容器化部署 | 仅 `not_supported` 占位 | 补 rootless runtime、policy、Worker、限额与清理后再开放 |
