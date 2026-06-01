@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import zipfile
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -176,9 +177,13 @@ async def test_workspace_routes_hide_other_users_conversation(
             headers=other_headers,
             json={"entry_path": "index.html"},
         ),
+        await client.get(
+            f"/api/v1/workspaces/{conversation['id']}/deployments",
+            headers=other_headers,
+        ),
     ]
 
-    assert [response.status_code for response in responses] == [404, 404, 404, 404]
+    assert [response.status_code for response in responses] == [404, 404, 404, 404, 404]
 
 
 async def test_write_then_read_workspace_file(client: AsyncClient) -> None:
@@ -349,6 +354,174 @@ async def test_workspace_preview_static_html_lifecycle(client: AsyncClient) -> N
         )
         assert stop_response.status_code == 200, stop_response.text
         assert stop_response.json()["status"] == "stopped"
+
+
+async def test_workspace_static_site_deployment_lifecycle(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<!doctype html><html><body><h1>Deploy OK</h1></body></html>",
+    )
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={
+            "kind": "static_site",
+            "entry_path": "index.html",
+            "requested_port": settings.preview_port_start,
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    try:
+        assert body["kind"] == "static_site"
+        assert body["status"] == "published"
+        assert body["entry_path"] == "index.html"
+        assert body["url"].endswith(f":{settings.preview_port_start}/index.html")
+        public = httpx.get(
+            f"http://127.0.0.1:{settings.preview_port_start}/index.html",
+            timeout=5,
+            trust_env=False,
+        )
+        assert public.status_code == 200
+        assert "Deploy OK" in public.text
+
+        get_response = await client.get(
+            f"/api/v1/workspaces/{conversation_id}/deployments/{body['id']}",
+            headers=headers,
+        )
+        assert get_response.status_code == 200
+        assert get_response.json()["status"] == "published"
+    finally:
+        await client.delete(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+        )
+
+
+async def test_workspace_static_site_deployment_does_not_fallback_port(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<!doctype html><html><body>Port busy</body></html>",
+    )
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("0.0.0.0", settings.preview_port_start))
+        sock.listen()
+        response = await client.post(
+            f"/api/v1/workspaces/{conversation_id}/deployments",
+            headers=headers,
+            json={
+                "kind": "static_site",
+                "entry_path": "index.html",
+                "requested_port": settings.preview_port_start,
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"]["code"] == "workspace_deployment_failed"
+
+
+async def test_workspace_source_zip_deployment_excludes_sensitive_paths(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<html>source</html>",
+    )
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, UUID(conversation_id))
+        root = Path(workspace.root_path)
+        (root / ".env").write_text("SECRET=1", encoding="utf-8")
+        (root / "node_modules").mkdir(exist_ok=True)
+        (root / "node_modules" / "skip.js").write_text("skip", encoding="utf-8")
+        await db.commit()
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "source_zip"},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["kind"] == "source_zip"
+    assert body["status"] == "published"
+    assert body["download_url"]
+
+    download = await client.get(body["download_url"], headers=headers)
+    assert download.status_code == 200, download.text
+    zip_path = Path(settings.deployment_export_dir) / conversation_id / f"{body['id']}.zip"
+    with zipfile.ZipFile(zip_path) as archive:
+        names = set(archive.namelist())
+    assert "index.html" in names
+    assert ".env" not in names
+    assert "node_modules/skip.js" not in names
+
+
+async def test_workspace_container_deployment_returns_not_supported(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation['id']}/deployments",
+        headers=headers,
+        json={"kind": "container"},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["kind"] == "container"
+    assert body["status"] == "not_supported"
+    assert "not supported" in body["error"].lower()
+
+
+async def test_workspace_deployment_rejects_invalid_entries(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/app.js",
+        headers=headers,
+        content=b"console.log('nope')",
+    )
+
+    missing = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "static_site", "entry_path": "missing.html"},
+    )
+    non_html = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "static_site", "entry_path": "app.js"},
+    )
+    traversal = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "static_site", "entry_path": "../index.html"},
+    )
+
+    assert missing.status_code == 404
+    assert non_html.status_code == 403
+    assert traversal.status_code == 403
 
 
 async def test_workspace_preview_rejects_missing_and_forbidden_entries(

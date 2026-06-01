@@ -19,6 +19,12 @@ from app.services.browser_preview_verifier import (
     BrowserPreviewVerifyDisabledError,
     BrowserPreviewVerifyError,
 )
+from app.services.workspace_deployment import (
+    WorkspaceDeploymentDisabledError,
+    WorkspaceDeploymentError,
+    WorkspaceDeploymentNotFoundError,
+    WorkspaceDeploymentService,
+)
 from app.services.workspace_preview import (
     WorkspacePreviewDisabledError,
     WorkspacePreviewService,
@@ -34,6 +40,9 @@ PLATFORM_TOOL_NAMES = {
     "start_workspace_preview",
     "verify_web_preview",
     "create_custom_agent",
+    "create_deployment",
+    "get_deployment_status",
+    "package_workspace_source",
 }
 CREATABLE_PROVIDERS = {"builtin", "claude_code", "codex", "opencode"}
 
@@ -48,11 +57,15 @@ class OrchestratorPlatformToolExecutor:
         conversation_id: UUID,
         preview_service: WorkspacePreviewService | None = None,
         browser_verifier: BrowserPreviewVerifier | None = None,
+        deployment_service: WorkspaceDeploymentService | None = None,
     ) -> None:
         self._db = db
         self._conversation_id = conversation_id
         self._preview_service = preview_service or WorkspacePreviewService()
         self._browser_verifier = browser_verifier or BrowserPreviewVerifier()
+        self._deployment_service = deployment_service or WorkspaceDeploymentService(
+            preview_service=self._preview_service
+        )
 
     async def __call__(
         self,
@@ -65,6 +78,12 @@ class OrchestratorPlatformToolExecutor:
             return await self._verify_web_preview(arguments)
         if tool_name == "create_custom_agent":
             return await self._create_custom_agent(arguments)
+        if tool_name == "create_deployment":
+            return await self._create_deployment(arguments)
+        if tool_name == "get_deployment_status":
+            return await self._get_deployment_status(arguments)
+        if tool_name == "package_workspace_source":
+            return await self._package_workspace_source(arguments)
         return OrchestratorToolResult(
             status="error",
             output=f"platform tool is not allowed: {tool_name}",
@@ -110,6 +129,88 @@ class OrchestratorPlatformToolExecutor:
                     "url": session.url,
                 }
             ),
+        )
+
+    async def _create_deployment(
+        self,
+        arguments: Mapping[str, Any],
+    ) -> OrchestratorToolResult:
+        kind = _required_str(arguments.get("kind"), "kind")
+        if isinstance(kind, OrchestratorToolResult):
+            return kind
+        if kind not in {"static_site", "source_zip", "container"}:
+            return _tool_error(
+                "kind must be one of: static_site, source_zip, container",
+                "invalid_deployment_kind",
+            )
+        requested_port = _optional_port(arguments.get("requested_port"))
+        if isinstance(requested_port, OrchestratorToolResult):
+            return requested_port
+        entry_path = _optional_str(arguments.get("entry_path"))
+        try:
+            deployment = await self._deployment_service.create(
+                self._db,
+                self._conversation_id,
+                kind=kind,
+                entry_path=entry_path,
+                requested_port=requested_port,
+            )
+        except (
+            WorkspaceDeploymentDisabledError,
+            WorkspaceDeploymentError,
+            WorkspaceDeploymentNotFoundError,
+            WorkspaceViolation,
+            WorkspaceFileNotFound,
+            WorkspaceFileTooLarge,
+        ) as exc:
+            return _tool_error(str(exc), _deployment_error_code(exc))
+        return OrchestratorToolResult(
+            status="ok",
+            output=_json_output(_deployment_payload(deployment.summary())),
+        )
+
+    async def _get_deployment_status(
+        self,
+        arguments: Mapping[str, Any],
+    ) -> OrchestratorToolResult:
+        deployment_id = _uuid_value(arguments.get("deployment_id"), "deployment_id")
+        if isinstance(deployment_id, OrchestratorToolResult):
+            return deployment_id
+        deployment = await self._deployment_service.get(
+            self._db,
+            self._conversation_id,
+            deployment_id,
+        )
+        if deployment is None:
+            return _tool_error("workspace deployment not found", "deployment_not_found")
+        return OrchestratorToolResult(
+            status="ok",
+            output=_json_output(_deployment_payload(deployment.summary())),
+        )
+
+    async def _package_workspace_source(
+        self,
+        arguments: Mapping[str, Any],
+    ) -> OrchestratorToolResult:
+        fmt = arguments.get("format", "zip")
+        if fmt != "zip":
+            return _tool_error("only zip source exports are supported", "invalid_arguments")
+        try:
+            deployment = await self._deployment_service.package_source_zip(
+                self._db,
+                self._conversation_id,
+            )
+        except (
+            WorkspaceDeploymentDisabledError,
+            WorkspaceDeploymentError,
+            WorkspaceViolation,
+            WorkspaceFileNotFound,
+            WorkspaceFileTooLarge,
+        ) as exc:
+            return _tool_error(str(exc), _deployment_error_code(exc))
+        return OrchestratorToolResult(
+            status="ok",
+            output=_json_output(_deployment_payload(deployment.summary())),
         )
 
     async def _verify_web_preview(
@@ -250,6 +351,17 @@ def _optional_port(value: object) -> int | None | OrchestratorToolResult:
     return value
 
 
+def _uuid_value(value: object, field: str) -> UUID | OrchestratorToolResult:
+    if isinstance(value, UUID):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return _tool_error(f"{field} must be a UUID string", "invalid_arguments")
+    try:
+        return UUID(value.strip())
+    except ValueError:
+        return _tool_error(f"{field} must be a UUID string", "invalid_arguments")
+
+
 def _string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -290,3 +402,44 @@ def _browser_verify_error_code(exc: Exception) -> str:
     if isinstance(exc, BrowserPreviewVerifyDisabledError):
         return "browser_preview_verify_disabled"
     return "browser_preview_verify_failed"
+
+
+def _deployment_error_code(exc: Exception) -> str:
+    if isinstance(exc, WorkspaceDeploymentDisabledError):
+        return "workspace_deployment_disabled"
+    if isinstance(exc, WorkspaceDeploymentNotFoundError):
+        return "deployment_not_found"
+    if isinstance(exc, WorkspaceFileNotFound):
+        return "deployment_entry_not_found"
+    if isinstance(exc, WorkspaceFileTooLarge):
+        return "deployment_artifact_too_large"
+    if isinstance(exc, WorkspaceViolation):
+        return "workspace_violation"
+    return "workspace_deployment_failed"
+
+
+def _deployment_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(payload)
+    payload["status_card"] = {
+        "type": "deployment_status",
+        "deployment_id": payload.get("deployment_id", ""),
+        "kind": payload.get("kind", "static_site"),
+        "status": payload.get("status", "failed"),
+        "title": _deployment_title(payload),
+        "url": payload.get("url"),
+        "download_url": payload.get("download_url"),
+        "error": payload.get("error"),
+        "logs_preview": payload.get("logs_preview"),
+        "size_bytes": payload.get("size_bytes"),
+    }
+    return payload
+
+
+def _deployment_title(payload: Mapping[str, Any]) -> str:
+    kind = payload.get("kind")
+    status = payload.get("status")
+    if kind == "source_zip":
+        return "Workspace source archive"
+    if kind == "container":
+        return "Container deployment"
+    return "Static site deployment" if status != "not_supported" else "Deployment"

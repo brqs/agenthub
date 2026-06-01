@@ -1031,6 +1031,199 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{conversation_id}/deployments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        /** List workspace deployments */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deployment records */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspaceDeploymentListResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        /** Create a workspace deployment or source export */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDeploymentRequest"];
+                };
+            };
+            responses: {
+                /** @description Deployment record */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspaceDeploymentResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+                404: components["responses"]["NotFound"];
+                /** @description Deployment failed */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        /** Get workspace deployment status */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                    deployment_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Deployment record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspaceDeploymentResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        /** Stop a workspace deployment or delete its source export */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                    deployment_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Stopped deployment record */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["WorkspaceDeploymentResponse"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        /** Download a workspace source export */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    conversation_id: string;
+                    deployment_id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Source zip archive */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/zip": string;
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents": {
         parameters: {
             query?: never;
@@ -1256,6 +1449,24 @@ export interface components {
             size: number;
             mime_type: string;
         };
+        DeploymentStatusBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "deployment_status";
+            deployment_id: string;
+            /** @enum {string} */
+            kind: "static_site" | "source_zip" | "container";
+            /** @enum {string} */
+            status: "publishing" | "published" | "failed" | "stopped" | "not_supported";
+            title?: string | null;
+            url?: string | null;
+            download_url?: string | null;
+            error?: string | null;
+            logs_preview?: string | null;
+            size_bytes?: number | null;
+        };
         ToolCallBlock: {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1273,7 +1484,7 @@ export interface components {
             output_truncated?: boolean | null;
             error_code?: string | null;
         };
-        ContentBlock: components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["ToolCallBlock"];
+        ContentBlock: components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["ToolCallBlock"];
         User: {
             /** Format: uuid */
             id: string;
@@ -1532,8 +1743,11 @@ export interface components {
              * @enum {string}
              */
             planner_model_backend?: "claude" | "deepseek" | "openai";
-            /** @description Whether Orchestrator uses LLM planning for task decomposition. */
-            llm_planning?: boolean;
+            /**
+             * @description Whether Orchestrator uses LLM planning for task decomposition.
+             * @default true
+             */
+            llm_planning: boolean;
             /** @description Whether planner failures may fall back to legacy template tasks. */
             planner_fallback_to_template?: boolean;
             /** @description Model parameters shared by orchestrator planner/replanner. */
@@ -1584,6 +1798,13 @@ export interface components {
             orchestrator_tool_max_iterations?: number;
             orchestrator_tool_result_max_chars?: number;
             orchestrator_tool_read_max_bytes?: number;
+            /**
+             * @description Whether Orchestrator may execute independent DAG tasks concurrently.
+             * @default true
+             */
+            orchestrator_parallel_enabled: boolean;
+            /** @default 3 */
+            orchestrator_parallel_max_concurrency: number;
         } & {
             [key: string]: unknown;
         };
@@ -1641,6 +1862,7 @@ export interface components {
              * @enum {string}
              */
             mode: "static";
+            requested_port?: number | null;
         };
         WorkspacePreviewResponse: {
             /** Format: uuid */
@@ -1664,6 +1886,37 @@ export interface components {
             updated_at: string;
             /** Format: date-time */
             last_accessed_at: string;
+        };
+        WorkspaceDeploymentRequest: {
+            /** @enum {string} */
+            kind: "static_site" | "source_zip" | "container";
+            entry_path?: string | null;
+            requested_port?: number | null;
+        };
+        WorkspaceDeploymentResponse: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            conversation_id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            /** @enum {string} */
+            kind: "static_site" | "source_zip" | "container";
+            /** @enum {string} */
+            status: "publishing" | "published" | "failed" | "stopped" | "not_supported";
+            entry_path?: string | null;
+            url?: string | null;
+            download_url?: string | null;
+            error?: string | null;
+            logs: string[];
+            size_bytes?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkspaceDeploymentListResponse: {
+            items: components["schemas"]["WorkspaceDeploymentResponse"][];
         };
     };
     responses: {
