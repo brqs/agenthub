@@ -22,6 +22,7 @@
 - 支持 direct chat routing；普通问答不启动 SDK / CLI。
 - stdout/stderr 只进入诊断日志，不直接暴露完整内容给最终用户。
 - 日志必须 redacted，不记录 API key、完整 env、secrets、`.env` 内容。
+- `cwd` 和 prompt guard 只是当前安全底座，不等价于 OS 级 sandbox；最小权限与 worker 隔离 backlog 见 [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)。
 
 ## 错误码
 
@@ -138,6 +139,7 @@ Adapter-specific 配置继续保留：
 
 - runtime lifecycle 字段见 [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)。
 - direct chat 字段见 `external-direct-chat-routing.spec.md`。
+- `codex.sandbox_mode="danger-full-access"` 不能作为长期 seed 默认值；后续应收紧为 `workspace-write`，更高权限仅允许显式配置并记录审计。
 
 ## 测试计划
 

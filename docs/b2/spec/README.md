@@ -3,7 +3,7 @@
 > 目的：作为 B2 Agent Runtime Layer 的 spec 总入口，帮助接手者快速判断“现在真实契约是什么、哪些已经实现、哪些只是提案或后续 TODO”。
 >
 > 状态：Current index
-> 最后更新：2026-05-31
+> 最后更新：2026-06-01
 
 ---
 
@@ -13,7 +13,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 
 - External Agent Runtime：Claude Code / Codex / OpenCode。
 - Builtin Agent Framework：团队自建 agent loop + tools + ModelGateway。
-- Orchestrator：群聊主协调器，支持 LLM planning、DAG 并行、workspace conflict detection、平台 preview/browser verify tool、对话式自建 Agent。
+- Orchestrator：群聊主协调器，支持 LLM planning、DAG 并行、workspace conflict detection、平台 preview/browser verify tool、对话式自建 Agent 基础链路。
 - Workspace Artifact / Preview / Deployment：Agent 只生成文件，平台负责 preview、URL、浏览器验收、静态发布、源码 zip 和容器化占位状态。
 
 对照课程 PDF，B2 P0 已完成并通过真实 E2E：
@@ -24,11 +24,13 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 
 剩余主要 backlog：
 
+- External runtime 最小权限与 worker 隔离。
+- 自建 Agent 显式工具白名单。
 - Workflow artifact。
 - Agent-to-Agent review thread。
 - 长期 agent 能力画像。
 - 通用 evaluation/reflection 闭环。
-- Deployment hardening：静态发布与 Preview 生命周期解耦、不可变 release snapshot、真实 stop、远端状态卡发布和 container 安全底座。
+- Deployment hardening：静态发布与 Preview 生命周期解耦、不可变 release snapshot、稳定 release route、远端状态卡发布和 container 安全底座。
 
 ---
 
@@ -157,7 +159,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 | Spec | 状态 | 说明 |
 |---|---|---|
 | [external-runtime-adapters.spec.md](external-runtime-adapters.spec.md) | Current contract | Claude Code / Codex / OpenCode provider-specific 启动、事件映射、清理 |
-| [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md) | Current contract | timeout、heartbeat、cancel、process cleanup、诊断日志 |
+| [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md) | Current contract + Hardening backlog | timeout、heartbeat、cancel、process cleanup、诊断日志；补充最小权限与 worker 隔离边界 |
 | [external-direct-chat-routing.spec.md](external-direct-chat-routing.spec.md) | Current contract | 普通问答绕过真实 runtime，任务类请求进入 external runtime |
 
 ### 5.4 Builtin Agent / ModelGateway
@@ -174,7 +176,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 | [orchestrator/README.md](orchestrator/README.md) | Current package index | Orchestrator 相关 spec 总入口 |
 | [orchestrator/core.spec.md](orchestrator/core.spec.md) | Current contract | 当前 Orchestrator 主行为：规划、DAG 并行、调度、summary、conflict、preview tool |
 | [orchestrator/task-planning.spec.md](orchestrator/task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、legacy fallback 的规划顺序 |
-| [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent platform tools |
+| [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent 与 deployment platform tools |
 | [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md) | Current contract | Orchestrator structured memory 设计与当前上下文体系 |
 | [orchestrator/memory-context.execution.spec.md](orchestrator/memory-context.execution.spec.md) | Implemented report | 结构化记忆 v1 真实执行结果 |
 | [orchestrator/react-dynamic-task-graph.proposal.md](orchestrator/react-dynamic-task-graph.proposal.md) | Backlog / proposal | ReAct 动态任务图方案；不是当前默认执行主链 |
@@ -185,7 +187,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 | Spec | 状态 | 说明 |
 |---|---|---|
 | [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) | Current contract + Hardening backlog | workspace artifact、preview API、deployment 发布边界 |
-| [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md) | Backlog execution plan | 静态发布与 Preview 解耦、不可变 snapshot、真实 stop、远端状态卡发布和 container 安全底座 |
+| [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md) | Backlog execution plan | 静态发布与 Preview 解耦、不可变 snapshot、稳定 release route、资源清理、远端状态卡发布和 container 安全底座 |
 | [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md) | Current contract | text/code/diff/web_preview 解析规则 |
 | [stream-error-status.spec.md](stream-error-status.spec.md) | Historical boundary / current rule | B1 SSE 层消费 B2 error chunk 时的状态持久化规则 |
 
