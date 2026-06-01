@@ -19,6 +19,7 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 
 - “真实执行任务流转测试”
 - “跑 live E2E”
+- 进行E2E测试
 - “测试不通过就继续修”
 - “验证 8082 preview / browser verify”
 - “验证 DAG 并行 / workspace conflict / create_custom_agent”
