@@ -156,6 +156,11 @@ Covered by backend tests:
 - group context labels other agent messages
 - single conversations do not receive the group observer prompt
 - SSE stream passes the current target agent id into `build_context()`
+- multi-agent turn-taking keeps current-agent and other-agent semantics distinct
+- old pinned group agent messages keep `[Agent: <agent_id>]` labels
+- compressed group memory keeps agent labels and follows the observer system prompt
+- Orchestrator stream handoff keeps the observer prompt before Orchestrator structured memory
+- `include_history=False` sub-agent routes remain free of original conversation history
 - full backend regression remains compatible
 
 Recommended checks:
@@ -165,3 +170,46 @@ docker compose exec -T backend pytest tests/test_context_builder.py tests/test_s
 docker compose exec -T backend pytest -q
 docker compose exec -T backend ruff check
 ```
+
+Debug note:
+
+To inspect the first context message received by an adapter in group chat, patch
+`app.api.v1.stream.get_adapter` in a stream test with a fake adapter that records
+the `messages` argument passed to `stream()`. In a group Orchestrator stream,
+`messages[0]` must be the observer system prompt; any Orchestrator structured
+memory must appear later, before the latest active user request.
+
+## 9. Follow-up Coverage
+
+### P1: Orchestrator / Sub-agent Observer Semantics
+
+Goal: when Orchestrator passes group history to sub-agents, each sub-agent still understands the difference between observed group history and the current task it must execute.
+
+B1-facing coverage:
+
+- Keep `build_context(..., current_agent_id=...)` as the single B1 entry point for group observer context.
+- Verified Orchestrator streams receive the observer system message before any Orchestrator-specific memory injection.
+- Added regression coverage for group Orchestrator handoff where another agent's prior message remains labeled as that agent's work.
+- Kept `include_history=False` routes history-free by design, especially for direct identity or routing tasks.
+
+Coordination:
+
+- B2 owns Orchestrator task routing and child-agent prompt construction.
+- B1 owns context assembly and stream handoff.
+- F has no required API change for P1.
+
+### P2: Debuggability, Documentation, And Full Regression
+
+Goal: make observer semantics easy to validate during AI collaboration, review, and demo.
+
+B1-facing coverage:
+
+- Added the debug note above for inspecting adapter input in group stream tests.
+- Expanded regression coverage for multi-agent turn-taking, agent-to-agent references, pinned group facts, and compressed group memory.
+- Kept this spec aligned with `message-content-block-attribution.spec.md`: observer context explains model input while ContentBlock attribution explains persisted output ownership.
+- No new collaboration log entry is required for this follow-up because it does not change owner boundaries or reusable workflow rules.
+
+Coordination:
+
+- B2 should document any Orchestrator child-agent prompt changes in the related Orchestrator specs.
+- F should document rendering behavior in `docs/frontend/spec/orchestrated-message-rendering.spec.md` when block-level attribution is consumed.

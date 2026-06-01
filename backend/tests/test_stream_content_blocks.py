@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -20,6 +21,7 @@ from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
 from app.models.message import Message
+from app.schemas.message import MessageOut
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -136,6 +138,139 @@ async def _send_message(
     return response.json()
 
 
+async def test_accumulator_persists_text_and_code_agent_id() -> None:
+    accumulator = StreamContentAccumulator()
+
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="text",
+            agent_id="claude-code",
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="delta", block_index=0, text_delta="hello"))
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=1,
+            block_type="code",
+            metadata={"language": "python", "agent_id": "codex-helper"},
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="delta", block_index=1, code_delta="print(1)"))
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=1))
+
+    blocks = accumulator.to_list()
+
+    assert blocks[0] == {
+        "type": "text",
+        "agent_id": "claude-code",
+        "text": "hello",
+    }
+    assert blocks[1] == {
+        "type": "code",
+        "agent_id": "codex-helper",
+        "language": "python",
+        "code": "print(1)",
+    }
+
+
+async def test_accumulator_preserves_diff_agent_id_after_finalize() -> None:
+    accumulator = StreamContentAccumulator()
+
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="diff",
+            metadata={"filename": "changes.diff", "agent_id": "opencode-helper"},
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="delta",
+            block_index=0,
+            text_delta="--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-old\n+new\n",
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    blocks = accumulator.to_list()
+
+    assert blocks[0]["type"] == "diff"
+    assert blocks[0]["agent_id"] == "opencode-helper"
+    assert blocks[0]["filename"] == "app.py"
+    assert "old" in blocks[0]["before"]
+    assert "new" in blocks[0]["after"]
+
+
+async def test_accumulator_preserves_tool_call_agent_id_after_result() -> None:
+    accumulator = StreamContentAccumulator()
+
+    accumulator.feed(
+        StreamChunk(
+            event_type="tool_call",
+            call_id="call-1",
+            tool_name="write_file",
+            tool_arguments={"path": "index.html"},
+            agent_id="claude-code",
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="tool_result",
+            call_id="call-1",
+            tool_status="ok",
+            tool_output="wrote file",
+            agent_id="orchestrator",
+        )
+    )
+
+    blocks = accumulator.to_list()
+
+    assert blocks == [
+        {
+            "type": "tool_call",
+            "agent_id": "claude-code",
+            "call_id": "call-1",
+            "tool_name": "write_file",
+            "arguments": {"path": "index.html"},
+            "status": "ok",
+            "output_preview": "wrote file",
+            "output_truncated": False,
+        }
+    ]
+
+
+async def test_message_out_serializes_block_agent_id_and_legacy_blocks() -> None:
+    message = MessageOut(
+        id=uuid4(),
+        conversation_id=uuid4(),
+        role="agent",
+        agent_id="orchestrator",
+        content=[
+            {"type": "text", "text": "legacy"},
+            {
+                "type": "tool_call",
+                "agent_id": "claude-code",
+                "call_id": "call-1",
+                "tool_name": "write_file",
+                "arguments": {},
+                "status": "ok",
+            },
+        ],
+        status="done",
+        created_at=datetime.now(UTC),
+    )
+
+    body = message.model_dump(mode="json")
+
+    assert body["content"][0]["agent_id"] is None
+    assert body["content"][1]["agent_id"] == "claude-code"
+
+
 async def test_stream_persists_diff_block(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -161,6 +296,7 @@ async def test_stream_persists_diff_block(
                 event_type="block_start",
                 block_index=0,
                 block_type="diff",
+                agent_id="claude-code",
                 metadata={"filename": "changes.diff"},
             )
             yield StreamChunk(
@@ -191,6 +327,7 @@ async def test_stream_persists_diff_block(
     assert message.status == "done"
     assert len(message.content) == 1
     assert message.content[0]["type"] == "diff"
+    assert message.content[0]["agent_id"] == "claude-code"
     assert message.content[0]["filename"] == "app.py"
     assert "old" in message.content[0]["before"]
     assert "new" in message.content[0]["after"]
