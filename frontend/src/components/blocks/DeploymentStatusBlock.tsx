@@ -1,14 +1,19 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  Check,
+  Copy,
   Download,
   ExternalLink,
+  Loader2,
   Package,
   Rocket,
   Square,
+  Trash2,
 } from 'lucide-react';
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import * as deploymentsAdapter from '@/lib/adapters/deployments';
+import { useDeploymentStatus, useStopDeployment } from '@/hooks/useDeployments';
 import type { DeploymentStatusBlock as DeploymentStatusBlockType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -58,18 +63,39 @@ function filenameFor(block: DeploymentStatusBlockType): string {
   return `agenthub-deployment-${block.deployment_id}.zip`;
 }
 
-export function DeploymentStatusBlock({ block }: { block: DeploymentStatusBlockType }) {
-  const meta = STATUS_META[block.status];
+export function DeploymentStatusBlock({
+  block,
+  conversationId,
+}: {
+  block: DeploymentStatusBlockType;
+  conversationId?: string;
+}) {
+  const statusQuery = useDeploymentStatus(conversationId, block.deployment_id);
+  const stopDeployment = useStopDeployment(conversationId);
+  const deployment = statusQuery.data;
+  const status = deployment?.status ?? block.status;
+  const kind = deployment?.kind ?? block.kind;
+  const url = deployment?.url ?? block.url;
+  const downloadUrl = deployment?.download_url ?? block.download_url;
+  const error = deployment?.error ?? block.error;
+  const logsPreview = deployment?.logs.join('\n') || block.logs_preview;
+  const meta = STATUS_META[status];
   const StatusIcon = meta.icon;
   const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'error'>('idle');
-  const sizeLabel = formatBytes(block.size_bytes);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const sizeLabel = formatBytes(deployment?.size_bytes ?? block.size_bytes);
+  const canStop = Boolean(conversationId) && ['publishing', 'published'].includes(status);
 
   async function downloadSource() {
-    if (!block.download_url || downloadState === 'loading') return;
+    if (!conversationId || !downloadUrl || downloadState === 'loading') return;
     setDownloadState('loading');
     try {
-      const response = await api.get<Blob>(block.download_url, { responseType: 'blob' });
-      const href = URL.createObjectURL(response.data);
+      const archive = await deploymentsAdapter.downloadSourceArchive(
+        conversationId,
+        block.deployment_id,
+        downloadUrl,
+      );
+      const href = URL.createObjectURL(archive);
       const anchor = document.createElement('a');
       anchor.href = href;
       anchor.download = filenameFor(block);
@@ -81,6 +107,22 @@ export function DeploymentStatusBlock({ block }: { block: DeploymentStatusBlockT
     } catch {
       setDownloadState('error');
     }
+  }
+
+  async function copyUrl() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyState('copied');
+      window.setTimeout(() => setCopyState('idle'), 1_500);
+    } catch {
+      setCopyState('error');
+    }
+  }
+
+  function stop() {
+    if (!canStop) return;
+    stopDeployment.mutate(block.deployment_id);
   }
 
   return (
@@ -100,27 +142,42 @@ export function DeploymentStatusBlock({ block }: { block: DeploymentStatusBlockT
             </span>
           </div>
           <div className="mt-1 truncate text-xs text-slate-500">
-            {KIND_LABELS[block.kind]} · {block.deployment_id}
+            {KIND_LABELS[kind]} · {block.deployment_id}
             {sizeLabel ? ` · ${sizeLabel}` : ''}
           </div>
-          {block.error && (
-            <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100">
-              {block.error}
+          {status === 'publishing' && (
+            <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-200">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              正在刷新发布状态...
             </p>
           )}
-          {block.logs_preview && (
+          {kind === 'source_zip' && status === 'published' && (
+            <p className="mt-2 text-xs text-slate-500">源码包为临时产物，请及时下载并妥善保存。</p>
+          )}
+          {error && (
+            <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100">
+              {error}
+            </p>
+          )}
+          {logsPreview && (
             <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600 scrollbar-thin dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-              {block.logs_preview}
+              {logsPreview}
             </pre>
           )}
           {downloadState === 'error' && (
             <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">源码下载失败，请稍后重试。</p>
           )}
+          {copyState === 'error' && (
+            <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">复制失败，请手动复制部署地址。</p>
+          )}
+          {stopDeployment.isError && (
+            <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">停止发布失败，请稍后重试。</p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {block.url && (
+          {url && (
             <a
-              href={block.url}
+              href={url}
               target="_blank"
               rel="noreferrer"
               className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
@@ -129,15 +186,39 @@ export function DeploymentStatusBlock({ block }: { block: DeploymentStatusBlockT
               <ExternalLink className="h-4 w-4" />
             </a>
           )}
-          {block.download_url && (
+          {url && (
             <button
               type="button"
-              onClick={downloadSource}
+              onClick={() => void copyUrl()}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+              title={copyState === 'copied' ? '已复制部署地址' : '复制部署地址'}
+              aria-label={copyState === 'copied' ? '已复制部署地址' : '复制部署地址'}
+            >
+              {copyState === 'copied' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </button>
+          )}
+          {downloadUrl && conversationId && (
+            <button
+              type="button"
+              onClick={() => void downloadSource()}
               className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-slate-800 dark:hover:text-white"
               title="下载源码"
+              aria-label="下载源码"
               disabled={downloadState === 'loading'}
             >
-              <Download className="h-4 w-4" />
+              {downloadState === 'loading' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            </button>
+          )}
+          {canStop && (
+            <button
+              type="button"
+              onClick={stop}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-rose-400/10 dark:hover:text-rose-300"
+              title={kind === 'source_zip' ? '删除源码包' : '停止发布'}
+              aria-label={kind === 'source_zip' ? '删除源码包' : '停止发布'}
+              disabled={stopDeployment.isPending}
+            >
+              {stopDeployment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : kind === 'source_zip' ? <Trash2 className="h-4 w-4" /> : <Square className="h-4 w-4" />}
             </button>
           )}
         </div>
