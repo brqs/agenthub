@@ -39,14 +39,38 @@ def _message_role(message: Message) -> str | None:
     return role
 
 
-def _group_context_message(agent_ids: list[str]) -> ChatMessage:
+def _group_context_message(
+    agent_ids: list[str],
+    *,
+    current_agent_id: str | None = None,
+) -> ChatMessage:
     agents = ", ".join(agent_ids) if agent_ids else "unknown"
+    if current_agent_id:
+        other_agent_ids = [
+            agent_id for agent_id in agent_ids if agent_id != current_agent_id
+        ]
+        others = ", ".join(other_agent_ids) if other_agent_ids else "none"
+        return ChatMessage(
+            role="system",
+            content=(
+                f"You are Agent: {current_agent_id}. You are observing a group "
+                f"conversation. Agents in this conversation: {agents}. Other "
+                f"agents: {others}. Messages prefixed with [Agent: <agent_id>] "
+                "were produced by that agent. Those other-agent messages are "
+                "not your own statements, actions, files, or conclusions. You "
+                "may read, quote, analyze, continue, or disagree with them, but "
+                "do not claim them as your own. When referring to another "
+                "agent's work, name that agent explicitly."
+            ),
+        )
     return ChatMessage(
         role="system",
         content=(
             "This is a group conversation. Assistant messages may come from "
             f"multiple agents: {agents}. Each agent message is prefixed with "
-            "[Agent: <agent_id>] so the current agent can distinguish who said it."
+            "[Agent: <agent_id>] so the current agent can distinguish who said it. "
+            "Treat labeled messages as observations from their named agents, not "
+            "as your own prior statements."
         ),
     )
 
@@ -183,6 +207,8 @@ async def build_context(
     db: AsyncSession,
     conversation_id: UUID,
     max_tokens: int = TOTAL_TOKEN_BUDGET,
+    *,
+    current_agent_id: str | None = None,
 ) -> list[ChatMessage]:
     """Build compressed context from memory, pinned messages, and recent messages."""
     conversation = await db.get(Conversation, conversation_id)
@@ -210,7 +236,7 @@ async def build_context(
     if is_group:
         used_tokens = _append_with_budget(
             context,
-            _group_context_message(agent_ids),
+            _group_context_message(agent_ids, current_agent_id=current_agent_id),
             used_tokens,
             min(max_tokens, 300),
         )

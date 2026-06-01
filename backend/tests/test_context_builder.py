@@ -149,17 +149,45 @@ async def test_group_history_includes_group_notice_and_agent_labels() -> None:
     )
 
     async with SessionFactory() as db:
-        context = await build_context(db, conversation_id)
+        context = await build_context(
+            db,
+            conversation_id,
+            current_agent_id="codex-helper",
+        )
         memory = await db.get(ConversationMemory, conversation_id)
 
     assert memory is None
     assert context[0].role == "system"
-    assert "group conversation" in context[0].content
-    assert "claude-code" in context[0].content
+    assert "You are Agent: codex-helper" in context[0].content
+    assert "observing a group conversation" in context[0].content
+    assert "Other agents: claude-code, orchestrator" in context[0].content
+    assert "not your own statements" in context[0].content
     joined = "\n".join(message.content for message in context)
     assert "[Agent: claude-code]" in joined
     assert "[Agent: codex-helper]" in joined
     assert "I designed the backend API." in joined
+
+
+async def test_single_context_does_not_add_group_observer_prompt() -> None:
+    conversation_id = await _create_conversation(agent_ids=["codex-helper"])
+    await _insert_text_messages(
+        conversation_id,
+        [
+            ("user", "Remember: AgentHub uses FastAPI."),
+            ("agent", "I will remember it."),
+        ],
+    )
+
+    async with SessionFactory() as db:
+        context = await build_context(
+            db,
+            conversation_id,
+            current_agent_id="codex-helper",
+        )
+
+    joined = "\n".join(message.content for message in context)
+    assert "observing a group conversation" not in joined
+    assert "not your own statements" not in joined
 
 
 async def test_pending_and_error_messages_are_excluded() -> None:
