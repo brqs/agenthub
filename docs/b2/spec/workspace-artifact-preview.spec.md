@@ -201,7 +201,7 @@ StreamChunk(
 
 ## Deployment v1
 
-> 当前状态：MVP 已实现。静态发布与 Preview 生命周期解耦、不可变 release snapshot、真实 stop 和 container 安全底座见 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)。
+> 当前状态：MVP 已实现。静态发布与 Preview 生命周期解耦、不可变 release snapshot、稳定 release route、真实 stop 和 container 安全底座见 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)。
 
 Deploy 不等同 preview：
 
@@ -295,12 +295,12 @@ type DeploymentStatusBlock = {
 | 用户请求源码打包下载 | 创建 source zip export，返回下载 URL |
 | 用户请求容器化部署 | 创建 `not_supported` 状态记录，不执行 Docker |
 | SSE 断开 | 不影响已启动 preview；preview 由 TTL 管理 |
-| Conversation 删除 | 停止 preview，清理 session/deployment |
+| Conversation 删除 | 当前停止 preview 并删除 DB record；release snapshot、source zip 和稳定 route token 的完整清理由 hardening 补齐 |
 | Workspace 删除 | 停止 preview |
 
 ## Orchestrator 集成
 
-Orchestrator 只做 workspace artifact 的只读存在性检查，不直接接管 preview / deployment 生命周期。平台 preview / deployment API 仍是唯一能启动、复用、停止 service 和生成 URL 的组件。
+Orchestrator 只做 workspace artifact 的只读存在性检查，不直接接管 preview / deployment 生命周期。平台 preview / deployment API 仍是唯一能启动、复用、停止 service 或失效 release route，并生成 URL 的组件。
 
 Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 artifact path 的子任务必须检查 artifact：
 
@@ -320,7 +320,7 @@ Deployment tools：
 
 - `entry_path` 必须在 workspace 内。
 - 禁止预览 `.env`、`.ssh`、`secrets/`、`.agenthub/`。
-- 静态 server 只能暴露当前 workspace。
+- Preview 静态 server 只能暴露当前 workspace；hardening 后正式 static release 只能暴露不可变 snapshot。
 - 默认禁止目录列表。
 - HTML 预览必须设置 sandbox / CSP。
 - 平台 preview 进程不接收 provider API key。

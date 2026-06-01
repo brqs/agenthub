@@ -2,8 +2,8 @@
 
 > 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，列出尚未达标或只部分达标的 B2 TODO 清单。
 >
-> 状态：P0 implemented / P1+ backlog
-> 最后更新：2026-05-31
+> 状态：P0 core implemented / P1+ backlog
+> 最后更新：2026-06-01
 >
 > Spec 整理入口：完整状态分类、保留/精简/提案/历史边界见 [README.md](README.md)。
 
@@ -23,16 +23,18 @@ B2 当前已经具备 Agent Runtime Layer 的主体能力：
 
 1. 并行 DAG 调度：已实现，默认开启。
 2. Workspace snapshot / diff / conflict detection：已实现，冲突先记录和展示，不自动 merge。
-3. 对话式自建 Agent：已实现 `create_custom_agent` 平台 tool，并支持加入当前群聊。
+3. 对话式自建 Agent：已实现 `create_custom_agent` 平台 tool 和加入当前群聊的基础链路；显式工具白名单仍需补齐。
 
 当前剩余缺口集中在：
 
-1. 完整部署发布能力。
-2. Workflow 产物支持。
-3. Agent-to-Agent review thread。
-4. 长期记忆与 Agent 能力画像。
-5. 通用 Reflection / Evaluation 闭环。
-6. 更丰富产物类型。
+1. External runtime 最小权限与 worker 隔离。
+2. 自建 Agent 显式工具白名单。
+3. 完整部署发布能力。
+4. Workflow 产物支持。
+5. Agent-to-Agent review thread。
+6. 长期记忆与 Agent 能力画像。
+7. 通用 Reflection / Evaluation 闭环。
+8. 更丰富产物类型。
 
 ---
 
@@ -148,6 +150,8 @@ PDF 对应要求：
 - Orchestrator 已支持聊天中通过正式平台 tool `create_custom_agent` 创建自建 Agent。
 - 支持创建后加入当前 group conversation。
 - 缺少必要字段时返回 `needs_user_input=true`，不创建半成品。
+- 当前正式 tool schema 没有独立 `allowed_tools` 字段；只能通过通用 `config` 透传 provider-specific 配置。
+- Builtin Agent 未显式传入 `tool_specs` 时会获得全部 native tools 和 MCP tools，因此“System Prompt + 工具集”要求尚未完整达标。
 
 已实现：
 
@@ -157,11 +161,16 @@ PDF 对应要求：
   - provider
   - system_prompt
   - capabilities
-  - tool whitelist
   - model/runtime config
 - 对缺失字段调用 `ask_user`。
 - 创建后返回 Agent 联系人信息，并允许立即拉入当前会话。
-- 工具白名单必须走 config validation。
+
+待完善：
+
+- 为 `create_custom_agent` 增加显式 `allowed_tools` 字段。
+- 对 native tools 和 MCP tools 做统一白名单校验。
+- Builtin Agent 默认使用最小权限工具集；仅在用户明确授权后增加工具。
+- 在 Agent CRUD 与聊天创建链路中复用同一份工具权限 schema。
 
 主要影响文件：
 
@@ -176,10 +185,11 @@ PDF 对应要求：
 验收结果：
 
 - 用户在聊天里说“创建一个文案 Agent，语气专业，能读写文件”，平台能生成自建 Agent。
-- 缺少 provider/tool 权限时会追问，而不是创建半成品。
+- 缺少 `name/provider/system_prompt` 时会追问，而不是创建半成品。
 - 新 Agent 出现在 `/api/v1/agents`。
 - 新 Agent 可在后续会话中被 Orchestrator 调度。
 - 真实 E2E Case 4 已通过，`LiveCopywriter-{timestamp}` 创建成功并加入当前群聊。
+- 显式工具白名单尚未验收，因此本项只能视为基础链路达标。
 
 ### P0 验证记录
 
@@ -188,7 +198,7 @@ PDF 对应要求：
 ```bash
 cd backend
 uv run pytest -q
-# 440 passed, 7 skipped, 1 warning
+# 460 passed, 7 skipped, 1 warning
 
 uv run ruff check app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/browser_preview_verifier.py app/core/config.py app/schemas/agent.py app/api/v1/stream_orchestrator_context.py app/agents/registry.py
 # passed
@@ -217,7 +227,39 @@ uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/
 
 ## 3. P1 TODO - 影响产物交付完整度
 
-### B2-GAP-04 Deployment / Release Tool（MVP 已实现，完整 P2 继续完善）
+### B2-GAP-04 External Runtime 最小权限与 Worker 隔离
+
+PDF 对应要求：
+
+- 平台接入 Claude Code、Codex、OpenCode 等 Agent runtime。
+- Agent 产出应在平台可控环境中执行，不能将宿主机权限隐式交给 Agent。
+
+当前状态：
+
+- External runtime 已统一使用 conversation workspace 作为 `cwd`。
+- 已有 timeout、heartbeat、cancel、process group cleanup 和日志脱敏。
+- 已有 workspace prompt guard 和 preview/server 命令过滤。
+- `codex-helper` seed 默认仍使用 `sandbox_mode="danger-full-access"`。
+- 当前 external runtime 仍在 API 服务宿主环境附近执行，缺少独立 worker、OS 级目录隔离和资源限额。
+
+待办：
+
+- 将默认 Codex sandbox 收紧为 `workspace-write`；需要更高权限时必须显式配置并记录审计事件。
+- 抽象独立 `ExternalRuntimeWorker`，将 CLI/SDK runtime 与 API 进程隔离。
+- 为 worker 增加工作目录 allowlist、只读敏感目录、CPU、memory、process count 和 timeout 限额。
+- 禁止把数据库密码、provider API key 之外的宿主 env 整体透传给 runtime。
+- 对 runtime 出网能力增加 feature flag 和 allowlist。
+- 增加残留进程、越界访问、敏感 env、危险 sandbox mode 的回归测试。
+
+验收标准：
+
+- 默认 external runtime 只能写当前 conversation workspace。
+- API 进程不直接承载长时间 CLI 子进程。
+- `danger-full-access` 不能作为 seed 默认值。
+- timeout、cancel、服务重启后不存在残留子进程。
+- runtime 日志和审计事件能够说明 provider、agent、sandbox mode、workspace 和退出原因。
+
+### B2-GAP-05 Deployment / Release Tool（MVP 已实现，完整 P2 继续完善）
 
 PDF 对应要求：
 
@@ -231,7 +273,7 @@ PDF 对应要求：
 - 已实现 `deployment_status` 消息块、前端卡片、静态站点发布和源码 zip 下载。
 - 容器化部署返回 `not_supported`，不执行 Docker 或 shell。
 - 当前静态发布仍复用 Preview 生命周期；尚未形成不可变 release snapshot。
-- 当前停止 static deployment 只更新 record，没有真正停止独立发布 runtime。
+- 当前停止 static deployment 只更新 record，没有失效 URL 或清理独立 release 资源。
 - 远端前端尚未重新发布状态卡 UI。
 - 真正容器化发布仍未实现。
 
@@ -285,7 +327,7 @@ PDF 对应要求：
 - 用户说“容器化部署”时返回 `not_supported` 状态卡，不执行 Docker。
 - 用户只说“预览”时仍走 `start_workspace_preview`，不混淆 preview 与 deployment。
 
-### B2-GAP-05 Workflow 产物支持
+### B2-GAP-06 Workflow 产物支持
 
 PDF 对应要求：
 
@@ -328,7 +370,7 @@ PDF 对应要求：
 - Orchestrator summary 能列出 workflow artifact。
 - 非法 workflow 不被标记为 ready。
 
-### B2-GAP-06 Agent-to-Agent Review Thread
+### B2-GAP-07 Agent-to-Agent Review Thread
 
 PDF 对应要求：
 
@@ -371,7 +413,7 @@ PDF 对应要求：
 
 ## 4. P2 TODO - 提升真实多 Agent 系统成熟度
 
-### B2-GAP-07 长期记忆与 Agent 能力画像
+### B2-GAP-08 长期记忆与 Agent 能力画像
 
 当前状态：
 
@@ -390,7 +432,7 @@ PDF 对应要求：
 - 同类失败多次后，Orchestrator 会降低该 Agent 优先级。
 - 调度理由中能说明选择某 Agent 的历史依据。
 
-### B2-GAP-08 Reflection / Evaluation 闭环通用化
+### B2-GAP-09 Reflection / Evaluation 闭环通用化
 
 当前状态：
 
@@ -413,7 +455,7 @@ PDF 对应要求：
 - 非网页任务也能进入“生成 -> 验证 -> 修复 -> 再验证”闭环。
 - 最终交付必须带 evaluation summary。
 
-### B2-GAP-09 更丰富产物类型
+### B2-GAP-10 更丰富产物类型
 
 当前状态：
 
@@ -442,22 +484,35 @@ PDF 对应要求：
 
 建议按照以下顺序推进：
 
-1. B2-GAP-04 Deployment hardening
+1. B2-GAP-04 External Runtime 最小权限与 Worker 隔离
+
+   先收紧 `danger-full-access` 默认值，再将 runtime 与 API 进程隔离。
+
+2. B2-GAP-05 Deployment hardening
    MVP 已补齐演示缺口；下一步按 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md) 将静态发布与 Preview 解耦，并补 container 安全底座。
 
-2. B2-GAP-05 Workflow 产物支持  
+3. 对话式自建 Agent 显式工具白名单
+
+   将当前基础创建链路补齐为可验证的最小权限工具集契约。
+
+4. B2-GAP-06 Workflow 产物支持
+
    补课题背景中“Workflow 等产物”的覆盖面。
 
-3. B2-GAP-06 Agent-to-Agent Review Thread  
+5. B2-GAP-07 Agent-to-Agent Review Thread
+
    让协作从“Orchestrator 转派”更接近真实多 Agent 讨论。
 
-4. B2-GAP-07 长期记忆与 Agent 能力画像  
+6. B2-GAP-08 长期记忆与 Agent 能力画像
+
    让 planner 从固定规则升级为带历史依据的 agent 选择。
 
-5. B2-GAP-08 Reflection / Evaluation 闭环通用化  
+7. B2-GAP-09 Reflection / Evaluation 闭环通用化
+
    将当前网页质量门抽象到更多产物类型。
 
-6. B2-GAP-09 更丰富产物类型  
+8. B2-GAP-10 更丰富产物类型
+
    作为答辩加分项和长期演进。
 
 ---
@@ -472,7 +527,8 @@ PDF 对应要求：
 | 浏览器质量验收 | 可以 | 通用 evaluation framework |
 | 并行调用多个 Agent | 可以 | 继续补并行可观测性和更复杂依赖图 |
 | 多 Agent 修改同一文件冲突检测 | 可以 | 冲突报告 + 修复/合并策略 |
-| 聊天中创建自建 Agent | 可以 | 补前端联系人管理和更多工具白名单 UI |
+| 聊天中创建自建 Agent | 基础创建和入群可以 | 增加显式 `allowed_tools`、最小权限默认值和权限 UI |
+| External runtime 隔离 | cwd、timeout、cleanup 已有 | 独立 worker、最小权限 sandbox、资源限额和审计 |
 | 生成 Workflow 产物 | 不可以 | workflow schema + validator |
 | 部署状态卡片 | 仓库内已实现，远端前端待发布 | 发布前端构建，并补状态刷新、停止入口和部署历史 |
 | 源码打包下载 | 可以 | 补限额、digest、过期清理和更多安全测试 |
