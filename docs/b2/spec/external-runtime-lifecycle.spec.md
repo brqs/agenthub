@@ -166,6 +166,32 @@ StreamChunk(
 - 完整 env。
 - `.env`、`secrets/`、`.ssh/` 内容。
 
+## 最小权限与隔离边界
+
+当前已经实现的安全底座：
+
+- runtime `cwd` 固定为 conversation workspace。
+- timeout、cancel 和 error 时清理进程组。
+- 日志脱敏，不记录完整 env 和敏感文件内容。
+- preview、deploy 和常驻 server 命令由平台 tool 接管，不交给 external runtime。
+
+当前仍未完成的 hardening：
+
+- `codex-helper` seed 默认仍使用 `sandbox_mode="danger-full-access"`。
+- CLI / SDK runtime 仍在 API 服务宿主环境附近执行，没有独立 worker 隔离。
+- 缺少统一 CPU、memory、process count 和出网策略。
+- workspace `cwd` 和 prompt guard 不能替代 OS 级权限隔离。
+
+后续约束：
+
+1. Seed 默认 sandbox 必须收紧为 `workspace-write`。
+2. `danger-full-access` 只能作为显式管理员配置，必须记录审计事件。
+3. 新增独立 `ExternalRuntimeWorker`，API 进程只提交任务和接收标准事件。
+4. Worker 必须限制可写目录、环境变量、CPU、memory、process count、timeout 和出网范围。
+5. Worker cleanup 必须覆盖 timeout、cancel、服务重启和异常退出。
+
+本节是 hardening backlog，不应误读为当前已完成能力。PDF 缺口与优先级见 [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md)。
+
 ## 测试计划
 
 - 静默子进程触发 idle timeout。
@@ -176,6 +202,9 @@ StreamChunk(
 - Codex timeout 且输出文件非空时成功。
 - heartbeat 不进入 `message.content`。
 - diagnostics redaction 覆盖 token/API key。
+- 默认 seed 不使用 `danger-full-access`。
+- runtime 只能写 conversation workspace，越界访问被拒绝并记录审计事件。
+- worker timeout、cancel 和异常退出后没有残留进程。
 
 ## 验收标准
 

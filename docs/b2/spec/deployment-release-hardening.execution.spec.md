@@ -105,10 +105,11 @@ status = not_supported
 
 1. 静态部署与 Preview 生命周期解耦。
 2. 每次静态发布生成不可变 release snapshot。
-3. Stop deployment 时真正停止对应发布服务并清理资源。
-4. 扩充 deployment record，使状态与实际 runtime 一致。
-5. 完成远端前端状态卡发布准备，并在获得部署权限后发布前端。
-6. 为真正容器化部署实现安全底座；默认仍保持 feature flag 关闭。
+3. Static release 使用平台稳定路由，不再为每个 release 启动端口进程。
+4. Stop deployment 时失效发布 URL 并清理 release snapshot。
+5. 扩充 deployment record，使状态与实际 release 一致。
+6. 完成远端前端状态卡发布准备，并在获得部署权限后发布前端。
+7. 为真正容器化部署实现安全底座；默认仍保持 feature flag 关闭。
 
 ### 3.2 本轮不做
 
@@ -128,11 +129,9 @@ status = not_supported
 
 ```text
 DEPLOYMENT_ENABLED=true
-DEPLOYMENT_PUBLIC_BASE_URL=http://111.229.151.159
+DEPLOYMENT_PUBLIC_BASE_URL=http://111.229.151.159:8000
 DEPLOYMENT_STATIC_ROOT=/tmp/agenthub_static_releases
-DEPLOYMENT_PORT_START=8183
-DEPLOYMENT_PORT_END=8283
-DEPLOYMENT_START_TIMEOUT_SECONDS=15
+DEPLOYMENT_RELEASE_TOKEN_BYTES=24
 DEPLOYMENT_CONTAINER_ENABLED=false
 DEPLOYMENT_CONTAINER_RUNTIME=podman
 DEPLOYMENT_CONTAINER_MAX_CPU=1
@@ -142,8 +141,10 @@ DEPLOYMENT_CONTAINER_MAX_RUNTIME_SECONDS=3600
 
 约束：
 
-- Preview 继续使用 `8082-8182`。
-- Static deployment 使用独立端口池 `8183-8283`。
+- Preview 继续使用 `8082-8182` 临时端口池。
+- Static deployment 不再分配端口；统一通过平台稳定 release route 对外提供只读文件。
+- Release URL 必须使用不可猜测 token，不直接暴露 conversation id、workspace path 或 snapshot path。
+- `DEPLOYMENT_PUBLIC_BASE_URL` 默认指向当前公网后端；如后续增加反向代理或独立域名，可通过环境变量覆盖。
 - Container 默认关闭。
 
 ### Phase 1 - 独立 Static Release Service
@@ -168,42 +169,44 @@ DEPLOYMENT_CONTAINER_MAX_RUNTIME_SECONDS=3600
    secrets/
    ```
 5. 计算 snapshot sha256。
-6. 从独立 deployment 端口池分配端口。
-7. 启动平台托管的只读静态服务。
+6. 生成不可猜测 `release_token`。
+7. 通过平台稳定路由暴露只读 release：
+   ```text
+   GET /releases/{release_token}/{path:path}
+   ```
 8. 验证入口返回 `200`。
-9. 返回 runtime id、PID、port、URL、snapshot path 和 artifact digest。
+9. 返回 URL、release token、snapshot path 和 artifact digest。
 
 安全要求：
 
-- 不允许目录列表。
-- 服务只能暴露单个 release snapshot。
+- 路由只能暴露 token 对应的单个 release snapshot。
+- 禁止目录列表；未指定文件时仅允许回退到明确配置的 entry path。
+- Stop deployment 后 token 立即失效，旧 URL 返回 `404` 或 `410`。
 - HTML 响应保留 CSP、`X-Content-Type-Options` 等安全头。
-- 不向发布进程传递 provider API key、数据库密码或 workspace 写权限。
+- Static release 不启动子进程，也不接触 provider API key、数据库密码或 workspace 写权限。
 
 ### Phase 2 - Deployment Record 与生命周期完善
 
 为 `WorkspaceDeployment` 增加：
 
 ```text
-runtime_id
-runtime_pid
-port
+release_token
 snapshot_path
 artifact_digest
+file_count
 published_at
 stopped_at
-source_preview_session_id
 ```
 
 调整行为：
 
 | 操作 | 目标行为 |
 |---|---|
-| 创建 `static_site` | 创建 snapshot，启动独立发布服务，状态变为 `published` |
-| 查询 deployment | 刷新实际进程状态；进程丢失时标记 `failed` |
-| 停止 `static_site` | 停止该 deployment 的进程，清理 snapshot，状态变为 `stopped` |
+| 创建 `static_site` | 创建 snapshot 和 release token，通过稳定路由发布，状态变为 `published` |
+| 查询 deployment | 返回 record、snapshot 摘要和 release URL；snapshot 丢失时标记 `failed` |
+| 停止 `static_site` | 失效 release token，清理 snapshot，状态变为 `stopped` |
 | 停止 `source_zip` | 删除 zip 文件，状态变为 `stopped` |
-| 删除 conversation | 停止相关 runtime，删除 snapshot 和 zip |
+| 删除 conversation | 失效相关 token，删除 snapshot 和 zip |
 | 后续修改 workspace | 不影响已发布 snapshot |
 
 数据库变更：
@@ -298,6 +301,12 @@ DELETE /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}
 GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 ```
 
+新增公开只读 release route：
+
+```text
+GET /releases/{release_token}/{path:path}
+```
+
 可选新增：
 
 ```text
@@ -320,6 +329,7 @@ backend/app/models/workspace.py
 backend/app/services/workspace_deployment.py
 backend/app/services/workspace_static_release.py
 backend/app/services/workspace_container_release.py
+backend/app/api/releases.py
 backend/app/api/v1/workspaces.py
 backend/app/schemas/workspace.py
 backend/app/schemas/message.py
@@ -353,11 +363,13 @@ docs/b2/spec/orchestrator/live-e2e-report.spec.md
 
 ### 单元与 API
 
-- Static release 与 Preview 使用不同端口池。
+- Static release 不启动端口服务，Preview 仍使用临时端口池。
 - Static deployment 生成不可变 snapshot。
+- Static release URL 使用不可猜测 token，不泄露 workspace path。
 - 修改 workspace 后，已发布页面内容不变。
-- 停止 static deployment 后，端口不可访问，record 为 `stopped`。
-- 删除 conversation 后，runtime、snapshot 和 zip 被清理。
+- 停止 static deployment 后，旧 release URL 返回 `404` 或 `410`，record 为 `stopped`。
+- 公开 route 不允许目录列表和路径穿越。
+- 删除 conversation 后，release token、snapshot 和 zip 被清理。
 - Source zip 排除敏感目录、symlink 和路径穿越。
 - Container feature flag 默认关闭时返回 `not_supported`。
 - Container policy 拒绝 privileged、host network、host mount。
@@ -419,7 +431,7 @@ docs/ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md
 1. 聊天发送“部署”并看到远端状态卡。
 2. Static release URL 可访问。
 3. 修改 workspace 后，旧 release 内容保持不变。
-4. 停止 deployment 后，旧 URL 不可访问。
+4. 停止 deployment 后，旧 release URL 返回 `404` 或 `410`。
 5. Source zip 下载并验证敏感目录排除。
 6. Container feature flag 关闭时返回 `not_supported`。
 7. 若环境具备 rootless runtime 且用户明确要求，再测试真实 container 发布。
@@ -438,7 +450,8 @@ docs/ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md
 
 - 静态部署不再复用 Preview 生命周期。
 - Static release snapshot 不可变。
-- Stop deployment 真正停止 runtime。
+- Static release 使用平台稳定路由，不再启动独立端口进程。
+- Stop deployment 真正失效 token 并清理 snapshot。
 - 删除 conversation 后资源清理完整。
 - 远端前端能展示 deployment 状态卡。
 - Container 安全底座具备 feature flag、policy 和 Worker 边界。

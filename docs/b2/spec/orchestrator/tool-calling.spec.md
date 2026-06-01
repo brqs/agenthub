@@ -419,6 +419,19 @@ Schema：
 - `add_to_conversation=true` 时，将新 Agent id 加入当前 group conversation 的 `agent_ids`。
 - 返回 id、name、provider、capabilities。
 
+当前边界：
+
+- v1 schema 只有通用 `config`，尚未提供独立 `allowed_tools` 字段。
+- Builtin Agent 未显式传入 `tool_specs` 时会获得全部 native tools 和 MCP tools。
+- 因此，课程要求中的“System Prompt + 工具集”目前只完成 System Prompt 和基础创建链路；显式工具白名单、最小权限默认值和权限 UI 仍属于 backlog。
+
+后续 contract：
+
+- `create_custom_agent` 增加 `allowed_tools: string[]`。
+- native tools 和 MCP tools 使用同一份 allowlist 校验。
+- 未显式授权时使用最小权限工具集，不自动授予全部工具。
+- Agent CRUD 与聊天创建复用同一份工具权限 schema。
+
 平台执行：
 
 - executor 位于 `backend/app/services/orchestrator_platform_tools.py`。
@@ -432,6 +445,7 @@ Schema：
 - 当前 group conversation 的 `agent_ids` 包含新 Agent id。
 - 缺少 `name/provider/system_prompt` 时返回 `needs_user_input=true`，且数据库中不产生半成品。
 - 非法 provider 或非法 config 返回 tool error。
+- 增加 `allowed_tools` 后，非法工具名必须返回 tool error，未授权工具不得进入 Builtin Agent loop。
 
 ### 5.8 `create_deployment`
 
@@ -465,6 +479,7 @@ Schema：
 - `container` 本阶段返回 `not_supported`，不得执行 Docker 或 shell。
 - 返回 deployment id、kind、status、url/download_url、error、logs preview。
 - 成功或失败都应产生 `deployment_status` 消息块，方便前端展示状态卡片。
+- 当前 MVP 的 `static_site` 仍复用 Preview 生命周期；不可变 snapshot 和稳定 release route 属于 [deployment-release-hardening.execution.spec.md](../deployment-release-hardening.execution.spec.md) backlog。
 
 ### 5.9 `get_deployment_status`
 
@@ -518,7 +533,7 @@ Schema：
 - 禁止打包 `.env`、`.ssh`、`secrets/`。
 - 返回 export id、download URL、文件大小和状态。
 
-### 5.8 `run_test`（v1.1+，不在 v1 默认范围）
+### 5.11 `run_test`（v1.1+，不在 v1 默认范围）
 
 `run_test` 是后续增强，不进入第一版 Orchestrator tool calling v1。原因：
 
