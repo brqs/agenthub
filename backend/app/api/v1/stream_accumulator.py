@@ -57,6 +57,7 @@ class StreamContentAccumulator:
         if self.current is None:
             return
         if self.current.get("type") == "diff":
+            agent_id = self.current.get("agent_id")
             raw_diff = self.current.get("diff", "")
             try:
                 filename, before, after = self._parse_diff(raw_diff)
@@ -70,12 +71,17 @@ class StreamContentAccumulator:
                 "before": before,
                 "after": after,
             }
+            if agent_id:
+                self.current["agent_id"] = agent_id
         self.blocks.append(self.current)
         self.current = None
 
     def feed(self, chunk: StreamChunk) -> StreamChunk | None:
         if chunk.event_type == "block_start":
             self.current = {"type": chunk.block_type or "text"}
+            agent_id = _chunk_agent_id(chunk)
+            if agent_id:
+                self.current["agent_id"] = agent_id
             if chunk.block_type == "text":
                 self.current["text"] = ""
             elif chunk.block_type == "code":
@@ -142,6 +148,9 @@ class StreamContentAccumulator:
             "arguments": _preview_jsonish(chunk.tool_arguments or {}),
             "status": "pending",
         }
+        agent_id = _chunk_agent_id(chunk)
+        if agent_id:
+            block["agent_id"] = agent_id
         self.blocks.append(block)
         self.pending_tool_calls[chunk.call_id] = block
         return None
@@ -193,6 +202,15 @@ def _preview_text(
     if len(value) <= TOOL_PREVIEW_MAX_CHARS:
         return value, already_truncated
     return value[:TOOL_PREVIEW_MAX_CHARS], True
+
+
+def _chunk_agent_id(chunk: StreamChunk) -> str | None:
+    if chunk.agent_id:
+        return chunk.agent_id
+    value = (chunk.metadata or {}).get("agent_id")
+    if isinstance(value, str) and value:
+        return value
+    return None
 
 
 def _preview_jsonish(value: Any) -> Any:

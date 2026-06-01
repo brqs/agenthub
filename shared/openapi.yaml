@@ -63,6 +63,7 @@ components:
       required: [type, text]
       properties:
         type: { type: string, enum: [text] }
+        agent_id: { type: string, nullable: true }
         text: { type: string }
 
     CodeBlock:
@@ -70,6 +71,7 @@ components:
       required: [type, language, code]
       properties:
         type: { type: string, enum: [code] }
+        agent_id: { type: string, nullable: true }
         language: { type: string }
         code: { type: string }
 
@@ -78,6 +80,7 @@ components:
       required: [type, filename, before, after]
       properties:
         type: { type: string, enum: [diff] }
+        agent_id: { type: string, nullable: true }
         filename: { type: string }
         before: { type: string }
         after: { type: string }
@@ -87,6 +90,7 @@ components:
       required: [type, url]
       properties:
         type: { type: string, enum: [web_preview] }
+        agent_id: { type: string, nullable: true }
         url: { type: string, format: uri }
         title: { type: string, nullable: true }
         description: { type: string, nullable: true }
@@ -97,6 +101,7 @@ components:
       required: [type, filename, url, size, mime_type]
       properties:
         type: { type: string, enum: [file] }
+        agent_id: { type: string, nullable: true }
         filename: { type: string }
         url: { type: string, format: uri }
         size: { type: integer }
@@ -122,6 +127,7 @@ components:
       required: [type, call_id, tool_name, arguments, status]
       properties:
         type: { type: string, enum: [tool_call] }
+        agent_id: { type: string, nullable: true }
         call_id: { type: string }
         tool_name: { type: string }
         arguments:
