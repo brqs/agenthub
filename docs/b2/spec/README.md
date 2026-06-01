@@ -28,6 +28,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 - Agent-to-Agent review thread。
 - 长期 agent 能力画像。
 - 通用 evaluation/reflection 闭环。
+- Deployment hardening：静态发布与 Preview 生命周期解耦、不可变 release snapshot、真实 stop、远端状态卡发布和 container 安全底座。
 
 ---
 
@@ -126,9 +127,10 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 ### 4.5 修改 Artifact / Preview / 部署相关能力
 
 1. [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md)
-2. [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md)
-3. [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)
-4. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md)
+2. [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)
+3. [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md)
+4. [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)
+5. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md)
 
 ---
 
@@ -182,7 +184,8 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 
 | Spec | 状态 | 说明 |
 |---|---|---|
-| [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) | Current contract + Proposed deployment | workspace artifact、preview API、deployment 发布边界 |
+| [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) | Current contract + Hardening backlog | workspace artifact、preview API、deployment 发布边界 |
+| [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md) | Backlog execution plan | 静态发布与 Preview 解耦、不可变 snapshot、真实 stop、远端状态卡发布和 container 安全底座 |
 | [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md) | Current contract | text/code/diff/web_preview 解析规则 |
 | [stream-error-status.spec.md](stream-error-status.spec.md) | Historical boundary / current rule | B1 SSE 层消费 B2 error chunk 时的状态持久化规则 |
 
@@ -204,7 +207,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 | Workspace 冲突如何检测 | [orchestrator/workspace-conflict.spec.md](orchestrator/workspace-conflict.spec.md) |
 | Orchestrator 记忆怎么持久化 | [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md) |
 | 8082 preview 是谁启动的 | [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) |
-| 部署发布还缺什么 | [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md)、[b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) |
+| 部署发布还缺什么 | [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)、[workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) |
 | B2 对照 PDF 还缺什么 | [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) |
 | Orchestrator 是否真实跑通 | [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md) |
 

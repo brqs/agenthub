@@ -1,6 +1,6 @@
 ---
 name: git-commit-pr
-description: Use when preparing AgentHub Git commits, reviewing staged changes, creating a safe feature/fix/docs branch, pushing a branch, or drafting a Pull Request while preserving unrelated user changes.
+description: Use when preparing AgentHub Git commits, reviewing staged changes, creating a safe feature/fix/docs branch, pushing a branch, or creating a required Pull Request while preserving unrelated user changes. Never merge the PR directly.
 ---
 
 # Git Commit And PR Skill
@@ -10,6 +10,8 @@ description: Use when preparing AgentHub Git commits, reviewing staged changes, 
 Use this skill when the user asks to:
 
 - 检查当前 Git 修改。
+- 提交本地代码
+- 对远程代码进行更新
 - 创建提交、推送分支或准备 PR。
 - 整理 PR 描述、测试证据和变更摘要。
 - 处理多人协作下的本地未提交修改。
@@ -24,13 +26,37 @@ Use this skill when the user asks to:
 | `docs/*` | 文档更新 |
 | `refactor/*` | 重构 |
 
+## Required PR Boundary
+
+所有需要推送代码的任务都必须：
+
+```text
+创建或确认任务分支
+-> commit
+-> push 任务分支
+-> 创建 PR
+-> 返回 PR 链接
+-> 停止
+```
+
+本 Skill 的职责边界到“PR 已创建”为止。是否合并、何时合并、由谁合并，必须交给人工 reviewer 或仓库维护者决定。
+
+禁止：
+
+- 直接向 `main` push。
+- 在本地把任务分支 merge、rebase 或 squash 到 `main` 后再 push。
+- 执行 `gh pr merge`、GitHub auto-merge、网页 API merge 或任何等价合并动作。
+- 因测试通过就自行合并 PR。
+- 用户只说“推送代码”时将其解释为“推送并合并”。
+
 ## Safety Rules
 
 - 永远先运行 `git status --short` 和 `git diff --stat`。
 - 不使用 `git add -A` 或 `git add .` 作为默认操作；只暂存本次任务相关文件。
 - 不提交 `.env`、密钥、密码、token、数据库 dump 或大型生成物。
 - 不执行 `git reset --hard`、`git checkout -- .`、`git clean -fd`，除非用户明确要求丢弃修改，并且已经先展示影响范围。
-- 不 force push 到 `main`。
+- 不直接 push 或 force push 到 `main`。
+- 不执行任何 PR merge 或 auto-merge 动作。
 - 不覆盖、回滚或混入用户的无关修改。
 
 ## Standard Workflow
@@ -138,7 +164,7 @@ git push
 
 如果 push 被拒绝，先 `git fetch origin` 并检查远端差异，不要直接 force push。
 
-### 7. Prepare PR
+### 7. Create PR
 
 PR 标题格式：
 
@@ -164,6 +190,14 @@ PR body：
 ```text
 https://github.com/brqs/agenthub/compare/main...<branch-name>
 ```
+
+如果 `gh` CLI 可用，创建 PR：
+
+```bash
+gh pr create --base main --head <branch-name> --title "<title>" --body-file <pr-body-file>
+```
+
+创建后输出 PR 链接并停止。不要执行 `gh pr merge`。
 
 ## Conflict Handling
 
@@ -196,4 +230,5 @@ git diff --stat
 - 已提交文件列表。
 - 实际运行的测试 / lint / type check。
 - 未运行测试的原因。
-- PR 链接或可打开的 compare 链接。
+- PR 链接。仅当缺少权限、认证或 `gh` 不可用时，才提供可打开的 compare 链接并明确记录阻断原因。
+- 明确写出“未执行合并，等待 reviewer 处理”。
