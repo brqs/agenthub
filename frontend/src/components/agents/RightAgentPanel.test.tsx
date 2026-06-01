@@ -25,6 +25,13 @@ vi.mock('@/lib/adapters/workspaces', () => ({
   writeWorkspaceFile: vi.fn(),
 }));
 
+vi.mock('@/lib/adapters/deployments', () => ({
+  listDeployments: vi.fn().mockResolvedValue({ items: [] }),
+  getDeployment: vi.fn(),
+  stopDeployment: vi.fn(),
+  downloadSourceArchive: vi.fn(),
+}));
+
 const conversation: DemoConversation = {
   id: 'conv-panel',
   title: '右栏状态测试',
