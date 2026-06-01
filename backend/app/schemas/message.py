@@ -14,17 +14,20 @@ from app.schemas.common import CursorPagination
 # ─── ContentBlock 联合类型 ───────────────────────────────────────
 class TextBlock(BaseModel):
     type: Literal["text"] = "text"
+    agent_id: str | None = None
     text: str
 
 
 class CodeBlock(BaseModel):
     type: Literal["code"] = "code"
+    agent_id: str | None = None
     language: str
     code: str
 
 
 class DiffBlock(BaseModel):
     type: Literal["diff"] = "diff"
+    agent_id: str | None = None
     filename: str
     before: str
     after: str
@@ -32,6 +35,7 @@ class DiffBlock(BaseModel):
 
 class WebPreviewBlock(BaseModel):
     type: Literal["web_preview"] = "web_preview"
+    agent_id: str | None = None
     url: str
     title: str | None = None
     description: str | None = None
@@ -40,6 +44,7 @@ class WebPreviewBlock(BaseModel):
 
 class FileBlock(BaseModel):
     type: Literal["file"] = "file"
+    agent_id: str | None = None
     filename: str
     url: str
     size: int
@@ -61,6 +66,7 @@ class DeploymentStatusBlock(BaseModel):
 
 class ToolCallBlock(BaseModel):
     type: Literal["tool_call"] = "tool_call"
+    agent_id: str | None = None
     call_id: str
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -12,7 +13,8 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-from app.agents.types import StreamChunk
+from app.agents.base import BaseAgentAdapter
+from app.agents.types import ChatMessage, StreamChunk
 from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
@@ -264,6 +266,7 @@ async def test_stream_persists_tool_call_block_ok(
                 call_id="c-1",
                 tool_name="write_file",
                 tool_arguments={"path": "src/App.tsx", "content": "hello"},
+                agent_id="claude-code",
             )
             yield StreamChunk(
                 event_type="tool_result",
@@ -288,6 +291,7 @@ async def test_stream_persists_tool_call_block_ok(
     assert message.content == [
         {
             "type": "tool_call",
+            "agent_id": "claude-code",
             "call_id": "c-1",
             "tool_name": "write_file",
             "arguments": {"path": "src/App.tsx", "content": "hello"},
@@ -593,6 +597,128 @@ async def test_group_stream_passes_shared_memory_with_agent_labels(
     assert "What did the first agent say?" in joined
 
 
+async def test_orchestrator_group_stream_keeps_observer_prompt_before_memory(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _ensure_orchestrator_group_agents()
+    _, headers = await _register(client)
+    conversation = await _create_group_conversation(
+        client,
+        headers,
+        ["orchestrator", "claude-code", "codex-helper"],
+    )
+    captured: dict[str, Any] = {}
+
+    async with SessionFactory() as db:
+        base_time = datetime.now(UTC)
+        db.add_all(
+            [
+                Message(
+                    conversation_id=UUID(conversation["id"]),
+                    role="user",
+                    content=[{"type": "text", "text": "Please compare prior work."}],
+                    status="done",
+                    created_at=base_time,
+                ),
+                Message(
+                    conversation_id=UUID(conversation["id"]),
+                    role="agent",
+                    agent_id="claude-code",
+                    content=[
+                        {
+                            "type": "text",
+                            "text": "Claude prepared the FastAPI route contract.",
+                        }
+                    ],
+                    status="done",
+                    created_at=base_time + timedelta(seconds=1),
+                ),
+            ]
+        )
+        await db.commit()
+
+    class FakeOrchestratorAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        def __init__(self) -> None:
+            super().__init__(agent_id="orchestrator")
+
+        async def stream(
+            self,
+            messages: list[ChatMessage],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            captured["messages"] = messages
+            captured["config"] = config
+            _ = system_prompt, workspace_path, tool_specs
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta="orchestrator saw observer context",
+            )
+            yield StreamChunk(event_type="block_end", block_index=0)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeOrchestratorAdapter:
+        assert agent_id == "orchestrator"
+        return FakeOrchestratorAdapter()
+
+    async def fake_memory_context(
+        db: Any,
+        conversation_id: UUID,
+        *,
+        recent_runs: int,
+        max_chars: int,
+    ) -> ChatMessage:
+        _ = db, conversation_id, recent_runs, max_chars
+        return ChatMessage(
+            role="system",
+            content="Previous Orchestrator structured memory:\n- task-a @claude-code succeeded",
+        )
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+    monkeypatch.setattr(
+        "app.api.v1.stream_orchestrator_context.build_orchestrator_memory_context",
+        fake_memory_context,
+    )
+
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id="orchestrator",
+        text="@orchestrator continue from Claude's prior work",
+    )
+    status_code, _ = await _stream_message(
+        client,
+        headers,
+        messages["agent_message"]["id"],
+    )
+
+    assert status_code == 200
+    received = captured["messages"]
+    contents = [message.content for message in received]
+    assert received[0].role == "system"
+    assert "You are Agent: orchestrator" in received[0].content
+    assert "observing a group conversation" in received[0].content
+    assert "not your own statements" in received[0].content
+    memory_index = contents.index(
+        "Previous Orchestrator structured memory:\n- task-a @claude-code succeeded"
+    )
+    latest_user_index = contents.index("@orchestrator continue from Claude's prior work")
+    assert 0 < memory_index < latest_user_index
+    joined = "\n".join(contents)
+    assert "[Agent: claude-code]\nClaude prepared the FastAPI route contract." in joined
+    assert captured["config"]["orchestrator_platform_tool_executor"] is not None
+
+
 async def test_stream_persists_tool_call_block_error(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -869,6 +995,19 @@ async def test_openapi_includes_tool_call_block(client: AsyncClient) -> None:
     assert response.status_code == 200
     schemas = response.json()["components"]["schemas"]
     assert "ToolCallBlock" in schemas
+    for schema_name in (
+        "TextBlock",
+        "CodeBlock",
+        "DiffBlock",
+        "WebPreviewBlock",
+        "FileBlock",
+        "ToolCallBlock",
+    ):
+        assert schemas[schema_name]["properties"]["agent_id"] == {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "title": "Agent Id",
+        }
+        assert "agent_id" not in schemas[schema_name].get("required", [])
     type_schema = schemas["ToolCallBlock"]["properties"]["type"]
     assert type_schema.get("const") == "tool_call" or type_schema.get("enum") == [
         "tool_call"
