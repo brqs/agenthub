@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,14 @@ PLATFORM_TOOL_NAMES = {
     "start_workspace_preview",
     "verify_web_preview",
     "create_custom_agent",
+    "create_deployment",
+    "get_deployment_status",
+    "package_workspace_source",
+}
+DEPLOYMENT_TOOL_NAMES = {
+    "create_deployment",
+    "get_deployment_status",
+    "package_workspace_source",
 }
 
 
@@ -208,6 +217,20 @@ async def run_orchestrator_tool_loop(
             result_lines.append(_tool_result_message(call, result))
             if visible_trace:
                 yield _tool_result_chunk(call, result), next_block_index
+            if call.name in DEPLOYMENT_TOOL_NAMES:
+                status_card = _deployment_status_card(result)
+                if status_card is not None:
+                    yield StreamChunk(
+                        event_type="block_start",
+                        block_index=next_block_index,
+                        block_type="deployment_status",
+                        metadata=status_card,
+                    ), next_block_index + 1
+                    yield StreamChunk(
+                        event_type="block_end",
+                        block_index=next_block_index,
+                    ), next_block_index + 1
+                    next_block_index += 1
 
         current_messages.append(ChatMessage(role="assistant", content="\n".join(result_lines)))
 
@@ -327,9 +350,13 @@ def _tool_system_prompt(config: Mapping[str, Any]) -> str:
         "Dispatch only these available agent ids: "
         f"{agents}.\n"
         "Do not dispatch orchestrator to itself. Do not request preview/deploy/server "
-        "long-running commands from sub-agents. For preview/deploy requests, use "
+        "long-running commands from sub-agents. For preview-only requests, use "
         "start_workspace_preview after files exist, then verify_web_preview for browser "
-        "quality. Use create_custom_agent when the user asks to create a new Agent. "
+        "quality. For deploy/publish/go-live requests, call create_deployment with "
+        "kind=static_site after files exist. For source download requests, call "
+        "package_workspace_source. For container deployment requests, call "
+        "create_deployment with kind=container and report the not_supported status. "
+        "Use create_custom_agent when the user asks to create a new Agent. "
         "Use read_artifact, inspect_workspace, and validate_html when useful. "
         "Final answers must be based on tool results. Keep user-visible text concise "
         "and do not reveal hidden reasoning."
@@ -378,6 +405,21 @@ def _tool_messages(
 ) -> list[ChatMessage]:
     _ = config
     return messages
+
+
+def _deployment_status_card(result: OrchestratorToolResult) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(result.output)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    card = payload.get("status_card")
+    if not isinstance(card, dict):
+        return None
+    if not isinstance(card.get("deployment_id"), str) or not card["deployment_id"]:
+        return None
+    return card
 
 
 def _normalize_tool_call(

@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as agentsAdapter from '@/lib/adapters/agents';
 import { queryKeys } from '@/lib/queryKeys';
-import type { Agent } from '@/lib/types';
+import type { Agent, CreateAgentRequest } from '@/lib/types';
 import { useAgentStore, type CreateAgentInput } from '@/stores/agentStore';
 import { useAuthStore } from '@/stores/authStore';
 
@@ -67,7 +67,7 @@ export function useCreateAgent() {
         avatar_url: '',
         capabilities: input.capabilities,
         system_prompt: input.systemPrompt.trim() || null,
-        config: buildAgentConfig(input),
+        config: buildAgentConfig(input) as CreateAgentRequest['config'],
       }),
     onSuccess: (created) => {
       addAgent(created);

@@ -14,7 +14,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 - External Agent Runtime：Claude Code / Codex / OpenCode。
 - Builtin Agent Framework：团队自建 agent loop + tools + ModelGateway。
 - Orchestrator：群聊主协调器，支持 LLM planning、DAG 并行、workspace conflict detection、平台 preview/browser verify tool、对话式自建 Agent。
-- Workspace Artifact / Preview：Agent 只生成文件，平台负责 preview、URL、浏览器验收；Deployment 发布系统仍是 backlog。
+- Workspace Artifact / Preview / Deployment：Agent 只生成文件，平台负责 preview、URL、浏览器验收、静态发布、源码 zip 和容器化占位状态。
 
 对照课程 PDF，B2 P0 已完成并通过真实 E2E：
 
@@ -24,7 +24,6 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 
 剩余主要 backlog：
 
-- 完整 Deployment / Release Tool：部署状态卡片、静态站点发布、源码 zip 下载、容器化部署占位。
 - Workflow artifact。
 - Agent-to-Agent review thread。
 - 长期 agent 能力画像。

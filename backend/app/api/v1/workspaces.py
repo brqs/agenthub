@@ -6,6 +6,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +15,9 @@ from app.core.deps import DbSession, get_current_user
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.schemas.workspace import (
+    WorkspaceDeploymentListResponse,
+    WorkspaceDeploymentRequest,
+    WorkspaceDeploymentResponse,
     WorkspacePreviewRequest,
     WorkspacePreviewResponse,
     WorkspacePreviewVerifyRequest,
@@ -24,6 +28,12 @@ from app.services.browser_preview_verifier import (
     BrowserPreviewVerifier,
     BrowserPreviewVerifyDisabledError,
     BrowserPreviewVerifyError,
+)
+from app.services.workspace_deployment import (
+    WorkspaceDeploymentDisabledError,
+    WorkspaceDeploymentError,
+    WorkspaceDeploymentNotFoundError,
+    WorkspaceDeploymentService,
 )
 from app.services.workspace_preview import (
     WorkspacePreviewDisabledError,
@@ -41,6 +51,7 @@ router = APIRouter()
 workspace_service = WorkspaceService()
 preview_service = WorkspacePreviewService(workspace_service)
 browser_verifier = BrowserPreviewVerifier()
+deployment_service = WorkspaceDeploymentService(workspace_service, preview_service)
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -121,6 +132,28 @@ def _map_browser_verify_error(exc: Exception) -> HTTPException:
             str(exc),
         )
     raise exc
+
+
+def _map_deployment_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, WorkspaceDeploymentDisabledError):
+        return _error(
+            status.HTTP_403_FORBIDDEN,
+            "workspace_deployment_disabled",
+            str(exc),
+        )
+    if isinstance(exc, WorkspaceDeploymentNotFoundError):
+        return _error(
+            status.HTTP_404_NOT_FOUND,
+            "workspace_deployment_not_found",
+            str(exc),
+        )
+    if isinstance(exc, WorkspaceDeploymentError):
+        return _error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "workspace_deployment_failed",
+            str(exc),
+        )
+    return _map_preview_error(exc)
 
 
 def _file_headers(mime_type: str) -> dict[str, str]:
@@ -227,7 +260,7 @@ async def verify_workspace_preview(
             conversation_id=conversation_id,
             url=session.url,
             required_text=payload.required_text,
-            viewports=payload.viewports,
+            viewports=[str(item) for item in payload.viewports],
             click_buttons=payload.click_buttons,
             max_clicks=payload.max_clicks,
         )
@@ -274,6 +307,118 @@ async def stop_workspace_preview(
             "workspace preview session not found",
         )
     return WorkspacePreviewResponse.model_validate(session)
+
+
+@router.post(
+    "/{conversation_id}/deployments",
+    response_model=WorkspaceDeploymentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_workspace_deployment(
+    conversation_id: UUID,
+    payload: WorkspaceDeploymentRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceDeploymentResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    try:
+        deployment = await deployment_service.create(
+            db,
+            conversation_id,
+            kind=payload.kind,
+            entry_path=payload.entry_path,
+            requested_port=payload.requested_port,
+        )
+    except (
+        WorkspaceDeploymentDisabledError,
+        WorkspaceDeploymentError,
+        WorkspaceViolation,
+        WorkspaceFileNotFound,
+        WorkspaceFileTooLarge,
+        WorkspacePreviewDisabledError,
+        WorkspacePreviewStartError,
+    ) as exc:
+        raise _map_deployment_error(exc) from exc
+    return WorkspaceDeploymentResponse.model_validate(deployment)
+
+
+@router.get(
+    "/{conversation_id}/deployments",
+    response_model=WorkspaceDeploymentListResponse,
+)
+async def list_workspace_deployments(
+    conversation_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceDeploymentListResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    deployments = await deployment_service.list(db, conversation_id)
+    return WorkspaceDeploymentListResponse(
+        items=[WorkspaceDeploymentResponse.model_validate(item) for item in deployments]
+    )
+
+
+@router.get(
+    "/{conversation_id}/deployments/{deployment_id}",
+    response_model=WorkspaceDeploymentResponse,
+)
+async def get_workspace_deployment(
+    conversation_id: UUID,
+    deployment_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceDeploymentResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    deployment = await deployment_service.get(db, conversation_id, deployment_id)
+    if deployment is None:
+        raise _map_deployment_error(
+            WorkspaceDeploymentNotFoundError("workspace deployment not found")
+        )
+    return WorkspaceDeploymentResponse.model_validate(deployment)
+
+
+@router.delete(
+    "/{conversation_id}/deployments/{deployment_id}",
+    response_model=WorkspaceDeploymentResponse,
+)
+async def stop_workspace_deployment(
+    conversation_id: UUID,
+    deployment_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceDeploymentResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    deployment = await deployment_service.stop(db, conversation_id, deployment_id)
+    if deployment is None:
+        raise _map_deployment_error(
+            WorkspaceDeploymentNotFoundError("workspace deployment not found")
+        )
+    return WorkspaceDeploymentResponse.model_validate(deployment)
+
+
+@router.get("/{conversation_id}/deployments/{deployment_id}/download")
+async def download_workspace_deployment(
+    conversation_id: UUID,
+    deployment_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> FileResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    deployment = await deployment_service.get(db, conversation_id, deployment_id)
+    if deployment is None or deployment.kind != "source_zip":
+        raise _map_deployment_error(
+            WorkspaceDeploymentNotFoundError("workspace source export not found")
+        )
+    path = deployment_service.export_path(conversation_id, deployment_id)
+    if deployment.status != "published" or not path.is_file():
+        raise _map_deployment_error(
+            WorkspaceDeploymentNotFoundError("workspace source export file not found")
+        )
+    return FileResponse(
+        path,
+        media_type="application/zip",
+        filename=f"agenthub-workspace-{conversation_id}.zip",
+    )
 
 
 @router.put("/{conversation_id}/files/{path:path}", status_code=status.HTTP_204_NO_CONTENT)

@@ -66,6 +66,13 @@ class Settings(BaseSettings):
     preview_idle_ttl_seconds: int = Field(default=1800)
     preview_start_timeout_seconds: int = Field(default=15)
 
+    # Workspace deployment / source export service
+    deployment_enabled: bool = Field(default=True)
+    deployment_export_dir: str = Field(
+        default="/tmp/agenthub_workspace_exports"  # noqa: S108 - generated exports.
+    )
+    deployment_max_export_bytes: int = Field(default=25_000_000)
+
     # Browser-level workspace preview verification
     browser_verify_enabled: bool = Field(default=True)
     browser_verify_timeout_seconds: int = Field(default=30)

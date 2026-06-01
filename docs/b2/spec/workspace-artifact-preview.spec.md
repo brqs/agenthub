@@ -1,6 +1,6 @@
 # Workspace Artifact / Preview / Deployment Spec
 
-> 状态：Artifact / Preview 为 Current contract；Deployment 发布能力为 Proposed / Backlog。
+> 状态：Artifact / Preview / Deployment v1 为 Current contract。
 > 最后更新：2026-05-31
 
 ## 目标
@@ -137,11 +137,11 @@ class WorkspacePreviewSession(Base):
 | `POST` | `/api/v1/workspaces/{conversation_id}/preview` | 启动或复用 preview |
 | `GET` | `/api/v1/workspaces/{conversation_id}/preview` | 查询 preview 状态 |
 | `DELETE` | `/api/v1/workspaces/{conversation_id}/preview` | 停止 preview |
-| `POST` | `/api/v1/workspaces/{conversation_id}/deployments` | Proposed：创建一次部署 / 打包 |
-| `GET` | `/api/v1/workspaces/{conversation_id}/deployments` | Proposed：列出部署历史 |
-| `GET` | `/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}` | Proposed：查询部署状态 |
-| `DELETE` | `/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}` | Proposed：停止可停止部署 |
-| `GET` | `/api/v1/workspaces/{conversation_id}/exports/{export_id}/download` | Proposed：下载源码包 |
+| `POST` | `/api/v1/workspaces/{conversation_id}/deployments` | 创建一次部署 / 打包 |
+| `GET` | `/api/v1/workspaces/{conversation_id}/deployments` | 列出部署历史 |
+| `GET` | `/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}` | 查询部署状态 |
+| `DELETE` | `/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}` | 停止可停止部署 |
+| `GET` | `/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download` | 下载源码包 |
 
 `POST preview` body：
 
@@ -199,7 +199,7 @@ StreamChunk(
 - Artifact manifest 不进入 `message.content`。
 - 如果 preview 尚未实现或启动失败，final summary 只能说明平台预览处理状态，不能提供 terminal 命令。
 
-## Deployment Proposed v1
+## Deployment v1
 
 Deploy 不等同 preview：
 
@@ -237,9 +237,9 @@ class WorkspaceDeployment(Base):
 
 | kind | 行为 | v1 状态 |
 |---|---|---|
-| `static_site` | 校验 workspace HTML 入口，创建 deployment record，复用平台静态服务返回 URL | Proposed |
-| `source_zip` | 打包 workspace 源码，返回下载 URL | Proposed |
-| `container` | 返回 `not_supported` 状态卡，说明容器化部署未开放 | Proposed placeholder |
+| `static_site` | 校验 workspace HTML 入口，创建 deployment record，复用平台静态服务返回 URL | Implemented |
+| `source_zip` | 打包 workspace 源码，返回下载 URL | Implemented |
+| `container` | 返回 `not_supported` 状态卡，说明容器化部署未开放 | Implemented placeholder |
 
 `POST deployments` body：
 
@@ -289,9 +289,9 @@ type DeploymentStatusBlock = {
 | agent run 结束 | diff snapshot，更新 artifact manifest |
 | 用户启动 preview | 分配端口，启动平台静态 server |
 | 用户重复启动 preview | 复用或重启当前 conversation session |
-| 用户发送部署/发布/上线 | Proposed：创建 deployment record，执行平台受控部署 |
-| 用户请求源码打包下载 | Proposed：创建 source zip export，返回下载 URL |
-| 用户请求容器化部署 | Proposed：创建 `not_supported` 状态记录，不执行 Docker |
+| 用户发送部署/发布/上线 | 创建 deployment record，执行平台受控部署 |
+| 用户请求源码打包下载 | 创建 source zip export，返回下载 URL |
+| 用户请求容器化部署 | 创建 `not_supported` 状态记录，不执行 Docker |
 | SSE 断开 | 不影响已启动 preview；preview 由 TTL 管理 |
 | Conversation 删除 | 停止 preview，清理 session/deployment |
 | Workspace 删除 | 停止 preview |
@@ -307,7 +307,7 @@ Orchestrator 对 `requires_artifact=true` 或 `expected_output` 明确包含 art
 - `artifact_missing` 可触发 fallback agent。
 - 不读取 `.env`、`.ssh`、`secrets/`、`.agenthub/`，不执行 shell，不监听端口。
 
-Proposed deployment tools：
+Deployment tools：
 
 - 用户只说“预览”时，Orchestrator 使用 `start_workspace_preview`。
 - 用户说“部署 / 发布 / 上线”时，Orchestrator 使用 `create_deployment(kind="static_site")`。
@@ -334,9 +334,9 @@ Proposed deployment tools：
 - 平台 preview API 为 artifact 返回 URL。
 - 删除 conversation 后 preview PID 被清理。
 - Orchestrator 能把 `done` 但无文件判为 `artifact_missing`。
-- Proposed：`static_site` deployment 返回 deployment status 和 URL。
-- Proposed：`source_zip` 可下载且不包含敏感目录。
-- Proposed：`container` 请求返回 `not_supported` 且不执行 Docker。
+- `static_site` deployment 返回 deployment status 和 URL。
+- `source_zip` 可下载且不包含敏感目录。
+- `container` 请求返回 `not_supported` 且不执行 Docker。
 
 ## 验收标准
 
@@ -344,5 +344,5 @@ Proposed deployment tools：
 - 可静态预览 artifact 由平台 preview service 提供 URL。
 - 8082 只由平台 service 管理。
 - Agent runtime 不通过启动服务来证明 artifact 可用。
-- Proposed：聊天中“部署”指令返回 `deployment_status` 卡片。
-- Proposed：一键静态发布和源码打包下载由平台 tool 完成。
+- 聊天中“部署”指令返回 `deployment_status` 卡片。
+- 一键静态发布和源码打包下载由平台 tool 完成。

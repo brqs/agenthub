@@ -10,7 +10,9 @@ import json
 import os
 import re
 import time
+import zipfile
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -21,20 +23,32 @@ USERNAME = os.getenv("AGENTHUB_E2E_USERNAME", "12345678")
 PASSWORD = os.getenv("AGENTHUB_E2E_PASSWORD", "12345678")
 SCENARIO = os.getenv("AGENTHUB_E2E_SCENARIO", "quality").strip().lower()
 FULLSTACK_SCENARIO = SCENARIO == "fullstack"
+DEPLOYMENT_SCENARIO = SCENARIO == "deployment"
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
+DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
+DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
 )
 DEFAULT_QUALITY_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
 )
+DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
+)
 SSE_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_SSE_PATH",
-        DEFAULT_FULLSTACK_SSE_PATH if FULLSTACK_SCENARIO else DEFAULT_QUALITY_SSE_PATH,
+        (
+            DEFAULT_FULLSTACK_SSE_PATH
+            if FULLSTACK_SCENARIO
+            else DEFAULT_DEPLOYMENT_SSE_PATH
+            if DEPLOYMENT_SCENARIO
+            else DEFAULT_QUALITY_SSE_PATH
+        ),
     )
 )
 REPORT_PATH = Path(
@@ -43,6 +57,8 @@ REPORT_PATH = Path(
         (
             DEFAULT_FULLSTACK_REPORT_PATH
             if FULLSTACK_SCENARIO
+            else DEFAULT_DEPLOYMENT_REPORT_PATH
+            if DEPLOYMENT_SCENARIO
             else DEFAULT_QUALITY_REPORT_PATH
         ),
     )
@@ -53,6 +69,8 @@ BROWSER_REPORT_PATH = Path(
         (
             DEFAULT_FULLSTACK_BROWSER_REPORT_PATH
             if FULLSTACK_SCENARIO
+            else DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH
+            if DEPLOYMENT_SCENARIO
             else DEFAULT_QUALITY_BROWSER_REPORT_PATH
         ),
     )
@@ -81,10 +99,19 @@ FULLSTACK_PROMPT = "\n".join(
         "API 文档和测试说明为准。",
     )
 )
+DEPLOYMENT_PROMPT = (
+    "@orchestrator 请生成一个“团队 OKR 轻量看板”静态前端产品，包含 "
+    "index.html、styles.css、app.js。页面中需要清晰展示任务拆解、代码产物、"
+    "Diff、网页预览、按钮交互和移动端适配。完成后请部署发布到端口8082，"
+    "返回部署状态卡片、访问 URL，并额外打包源码供下载。最后请尝试容器化部署"
+    "并说明当前平台是否支持，同时完成浏览器级质量验收。"
+)
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
     FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
+    else DEPLOYMENT_PROMPT
+    if DEPLOYMENT_SCENARIO
     else (
         "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff、网页预览、"
         "按钮交互和移动端适配的前端开发演示，主题随机，部署在端口8082，"
@@ -106,9 +133,19 @@ REQUIRED_FULLSTACK_FILES = {
 SERVER_COMMAND_RE = re.compile(
     r"npm\s+run\s+dev|pnpm\s+dev|vite\s+--host|python\d*\s+-m\s+http\.server|"
     r"http-server|next\s+dev|npm\s+(?:run\s+)?start|node\s+server\.js|"
-    r"app\.listen\s*\(|express\s+server|server\.js",
+    r"app\.listen\s*\(|express\s+server",
     re.I,
 )
+SOURCE_EXPORT_EXCLUDED_PARTS = {
+    ".agenthub",
+    ".git",
+    "node_modules",
+    ".venv",
+    "__pycache__",
+    ".env",
+    ".ssh",
+    "secrets",
+}
 
 
 def utc_now() -> str:
@@ -492,6 +529,8 @@ def main() -> None:
                 "title": (
                     f"Orchestrator Fullstack Flow {int(started_at)}"
                     if FULLSTACK_SCENARIO
+                    else f"Orchestrator Deployment Flow {int(started_at)}"
+                    if DEPLOYMENT_SCENARIO
                     else f"Orchestrator Real Flow 8082 Demo {int(started_at)}"
                 ),
                 "mode": "group",
@@ -852,6 +891,123 @@ def main() -> None:
                     }
                 )
 
+        if DEPLOYMENT_SCENARIO:
+            content_blocks = (target or {}).get("content") or []
+            deployment_tool_blocks = [
+                block
+                for block in content_blocks
+                if block.get("type") == "tool_call"
+                and block.get("tool_name") == "create_deployment"
+            ]
+            source_tool_blocks = [
+                block
+                for block in content_blocks
+                if block.get("type") == "tool_call"
+                and block.get("tool_name") == "package_workspace_source"
+            ]
+            deployment_status_blocks = [
+                block
+                for block in content_blocks
+                if block.get("type") == "deployment_status"
+            ]
+            report["deployment_status_blocks"] = deployment_status_blocks
+            report["checks"]["deployment_tool_called"] = bool(deployment_tool_blocks)
+            report["checks"]["source_package_tool_called"] = bool(source_tool_blocks)
+            report["checks"]["deployment_status_block_present"] = bool(
+                deployment_status_blocks
+            )
+            deployments = client.get(
+                f"/api/v1/workspaces/{conv_id}/deployments",
+                headers=headers,
+            )
+            report["deployment_list_status_code"] = deployments.status_code
+            deployments.raise_for_status()
+            deployment_items = deployments.json().get("items", [])
+            report["deployments"] = deployment_items
+            static_items = [
+                item
+                for item in deployment_items
+                if item.get("kind") == "static_site"
+                and item.get("status") == "published"
+            ]
+            source_items = [
+                item
+                for item in deployment_items
+                if item.get("kind") == "source_zip"
+                and item.get("status") == "published"
+            ]
+            container_items = [
+                item
+                for item in deployment_items
+                if item.get("kind") == "container"
+                and item.get("status") == "not_supported"
+            ]
+            report["checks"]["static_site_deployment_published"] = bool(static_items)
+            report["checks"]["container_deployment_not_supported"] = bool(
+                container_items
+            )
+            report["checks"]["source_zip_deployment_published"] = bool(source_items)
+            if static_items:
+                static_url = static_items[0].get("url")
+                report["static_site_deployment_url"] = static_url
+                if isinstance(static_url, str) and static_url.startswith("http"):
+                    static_response = httpx.get(
+                        static_url,
+                        timeout=10,
+                        trust_env=False,
+                    )
+                    report["checks"]["static_site_url_200"] = (
+                        static_response.status_code == 200
+                    )
+                else:
+                    report["checks"]["static_site_url_200"] = False
+            else:
+                report["checks"]["static_site_url_200"] = False
+            report["checks"]["source_zip_downloaded"] = False
+            report["checks"]["source_zip_excludes_sensitive_paths"] = False
+            if source_items:
+                download_url = source_items[0].get("download_url")
+                if isinstance(download_url, str) and download_url:
+                    download = client.get(download_url, headers=headers)
+                    report["source_zip_download_status_code"] = download.status_code
+                    if download.status_code == 200:
+                        report["checks"]["source_zip_downloaded"] = True
+                        with zipfile.ZipFile(BytesIO(download.content)) as archive:
+                            archive_names = archive.namelist()
+                        report["source_zip_entries"] = archive_names
+                        report["checks"]["source_zip_excludes_sensitive_paths"] = all(
+                            not any(
+                                part in SOURCE_EXPORT_EXCLUDED_PARTS
+                                for part in Path(name).parts
+                            )
+                            for name in archive_names
+                        )
+            deployment_checks = (
+                "deployment_tool_called",
+                "source_package_tool_called",
+                "deployment_status_block_present",
+                "static_site_deployment_published",
+                "static_site_url_200",
+                "source_zip_deployment_published",
+                "source_zip_downloaded",
+                "source_zip_excludes_sensitive_paths",
+                "container_deployment_not_supported",
+            )
+            if not all(report["checks"].get(key, False) for key in deployment_checks):
+                report["bugs"].append(
+                    {
+                        "code": "deployment_release_flow_failed",
+                        "symptom": (
+                            "Deployment Case 3 did not complete static publish, "
+                            "source zip export, status card, or container placeholder."
+                        ),
+                        "checks": {
+                            key: report["checks"].get(key, False)
+                            for key in deployment_checks
+                        },
+                    }
+                )
+
         if FULLSTACK_SCENARIO:
             planning_item = files_by_name.get("planning.md")
             review_item = files_by_name.get("review.md")
@@ -1116,6 +1272,47 @@ def main() -> None:
                     ),
                     "fullstack_parallel_dag": report["checks"].get(
                         "fullstack_parallel_dag",
+                        False,
+                    ),
+                }
+            )
+        elif DEPLOYMENT_SCENARIO:
+            hard_checks.update(
+                {
+                    "deployment_tool_called": report["checks"].get(
+                        "deployment_tool_called",
+                        False,
+                    ),
+                    "source_package_tool_called": report["checks"].get(
+                        "source_package_tool_called",
+                        False,
+                    ),
+                    "deployment_status_block_present": report["checks"].get(
+                        "deployment_status_block_present",
+                        False,
+                    ),
+                    "static_site_deployment_published": report["checks"].get(
+                        "static_site_deployment_published",
+                        False,
+                    ),
+                    "static_site_url_200": report["checks"].get(
+                        "static_site_url_200",
+                        False,
+                    ),
+                    "source_zip_deployment_published": report["checks"].get(
+                        "source_zip_deployment_published",
+                        False,
+                    ),
+                    "source_zip_downloaded": report["checks"].get(
+                        "source_zip_downloaded",
+                        False,
+                    ),
+                    "source_zip_excludes_sensitive_paths": report["checks"].get(
+                        "source_zip_excludes_sensitive_paths",
+                        False,
+                    ),
+                    "container_deployment_not_supported": report["checks"].get(
+                        "container_deployment_not_supported",
                         False,
                     ),
                 }

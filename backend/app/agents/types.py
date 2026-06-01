@@ -27,7 +27,14 @@ StreamEventType = Literal[
     "tool_result",
 ]
 
-BlockType = Literal["text", "code", "diff", "web_preview", "tool_call"]
+BlockType = Literal[
+    "text",
+    "code",
+    "diff",
+    "web_preview",
+    "tool_call",
+    "deployment_status",
+]
 
 
 class ToolSpec(BaseModel):

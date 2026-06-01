@@ -44,6 +44,14 @@ describe('ContentRenderer', () => {
         output_preview: 'wrote 120 bytes',
       },
       {
+        type: 'deployment_status',
+        deployment_id: 'deployment-1',
+        kind: 'static_site',
+        status: 'published',
+        title: 'Static site deployment',
+        url: 'https://example.com/deployed',
+      },
+      {
         type: 'agent_switch',
         from_agent: 'orchestrator',
         to_agent: 'codex-helper',
@@ -61,6 +69,8 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('任务卡')).toBeInTheDocument();
     expect(screen.getByText('write_file')).toBeInTheDocument();
     expect(screen.getByText('call-1')).toBeInTheDocument();
+    expect(screen.getByText('Static site deployment')).toBeInTheDocument();
+    expect(screen.getByText('Published')).toBeInTheDocument();
     expect(screen.getByText('Orchestrator')).toBeInTheDocument();
     expect(screen.getByText('Codex Helper')).toBeInTheDocument();
   });

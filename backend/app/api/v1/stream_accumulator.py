@@ -93,6 +93,25 @@ class StreamContentAccumulator:
                     self.current["description"] = meta["description"]
                 if "thumbnail_url" in meta:
                     self.current["thumbnail_url"] = meta["thumbnail_url"]
+            elif chunk.block_type == "deployment_status":
+                meta = chunk.metadata or {}
+                self.current.update(
+                    {
+                        "deployment_id": str(meta.get("deployment_id", "")),
+                        "kind": meta.get("kind", "static_site"),
+                        "status": meta.get("status", "failed"),
+                    }
+                )
+                for key in (
+                    "title",
+                    "url",
+                    "download_url",
+                    "error",
+                    "logs_preview",
+                    "size_bytes",
+                ):
+                    if key in meta:
+                        self.current[key] = meta[key]
         elif chunk.event_type == "delta" and self.current is not None:
             if chunk.text_delta:
                 if self.current.get("type") == "diff":

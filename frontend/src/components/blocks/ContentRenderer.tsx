@@ -1,4 +1,5 @@
 import { CodeBlock } from './CodeBlock';
+import { DeploymentStatusBlock } from './DeploymentStatusBlock';
 import { DiffBlock } from './DiffBlock';
 import { FileBlock } from './FileBlock';
 import { TaskCardBlock } from './TaskCardBlock';
@@ -39,6 +40,9 @@ export function ContentRenderer({
         }
         if (block.type === 'tool_call') {
           return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;
+        }
+        if (block.type === 'deployment_status') {
+          return <DeploymentStatusBlock key={`${block.type}-${block.deployment_id}`} block={block} />;
         }
         if (block.type === 'agent_switch') {
           const fromAgent = agents.find((agent) => agent.id === block.from_agent);

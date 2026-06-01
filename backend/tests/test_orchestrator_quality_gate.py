@@ -58,6 +58,45 @@ class FakePlatformToolExecutor:
                 output=json.dumps(report),
                 error_code=None if passed else "browser_verification_failed",
             )
+        if tool_name == "create_deployment":
+            kind = arguments["kind"]
+            payload = {
+                "deployment_id": f"dep-{kind}",
+                "kind": kind,
+                "status": "not_supported" if kind == "container" else "published",
+                "entry_path": arguments.get("entry_path"),
+                "url": "http://127.0.0.1:8082/index.html"
+                if kind == "static_site"
+                else None,
+                "download_url": None,
+                "error": "Container deployment is not supported"
+                if kind == "container"
+                else None,
+                "logs_preview": "deployment log",
+                "size_bytes": None,
+            }
+            payload["status_card"] = {
+                "type": "deployment_status",
+                **payload,
+            }
+            return OrchestratorToolResult(status="ok", output=json.dumps(payload))
+        if tool_name == "package_workspace_source":
+            payload = {
+                "deployment_id": "dep-source",
+                "kind": "source_zip",
+                "status": "published",
+                "entry_path": None,
+                "url": None,
+                "download_url": "/api/v1/workspaces/x/deployments/dep-source/download",
+                "error": None,
+                "logs_preview": "source log",
+                "size_bytes": 123,
+            }
+            payload["status_card"] = {
+                "type": "deployment_status",
+                **payload,
+            }
+            return OrchestratorToolResult(status="ok", output=json.dumps(payload))
         return OrchestratorToolResult(
             status="error",
             output="unexpected tool",
@@ -125,6 +164,7 @@ async def test_quality_gate_repairs_failed_browser_verification(
         "start_workspace_preview",
         "verify_web_preview",
         "verify_web_preview",
+        "create_deployment",
     ]
     assert [
         chunk.tool_name for chunk in chunks if chunk.event_type == "tool_call"
@@ -132,7 +172,9 @@ async def test_quality_gate_repairs_failed_browser_verification(
         "start_workspace_preview",
         "verify_web_preview",
         "verify_web_preview",
+        "create_deployment",
     ]
+    assert any(chunk.block_type == "deployment_status" for chunk in chunks)
     text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert "Browser quality verification passed" in text
     assert "浏览器验证问题" in repair.received_messages[-1].content
@@ -188,6 +230,7 @@ async def test_quality_gate_creates_missing_frontend_artifacts_before_preview(
     assert [call[0] for call in executor.calls] == [
         "start_workspace_preview",
         "verify_web_preview",
+        "create_deployment",
     ]
     assert executor.calls[0][1]["entry_path"] == "index.html"
     assert "No HTML entry file was found" in repair.received_messages[-1].content
@@ -246,3 +289,59 @@ async def test_quality_gate_fails_after_repair_limit(tmp_path: Path) -> None:
         "verify_web_preview",
         "verify_web_preview",
     ]
+
+
+async def test_quality_gate_packages_source_and_container_placeholder(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>任务 代码 Diff 预览</h1></body></html>",
+    )
+    executor = FakePlatformToolExecutor([True])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 做一个前端网页演示，部署在端口8082，"
+                    "返回部署状态卡片，并打包源码下载，尝试容器化部署"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code"],
+            "sub_adapters": {"claude-code": generator},
+            "orchestrator_platform_tool_executor": executor,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [call[0] for call in executor.calls] == [
+        "start_workspace_preview",
+        "verify_web_preview",
+        "create_deployment",
+        "package_workspace_source",
+        "create_deployment",
+    ]
+    assert [call[1].get("kind") for call in executor.calls if call[0] == "create_deployment"] == [
+        "static_site",
+        "container",
+    ]
+    assert sum(chunk.block_type == "deployment_status" for chunk in chunks) == 3
