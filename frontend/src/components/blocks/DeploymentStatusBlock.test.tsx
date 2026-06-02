@@ -71,6 +71,17 @@ describe('DeploymentStatusBlock', () => {
     });
   });
 
+  it('renders queued deployments without stop actions', () => {
+    renderBlock({
+      ...block,
+      status: 'queued',
+      url: undefined,
+    });
+
+    expect(screen.getByText('Queued')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '停止发布' })).not.toBeInTheDocument();
+  });
+
   it('warns that source archives are temporary', () => {
     renderBlock({
       ...block,

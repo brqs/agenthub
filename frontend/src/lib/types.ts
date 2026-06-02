@@ -55,7 +55,7 @@ export interface DeploymentStatusBlock {
   type: 'deployment_status';
   deployment_id: string;
   kind: 'static_site' | 'source_zip' | 'container';
-  status: 'publishing' | 'published' | 'failed' | 'stopped' | 'not_supported';
+  status: Schemas['DeploymentStatusBlock']['status'];
   title?: string;
   url?: string;
   download_url?: string;
