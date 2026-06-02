@@ -19,8 +19,8 @@ export function ArchivePage() {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-slate-950">
-      <header className="flex min-h-[76px] items-center justify-between border-b border-slate-800 px-8">
+    <div className="flex h-full flex-col bg-slate-950">
+      <header className="flex min-h-[68px] items-center justify-between border-b border-slate-800 px-4 sm:min-h-[76px] sm:px-8">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand-light">
             <Archive className="h-3.5 w-3.5" />
@@ -33,7 +33,7 @@ export function ArchivePage() {
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-8 scrollbar-thin">
+      <main className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin sm:p-8">
         {isLoading ? (
           <div className="flex min-h-full items-center justify-center text-sm text-slate-500">
             正在加载归档会话

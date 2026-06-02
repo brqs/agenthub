@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ChatHeader } from './ChatHeader';
 import { mockAgents, type DemoConversation } from '@/lib/mockData';
 
@@ -25,5 +25,24 @@ describe('ChatHeader', () => {
     render(<ChatHeader conversation={conversation} agents={[]} />);
 
     expect(screen.getByText(/2 Agents · orchestrator, claude-code/)).toBeInTheDocument();
+  });
+
+  it('opens mobile conversation and workspace surfaces', () => {
+    const onOpenConversationList = vi.fn();
+    const onOpenWorkspace = vi.fn();
+    render(
+      <ChatHeader
+        conversation={conversation}
+        agents={mockAgents}
+        onOpenConversationList={onOpenConversationList}
+        onOpenWorkspace={onOpenWorkspace}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '打开会话列表' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开工作台' }));
+
+    expect(onOpenConversationList).toHaveBeenCalledOnce();
+    expect(onOpenWorkspace).toHaveBeenCalledOnce();
   });
 });

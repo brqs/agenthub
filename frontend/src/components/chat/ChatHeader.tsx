@@ -19,6 +19,8 @@ export function ChatHeader({
   onExpandSidebar,
   rightPanelOpen = true,
   onOpenRightPanel,
+  onOpenConversationList,
+  onOpenWorkspace,
 }: {
   conversation: DemoConversation;
   agents?: Agent[];
@@ -26,6 +28,8 @@ export function ChatHeader({
   onExpandSidebar?: () => void;
   rightPanelOpen?: boolean;
   onOpenRightPanel?: () => void;
+  onOpenConversationList?: () => void;
+  onOpenWorkspace?: () => void;
 }) {
   const conversationAgents = conversation.agent_ids
     .map((agentId) => agents.find((agent) => agent.id === agentId))
@@ -40,13 +44,24 @@ export function ChatHeader({
       : conversationAgents[0]?.name ?? conversation.agent_ids[0];
 
   return (
-    <header className="flex min-h-[76px] shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-5 py-3 backdrop-blur">
+    <header className="flex min-h-[68px] shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-3 py-2 backdrop-blur sm:min-h-[76px] sm:px-5 sm:py-3">
       <div className="flex min-w-0 items-start gap-3">
+        {onOpenConversationList && (
+          <button
+            type="button"
+            onClick={onOpenConversationList}
+            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-800 bg-slate-900 text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand md:hidden"
+            title="打开会话列表"
+            aria-label="打开会话列表"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </button>
+        )}
         {sidebarCollapsed && onExpandSidebar && (
           <button
             type="button"
             onClick={onExpandSidebar}
-            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-800 bg-slate-900 text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand"
+            className="mt-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-800 bg-slate-900 text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand md:flex"
             title="展开会话列表"
             aria-label="展开会话列表"
           >
@@ -61,7 +76,7 @@ export function ChatHeader({
               <UserRound className="h-4 w-4 text-slate-500" />
             )}
             <h2 className="truncate text-base font-semibold text-white">{conversation.title}</h2>
-            <span className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-xs text-slate-400">
+            <span className="hidden rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-xs text-slate-400 sm:inline-flex">
               {conversation.mode === 'group' ? 'Orchestrated' : 'Single Agent'}
             </span>
           </div>
@@ -78,7 +93,7 @@ export function ChatHeader({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="mr-1 flex items-center rounded-full border border-slate-800 bg-slate-950/70 px-1.5 py-1 transition hover:border-slate-700 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-brand"
+          className="mr-1 hidden items-center rounded-full border border-slate-800 bg-slate-950/70 px-1.5 py-1 transition hover:border-slate-700 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-brand sm:flex"
           title={agentSummary}
           aria-label="查看会话 Agent"
         >
@@ -91,12 +106,23 @@ export function ChatHeader({
             <span className="ml-2 pr-1 text-xs font-medium text-slate-500">+{hiddenAgentCount}</span>
           )}
         </button>
-        <button type="button" className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white" title="Pin 消息" aria-label="Pin 消息">
+        <button type="button" className="hidden rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white sm:inline-flex" title="Pin 消息" aria-label="Pin 消息">
           <Pin className="h-4 w-4" />
         </button>
-        <button type="button" className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white" title="搜索消息" aria-label="搜索消息">
+        <button type="button" className="hidden rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white sm:inline-flex" title="搜索消息" aria-label="搜索消息">
           <Search className="h-4 w-4" />
         </button>
+        {onOpenWorkspace && (
+          <button
+            type="button"
+            onClick={onOpenWorkspace}
+            className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white xl:hidden"
+            title="打开工作台"
+            aria-label="打开工作台"
+          >
+            <PanelRightOpen className="h-4 w-4" />
+          </button>
+        )}
         {!rightPanelOpen && onOpenRightPanel && (
           <button
             type="button"

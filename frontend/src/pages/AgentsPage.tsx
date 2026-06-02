@@ -39,8 +39,8 @@ export function AgentsPage() {
     agents.find((agent) => agent.id === selectedAgentId) ?? filteredAgents[0] ?? null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950">
-      <div className="min-w-0 flex-1 overflow-y-auto p-8 scrollbar-thin">
+    <div className="flex h-full overflow-hidden bg-slate-950">
+      <div className="min-w-0 flex-1 overflow-y-auto p-4 scrollbar-thin sm:p-8">
         <div className="mx-auto max-w-6xl">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
