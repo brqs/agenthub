@@ -3,11 +3,13 @@ import { ModuleRail } from './ModuleRail';
 import { SettingsDialog } from './SettingsDialog';
 import { UserMenu } from './UserMenu';
 import { MobileBottomNav } from '@/components/mobile/MobileBottomNav';
+import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight';
 import { resetClientSession } from '@/lib/session';
 import { useAuthStore } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
 
 export function AppLayout() {
+  useVisualViewportHeight();
   const user = useAuthStore((s) => s.user);
   const themePreference = useUiStore((s) => s.themePreference);
   const resolvedTheme = useUiStore((s) => s.resolvedTheme);
@@ -18,7 +20,7 @@ export function AppLayout() {
   const setUserMenuOpen = useUiStore((s) => s.setUserMenuOpen);
 
   return (
-    <div className="surface-app flex h-screen h-[100dvh] w-screen overflow-hidden">
+    <div className="app-viewport surface-app flex w-screen overflow-hidden">
       <ModuleRail
         themePreference={themePreference}
         resolvedTheme={resolvedTheme}

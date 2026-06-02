@@ -18,7 +18,7 @@ export function AgentMentionPicker({
   if (!visibleAgents.length) return null;
 
   return (
-    <div className="mb-2 w-full max-w-md overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+    <div className="mb-2 max-h-56 w-full max-w-md overflow-y-auto rounded-md border border-slate-700 bg-slate-900 shadow-xl scrollbar-thin">
       {visibleAgents.map((agent) => (
         <button
           key={agent.id}
@@ -36,4 +36,3 @@ export function AgentMentionPicker({
     </div>
   );
 }
-

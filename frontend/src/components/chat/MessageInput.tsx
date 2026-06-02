@@ -74,7 +74,7 @@ export function MessageInput({
   }
 
   return (
-    <footer className="shrink-0 border-t border-slate-200 bg-slate-100 px-5 py-3 dark:border-slate-800 dark:bg-slate-950 max-[800px]:py-2 [@media(max-height:800px)]:py-2">
+    <footer className="shrink-0 border-t border-slate-200 bg-slate-100 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 dark:border-slate-800 dark:bg-slate-950 sm:px-5 sm:py-3 max-[800px]:py-2 [@media(max-height:800px)]:py-2">
       {conversation.mode === 'group' && (
         <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 max-[800px]:hidden [@media(max-height:800px)]:hidden">
           <AtSign className="h-3.5 w-3.5" />
