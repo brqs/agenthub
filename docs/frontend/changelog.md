@@ -72,6 +72,43 @@
 
 ---
 
+## 2026-06-02 — 移动端 P0 Agent、Workspace 与软键盘适配
+
+### 改动范围
+- `frontend/src/pages/AgentsPage.tsx`
+- `frontend/src/components/agents/{AgentDetailPanel,AgentCreateDialog,AgentEditDialog}.tsx`
+- `frontend/src/components/artifact/{WorkspaceFileTree,ArtifactPreview}.tsx`
+- `frontend/src/components/chat/{MessageInput,MessageList,MessageBubble,AgentMentionPicker}.tsx`
+- `frontend/src/components/layout/AppLayout.tsx`
+- `frontend/src/hooks/useVisualViewportHeight.ts`
+- `frontend/src/styles/globals.css`
+- `frontend/index.html`
+
+### 更新内容
+- Agent 卡片在手机端打开详情 sheet，详情内容与桌面侧栏复用。
+- Agent 创建 / 编辑表单改为手机全屏布局：内容区独立滚动，底部操作栏固定并尊重安全区。
+- Workspace 文件树在手机端改为逐级目录列表，提供返回上级目录；平板和桌面保留树形结构。
+- Artifact 全屏预览在手机端取消外层间距并使用 `100dvh`。
+- 根布局接入 `visualViewport`：软键盘出现时动态更新应用高度，并记录键盘可见状态。
+- 输入区增加底部安全区 padding；消息列表、用户气泡和 Mention Picker 收紧窄屏样式。
+- `viewport` meta 增加 `viewport-fit=cover`。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vitest run` ✅ 39 files / 117 tests
+- `./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build` ✅（仅 Vite 大 chunk 既有提醒）
+- 本地浏览器 `375 × 812` 真实页面检查：Agent 详情 sheet、创建表单全屏高度、Workspace 逐级目录与返回动作可用 ✅
+- `visualViewport` 单测模拟软键盘弹出：应用高度从 `812px` 更新到 `540px`，键盘状态切换为可见 ✅
+
+### 后续事项
+- 使用 iPhone Safari 真机复验软键盘弹出、收起、横竖屏切换和底部安全区。
+- 下一批补触屏更多菜单、Conversation 操作菜单和 Settings / UserMenu 移动 sheet。
+
 ## 2026-06-02 — 移动端 P0 布局基础与聊天工作台入口
 
 ### 改动范围

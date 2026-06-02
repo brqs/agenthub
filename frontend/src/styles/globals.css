@@ -59,6 +59,10 @@
     @apply bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100;
   }
 
+  .app-viewport {
+    height: var(--app-height, 100dvh);
+  }
+
   .surface-panel {
     @apply border-slate-200 bg-white text-slate-950 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100;
   }
