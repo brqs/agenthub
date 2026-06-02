@@ -45,4 +45,17 @@ describe('ChatHeader', () => {
     expect(onOpenConversationList).toHaveBeenCalledOnce();
     expect(onOpenWorkspace).toHaveBeenCalledOnce();
   });
+
+  it('opens workspace from the mobile more menu', () => {
+    const onOpenWorkspace = vi.fn();
+    render(
+      <ChatHeader conversation={conversation} agents={mockAgents} onOpenWorkspace={onOpenWorkspace} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '更多操作' }));
+    expect(screen.getByText('会话 Agent')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '从更多菜单打开工作台' }));
+
+    expect(onOpenWorkspace).toHaveBeenCalledOnce();
+  });
 });

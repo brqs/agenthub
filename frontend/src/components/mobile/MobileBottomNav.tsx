@@ -1,4 +1,4 @@
-import { Archive, Bot, MessageSquare, Settings } from 'lucide-react';
+import { Archive, Bot, MessageSquare, Settings, UserRound } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -8,9 +8,15 @@ const navItems = [
   { to: '/archive', label: '归档', icon: Archive },
 ];
 
-export function MobileBottomNav({ onOpenSettings }: { onOpenSettings: () => void }) {
+export function MobileBottomNav({
+  onOpenSettings,
+  onOpenUserMenu,
+}: {
+  onOpenSettings: () => void;
+  onOpenUserMenu: () => void;
+}) {
   return (
-    <nav className="surface-panel z-40 grid shrink-0 grid-cols-4 border-t border-slate-200 px-2 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1 dark:border-slate-800 md:hidden">
+    <nav className="surface-panel z-40 grid shrink-0 grid-cols-5 border-t border-slate-200 px-1 pb-[max(env(safe-area-inset-bottom),0.25rem)] pt-1 dark:border-slate-800 md:hidden">
       {navItems.map((item) => (
         <NavLink
           key={item.to}
@@ -35,6 +41,14 @@ export function MobileBottomNav({ onOpenSettings }: { onOpenSettings: () => void
       >
         <Settings className="h-4 w-4" />
         <span>设置</span>
+      </button>
+      <button
+        type="button"
+        onClick={onOpenUserMenu}
+        className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-md px-2 text-[11px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+      >
+        <UserRound className="h-4 w-4" />
+        <span>账号</span>
       </button>
     </nav>
   );

@@ -72,6 +72,39 @@
 
 ---
 
+## 2026-06-02 — 移动端 P0 触屏菜单与弹窗收尾
+
+### 改动范围
+- `frontend/src/components/conversation/{ConversationItem,NewConversationDialog}.tsx`
+- `frontend/src/components/chat/{ChatHeader,MessageBubble}.tsx`
+- `frontend/src/components/layout/{AppLayout,SettingsDialog,UserMenu}.tsx`
+- `frontend/src/components/mobile/MobileBottomNav.tsx`
+- `frontend/src/components/blocks/{DeploymentStatusBlock,WebPreviewBlock}.tsx`
+
+### 更新内容
+- ConversationItem 增加手机端显式更多菜单，置顶 / 归档不再依赖 hover。
+- Agent 消息头像下增加手机端 `@Agent` 按钮，保留桌面右键菜单作为增强能力。
+- Chat Header 增加移动端更多菜单，展示会话 Agent 摘要并提供工作台入口。
+- 底部导航增加账号入口；UserMenu 改为手机底部 sheet，Settings 改为手机全屏布局。
+- 新建会话弹窗改为手机全屏、内容滚动和固定安全区底部操作栏。
+- Web Preview 手机端改为全屏；DeploymentStatusBlock 操作区允许窄屏换行。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vitest run` ✅ 40 files / 122 tests
+- `./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build` ✅（仅 Vite 大 chunk 既有提醒）
+- 本地浏览器 `375 × 812` 真实聊天页：会话更多菜单、新建会话全屏表单、Header 更多菜单、显式 `@Agent`、Settings 全屏和账号底部 sheet 可用；页面无水平溢出 ✅
+
+### 后续事项
+- P0 运行时代码已收尾，进入真实设备与真实链路验收。
+- 使用 iPhone Safari 真机复验软键盘、横竖屏和底部安全区。
+- 使用真实消息补 SSE、错误重试、文件编辑保存和部署操作端到端回归。
+
 ## 2026-06-02 — 移动端 P0 Agent、Workspace 与软键盘适配
 
 ### 改动范围
@@ -1311,3 +1344,30 @@
 - `pnpm vitest run src/components/agents/RightAgentPanel.test.tsx` ✅
 - `pnpm lint` ✅
 - `pnpm build` ✅
+## 2026-06-02 — 移动端 P1 PWA 基础能力
+
+### 改动范围
+- `frontend/public/**`
+- `frontend/index.html`
+- `frontend/src/lib/pwa.ts`
+- `frontend/src/hooks/useNetworkStatus.ts`
+- `frontend/src/components/layout/OfflineBanner.tsx`
+- `frontend/src/components/layout/AppLayout.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/pages/ChatPage.tsx`
+
+### 更新内容
+- **可安装 PWA**：新增 manifest、常规图标、maskable 图标和 iOS Web App meta。
+- **静态壳离线缓存**：新增原生 Service Worker，缓存 HTML、静态脚本、样式、字体和图标；真实 `/api`、SSE、Workspace 与消息请求全部绕过缓存。
+- **离线状态反馈**：应用布局增加离线横幅，已加载内容可以继续查看。
+- **发送保护**：聊天页离线时禁用输入与发送按钮，提示“当前离线，恢复网络后可继续发送”。
+- **更新提示**：Service Worker 检测到新版本时显示刷新入口。
+
+### 验证方式
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vitest run` ✅ 42 files / 127 tests
+- `./node_modules/.bin/vite build` ✅
+- 生产预览验证：manifest 链接、主题色、静态文件复制和 `/api` 缓存绕过规则均正确。
+
+---

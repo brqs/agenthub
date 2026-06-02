@@ -15,6 +15,7 @@ import { useCreateConversation } from '@/hooks/useCreateConversation';
 import { useConversations } from '@/hooks/useConversations';
 import { useMessages } from '@/hooks/useMessages';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useRegenerateMessage } from '@/hooks/useRegenerateMessage';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useStream } from '@/hooks/useStream';
@@ -57,6 +58,7 @@ export function ChatPage() {
   const closeMobileSheet = useUiStore((state) => state.closeMobileSheet);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
   const isDesktopWorkspace = useMediaQuery('(min-width: 1280px)');
+  const isOnline = useNetworkStatus();
 
   const visibleConversations = conversations.filter((item) => !item.is_archived);
   const conversation = resolveConversation(
@@ -191,6 +193,7 @@ export function ChatPage() {
               conversation={conversation}
               agents={agents}
               isSending={sendingMessage}
+              isOffline={!isOnline}
               mentionInsertRequest={mentionInsertRequest}
               onSend={async (text) => {
                 const result = await sendMessage(conversation.id, text);

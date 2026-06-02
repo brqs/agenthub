@@ -50,4 +50,15 @@ describe('MessageBubble', () => {
 
     expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
   });
+
+  it('mentions an agent from the touch-friendly action', () => {
+    const onMentionAgent = vi.fn();
+    render(
+      <MessageBubble message={agentMessage} agents={[codexAgent]} onMentionAgent={onMentionAgent} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '@ Codex Helper' }));
+
+    expect(onMentionAgent).toHaveBeenCalledWith(codexAgent);
+  });
 });
