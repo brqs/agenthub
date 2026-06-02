@@ -60,8 +60,8 @@ export function WebPreviewBlock({
       </div>
 
       {previewOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-          <div className="flex max-h-[84vh] w-full max-w-5xl flex-col overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
+        <div className="fixed inset-0 z-50 flex h-[100dvh] items-center justify-center bg-slate-950/80 backdrop-blur-sm sm:px-4 sm:py-6">
+          <div className="flex h-full w-full max-w-5xl flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40 sm:max-h-[84vh] sm:rounded-md">
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-white">{title ?? url}</div>
@@ -76,7 +76,7 @@ export function WebPreviewBlock({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="min-h-0 overflow-y-auto bg-slate-950 p-4 scrollbar-thin">
+            <div className="min-h-0 overflow-y-auto bg-slate-950 p-2 scrollbar-thin sm:p-4">
               <div className="overflow-hidden rounded-md border border-slate-800 bg-slate-900">
                 <div className="flex items-center gap-2 border-b border-slate-800 bg-slate-950 px-3 py-2">
                   <span className="h-2.5 w-2.5 rounded-full bg-red-400" />

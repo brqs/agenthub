@@ -3,7 +3,7 @@ import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { DemoMessage } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
-import { Pin, RotateCcw } from 'lucide-react';
+import { AtSign, Pin, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 export function MessageBubble({
@@ -68,12 +68,24 @@ export function MessageBubble({
       )}
     >
       {!isUser && (
-        <div
-          className={cn('pt-6', canMentionAgent && 'cursor-context-menu')}
-          onContextMenu={openMentionMenu}
-          title={canMentionAgent ? `右键 @${agent.name}` : undefined}
-        >
-          <AgentAvatar agent={agent} />
+        <div className="flex flex-col items-center gap-1 pt-6">
+          <div
+            className={cn(canMentionAgent && 'cursor-context-menu')}
+            onContextMenu={openMentionMenu}
+            title={canMentionAgent ? `右键 @${agent.name}` : undefined}
+          >
+            <AgentAvatar agent={agent} />
+          </div>
+          {canMentionAgent && (
+            <button
+              type="button"
+              onClick={mentionAgent}
+              className="rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-brand dark:hover:bg-slate-800 dark:hover:text-brand-light md:hidden"
+              aria-label={`@ ${agent.name}`}
+            >
+              <AtSign className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       )}
       <div className={cn(isUser ? 'order-1 flex max-w-[min(680px,88%)] flex-col items-end sm:max-w-[min(680px,78%)]' : 'min-w-0 flex-1')}>
@@ -88,7 +100,7 @@ export function MessageBubble({
               onClick={() => onTogglePin(message.id)}
               className={cn(
                 'ml-1 rounded-md p-1 transition hover:bg-slate-100 hover:text-slate-950 group-hover:opacity-100 dark:hover:bg-slate-800 dark:hover:text-white',
-                message.is_pinned ? 'text-brand opacity-100 dark:text-brand-light' : 'text-slate-500 opacity-0 dark:text-slate-600',
+                message.is_pinned ? 'text-brand opacity-100 dark:text-brand-light' : 'text-slate-500 opacity-100 md:opacity-0 dark:text-slate-600',
               )}
               title={message.is_pinned ? '取消 Pin' : 'Pin 消息'}
               aria-label={message.is_pinned ? '取消 Pin' : 'Pin 消息'}

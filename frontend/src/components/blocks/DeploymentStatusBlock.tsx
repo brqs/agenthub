@@ -127,7 +127,7 @@ export function DeploymentStatusBlock({
 
   return (
     <section className="overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-      <div className="flex min-w-0 items-start gap-3 px-3 py-3">
+      <div className="flex min-w-0 flex-wrap items-start gap-3 px-3 py-3">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-50 text-brand dark:border-slate-800 dark:bg-slate-900 dark:text-brand-light">
           <Package className="h-5 w-5" />
         </span>
@@ -174,7 +174,7 @@ export function DeploymentStatusBlock({
             <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">停止发布失败，请稍后重试。</p>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           {url && (
             <a
               href={url}

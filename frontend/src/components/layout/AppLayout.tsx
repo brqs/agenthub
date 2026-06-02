@@ -32,7 +32,10 @@ export function AppLayout() {
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <Outlet />
         </main>
-        <MobileBottomNav onOpenSettings={() => setSettingsOpen(true)} />
+        <MobileBottomNav
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenUserMenu={() => setUserMenuOpen(true)}
+        />
       </div>
       {userMenuOpen && (
         <UserMenu

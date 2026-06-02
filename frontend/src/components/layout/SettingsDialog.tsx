@@ -10,8 +10,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-      <section className="w-full max-w-lg overflow-hidden rounded-md border border-slate-300 bg-white shadow-2xl shadow-black/20 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 sm:px-4 sm:py-6 backdrop-blur-sm">
+      <section className="flex h-[100dvh] w-full max-w-lg flex-col overflow-hidden border border-slate-300 bg-white shadow-2xl shadow-black/20 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40 sm:h-auto sm:max-h-[calc(100dvh-3rem)] sm:rounded-md">
         <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
             <h2 className="text-base font-semibold text-slate-950 dark:text-white">Settings</h2>
@@ -28,7 +28,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           </button>
         </header>
 
-        <div className="space-y-3 p-5">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5 scrollbar-thin">
           <SettingRow label="主题偏好" value={formatThemePreference(themePreference)} />
           <SettingRow label="当前生效" value={formatResolvedTheme(resolvedTheme)} />
           <SettingRow label="系统主题" value={formatSystemTheme(systemTheme)} />
