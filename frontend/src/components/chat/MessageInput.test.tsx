@@ -67,6 +67,18 @@ describe('MessageInput', () => {
     expect(screen.getByPlaceholderText('发消息到 单聊测试')).toBeDisabled();
   });
 
+  it('disables input and sending while offline', () => {
+    const onSend = vi.fn();
+    render(<MessageInput conversation={singleConversation} onSend={onSend} isOffline />);
+
+    const input = screen.getByPlaceholderText('当前离线，恢复网络后可继续发送');
+    expect(input).toBeDisabled();
+    expect(screen.getByText('当前离线，恢复网络后可继续发送')).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('shows mention picker in group conversations and inserts selected agent', () => {
     render(<MessageInput conversation={groupConversation} agents={mockAgents} onSend={vi.fn()} />);
     const input = screen.getByPlaceholderText('发消息到 群聊测试');
@@ -111,5 +123,4 @@ describe('MessageInput', () => {
 
     expect(screen.getByPlaceholderText('发消息到 单聊测试')).toHaveValue('');
   });
-
 });

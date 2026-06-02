@@ -8,6 +8,7 @@ import {
   UserRound,
   Users,
 } from 'lucide-react';
+import { useState } from 'react';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { DemoConversation } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
@@ -31,6 +32,7 @@ export function ChatHeader({
   onOpenConversationList?: () => void;
   onOpenWorkspace?: () => void;
 }) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const conversationAgents = conversation.agent_ids
     .map((agentId) => agents.find((agent) => agent.id === agentId))
     .filter((agent) => agent !== undefined);
@@ -44,7 +46,7 @@ export function ChatHeader({
       : conversationAgents[0]?.name ?? conversation.agent_ids[0];
 
   return (
-    <header className="flex min-h-[68px] shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-3 py-2 backdrop-blur sm:min-h-[76px] sm:px-5 sm:py-3">
+    <header className="relative flex min-h-[68px] shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-3 py-2 backdrop-blur sm:min-h-[76px] sm:px-5 sm:py-3">
       <div className="flex min-w-0 items-start gap-3">
         {onOpenConversationList && (
           <button
@@ -134,10 +136,37 @@ export function ChatHeader({
             <PanelRightOpen className="h-4 w-4" />
           </button>
         )}
-        <button type="button" className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white" title="更多操作" aria-label="更多操作">
+        <button
+          type="button"
+          onClick={() => setMobileMenuOpen((open) => !open)}
+          className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
+          title="更多操作"
+          aria-label="更多操作"
+          aria-expanded={mobileMenuOpen}
+        >
           <MoreHorizontal className="h-4 w-4" />
         </button>
       </div>
+      {mobileMenuOpen && (
+        <div className="absolute right-3 top-16 z-30 w-64 rounded-md border border-slate-300 bg-white p-3 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:hidden">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">会话 Agent</div>
+          <p className="mt-2 text-sm leading-5 text-slate-700 dark:text-slate-300">{agentSummary}</p>
+          {onOpenWorkspace && (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                onOpenWorkspace();
+              }}
+              className="mt-3 flex w-full items-center gap-2 rounded-md bg-slate-100 px-3 py-2 text-left text-sm text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              aria-label="从更多菜单打开工作台"
+            >
+              <PanelRightOpen className="h-4 w-4" />
+              打开工作台
+            </button>
+          )}
+        </div>
+      )}
     </header>
   );
 }

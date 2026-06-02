@@ -69,8 +69,8 @@ export function NewConversationDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-      <section className="w-full max-w-2xl overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 sm:px-4 sm:py-6 backdrop-blur-sm">
+      <section className="flex h-[100dvh] w-full max-w-2xl flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:rounded-lg">
         <header className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-white">新建会话</h2>
@@ -80,12 +80,13 @@ export function NewConversationDialog({
             type="button"
             onClick={onClose}
             className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
+            aria-label="关闭"
           >
             <X className="h-4 w-4" />
           </button>
         </header>
 
-        <div className="space-y-5 p-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5 scrollbar-thin">
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
@@ -167,7 +168,7 @@ export function NewConversationDialog({
           </div>
         </div>
 
-        <footer className="flex justify-end gap-3 border-t border-slate-800 px-5 py-4">
+        <footer className="flex shrink-0 justify-end gap-3 border-t border-slate-800 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4">
           <button
             type="button"
             onClick={onClose}
@@ -188,4 +189,3 @@ export function NewConversationDialog({
     </div>
   );
 }
-

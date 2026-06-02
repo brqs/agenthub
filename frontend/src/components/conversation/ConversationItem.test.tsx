@@ -60,4 +60,26 @@ describe('ConversationItem', () => {
 
     expect(screen.getByRole('button', { name: '取消归档' })).toBeInTheDocument();
   });
+
+  it('exposes pin and archive actions from the mobile more menu', () => {
+    const onTogglePin = vi.fn();
+    const onToggleArchive = vi.fn();
+    render(
+      <ConversationItem
+        conversation={{ ...mockConversations[0], is_pinned: false }}
+        active={false}
+        onSelect={vi.fn()}
+        onTogglePin={onTogglePin}
+        onToggleArchive={onToggleArchive}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '会话更多操作' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '置顶会话' })[1]!);
+    fireEvent.click(screen.getByRole('button', { name: '会话更多操作' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '归档会话' })[1]!);
+
+    expect(onTogglePin).toHaveBeenCalledOnce();
+    expect(onToggleArchive).toHaveBeenCalledOnce();
+  });
 });
