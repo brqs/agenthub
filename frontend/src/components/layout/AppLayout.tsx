@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom';
 import { ModuleRail } from './ModuleRail';
 import { SettingsDialog } from './SettingsDialog';
 import { UserMenu } from './UserMenu';
+import { MobileBottomNav } from '@/components/mobile/MobileBottomNav';
 import { resetClientSession } from '@/lib/session';
 import { useAuthStore } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
@@ -17,7 +18,7 @@ export function AppLayout() {
   const setUserMenuOpen = useUiStore((s) => s.setUserMenuOpen);
 
   return (
-    <div className="surface-app flex h-screen w-screen overflow-hidden">
+    <div className="surface-app flex h-screen h-[100dvh] w-screen overflow-hidden">
       <ModuleRail
         themePreference={themePreference}
         resolvedTheme={resolvedTheme}
@@ -25,9 +26,12 @@ export function AppLayout() {
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleUserMenu={() => setUserMenuOpen(!userMenuOpen)}
       />
-      <main className="min-w-0 flex-1 overflow-hidden">
-        <Outlet />
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <Outlet />
+        </main>
+        <MobileBottomNav onOpenSettings={() => setSettingsOpen(true)} />
+      </div>
       {userMenuOpen && (
         <UserMenu
           user={user}

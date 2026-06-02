@@ -1,6 +1,7 @@
 import { PanelLeftClose, Plus, Search } from 'lucide-react';
 import { ConversationItem } from './ConversationItem';
 import type { DemoConversation } from '@/lib/mockData';
+import { cn } from '@/lib/utils';
 
 export function ConversationSidebar({
   conversations,
@@ -12,6 +13,7 @@ export function ConversationSidebar({
   onCollapse,
   onTogglePin,
   onToggleArchive,
+  presentation = 'desktop',
 }: {
   conversations: DemoConversation[];
   selectedConversationId: string;
@@ -22,6 +24,7 @@ export function ConversationSidebar({
   onCollapse?: () => void;
   onTogglePin?: (conversationId: string) => void;
   onToggleArchive?: (conversationId: string) => void;
+  presentation?: 'desktop' | 'mobile';
 }) {
   const normalized = search.trim().toLowerCase();
   const filtered = conversations.filter((conversation) =>
@@ -31,7 +34,12 @@ export function ConversationSidebar({
   const recent = filtered.filter((conversation) => !conversation.is_pinned);
 
   return (
-    <aside className="flex h-screen w-72 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <aside
+      className={cn(
+        'h-full shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
+        presentation === 'desktop' ? 'hidden w-72 md:flex' : 'flex w-full',
+      )}
+    >
       <div className="px-4 pb-2 pt-4">
         <div className="flex items-center justify-between">
           <div>

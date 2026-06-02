@@ -29,7 +29,7 @@ export function ModuleRail({
       : `主题：${resolvedTheme === 'dark' ? '深色' : '浅色'}`;
 
   return (
-    <nav className="flex h-screen w-16 shrink-0 flex-col items-center border-r border-slate-200 bg-white py-4 text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+    <nav className="hidden h-full w-16 shrink-0 flex-col items-center border-r border-slate-200 bg-white py-4 text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 md:flex">
       <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-2xl bg-brand text-white shadow-lg shadow-brand/25">
         <Sparkles className="h-5 w-5" />
       </div>
