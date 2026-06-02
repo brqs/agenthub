@@ -420,7 +420,7 @@ def _custom_agent_tool_arguments(user_request: str) -> dict[str, Any] | None:
         return None
 
     capabilities = _extract_capabilities(user_request)
-    return {
+    result: dict[str, Any] = {
         "name": name,
         "provider": provider,
         "system_prompt": system_prompt,
@@ -428,6 +428,10 @@ def _custom_agent_tool_arguments(user_request: str) -> dict[str, Any] | None:
         "config": {},
         "add_to_conversation": _should_add_custom_agent_to_conversation(user_request),
     }
+    allowed_tools = _extract_allowed_tools(user_request)
+    if allowed_tools is not None:
+        result["allowed_tools"] = allowed_tools
+    return result
 
 
 def _looks_like_custom_agent_request(user_request: str) -> bool:
@@ -474,6 +478,26 @@ def _extract_capabilities(user_request: str) -> list[str]:
     return capabilities
 
 
+def _extract_allowed_tools(user_request: str) -> list[str] | None:
+    match = re.search(
+        r"(?:allowed_tools|工具白名单|允许工具|工具)\s*(?:设置为|为|是|=|:)\s*([^。；;\n]+)",
+        user_request,
+        re.I,
+    )
+    if not match:
+        return None
+    raw = match.group(1)
+    parts = re.split(r"[,，、/]\s*", raw)
+    tools: list[str] = []
+    for part in parts:
+        value = part.strip().strip("\"'“”‘’")
+        if any(stop in value for stop in ("并", "然后", "加入")):
+            value = re.split(r"并|然后|加入", value, maxsplit=1)[0].strip()
+        if value:
+            tools.append(value)
+    return tools
+
+
 def _should_add_custom_agent_to_conversation(user_request: str) -> bool:
     if "不加入" in user_request:
         return False
@@ -492,12 +516,17 @@ def _custom_agent_result_text(status: str, output: str | None) -> str:
     if status == "ok":
         agent = payload.get("agent")
         if isinstance(agent, Mapping):
+            capabilities = ", ".join(str(item) for item in agent.get("capabilities", []))
+            allowed_tools = ", ".join(
+                str(item) for item in agent.get("allowed_tools") or []
+            )
             return (
                 "已创建自建 Agent 并加入当前群聊。\n"
                 f"- id: {agent.get('id')}\n"
                 f"- name: {agent.get('name')}\n"
                 f"- provider: {agent.get('provider')}\n"
-                f"- capabilities: {', '.join(str(item) for item in agent.get('capabilities', []))}"
+                f"- capabilities: {capabilities}\n"
+                f"- allowed_tools: {allowed_tools}"
             )
         return "已创建自建 Agent。"
     missing = payload.get("missing_fields")

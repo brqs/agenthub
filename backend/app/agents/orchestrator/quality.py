@@ -264,34 +264,96 @@ async def run_quality_gate(
                     ],
                 ),
             )
-            deployment_tool_results: list[
-                tuple[str, dict[str, Any], OrchestratorToolResult]
-            ] = []
-            async for chunk, updated_block_index in _run_deployment_tools(
-                executor=executor,
-                user_request=user_request,
-                entry_path=entry_path,
-                requested_port=requested_port,
-                next_block_index=next_block_index,
-                deployment_tool_results=deployment_tool_results,
-            ):
-                next_block_index = updated_block_index
-                yield chunk, updated_block_index
-            deployment_result = _deployment_health_result(
-                user_request,
-                deployment_tool_results,
-            )
-            if deployment_result is not None:
+            deployment_result: EvaluationResult | None = None
+            deployment_repair_round = 0
+            while True:
+                deployment_tool_results: list[
+                    tuple[str, dict[str, Any], OrchestratorToolResult]
+                ] = []
+                call_id_suffix = (
+                    "" if deployment_repair_round == 0 else f".retry.{deployment_repair_round}"
+                )
+                async for chunk, updated_block_index in _run_deployment_tools(
+                    executor=executor,
+                    user_request=user_request,
+                    entry_path=entry_path,
+                    requested_port=requested_port,
+                    next_block_index=next_block_index,
+                    deployment_tool_results=deployment_tool_results,
+                    call_id_suffix=call_id_suffix,
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk, updated_block_index
+                deployment_result = _deployment_health_result(
+                    user_request,
+                    deployment_tool_results,
+                )
+                if deployment_result is None:
+                    break
+                repairable = _deployment_result_repairable(deployment_result)
+                reflection = (
+                    _deployment_reflection(
+                        deployment_result,
+                        deployment_tool_results,
+                        deployment_repair_round,
+                    )
+                    if not deployment_result.passed and repairable
+                    else None
+                )
                 await _record_evaluation_started(
                     config,
                     run_context,
                     "deployment_health",
-                    {"tool_count": len(deployment_tool_results)},
+                    {
+                        "tool_count": len(deployment_tool_results),
+                        "repair_round": deployment_repair_round,
+                    },
                 )
-                await _record_evaluation_result(config, run_context, deployment_result)
+                await _record_evaluation_result(
+                    config,
+                    run_context,
+                    deployment_result,
+                    reflection,
+                )
+                if deployment_result.passed or not repairable:
+                    break
+                if deployment_repair_round >= max_rounds:
+                    break
+                repair_agent = _repair_agent(config)
+                if repair_agent is None:
+                    break
+                deployment_repair_round += 1
+                repair_task = SubTask(
+                    task_id=f"deployment-repair-{deployment_repair_round}",
+                    agent_id=repair_agent,
+                    title=f"Repair deployment issues round {deployment_repair_round}",
+                    instruction=(
+                        reflection.repair_instruction
+                        if reflection is not None
+                        else "Repair the workspace deployment artifacts and retry deployment."
+                    ),
+                    expected_output=_deployment_repair_expected_output(
+                        user_request,
+                        entry_path,
+                    ),
+                    include_history=True,
+                    priority=2000 + deployment_repair_round,
+                )
+                async for chunk, updated_block_index in run_task(
+                    config,
+                    repair_task,
+                    messages,
+                    next_block_index,
+                    run_context,
+                    workspace_path,
+                    tool_specs,
+                    call_id_prefix=f"deployment-repair-{deployment_repair_round}",
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk, updated_block_index
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
-                _quality_passed_text(deployment_result),
+                _quality_passed_text(deployment_result, deployment_repair_round),
             ):
                 next_block_index = updated_block_index
                 yield chunk, updated_block_index
@@ -391,6 +453,7 @@ async def _run_deployment_tools(
     next_block_index: int,
     deployment_tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]]
     | None = None,
+    call_id_suffix: str = "",
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     if RELEASE_INTENT_RE.search(user_request) and entry_path:
         args: dict[str, Any] = {
@@ -401,7 +464,7 @@ async def _run_deployment_tools(
             args["requested_port"] = requested_port
         async for item in _call_deployment_tool(
             executor,
-            "orch.deployment.static_site",
+            f"orch.deployment.static_site{call_id_suffix}",
             "create_deployment",
             args,
             next_block_index,
@@ -413,7 +476,7 @@ async def _run_deployment_tools(
     if SOURCE_EXPORT_INTENT_RE.search(user_request):
         async for item in _call_deployment_tool(
             executor,
-            "orch.deployment.source_zip",
+            f"orch.deployment.source_zip{call_id_suffix}",
             "package_workspace_source",
             {"format": "zip"},
             next_block_index,
@@ -425,7 +488,7 @@ async def _run_deployment_tools(
     if CONTAINER_INTENT_RE.search(user_request):
         async for item in _call_deployment_tool(
             executor,
-            "orch.deployment.container",
+            f"orch.deployment.container{call_id_suffix}",
             "create_deployment",
             {"kind": "container"},
             next_block_index,
@@ -550,6 +613,30 @@ def _deployment_health_result(
                 )
             )
             continue
+        if kind == "container":
+            if not _optional_str(payload.get("healthcheck_url")):
+                issues.append(
+                    EvaluationIssue(
+                        code="container_health_unhealthy",
+                        message="Container deployment did not publish a healthcheck URL.",
+                        evidence=result.output,
+                        repair_hint=(
+                            "Fix the container app, Dockerfile, exposed port, or health route "
+                            "until the platform health check passes."
+                        ),
+                    )
+                )
+            if payload.get("runtime_status") != "running":
+                issues.append(
+                    EvaluationIssue(
+                        code="container_health_unhealthy",
+                        message="Container runtime is not running after deployment.",
+                        evidence=result.output,
+                        repair_hint=(
+                            "Fix container startup and health behavior, then redeploy."
+                        ),
+                    )
+                )
         if status != "published" or not _optional_str(payload.get("url")):
             issues.append(
                 EvaluationIssue(
@@ -572,13 +659,82 @@ def _deployment_health_result(
     )
 
 
-def _quality_passed_text(deployment_result: EvaluationResult | None) -> str:
+def _deployment_result_repairable(result: EvaluationResult) -> bool:
+    if result.passed:
+        return False
+    return not any(
+        issue.code == "container_deployment_not_supported" for issue in result.issues
+    )
+
+
+def _deployment_reflection(
+    result: EvaluationResult,
+    tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]],
+    repair_round: int,
+) -> ReflectionResult:
+    evidence = _deployment_reflection_evidence(result, tool_results)
+    repair_instruction = (
+        "Repair the workspace deployment artifacts, then the Orchestrator will rerun "
+        "the same platform deployment tool. Do not start local preview/dev servers or "
+        "run Docker manually; AgentHub platform tools own deployment.\n"
+        f"Deployment repair round: {repair_round + 1}.\n"
+        "Focus on the files needed by the failed deployment, such as index.html for "
+        "static releases or Dockerfile/application health routes for container deploys.\n"
+        f"Deployment evidence:\n- " + "\n- ".join(evidence)
+    )
+    return ReflectionResult(
+        failure_category="deployment_health_failed",
+        summary="Deployment health failed after platform deployment.",
+        evidence=evidence,
+        repair_instruction=repair_instruction,
+    )
+
+
+def _deployment_reflection_evidence(
+    result: EvaluationResult,
+    tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]],
+) -> list[str]:
+    evidence = [
+        f"{issue.code}: {issue.message}"
+        + (f" Repair hint: {issue.repair_hint}" if issue.repair_hint else "")
+        for issue in result.issues[:5]
+    ]
+    for tool_name, arguments, tool_result in tool_results[:5]:
+        payload = _json_payload(tool_result.output)
+        detail = {
+            "tool": tool_name,
+            "arguments": arguments,
+            "status": payload.get("status"),
+            "kind": payload.get("kind"),
+            "error": payload.get("error"),
+            "logs_preview": payload.get("logs_preview"),
+            "logs_tail": payload.get("logs_tail"),
+        }
+        evidence.append(_truncate(json.dumps(detail, ensure_ascii=False), 1200))
+    return evidence[:8]
+
+
+def _deployment_repair_expected_output(user_request: str, entry_path: str | None) -> str:
+    outputs: list[str] = []
+    if entry_path:
+        outputs.append(entry_path)
+    if CONTAINER_INTENT_RE.search(user_request):
+        outputs.extend(["Dockerfile", "application files with a working health route"])
+    return "\n".join(outputs) or "deployment artifacts"
+
+
+def _quality_passed_text(
+    deployment_result: EvaluationResult | None,
+    deployment_repair_rounds: int = 0,
+) -> str:
     lines = [
         "Browser quality verification passed.",
         "Evaluation: browser_preview_quality passed.",
     ]
     if deployment_result is not None:
         lines.append(f"Evaluation: deployment_health {deployment_result.status}.")
+        if deployment_repair_rounds:
+            lines.append(f"Deployment repair rounds: {deployment_repair_rounds}.")
         if deployment_result.issues:
             first_issue = deployment_result.issues[0]
             lines.append(f"Deployment health issue: {first_issue.code} - {first_issue.message}")

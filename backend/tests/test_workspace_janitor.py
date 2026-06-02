@@ -29,3 +29,19 @@ def test_janitor_removes_old_untracked_directory(tmp_path) -> None:
     janitor._remove_orphan_directories(tmp_path, set())  # noqa: SLF001
 
     assert not orphan.exists()
+
+
+def test_janitor_keeps_tracked_container_build_directory(tmp_path) -> None:
+    janitor = WorkspaceResourceJanitor()
+    tracked = tmp_path / "tracked-build"
+    orphan = tmp_path / "old-build"
+    tracked.mkdir()
+    orphan.mkdir()
+    old_time = time.time() - 700
+    os.utime(tracked, (old_time, old_time))
+    os.utime(orphan, (old_time, old_time))
+
+    janitor._remove_orphan_directories(tmp_path, {str(tracked)})  # noqa: SLF001
+
+    assert tracked.exists()
+    assert not orphan.exists()

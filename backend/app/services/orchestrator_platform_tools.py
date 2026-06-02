@@ -303,6 +303,10 @@ class OrchestratorPlatformToolExecutor:
         if not isinstance(raw_config, Mapping):
             return _tool_error("config must be an object", "invalid_arguments")
         config = dict(raw_config)
+        if "allowed_tools" in arguments:
+            config["allowed_tools"] = arguments.get("allowed_tools")
+        elif provider == "builtin" and "allowed_tools" not in config:
+            config["allowed_tools"] = []
         try:
             normalized_config = validate_agent_config(
                 provider=provider,
@@ -347,6 +351,7 @@ class OrchestratorPlatformToolExecutor:
                         "name": agent.name,
                         "provider": agent.provider,
                         "capabilities": agent.capabilities,
+                        "allowed_tools": normalized_config.get("allowed_tools"),
                         "is_builtin": agent.is_builtin,
                     },
                     "added_to_conversation": add_to_conversation

@@ -24,18 +24,18 @@ B2 当前已经具备 Agent Runtime Layer 的主体能力：
 
 1. 并行 DAG 调度：已实现，默认开启。
 2. Workspace snapshot / diff / conflict detection：已实现，冲突先记录和展示，不自动 merge。
-3. 对话式自建 Agent：已实现 `create_custom_agent` 平台 tool 和加入当前群聊的基础链路；显式工具白名单仍需补齐。
+3. 对话式自建 Agent：已实现 `create_custom_agent` 平台 tool、加入当前群聊链路，以及 builtin native/MCP 显式工具白名单 MVP。
 
 当前剩余缺口集中在：
 
-1. External runtime 最小权限与 worker 隔离。
-2. 自建 Agent 显式工具白名单。
-3. 完整部署发布能力。
-4. Workflow 产物支持。
-5. Agent-to-Agent review thread。
-6. 长期记忆与 Agent 能力画像。
-7. 通用 Reflection / Evaluation 闭环。
-8. 更丰富产物类型。
+1. 部署发布 hardening：失败修复/再部署闭环、container build 失败清理、rootless/队列化等。
+2. Workflow 产物产品化：已有 evaluator MVP，但还缺正式 artifact kind、preview/runtime/health check。
+3. Agent-to-Agent review thread。
+4. 长期记忆与 Agent 能力画像。
+5. 通用 Reflection / Evaluation 深化：更多 runner、`.pptx`/图片 evaluator、生产 LLM-as-judge。
+6. 更丰富产物类型。
+
+本轮先忽略 External runtime 最小权限与 worker 隔离；该项保留为 hardening backlog，不进入当前建议执行顺序。
 
 ---
 
@@ -151,8 +151,9 @@ PDF 对应要求：
 - Orchestrator 已支持聊天中通过正式平台 tool `create_custom_agent` 创建自建 Agent。
 - 支持创建后加入当前 group conversation。
 - 缺少必要字段时返回 `needs_user_input=true`，不创建半成品。
-- 当前正式 tool schema 没有独立 `allowed_tools` 字段；只能通过通用 `config` 透传 provider-specific 配置。
-- Builtin Agent 未显式传入 `tool_specs` 时会获得全部 native tools 和 MCP tools，因此“System Prompt + 工具集”要求尚未完整达标。
+- 当前正式 tool schema 已有独立 `allowed_tools` 字段。
+- `Agent.config.allowed_tools` 已作为 builtin native/MCP tools 的持久化最大权限集合接入运行时。
+- 新创建的自建 builtin Agent 默认写入 `allowed_tools=[]`，表示最小权限；已有未配置字段的历史/内置 Agent 保持旧行为。
 
 已实现：
 
@@ -162,16 +163,13 @@ PDF 对应要求：
   - provider
   - system_prompt
   - capabilities
+  - allowed_tools
   - model/runtime config
 - 对缺失字段调用 `ask_user`。
 - 创建后返回 Agent 联系人信息，并允许立即拉入当前会话。
-
-待完善：
-
-- 为 `create_custom_agent` 增加显式 `allowed_tools` 字段。
 - 对 native tools 和 MCP tools 做统一白名单校验。
-- Builtin Agent 默认使用最小权限工具集；仅在用户明确授权后增加工具。
-- 在 Agent CRUD 与聊天创建链路中复用同一份工具权限 schema。
+- Agent CRUD 与聊天创建链路复用同一份 config validation。
+- 本项剩余为前端权限选择 UI 和 external runtime provider-specific 权限 hardening。
 
 主要影响文件：
 
@@ -190,7 +188,7 @@ PDF 对应要求：
 - 新 Agent 出现在 `/api/v1/agents`。
 - 新 Agent 可在后续会话中被 Orchestrator 调度。
 - 真实 E2E Case 4 已通过，`LiveCopywriter-{timestamp}` 创建成功并加入当前群聊。
-- 显式工具白名单尚未验收，因此本项只能视为基础链路达标。
+- 显式工具白名单 MVP 已通过单元/集成测试；本项剩余为权限选择 UI 和 external runtime 权限 hardening。
 
 ### P0 验证记录
 
@@ -228,6 +226,8 @@ uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/
 
 ## 3. P1 TODO - 影响产物交付完整度
 
+> 本轮优先级说明：B2-GAP-04 仍是重要安全 hardening，但本次 TODO 排期先忽略 external runtime 权限收紧，优先推进部署闭环和 Workflow 产物产品化。
+
 ### B2-GAP-04 External Runtime 最小权限与 Worker 隔离
 
 PDF 对应要求：
@@ -260,7 +260,7 @@ PDF 对应要求：
 - timeout、cancel、服务重启后不存在残留子进程。
 - runtime 日志和审计事件能够说明 provider、agent、sandbox mode、workspace 和退出原因。
 
-### B2-GAP-05 Deployment / Release Tool（后端 API/SSE 已验收，前端 UI 待联调）
+### B2-GAP-05 Deployment / Release Tool（后端 API/SSE 与前端状态卡已对齐）
 
 PDF 对应要求：
 
@@ -287,7 +287,15 @@ PDF 对应要求：
   [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)。
 - 后端直连 Orchestrator API/SSE E2E 已通过，证据见
   [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)。
+- 部署失败后的 `deployment_health -> reflection -> repair agent -> redeploy` MVP 已接入网页质量门后的
+  deployment 阶段；失败证据会携带 deployment kind、error、logs tail 和原始 tool arguments。
+- Container build/run/health 失败路径会清理本轮 build context、container 和 image；janitor 已纳入
+  `DEPLOYMENT_CONTAINER_BUILD_ROOT` orphan cleanup，并在 runtime 可用时按 managed label 清理 orphan
+  container/image。
 - 真正容器化发布已实现为后端 Worker MVP，后续重点是 rootless runtime、队列化和更强隔离。
+- 前端生成类型、`queued` 状态、部署状态卡、停止按钮、部署历史入口已经与当前
+  OpenAPI 契约对齐；本地前端 `DeploymentStatusBlock` / `RightAgentPanel` 测试与
+  `pnpm tsc --noEmit` 已通过。
 
 后续完善计划：
 
@@ -295,9 +303,8 @@ PDF 对应要求：
 - 前端增强交接见 [deployment-release-frontend-handoff.spec.md](deployment-release-frontend-handoff.spec.md)。
 - 原生部署实现说明见
   [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)。
-- 前端 UI 卡片渲染、停止按钮、部署历史入口和轮询刷新按
-  [deployment-release-frontend-handoff.spec.md](deployment-release-frontend-handoff.spec.md)
-  交给前端联调。
+- Rootless runtime、队列化 worker、生产级探活重试和更强宿主隔离仍属于 hardening backlog。
+- 前端部署历史 / 状态卡的更细粒度 repair 展示仍属于后续 UI 增强；本轮不新增部署修复 REST endpoint。
 
 实现内容：
 
@@ -342,6 +349,8 @@ PDF 对应要求：
 - 源码打包下载接口可用。
 - 用户说“容器化部署”时，默认返回真实 container deployment 状态；管理员关闭 worker 时返回 `not_supported` 状态卡。
 - 用户只说“预览”时仍走 `start_workspace_preview`，不混淆 preview 与 deployment。
+- 前端能渲染 `queued/publishing/published/failed/stopped/not_supported`，不会因新增 metadata 或
+  `queued` 状态运行时报错。
 
 ### B2-GAP-06 Workflow 产物支持
 
@@ -352,11 +361,14 @@ PDF 对应要求：
 当前状态：
 
 - 当前产物链路主要覆盖代码、HTML、Diff、网页预览。
-- 没有 workflow schema、runner、validator 或 preview。
+- Orchestrator Evaluation / Reflection MVP 已提供 `workflow_validation` evaluator：
+  对 JSON/YAML workflow 校验 `version/name/nodes/edges`、节点唯一性和 edge 悬空引用。
+- 当前还没有正式 `workflow` ContentBlock / artifact kind、前端 DAG 预览、workflow runtime
+  或 workflow health check，因此“Workflow 产物支持”仍未完整达标。
 
 待办：
 
-- 定义 Workflow artifact schema，例如：
+- 将当前 evaluator schema 产品化为正式 Workflow artifact schema，例如：
   - nodes
   - edges
   - inputs
@@ -366,8 +378,9 @@ PDF 对应要求：
 - 新增 artifact kind：`workflow`。
 - Orchestrator 能识别“帮我做一个工作流/流程”的任务意图。
 - Builtin Agent 可生成 workflow JSON。
-- 平台提供 workflow validator。
+- 平台 validator 复用/扩展现有 `workflow_validation` evaluator。
 - 前端展示可先用 JSON / mermaid / 简单 DAG metadata。
+- 后续补 workflow runtime / dry-run / health check。
 
 建议影响文件：
 
@@ -448,7 +461,7 @@ PDF 对应要求：
 - 同类失败多次后，Orchestrator 会降低该 Agent 优先级。
 - 调度理由中能说明选择某 Agent 的历史依据。
 
-### B2-GAP-09 Reflection / Evaluation 闭环通用化
+### B2-GAP-09 Reflection / Evaluation 闭环深化
 
 方案草案见 [orchestrator/evaluation-reflection.proposal.md](orchestrator/evaluation-reflection.proposal.md)。
 
@@ -457,6 +470,7 @@ PDF 对应要求：
 - 前端 preview/browser quality gate 已通过 `browser_preview_quality` evaluator 事件接入通用 Evaluation / Reflection。
 - 文档、代码、Workflow、PPT outline 等 artifact 已有默认开启的 Evaluation / Reflection MVP。
 - Workflow、PPT outline、受控 test runner、deployment health 已有 MVP evaluator。
+- Evaluation 失败会生成 reflection，并可复用 per-task fallback 进入“生成 -> 验证 -> 修复 -> 再验证”闭环。
 
 待办：
 
@@ -498,38 +512,34 @@ PDF 对应要求：
 
 建议按照以下顺序推进：
 
-1. B2-GAP-04 External Runtime 最小权限与 Worker 隔离
+1. B2-GAP-05 Deployment / Release hardening
 
-   先收紧 `danger-full-access` 默认值，再将 runtime 与 API 进程隔离。
+   静态发布、源码包、状态卡和真实 container build/run 已补齐演示缺口；下一步补
+   deployment 失败后的 repair / redeploy 闭环、container build 失败清理、rootless/队列化 worker
+   和生产级 health check。
 
-2. B2-GAP-05 Orchestrator Native Deployment
-   静态发布、源码包和状态卡已补齐演示缺口；下一步按
-   [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)
-   让 Orchestrator 通过平台 Worker 真实执行 container build/run。
+2. B2-GAP-06 Workflow 产物产品化
 
-3. 对话式自建 Agent 显式工具白名单
+   已有 `workflow_validation` evaluator MVP；下一步补正式 artifact kind、前端预览和 runtime / health check。
 
-   将当前基础创建链路补齐为可验证的最小权限工具集契约。
-
-4. B2-GAP-06 Workflow 产物支持
-
-   补课题背景中“Workflow 等产物”的覆盖面。
-
-5. B2-GAP-07 Agent-to-Agent Review Thread
+3. B2-GAP-07 Agent-to-Agent Review Thread
 
    让协作从“Orchestrator 转派”更接近真实多 Agent 讨论。
 
-6. B2-GAP-08 长期记忆与 Agent 能力画像
+4. B2-GAP-08 长期记忆与 Agent 能力画像
 
    让 planner 从固定规则升级为带历史依据的 agent 选择。
 
-7. B2-GAP-09 Reflection / Evaluation 闭环通用化
+5. B2-GAP-09 Reflection / Evaluation 闭环深化
 
-   将当前网页质量门抽象到更多产物类型。
+   当前通用 MVP 已实现；后续扩展 `.pptx`、图片、更多 runner、生产 LLM-as-judge 和 workflow runtime。
 
-8. B2-GAP-10 更丰富产物类型
+6. B2-GAP-10 更丰富产物类型
 
    作为答辩加分项和长期演进。
+
+暂缓：B2-GAP-04 External Runtime 最小权限与 Worker 隔离。本项仍是重要安全 hardening，但本轮按要求先忽略，
+不参与当前优先级排序。
 
 ---
 
@@ -543,9 +553,9 @@ PDF 对应要求：
 | 浏览器质量验收 | 可以 | 已接入通用 evaluation framework，继续保持 tool event 兼容 |
 | 并行调用多个 Agent | 可以 | 继续补并行可观测性和更复杂依赖图 |
 | 多 Agent 修改同一文件冲突检测 | 可以 | 冲突报告 + 修复/合并策略 |
-| 聊天中创建自建 Agent | 基础创建和入群可以 | 增加显式 `allowed_tools`、最小权限默认值和权限 UI |
-| External runtime 隔离 | cwd、timeout、cleanup 已有 | 独立 worker、最小权限 sandbox、资源限额和审计 |
-| 生成 Workflow 产物 | MVP 可以 | workflow schema validator 已有，后续补 runtime / health check |
-| 部署状态卡片 | 后端消息块/SSE 已有，远端前端 UI 待联调 | 发布前端构建，并补状态刷新、停止入口和部署历史 |
+| 聊天中创建自建 Agent | 显式 `allowed_tools` MVP 可以 | 后续补权限选择 UI 和 external runtime provider-specific 权限 hardening |
+| External runtime 隔离 | cwd、timeout、cleanup 已有 | 本轮暂缓；后续做独立 worker、最小权限 sandbox、资源限额和审计 |
+| 生成 Workflow 产物 | evaluator MVP 可以 | workflow schema validator 已有，后续补正式 artifact kind、preview、runtime / health check |
+| 部署状态卡片 | 后端消息块/SSE 与本地前端卡片已对齐 | 继续保持远端发布交接，并补部署失败 repair/redeploy 与生产 hardening |
 | 源码打包下载 | 可以，API/SSE E2E 已通过 | 继续补更多安全测试和前端下载入口 |
 | 容器化部署 | 后端 MVP 默认启用 trusted Docker worker，API/SSE E2E 已通过 | 后续补 rootless runtime / 队列 / 更强隔离 |

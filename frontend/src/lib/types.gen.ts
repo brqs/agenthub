@@ -1860,6 +1860,8 @@ export interface components {
             mcp_servers?: {
                 [key: string]: unknown;
             }[];
+            /** @description Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools. */
+            allowed_tools?: string[];
             command?: string | string[];
             args?: string[];
             timeout_seconds?: number;

@@ -186,7 +186,7 @@ class FakePlatformExecutor:
             output=(
                 '{"status":"ok","agent":{"id":"custom-1","name":"LiveCopywriter",'
                 '"provider":"builtin","capabilities":["copywriting","review"],'
-                '"is_builtin":false},"added_to_conversation":true}'
+                '"allowed_tools":[],"is_builtin":false},"added_to_conversation":true}'
             ),
         )
 
@@ -252,6 +252,31 @@ async def test_conversational_custom_agent_uses_platform_tool_without_tool_loop(
     text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert "custom-1" in text
     assert chunks[-1].event_type == "done"
+
+
+async def test_conversational_custom_agent_forwards_allowed_tools() -> None:
+    executor = FakePlatformExecutor()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 请创建一个新的自建 Agent，名字为 ReaderAgent，"
+                    "provider 使用 builtin，system_prompt 为“你是阅读 Agent”，"
+                    "工具白名单设置为 read_file、write_file，并把它加入当前群聊。"
+                ),
+            )
+        ],
+        config={
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_tool_calling_enabled": False,
+        },
+    )
+
+    assert executor.calls[0][1]["allowed_tools"] == ["read_file", "write_file"]
 
 
 def _tool_call(
