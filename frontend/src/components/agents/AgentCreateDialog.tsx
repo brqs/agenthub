@@ -88,22 +88,22 @@ export function AgentCreateDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 sm:px-4 sm:py-6 backdrop-blur-sm">
       <form
         onSubmit={submit}
-        className="w-full max-w-xl overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40"
+        className="flex h-[100dvh] w-full max-w-xl flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40 sm:max-h-[calc(100dvh-3rem)] sm:rounded-md"
       >
         <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
           <div>
             <h2 className="text-base font-semibold text-white">创建 Agent</h2>
             <p className="mt-1 text-xs text-slate-500">填写名称、Provider、模型和提示词。</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white">
+          <button type="button" onClick={onClose} className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="关闭">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="space-y-4 p-5">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 scrollbar-thin">
           <label className="block">
             <span className="text-xs font-medium text-slate-400">名称</span>
             <input
@@ -233,7 +233,7 @@ export function AgentCreateDialog({
           </label>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-slate-800 px-5 py-4">
+        <div className="flex shrink-0 justify-end gap-3 border-t border-slate-800 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4">
           <button type="button" onClick={onClose} className="rounded-md px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-white">
             取消
           </button>

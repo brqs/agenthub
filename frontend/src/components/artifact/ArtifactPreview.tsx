@@ -118,8 +118,8 @@ export function ArtifactPreview({
       </section>
 
       {isFullscreen && (
-        <div className="fixed inset-0 z-[70] flex bg-slate-950/60 p-4 backdrop-blur-sm dark:bg-slate-950/90">
-          <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-md border border-slate-300 bg-white shadow-2xl shadow-black/25 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/50">
+        <div className="fixed inset-0 z-[70] flex h-[100dvh] bg-slate-950/60 backdrop-blur-sm dark:bg-slate-950/90 sm:p-4">
+          <section className="flex min-h-0 w-full flex-col overflow-hidden border border-slate-300 bg-white shadow-2xl shadow-black/25 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/50 sm:rounded-md">
             <ArtifactHeader
               artifact={artifact}
               isEditing={isEditing}
@@ -166,9 +166,9 @@ function ArtifactHeader({
   const Icon = artifact.mime_type === 'text/html' ? Monitor : isTextMime(artifact.mime_type) ? Code2 : FileText;
 
   return (
-    <div className="flex min-w-0 items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+    <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
       <Icon className="h-4 w-4 shrink-0 text-brand-light" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-32 flex-1">
         <div className="truncate text-sm font-medium text-slate-950 dark:text-white">{artifact.name}</div>
         <div className="truncate text-xs text-slate-500">{artifact.mime_type} · {formatSize(artifact.size)}</div>
       </div>

@@ -1,21 +1,31 @@
-import { Bot, CheckCircle2, Code2, Edit3, Loader2, MessageSquarePlus, ShieldCheck, Trash2 } from 'lucide-react';
+import { Bot, CheckCircle2, Code2, Edit3, Loader2, MessageSquarePlus, ShieldCheck, Trash2, X } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import type { Agent } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 export function AgentDetailPanel({
   agent,
   onEdit,
   onDelete,
   isDeleting = false,
+  presentation = 'desktop',
+  onClose,
 }: {
   agent: Agent | null;
   onEdit?: (agent: Agent) => void;
   onDelete?: (agent: Agent) => void;
   isDeleting?: boolean;
+  presentation?: 'desktop' | 'mobile';
+  onClose?: () => void;
 }) {
+  const panelClassName = cn(
+    'h-full shrink-0 overflow-y-auto bg-slate-900 p-5 scrollbar-thin',
+    presentation === 'desktop' ? 'hidden w-80 border-l border-slate-800 xl:block' : 'block w-full',
+  );
+
   if (!agent) {
     return (
-      <aside className="hidden w-80 shrink-0 border-l border-slate-800 bg-slate-900 p-5 xl:block">
+      <aside className={panelClassName}>
         <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-800 text-sm text-slate-500">
           选择一个 Agent 查看详情
         </div>
@@ -24,7 +34,20 @@ export function AgentDetailPanel({
   }
 
   return (
-    <aside className="hidden h-screen w-80 shrink-0 overflow-y-auto border-l border-slate-800 bg-slate-900 p-5 scrollbar-thin xl:block">
+    <aside className={panelClassName}>
+      {presentation === 'mobile' && (
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-white">Agent 详情</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white"
+            aria-label="关闭 Agent 详情"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       <div className="rounded-md border border-slate-800 bg-slate-950/60 p-4">
         <div className="flex items-center gap-3">
           <AgentAvatar agent={agent} size="lg" />
