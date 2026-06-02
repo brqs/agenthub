@@ -56,6 +56,12 @@ BUILTIN_ORCHESTRATOR_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("orchestrator_tool_result_max_chars", 1, 32000, allow_float=False),
     NumericConfigField("orchestrator_tool_read_max_bytes", 1, 1048576, allow_float=False),
     NumericConfigField("orchestrator_parallel_max_concurrency", 1, 10, allow_float=False),
+    NumericConfigField(
+        "orchestrator_evaluation_read_max_bytes",
+        1,
+        1048576,
+        allow_float=False,
+    ),
 )
 
 NUMERIC_CONFIG_FIELDS: dict[str, NumericConfigField] = {
@@ -105,4 +111,8 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "orchestrator_parallel_max_concurrency": (
         settings.orchestrator_parallel_max_concurrency_default
     ),
+    "orchestrator_evaluation_enabled": True,
+    "orchestrator_evaluation_read_max_bytes": 65536,
+    "orchestrator_test_runner_enabled": False,
+    "orchestrator_test_command_allowlist": [],
 }

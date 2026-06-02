@@ -1083,6 +1083,382 @@ async def test_orchestrator_artifact_missing_triggers_per_task_fallback(
     assert "artifacts: snake.html" in summary
 
 
+async def test_orchestrator_evaluation_repairs_empty_document(
+    tmp_path: Path,
+) -> None:
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created report.md"),
+        "report.md",
+        "",
+    )
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Completed report.md"),
+        "report.md",
+        "# Report\n\nThis document now contains complete task-specific content.",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert "- succeeded: @agent-b - Write report" in summary
+    assert "attempt 1 @agent-a: evaluation_failed" in summary
+    assert "document_quality/empty_document" in summary
+    assert "Previous attempt failure" in adapter_b.received_messages[-2].content
+    assert "Revise the workspace artifacts" in adapter_b.received_messages[-2].content
+
+
+async def test_orchestrator_evaluation_fails_invalid_python_without_fatal(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created app.py"),
+        "app.py",
+        "def broken(:\n",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write Python",
+                    "Write app.py",
+                    expected_output="app.py",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- evaluation_failed: @agent-a - Write Python" in summary
+    assert "code_static_quality/parse_error" in summary
+    assert "Fix the syntax in app.py" in summary
+
+
+async def test_orchestrator_evaluation_can_be_disabled(tmp_path: Path) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created app.py"),
+        "app.py",
+        "def broken(:\n",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write Python",
+                    "Write app.py",
+                    expected_output="app.py",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+            "orchestrator_evaluation_enabled": False,
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- succeeded: @agent-a - Write Python" in summary
+    assert "evaluation_failed" not in summary
+
+
+async def test_orchestrator_evaluation_skips_over_read_budget(tmp_path: Path) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created report.md"),
+        "report.md",
+        "TODO placeholder unfinished content that would fail if read",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+            "orchestrator_evaluation_read_max_bytes": 10,
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- succeeded: @agent-a - Write report" in summary
+    assert "document_quality" not in summary
+
+
+async def test_orchestrator_evaluation_ignores_sensitive_expected_output(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "secrets").mkdir()
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created sensitive output"),
+        "secrets/report.md",
+        "",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write sensitive report",
+                    "Write secrets/report.md",
+                    expected_output="secrets/report.md",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- succeeded: @agent-a - Write sensitive report" in summary
+    assert "evaluation_failed" not in summary
+
+
+async def test_orchestrator_test_runner_allowlist_reports_failure(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created app.py"),
+        "app.py",
+        "def broken(:\n",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Run tests",
+                    "Create app.py and run tests",
+                    expected_output="app.py",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+            "orchestrator_test_runner_enabled": True,
+            "orchestrator_test_command_allowlist": ["python_compile_artifacts"],
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- evaluation_failed: @agent-a - Run tests" in summary
+    assert "test_report_quality/test_runner_failed" in summary
+    assert "py_compile" in summary
+
+
+async def test_orchestrator_workflow_validation_rejects_dangling_edge(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created workflow.json"),
+        "workflow.json",
+        (
+            '{"version":"1","name":"Demo","nodes":[{"id":"start","type":"start"}],'
+            '"edges":[{"source":"start","target":"missing"}]}'
+        ),
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Create workflow",
+                    "Create workflow.json",
+                    expected_output="workflow.json",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- evaluation_failed: @agent-a - Create workflow" in summary
+    assert "workflow_validation/workflow_dangling_edge_target" in summary
+
+
+async def test_orchestrator_ppt_validation_rejects_empty_slides(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created ppt_outline.json"),
+        "ppt_outline.json",
+        '{"title":"Quarterly Review","slides":[]}',
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Create PPT",
+                    "Create ppt_outline.json",
+                    expected_output="ppt_outline.json",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- evaluation_failed: @agent-a - Create PPT" in summary
+    assert "ppt_validation/ppt_no_slides" in summary
+
+
+async def test_orchestrator_pptx_validation_is_non_blocking(
+    tmp_path: Path,
+) -> None:
+    adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created deck.pptx"),
+        "deck.pptx",
+        "not a real pptx but binary parsing is skipped",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Create PPT",
+                    "Create deck.pptx",
+                    expected_output="deck.pptx",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- succeeded: @agent-a - Create PPT" in summary
+    assert "evaluation_failed" not in summary
+
+
+async def test_orchestrator_parallel_evaluation_failure_skips_dependency(
+    tmp_path: Path,
+) -> None:
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created report.md"),
+        "report.md",
+        "",
+    )
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Created review.md"),
+        "review.md",
+        "# Review",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md",
+                ),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Review report",
+                    "Use report.md to write review.md",
+                    depends_on=["task-a"],
+                    expected_output="review.md",
+                ),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "orchestrator_parallel_enabled": True,
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "- evaluation_failed: @agent-a - Write report" in summary
+    assert "- skipped: @agent-b - Review report" in summary
+    assert not (tmp_path / "review.md").exists()
+
+
 async def test_orchestrator_subagent_error_triggers_per_task_fallback() -> None:
     adapter_a = FakeSubAdapter(
         "agent-a",

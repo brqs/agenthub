@@ -153,6 +153,14 @@ class AgentConfig(BaseModel):
         ge=numeric_field("orchestrator_parallel_max_concurrency").minimum,
         le=numeric_field("orchestrator_parallel_max_concurrency").maximum,
     )
+    orchestrator_evaluation_enabled: bool | None = None
+    orchestrator_evaluation_read_max_bytes: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_evaluation_read_max_bytes").minimum,
+        le=numeric_field("orchestrator_evaluation_read_max_bytes").maximum,
+    )
+    orchestrator_test_runner_enabled: bool | None = None
+    orchestrator_test_command_allowlist: list[str] | None = None
 
     # 允许额外 provider 专属字段
     model_config = ConfigDict(extra="allow")

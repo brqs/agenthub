@@ -1805,6 +1805,23 @@ export interface components {
             orchestrator_parallel_enabled: boolean;
             /** @default 3 */
             orchestrator_parallel_max_concurrency: number;
+            /**
+             * @description Whether Orchestrator runs artifact evaluation and reflection.
+             * @default true
+             */
+            orchestrator_evaluation_enabled: boolean;
+            /** @default 65536 */
+            orchestrator_evaluation_read_max_bytes: number;
+            /**
+             * @description Whether Orchestrator may run allowlisted deterministic test evaluators.
+             * @default false
+             */
+            orchestrator_test_runner_enabled: boolean;
+            /**
+             * @description Allowlisted test evaluator aliases, such as python_compile_artifacts.
+             * @default []
+             */
+            orchestrator_test_command_allowlist: Array<string>;
         } & {
             [key: string]: unknown;
         };

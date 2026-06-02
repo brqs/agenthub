@@ -3,7 +3,7 @@
 > 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，列出尚未达标或只部分达标的 B2 TODO 清单。
 >
 > 状态：P0 core implemented / P1+ backlog
-> 最后更新：2026-06-01
+> 最后更新：2026-06-02
 >
 > Spec 整理入口：完整状态分类、保留/精简/提案/历史边界见 [README.md](README.md)。
 
@@ -17,7 +17,8 @@ B2 当前已经具备 Agent Runtime Layer 的主体能力：
 - Claude Code / Codex / OpenCode external runtime 接入。
 - Builtin Agent Framework + ModelGateway 底座。
 - Orchestrator 任务拆解、群聊内子 Agent 调度、结果聚合。
-- Artifact 追踪、平台 preview tool、8082 static preview、浏览器级质量验收与修复闭环。
+- Artifact 追踪、平台 preview tool、8082 static preview、网页浏览器级质量验收与修复闭环。
+- 通用 Reflection / Evaluation artifact MVP 已实现；网页 gate、Workflow、PPT outline、受控 test runner 和 deployment health 已接入 evaluator 语义。
 
 与 PDF 要求相比，P0 核心缺口已经补齐并通过真实 E2E：
 
@@ -449,25 +450,23 @@ PDF 对应要求：
 
 ### B2-GAP-09 Reflection / Evaluation 闭环通用化
 
+方案草案见 [orchestrator/evaluation-reflection.proposal.md](orchestrator/evaluation-reflection.proposal.md)。
+
 当前状态：
 
-- 前端 preview 任务已有 quality gate。
-- 其他任务没有统一 evaluation/reflection。
+- 前端 preview/browser quality gate 已通过 `browser_preview_quality` evaluator 事件接入通用 Evaluation / Reflection。
+- 文档、代码、Workflow、PPT outline 等 artifact 已有默认开启的 Evaluation / Reflection MVP。
+- Workflow、PPT outline、受控 test runner、deployment health 已有 MVP evaluator。
 
 待办：
 
-- 抽象通用 evaluation stage：
-  - artifact exists
-  - schema valid
-  - tests pass
-  - browser verify
-  - review passed
-- 每类任务有自己的 evaluator。
-- 失败后统一生成 repair task。
+- 扩展 `.pptx` 二进制深度解析、图片等产物 evaluator。
+- 扩展完整 workflow runtime / workflow 执行健康检查。
+- 扩展更多 allowlist test runner alias 和生产部署真实探活策略。
 
 验收标准：
 
-- 非网页任务也能进入“生成 -> 验证 -> 修复 -> 再验证”闭环。
+- 可自动验证任务能进入“生成 -> 验证 -> 修复 -> 再验证”闭环。
 - 最终交付必须带 evaluation summary。
 
 ### B2-GAP-10 更丰富产物类型
@@ -541,12 +540,12 @@ PDF 对应要求：
 | 群聊 @orchestrator 做前端页面 | 可以 | 保持稳定 |
 | 自动生成 workspace 代码产物 | 可以 | 保持稳定 |
 | 8082 静态预览 | 可以 | Preview 保持临时验收职责，Static release 使用独立生命周期 |
-| 浏览器质量验收 | 可以 | 通用 evaluation framework |
+| 浏览器质量验收 | 可以 | 已接入通用 evaluation framework，继续保持 tool event 兼容 |
 | 并行调用多个 Agent | 可以 | 继续补并行可观测性和更复杂依赖图 |
 | 多 Agent 修改同一文件冲突检测 | 可以 | 冲突报告 + 修复/合并策略 |
 | 聊天中创建自建 Agent | 基础创建和入群可以 | 增加显式 `allowed_tools`、最小权限默认值和权限 UI |
 | External runtime 隔离 | cwd、timeout、cleanup 已有 | 独立 worker、最小权限 sandbox、资源限额和审计 |
-| 生成 Workflow 产物 | 不可以 | workflow schema + validator |
+| 生成 Workflow 产物 | MVP 可以 | workflow schema validator 已有，后续补 runtime / health check |
 | 部署状态卡片 | 后端消息块/SSE 已有，远端前端 UI 待联调 | 发布前端构建，并补状态刷新、停止入口和部署历史 |
 | 源码打包下载 | 可以，API/SSE E2E 已通过 | 继续补更多安全测试和前端下载入口 |
 | 容器化部署 | 后端 MVP 默认启用 trusted Docker worker，API/SSE E2E 已通过 | 后续补 rootless runtime / 队列 / 更强隔离 |

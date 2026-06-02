@@ -60,12 +60,40 @@ class FakeSubAdapter(BaseAgentAdapter):
         yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
 
 
+class FakeWorkspaceWriterAdapter(FakeSubAdapter):
+    def __init__(self, agent_id: str, write_path: str, content: str) -> None:
+        super().__init__(agent_id=agent_id)
+        self.write_path = write_path
+        self.content = content
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[ToolSpec] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        if workspace_path is not None:
+            (workspace_path / self.write_path).write_text(self.content, encoding="utf-8")
+        async for chunk in super().stream(
+            messages,
+            system_prompt=system_prompt,
+            config=config,
+            workspace_path=workspace_path,
+            tool_specs=tool_specs,
+        ):
+            yield chunk
+
+
 class FakeMemoryWriter:
     def __init__(self) -> None:
         self.run_id = uuid4()
         self.started = False
         self.task_started: list[tuple[str, str, int]] = []
         self.results: list[TaskResult] = []
+        self.events: list[tuple[str, str | None, str | None, dict[str, object] | None]] = []
         self.finished: tuple[str, str] | None = None
 
     async def start_run(
@@ -75,7 +103,7 @@ class FakeMemoryWriter:
         plan_source: str,
         tasks: list[SubTask],
     ) -> UUID:
-        assert "Build memory demo" in user_request
+        assert user_request
         assert plan_source == "LLM planner/config"
         assert len(tasks) == 1
         self.started = True
@@ -115,7 +143,8 @@ class FakeMemoryWriter:
         agent_id: str | None = None,
         payload: dict[str, object] | None = None,
     ) -> None:
-        _ = (run_id, event_type, task_id, agent_id, payload)
+        assert run_id == self.run_id
+        self.events.append((event_type, task_id, agent_id, payload))
 
     async def finish_run(
         self,
@@ -188,6 +217,53 @@ async def test_orchestrator_writer_receives_run_task_and_summary() -> None:
     assert writer.finished is not None
     assert writer.finished[0] == "done"
     assert "Execution summary" in writer.finished[1]
+
+
+async def test_orchestrator_writer_receives_evaluation_events(tmp_path: Path) -> None:
+    writer = FakeMemoryWriter()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    chunks = [
+        chunk
+        async for chunk in orchestrator.stream(
+            messages=[ChatMessage(role="user", content="Build memory report")],
+            workspace_path=tmp_path,
+            config={
+                "sub_adapters": {
+                    "codex-helper": FakeWorkspaceWriterAdapter(
+                        "codex-helper",
+                        "report.md",
+                        "",
+                    )
+                },
+                "orchestrator_memory_writer": writer,
+                "react_enabled": False,
+                "tasks": [
+                    {
+                        "task_id": "create",
+                        "agent_id": "codex-helper",
+                        "title": "Create report",
+                        "instruction": "Create report.md",
+                        "expected_output": "report.md",
+                    }
+                ],
+            },
+        )
+    ]
+
+    assert chunks[-1].event_type == "done"
+    event_types = [event[0] for event in writer.events]
+    assert "evaluation_started" in event_types
+    assert "evaluation_result" in event_types
+    assert "reflection_created" in event_types
+    assert "evaluation_finished" in event_types
+    result_payload = next(
+        event[3] for event in writer.events if event[0] == "evaluation_result"
+    )
+    assert result_payload is not None
+    assert any(
+        result["evaluator"] == "document_quality" and result["status"] == "failed"
+        for result in result_payload["results"]
+    )
 
 
 async def test_memory_store_formats_recent_runs_before_latest_user_request() -> None:

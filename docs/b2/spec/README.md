@@ -15,6 +15,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 - Builtin Agent Framework：团队自建 agent loop + tools + ModelGateway。
 - Orchestrator：群聊主协调器，支持 LLM planning、DAG 并行、workspace conflict detection、平台 preview/browser verify tool、对话式自建 Agent 基础链路。
 - Workspace Artifact / Preview / Deployment：Agent 只生成文件，平台负责 preview、URL、浏览器验收、静态发布、源码 zip 和受控容器化部署。
+- Evaluation / Reflection：artifact MVP 已默认启用；网页 preview/browser verify、Workflow、PPT outline、受控 test runner 和 deployment health 已接入 evaluator 语义。
 
 对照课程 PDF，B2 P0 已完成并通过真实 E2E：
 
@@ -69,6 +70,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 | `orchestrator/task-planning.spec.md` | 保留，作为 Current contract | planner / direct routing / DAG 依赖语义仍有效 |
 | `orchestrator/tool-calling.spec.md` | 修改旧路径，保留 | 平台 tool、preview verify、自建 Agent 均已落地 |
 | `orchestrator/react-dynamic-task-graph.proposal.md` | 标记 Backlog proposal | 不是当前默认主链，避免误读为已实现 P0 |
+| `orchestrator/evaluation-reflection.proposal.md` | 更新为 Phase 2 MVP implemented / remaining proposal | 记录通用 Evaluation / Reflection MVP 与后续深化方向 |
 | `orchestrator/memory-context.spec.md` | 保留，作为 Current contract | 结构化记忆仍是当前能力 |
 | `orchestrator/memory-context.execution.spec.md` | 标记实现报告和历史路径说明 | 是真实实现记录，但部分路径是历史阶段描述 |
 | `stream-error-status.spec.md` | 标记 Historical boundary | 规则仍有意义，但 stream 模块结构已拆分 |
@@ -97,6 +99,9 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 
 5. [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md)  
    看 artifact、preview、deploy 边界。
+
+6. [orchestrator/evaluation-reflection.proposal.md](orchestrator/evaluation-reflection.proposal.md)
+   看通用任务质量闭环 MVP 和后续设计。
 
 ### 4.2 修改 Orchestrator
 
@@ -184,6 +189,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 | [orchestrator/memory-context.execution.spec.md](orchestrator/memory-context.execution.spec.md) | Implemented report | 结构化记忆 v1 真实执行结果 |
 | [orchestrator/react-dynamic-task-graph.proposal.md](orchestrator/react-dynamic-task-graph.proposal.md) | Backlog / proposal | ReAct 动态任务图方案；不是当前默认执行主链 |
 | [orchestrator/workspace-conflict.spec.md](orchestrator/workspace-conflict.spec.md) | Current contract | Workspace snapshot、file changes、冲突检测与 summary/memory 暴露 |
+| [orchestrator/evaluation-reflection.proposal.md](orchestrator/evaluation-reflection.proposal.md) | Phase 2 MVP implemented / remaining proposal | 通用 Evaluation / Reflection MVP 与后续复杂 evaluator 深化方向 |
 
 ### 5.6 Artifact / Preview / Stream 协同
 
