@@ -13,12 +13,14 @@ export function MessageInput({
   conversation,
   onSend,
   isSending = false,
+  isOffline = false,
   agents = [],
   mentionInsertRequest = null,
 }: {
   conversation: DemoConversation;
   onSend: (text: string) => void;
   isSending?: boolean;
+  isOffline?: boolean;
   agents?: Agent[];
   mentionInsertRequest?: MentionInsertRequest | null;
 }) {
@@ -31,10 +33,11 @@ export function MessageInput({
     return match?.[1] ?? null;
   }, [conversation.mode, text]);
   const availableAgents = agents.filter((agent) => conversation.agent_ids.includes(agent.id));
+  const isUnavailable = isSending || isOffline;
 
   function submit() {
     const value = text.trim();
-    if (!value || isSending) return;
+    if (!value || isUnavailable) return;
     onSend(value);
     setText('');
   }
@@ -84,6 +87,11 @@ export function MessageInput({
       {mentionQuery !== null && (
         <AgentMentionPicker agents={availableAgents} query={mentionQuery} onPick={pickAgent} />
       )}
+      {isOffline && (
+        <p className="mb-2 text-xs font-medium text-amber-700 dark:text-amber-300">
+          当前离线，恢复网络后可继续发送
+        </p>
+      )}
       <div className="flex items-end gap-3 rounded-md border border-slate-300 bg-white p-2.5 focus-within:border-brand dark:border-slate-800 dark:bg-slate-900 [@media(max-height:800px)]:p-2">
         <button
           type="button"
@@ -99,14 +107,14 @@ export function MessageInput({
           onChange={(event) => setText(event.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
-          disabled={isSending}
-          placeholder={`发消息到 ${conversation.title}`}
+          disabled={isUnavailable}
+          placeholder={isOffline ? '当前离线，恢复网络后可继续发送' : `发消息到 ${conversation.title}`}
           className="max-h-28 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-600 [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
         />
         <button
           type="button"
           onClick={submit}
-          disabled={!text.trim() || isSending}
+          disabled={!text.trim() || isUnavailable}
           className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
           title="发送"
           aria-label="发送"

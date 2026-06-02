@@ -2,14 +2,19 @@ import { Outlet } from 'react-router-dom';
 import { ModuleRail } from './ModuleRail';
 import { SettingsDialog } from './SettingsDialog';
 import { UserMenu } from './UserMenu';
+import { OfflineBanner } from './OfflineBanner';
 import { MobileBottomNav } from '@/components/mobile/MobileBottomNav';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight';
+import { usePwaUpdate } from '@/lib/pwa';
 import { resetClientSession } from '@/lib/session';
 import { useAuthStore } from '@/stores/authStore';
 import { useUiStore } from '@/stores/uiStore';
 
 export function AppLayout() {
   useVisualViewportHeight();
+  const isOnline = useNetworkStatus();
+  const { updateAvailable, applyUpdate } = usePwaUpdate();
   const user = useAuthStore((s) => s.user);
   const themePreference = useUiStore((s) => s.themePreference);
   const resolvedTheme = useUiStore((s) => s.resolvedTheme);
@@ -29,6 +34,11 @@ export function AppLayout() {
         onToggleUserMenu={() => setUserMenuOpen(!userMenuOpen)}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <OfflineBanner
+          isOnline={isOnline}
+          updateAvailable={updateAvailable}
+          onApplyUpdate={applyUpdate}
+        />
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <Outlet />
         </main>
