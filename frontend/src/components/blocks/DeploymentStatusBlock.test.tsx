@@ -78,8 +78,32 @@ describe('DeploymentStatusBlock', () => {
       url: undefined,
     });
 
-    expect(screen.getByText('Queued')).toBeInTheDocument();
+    expect(screen.getByText('排队中')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '停止发布' })).not.toBeInTheDocument();
+  });
+
+  it('shows container runtime and health check details', () => {
+    renderBlock({
+      ...block,
+      kind: 'container',
+      status: 'published',
+      host_port: 32080,
+      container_port: 8080,
+      healthcheck_url: 'https://example.com/health',
+      runtime_status: 'healthy',
+      image_id: 'sha256:image-id',
+      container_id: 'container-id',
+      file_count: 8,
+    });
+
+    expect(
+      screen.getByText((_, element) => element?.textContent === '容器部署 · deployment-1'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('宿主端口')).toBeInTheDocument();
+    expect(screen.getByText('32080')).toBeInTheDocument();
+    expect(screen.getAllByText('健康检查').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('镜像 ID')).toBeInTheDocument();
+    expect(screen.getByText('容器 ID')).toBeInTheDocument();
   });
 
   it('warns that source archives are temporary', () => {

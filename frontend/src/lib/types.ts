@@ -56,12 +56,29 @@ export interface DeploymentStatusBlock {
   deployment_id: string;
   kind: 'static_site' | 'source_zip' | 'container';
   status: Schemas['DeploymentStatusBlock']['status'];
-  title?: string;
-  url?: string;
-  download_url?: string;
-  error?: string;
-  logs_preview?: string;
-  size_bytes?: number;
+  title?: string | null;
+  url?: string | null;
+  download_url?: string | null;
+  error?: string | null;
+  logs_preview?: string | null;
+  size_bytes?: number | null;
+  artifact_digest?: string | null;
+  file_count?: number | null;
+  published_at?: string | null;
+  stopped_at?: string | null;
+  expires_at?: string | null;
+  runtime_kind?: string | null;
+  runtime_status?: string | null;
+  host_port?: number | null;
+  container_port?: number | null;
+  healthcheck_url?: string | null;
+  image_id?: string | null;
+  container_id?: string | null;
+  logs_tail?: string | null;
+  queued_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  last_checked_at?: string | null;
 }
 export interface ToolCallBlock {
   type: 'tool_call';
