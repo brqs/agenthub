@@ -20,4 +20,13 @@ describe('UserMenu', () => {
     expect(onClose).toHaveBeenCalled();
     expect(onLogout).toHaveBeenCalled();
   });
+
+  it('closes from the mobile close action', () => {
+    const onClose = vi.fn();
+    render(<UserMenu user={null} onLogout={vi.fn()} onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭账号菜单' }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+  });
 });

@@ -72,6 +72,39 @@
 
 ---
 
+## 2026-06-02 — 移动端 P0 触屏菜单与弹窗收尾
+
+### 改动范围
+- `frontend/src/components/conversation/{ConversationItem,NewConversationDialog}.tsx`
+- `frontend/src/components/chat/{ChatHeader,MessageBubble}.tsx`
+- `frontend/src/components/layout/{AppLayout,SettingsDialog,UserMenu}.tsx`
+- `frontend/src/components/mobile/MobileBottomNav.tsx`
+- `frontend/src/components/blocks/{DeploymentStatusBlock,WebPreviewBlock}.tsx`
+
+### 更新内容
+- ConversationItem 增加手机端显式更多菜单，置顶 / 归档不再依赖 hover。
+- Agent 消息头像下增加手机端 `@Agent` 按钮，保留桌面右键菜单作为增强能力。
+- Chat Header 增加移动端更多菜单，展示会话 Agent 摘要并提供工作台入口。
+- 底部导航增加账号入口；UserMenu 改为手机底部 sheet，Settings 改为手机全屏布局。
+- 新建会话弹窗改为手机全屏、内容滚动和固定安全区底部操作栏。
+- Web Preview 手机端改为全屏；DeploymentStatusBlock 操作区允许窄屏换行。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vitest run` ✅ 40 files / 122 tests
+- `./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build` ✅（仅 Vite 大 chunk 既有提醒）
+- 本地浏览器 `375 × 812` 真实聊天页：会话更多菜单、新建会话全屏表单、Header 更多菜单、显式 `@Agent`、Settings 全屏和账号底部 sheet 可用；页面无水平溢出 ✅
+
+### 后续事项
+- P0 运行时代码已收尾，进入真实设备与真实链路验收。
+- 使用 iPhone Safari 真机复验软键盘、横竖屏和底部安全区。
+- 使用真实消息补 SSE、错误重试、文件编辑保存和部署操作端到端回归。
+
 ## 2026-06-02 — 移动端 P0 Agent、Workspace 与软键盘适配
 
 ### 改动范围
