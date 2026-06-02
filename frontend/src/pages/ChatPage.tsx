@@ -9,10 +9,12 @@ import { MessageList } from '@/components/chat/MessageList';
 import { StreamingStatusBar } from '@/components/chat/StreamingStatusBar';
 import { NewConversationDialog } from '@/components/conversation/NewConversationDialog';
 import { ConversationSidebar } from '@/components/conversation/ConversationSidebar';
+import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { useAgents } from '@/hooks/useAgents';
 import { useCreateConversation } from '@/hooks/useCreateConversation';
 import { useConversations } from '@/hooks/useConversations';
 import { useMessages } from '@/hooks/useMessages';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useRegenerateMessage } from '@/hooks/useRegenerateMessage';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useStream } from '@/hooks/useStream';
@@ -50,7 +52,11 @@ export function ChatPage() {
   const setConversationSidebarCollapsed = useUiStore((state) => state.setConversationSidebarCollapsed);
   const setRightPanelOpen = useUiStore((state) => state.setRightPanelOpen);
   const setRightPanelWidth = useUiStore((state) => state.setRightPanelWidth);
+  const mobileSheet = useUiStore((state) => state.mobileSheet);
+  const openMobileSheet = useUiStore((state) => state.openMobileSheet);
+  const closeMobileSheet = useUiStore((state) => state.closeMobileSheet);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
+  const isDesktopWorkspace = useMediaQuery('(min-width: 1280px)');
 
   const visibleConversations = conversations.filter((item) => !item.is_archived);
   const conversation = resolveConversation(
@@ -112,6 +118,7 @@ export function ChatPage() {
 
   function selectConversation(nextConversationId: string) {
     setSelectedConversationId(nextConversationId);
+    closeMobileSheet();
     navigate(`/chat/${nextConversationId}`);
   }
 
@@ -138,7 +145,7 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950">
+    <div className="flex h-full overflow-hidden bg-slate-950">
       {!conversationSidebarCollapsed && (
         <ConversationSidebar
           conversations={visibleConversations}
@@ -162,6 +169,8 @@ export function ChatPage() {
               onExpandSidebar={() => setConversationSidebarCollapsed(false)}
               rightPanelOpen={rightPanelOpen}
               onOpenRightPanel={() => setRightPanelOpen(true)}
+              onOpenConversationList={() => openMobileSheet('conversation-list')}
+              onOpenWorkspace={() => openMobileSheet('workspace')}
             />
             <StreamingStatusBar messages={messages} agents={agents} />
             <MessageList
@@ -195,7 +204,7 @@ export function ChatPage() {
           <EmptyChatPlaceholder onNew={() => setNewConversationOpen(true)} />
         )}
       </section>
-      {conversation && rightPanelOpen && (
+      {conversation && rightPanelOpen && isDesktopWorkspace && (
         <RightAgentPanel
           conversation={conversation}
           messages={messages}
@@ -217,6 +226,42 @@ export function ChatPage() {
           selectConversation(created.id);
         }}
       />
+      <MobileSheet
+        open={mobileSheet === 'conversation-list'}
+        variant="drawer"
+        onClose={closeMobileSheet}
+      >
+        <ConversationSidebar
+          conversations={visibleConversations}
+          selectedConversationId={conversation?.id ?? ''}
+          search={search}
+          presentation="mobile"
+          onSearch={setSearch}
+          onSelect={selectConversation}
+          onNewConversation={() => {
+            closeMobileSheet();
+            setNewConversationOpen(true);
+          }}
+          onCollapse={closeMobileSheet}
+          onTogglePin={toggleConversationPinRemote}
+          onToggleArchive={toggleConversationArchiveRemote}
+        />
+      </MobileSheet>
+      {conversation && (
+        <MobileSheet open={mobileSheet === 'workspace'} hiddenAt="xl" onClose={closeMobileSheet}>
+          <RightAgentPanel
+            conversation={conversation}
+            messages={messages}
+            agents={agents}
+            presentation="mobile"
+            onCollapse={closeMobileSheet}
+            onSelectPinnedMessage={(messageId) => {
+              closeMobileSheet();
+              setHighlightedMessageId(messageId);
+            }}
+          />
+        </MobileSheet>
+      )}
     </div>
   );
 }

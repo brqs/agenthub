@@ -19,6 +19,7 @@ describe('uiStore', () => {
       rightPanelOpen: true,
       rightPanelWidth: 380,
       conversationSidebarCollapsed: false,
+      mobileSheet: 'none',
     });
     useUiStore.getState().setTheme('dark');
   });
@@ -93,5 +94,16 @@ describe('uiStore', () => {
 
     useUiStore.getState().setRightPanelWidth(421);
     expect(useUiStore.getState().rightPanelWidth).toBe(421);
+  });
+
+  it('opens and closes mobile sheets', () => {
+    useUiStore.getState().openMobileSheet('conversation-list');
+    expect(useUiStore.getState().mobileSheet).toBe('conversation-list');
+
+    useUiStore.getState().openMobileSheet('workspace');
+    expect(useUiStore.getState().mobileSheet).toBe('workspace');
+
+    useUiStore.getState().closeMobileSheet();
+    expect(useUiStore.getState().mobileSheet).toBe('none');
   });
 });

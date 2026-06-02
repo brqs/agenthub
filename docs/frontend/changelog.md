@@ -72,6 +72,40 @@
 
 ---
 
+## 2026-06-02 — 移动端 P0 布局基础与聊天工作台入口
+
+### 改动范围
+- `frontend/src/components/mobile/**`
+- `frontend/src/components/layout/**`
+- `frontend/src/components/chat/ChatHeader.tsx`
+- `frontend/src/components/conversation/ConversationSidebar.tsx`
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/pages/{ChatPage,AgentsPage,ArchivePage,LoginPage,MarkdownTestPage}.tsx`
+- `frontend/src/hooks/useMediaQuery.ts`
+- `frontend/src/stores/uiStore.ts`
+
+### 更新内容
+- 新增手机端底部导航，移动端不再固定占用桌面模块栏宽度。
+- 新增通用 `MobileSheet`，聊天页可通过 drawer 打开会话列表，通过全屏 sheet 打开 Workspace / Context 工作台。
+- `<1280px` 统一使用工作台 sheet，`>=1280px` 才挂载桌面右栏，避免手机端重复请求 Workspace。
+- 顶层布局增加 `100dvh`，登录、聊天、Agent 管理和归档页面改用父容器高度并收紧移动端间距。
+- 新增 UI store 浮层状态、媒体查询 Hook 和定向组件测试。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 不修改后端代码。
+
+### 验证方式
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vitest run` ✅ 36 files / 114 tests
+- `./node_modules/.bin/tsc -b && ./node_modules/.bin/vite build` ✅（仅 Vite 大 chunk 既有提醒）
+- 本地浏览器 `375 × 812` 真实聊天页检查：无水平溢出；底部导航、会话 drawer、Workspace sheet、真实文件树与关闭动作可用 ✅
+
+### 后续事项
+- 下一批补 Agent 详情移动 sheet、Agent 创建编辑表单和 Workspace 文件树窄屏交互。
+- 后续补 SSE 流式消息、软键盘和 iOS Safari 真机冒烟。
+
 ## 2026-05-29 — 深链刷新与会话侧栏分组补测
 
 ### 改动范围

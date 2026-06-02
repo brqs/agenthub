@@ -4,7 +4,7 @@ import { markdownQaMessages } from '@/lib/mockData';
 
 export function MarkdownTestPage() {
   return (
-    <div className="flex h-screen flex-col bg-slate-950 text-slate-100">
+    <div className="flex h-full flex-col bg-slate-950 text-slate-100">
       <header className="flex min-h-[76px] items-center justify-between border-b border-slate-800 px-7">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand-light">

@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 export type ThemeMode = 'dark' | 'light';
 export type ThemePreference = 'system' | ThemeMode;
 export type SystemTheme = ThemeMode | 'unknown';
+export type MobileSheet = 'none' | 'conversation-list' | 'workspace';
 
 export const RIGHT_PANEL_MIN_WIDTH = 320;
 export const RIGHT_PANEL_DEFAULT_WIDTH = 380;
@@ -19,6 +20,7 @@ interface UiState {
   rightPanelOpen: boolean;
   rightPanelWidth: number;
   conversationSidebarCollapsed: boolean;
+  mobileSheet: MobileSheet;
   setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
   setThemePreference: (preference: ThemePreference) => void;
@@ -29,6 +31,8 @@ interface UiState {
   setRightPanelWidth: (width: number) => void;
   setConversationSidebarCollapsed: (collapsed: boolean) => void;
   toggleConversationSidebar: () => void;
+  openMobileSheet: (sheet: Exclude<MobileSheet, 'none'>) => void;
+  closeMobileSheet: () => void;
 }
 
 const THEME_CYCLE: ThemePreference[] = ['system', 'dark', 'light'];
@@ -79,6 +83,7 @@ export const useUiStore = create<UiState>()(
       rightPanelOpen: true,
       rightPanelWidth: RIGHT_PANEL_DEFAULT_WIDTH,
       conversationSidebarCollapsed: false,
+      mobileSheet: 'none',
       setTheme: (theme) => {
         set(applyPreference(theme));
       },
@@ -106,6 +111,8 @@ export const useUiStore = create<UiState>()(
       setConversationSidebarCollapsed: (collapsed) => set({ conversationSidebarCollapsed: collapsed }),
       toggleConversationSidebar: () =>
         set((state) => ({ conversationSidebarCollapsed: !state.conversationSidebarCollapsed })),
+      openMobileSheet: (sheet) => set({ mobileSheet: sheet }),
+      closeMobileSheet: () => set({ mobileSheet: 'none' }),
     }),
     {
       name: 'agenthub-ui',

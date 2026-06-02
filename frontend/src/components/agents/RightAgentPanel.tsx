@@ -65,6 +65,7 @@ export function RightAgentPanel({
   onWidthChange = () => undefined,
   onCollapse = () => undefined,
   onSelectPinnedMessage,
+  presentation = 'desktop',
 }: {
   conversation: DemoConversation;
   messages: DemoMessage[];
@@ -73,6 +74,7 @@ export function RightAgentPanel({
   onWidthChange?: (width: number) => void;
   onCollapse?: () => void;
   onSelectPinnedMessage?: (messageId: string) => void;
+  presentation?: 'desktop' | 'mobile';
 }) {
   const conversationAgents = conversation.agent_ids
     .map((agentId) => agents.find((agent) => agent.id === agentId))
@@ -88,10 +90,13 @@ export function RightAgentPanel({
 
   return (
     <aside
-      className="relative hidden h-screen shrink-0 flex-col border-l border-slate-800 bg-slate-900 xl:flex"
-      style={{ width }}
+      className={cn(
+        'relative h-full shrink-0 flex-col border-l border-slate-800 bg-slate-900',
+        presentation === 'desktop' ? 'hidden xl:flex' : 'flex w-full',
+      )}
+      style={presentation === 'desktop' ? { width } : undefined}
     >
-      <ResizeHandle width={width} onWidthChange={onWidthChange} />
+      {presentation === 'desktop' && <ResizeHandle width={width} onWidthChange={onWidthChange} />}
       <div className="p-4 pb-3 max-[800px]:p-3 [@media(max-height:800px)]:p-3">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
