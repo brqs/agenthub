@@ -5,6 +5,7 @@ import type { WorkspaceDeploymentResponse } from '@/lib/types';
 import { handleExternalLink } from '@/lib/nativeShell';
 
 const STATUS_LABELS: Record<WorkspaceDeploymentResponse['status'], string> = {
+  queued: 'Queued',
   publishing: 'Publishing',
   published: 'Published',
   failed: 'Failed',

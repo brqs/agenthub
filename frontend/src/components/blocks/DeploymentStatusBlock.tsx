@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Clock3,
   Loader2,
   Package,
   Rocket,
@@ -19,6 +20,11 @@ import type { DeploymentStatusBlock as DeploymentStatusBlockType } from '@/lib/t
 import { cn } from '@/lib/utils';
 
 const STATUS_META = {
+  queued: {
+    label: 'Queued',
+    icon: Clock3,
+    className: 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-200',
+  },
   publishing: {
     label: 'Publishing',
     icon: Rocket,
