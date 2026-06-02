@@ -54,7 +54,7 @@
 - 通用 Evaluation / Reflection Phase 2 MVP 已实现；网页 preview/browser verify、Workflow、PPT outline、受控 test runner 和 deployment health 已接入 evaluator 语义。
 - DAG 并行是 Orchestrator execution 能力，不是 platform tool。
 - Preview / browser verify / create custom agent / deployment 是 Orchestrator 可调用的平台 tool，但实际执行由平台 service 完成。
-- 自建 Agent 的显式 `allowed_tools` 尚未进入 v1 tool schema；当前只完成基础创建和入群链路。
+- 自建 Agent 的显式 `allowed_tools` 已进入 tool schema；builtin native/MCP 最小权限 MVP 已实现，external runtime 权限映射仍属后续 hardening。
 - Workspace conflict detection 当前只记录和展示，不做自动 merge、rollback 或文件级 lock。
 
 ---

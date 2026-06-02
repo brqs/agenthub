@@ -80,8 +80,39 @@ async def test_create_custom_agent_tool_creates_agent_and_adds_to_group() -> Non
         assert agent.user_id == conversation.user_id
         assert agent.provider == "builtin"
         assert agent.system_prompt == "You write concise product copy."
+        assert agent.config["allowed_tools"] == []
+        assert payload["agent"]["allowed_tools"] == []
         assert updated_conversation is not None
         assert agent_id in updated_conversation.agent_ids
+
+
+async def test_create_custom_agent_tool_persists_allowed_tools() -> None:
+    conversation = await _conversation()
+    async with SessionFactory() as db:
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+        )
+
+        result = await executor(
+            "create_custom_agent",
+            {
+                "name": "Reader Agent",
+                "provider": "builtin",
+                "system_prompt": "You read workspace files.",
+                "allowed_tools": ["read_file", "write_file"],
+                "config": {"model_backend": "claude", "mcp_servers": []},
+                "add_to_conversation": True,
+            },
+        )
+        await db.commit()
+
+        assert result.status == "ok"
+        payload = json.loads(result.output)
+        agent = await db.get(Agent, payload["agent"]["id"])
+        assert agent is not None
+        assert agent.config["allowed_tools"] == ["read_file", "write_file"]
+        assert payload["agent"]["allowed_tools"] == ["read_file", "write_file"]
 
 
 async def test_create_custom_agent_tool_requires_key_fields() -> None:
@@ -167,6 +198,38 @@ async def test_create_custom_agent_tool_does_not_create_on_error() -> None:
             )
         ).scalars().all()
 
+        assert count == []
+
+
+async def test_create_custom_agent_tool_rejects_invalid_allowed_tools() -> None:
+    conversation = await _conversation()
+    async with SessionFactory() as db:
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+        )
+
+        result = await executor(
+            "create_custom_agent",
+            {
+                "name": "Bad Tools",
+                "provider": "builtin",
+                "system_prompt": "bad tools",
+                "allowed_tools": ["read_file", "delete_file"],
+            },
+        )
+        await db.commit()
+        count = (
+            await db.execute(
+                select(Agent).where(
+                    Agent.user_id == conversation.user_id,
+                    Agent.name == "Bad Tools",
+                )
+            )
+        ).scalars().all()
+
+        assert result.status == "error"
+        assert result.error_code == "INVALID_AGENT_CONFIG"
         assert count == []
 
 

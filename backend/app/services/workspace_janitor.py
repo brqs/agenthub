@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import time
+from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
 
@@ -47,6 +48,32 @@ class WorkspaceResourceJanitor:
                 .scalars()
                 .all()
             )
+            container_rows = list(
+                (
+                    await db.execute(
+                        select(WorkspaceDeployment).where(
+                            WorkspaceDeployment.kind == "container",
+                            WorkspaceDeployment.status.in_(["publishing", "published"]),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            container_snapshot_paths = {
+                deployment.snapshot_path
+                for deployment in container_rows
+                if deployment.snapshot_path
+            }
+            tracked_deployment_ids = {str(deployment.id) for deployment in container_rows}
+            tracked_container_ids = {
+                deployment.container_id
+                for deployment in container_rows
+                if deployment.container_id
+            }
+            tracked_image_ids = {
+                deployment.image_id for deployment in container_rows if deployment.image_id
+            }
             export_paths = {
                 str(
                     WorkspaceDeploymentService().export_path(
@@ -67,7 +94,16 @@ class WorkspaceResourceJanitor:
             }
         self._remove_orphan_directories(Path(settings.preview_snapshot_dir), preview_paths)
         self._remove_orphan_directories(Path(settings.deployment_static_root), release_paths)
+        self._remove_orphan_directories(
+            Path(settings.deployment_container_build_root),
+            container_snapshot_paths,
+        )
         self._remove_orphan_exports(Path(settings.deployment_export_dir), export_paths)
+        await WorkspaceDeploymentService().cleanup_container_runtime_orphans(
+            tracked_deployment_ids=tracked_deployment_ids,
+            tracked_container_ids=tracked_container_ids,
+            tracked_image_ids=tracked_image_ids,
+        )
 
     async def run_forever(self) -> None:
         """Run cleanup until cancelled by application shutdown."""
@@ -76,7 +112,7 @@ class WorkspaceResourceJanitor:
                 await self.cleanup_once()
             await asyncio.sleep(settings.deployment_janitor_interval_seconds)
 
-    def _remove_orphan_directories(self, root: Path, tracked: set[str | None]) -> None:
+    def _remove_orphan_directories(self, root: Path, tracked: Iterable[str | None]) -> None:
         expected = {str(Path(item).resolve()) for item in tracked if item}
         if not root.exists():
             return

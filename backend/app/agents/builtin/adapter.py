@@ -63,7 +63,7 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
             return
 
         try:
-            tools = await self._available_tools(tool_specs)
+            tools = await self._available_tools(merged, tool_specs)
         except MCPServerDown as exc:
             yield StreamChunk(
                 event_type="error",
@@ -89,7 +89,32 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
         ):
             yield chunk
 
-    async def _available_tools(self, tool_specs: list[ToolSpec] | None) -> list[ToolSpec]:
+    async def _available_tools(
+        self,
+        config: dict[str, Any],
+        tool_specs: list[ToolSpec] | None,
+    ) -> list[ToolSpec]:
+        config_allowed = _configured_allowed_tools(config)
+        if config_allowed is not None:
+            effective_allowed = set(config_allowed)
+            if tool_specs is not None:
+                effective_allowed &= {tool.name for tool in tool_specs}
+            if not effective_allowed:
+                return []
+            native_tools = [
+                tool
+                for tool in self.tool_registry.tool_specs(None)
+                if tool.name in effective_allowed
+            ]
+            mcp_tools: list[ToolSpec] = []
+            if any(tool_name.startswith("mcp_") for tool_name in effective_allowed):
+                mcp_tools = [
+                    tool
+                    for tool in await self.mcp_client.list_tools()
+                    if tool.name in effective_allowed
+                ]
+            return [*native_tools, *mcp_tools]
+
         native_tools = self.tool_registry.tool_specs(tool_specs)
         mcp_tools = await self.mcp_client.list_tools()
         if tool_specs is None:
@@ -104,3 +129,12 @@ def _read_int(config: dict[str, Any], key: str, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return default
     return max(1, int(value))
+
+
+def _configured_allowed_tools(config: dict[str, Any]) -> set[str] | None:
+    if "allowed_tools" not in config:
+        return None
+    value = config.get("allowed_tools")
+    if not isinstance(value, list):
+        return set()
+    return {tool for tool in value if isinstance(tool, str)}

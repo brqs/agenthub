@@ -54,6 +54,13 @@ class AgentConfig(BaseModel):
         le=numeric_field("react_decision_max_tokens").maximum,
     )
     mcp_servers: list[dict[str, Any]] | None = None
+    allowed_tools: list[str] | None = Field(
+        default=None,
+        description=(
+            "Maximum builtin native/MCP tools this agent may receive. "
+            "Omit to keep legacy behavior; [] means no tools."
+        ),
+    )
     command: str | list[str] | None = None
     args: list[str] | None = None
     timeout_seconds: float | None = Field(
