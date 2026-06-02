@@ -20,6 +20,15 @@ from app.agents.orchestrator.artifacts import (
 from app.agents.orchestrator.artifacts import (
     finalize_artifact_candidates as _finalize_artifact_candidates,
 )
+from app.agents.orchestrator.evaluation import (
+    evaluate_attempt as _evaluate_attempt,
+)
+from app.agents.orchestrator.evaluation import (
+    evaluation_results_payload as _evaluation_results_payload,
+)
+from app.agents.orchestrator.evaluation import (
+    reflection_payload as _reflection_payload,
+)
 from app.agents.orchestrator.memory_hooks import (
     finish_run as _memory_finish_run,
 )
@@ -280,6 +289,15 @@ async def _run_task(
             else:
                 _finalize_artifact_candidates(attempt, task)
                 _check_attempt_artifacts(attempt, workspace_path)
+                if attempt.state == TaskState.SUCCEEDED:
+                    await _run_attempt_evaluation(
+                        config,
+                        task,
+                        attempt,
+                        run_context,
+                        workspace_path,
+                        agent_id,
+                    )
 
         after_snapshot = snapshot_workspace(workspace_path)
         attempt.file_changes = _changes_for_attempt_artifacts(
@@ -612,7 +630,11 @@ def _can_retry_task(
 ) -> bool:
     if not fallback_agents or len(result.attempts) >= max_attempts:
         return False
-    return result.final_state in {TaskState.FAILED, TaskState.ARTIFACT_MISSING}
+    return result.final_state in {
+        TaskState.FAILED,
+        TaskState.ARTIFACT_MISSING,
+        TaskState.EVALUATION_FAILED,
+    }
 
 
 def _attempt_call_id_prefix(
@@ -625,6 +647,74 @@ def _attempt_call_id_prefix(
     if attempt_index == 1:
         return base
     return f"{base}.attempt-{attempt_index}"
+
+
+async def _run_attempt_evaluation(
+    config: Mapping[str, Any],
+    task: SubTask,
+    attempt: TaskAttempt,
+    run_context: OrchestratorRunContext,
+    workspace_path: Path | None,
+    agent_id: str,
+) -> None:
+    if config.get("orchestrator_evaluation_enabled", True) is False:
+        return
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="evaluation_started",
+        task_id=task.task_id,
+        agent_id=agent_id,
+        payload={
+            "attempt_index": attempt.attempt_index,
+            "artifact_paths": attempt.artifact_paths,
+        },
+    )
+    outcome = await _evaluate_attempt(config, task, attempt, workspace_path)
+    attempt.evaluation_results = list(outcome.results)
+    attempt.reflection = outcome.reflection
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="evaluation_result",
+        task_id=task.task_id,
+        agent_id=agent_id,
+        payload={
+            "attempt_index": attempt.attempt_index,
+            "results": _evaluation_results_payload(attempt.evaluation_results),
+        },
+    )
+    if outcome.reflection is not None:
+        reflection = _reflection_payload(outcome.reflection)
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="reflection_created",
+            task_id=task.task_id,
+            agent_id=agent_id,
+            payload={
+                "attempt_index": attempt.attempt_index,
+                "reflection": reflection,
+            },
+        )
+        if outcome.failed:
+            attempt.state = TaskState.EVALUATION_FAILED
+            attempt.error = (
+                str(reflection.get("repair_instruction"))
+                if reflection
+                else "evaluation failed"
+            )
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="evaluation_finished",
+        task_id=task.task_id,
+        agent_id=agent_id,
+        payload={
+            "attempt_index": attempt.attempt_index,
+            "status": attempt.state.value,
+        },
+    )
 
 
 def _accumulate_text_event(attempt: TaskAttempt, chunk: StreamChunk) -> None:

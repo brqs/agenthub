@@ -257,6 +257,9 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "orchestrator_tool_calling_enabled")
     _validate_bool(config, "orchestrator_tool_trace_visible")
     _validate_bool(config, "orchestrator_parallel_enabled")
+    _validate_bool(config, "orchestrator_evaluation_enabled")
+    _validate_bool(config, "orchestrator_test_runner_enabled")
+    _validate_string_list(config, "orchestrator_test_command_allowlist")
     _validate_mcp_servers(config)
 
 

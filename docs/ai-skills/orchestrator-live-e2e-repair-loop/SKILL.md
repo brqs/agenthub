@@ -56,7 +56,7 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 - 后端公网：`http://111.229.151.159:8000`
 - Preview：`http://111.229.151.159:8082/index.html`
 - 账号：`12345678 / 12345678`
-
+- 端口开放: `8081,8082,8083,8084,8085`
 前端未完成或不验收 UI 卡片渲染时，使用后端直连 API/SSE 链路：
 
 ```bash

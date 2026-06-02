@@ -6,6 +6,11 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from app.agents.orchestrator.evaluation import (
+    evaluation_results_payload,
+    failed_evaluation_lines,
+    reflection_payload,
+)
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
     SubTask,
@@ -71,9 +76,25 @@ def summary_text(
         )
         if conflicts:
             lines.append(f"  conflicts: {', '.join(conflicts)}")
+        evaluation_lines = failed_evaluation_lines(final_attempt.evaluation_results)
+        if final_attempt.evaluation_results:
+            passed_count = sum(
+                1
+                for result in evaluation_results_payload(final_attempt.evaluation_results)
+                if result.get("passed") is True and result.get("status") != "skipped"
+            )
+            failed_count = len(evaluation_lines)
+            lines.append(
+                f"  evaluation: {passed_count} passed"
+                + (f", {failed_count} failed" if failed_count else "")
+            )
+        if evaluation_lines:
+            for line in evaluation_lines[:6]:
+                lines.append(f"  evaluation issue: {line}")
         if len(result.attempts) > 1 or state in {
             TaskState.FAILED,
             TaskState.ARTIFACT_MISSING,
+            TaskState.EVALUATION_FAILED,
         } or conflicts:
             lines.append("  attempts:")
             for attempt in result.attempts:
@@ -87,6 +108,11 @@ def summary_text(
                     detail += f" - missing {', '.join(attempt.missing_artifact_paths)}"
                 if attempt.conflict_paths:
                     detail += f" - conflicts {', '.join(attempt.conflict_paths)}"
+                attempt_evaluation_lines = failed_evaluation_lines(
+                    attempt.evaluation_results
+                )
+                if attempt_evaluation_lines:
+                    detail += f" - evaluation {attempt_evaluation_lines[0]}"
                 lines.append(detail)
     conflict_lines = _workspace_conflict_summary(run_context)
     if conflict_lines:
@@ -151,6 +177,14 @@ def format_task_result_context(
         lines.append(f"  Missing: {', '.join(final_attempt.missing_artifact_paths)}")
     if final_attempt.conflict_paths:
         lines.append(f"  Conflicts: {', '.join(final_attempt.conflict_paths)}")
+    evaluation_lines = failed_evaluation_lines(final_attempt.evaluation_results)
+    if evaluation_lines:
+        lines.append(f"  Evaluation: {'; '.join(evaluation_lines[:4])}")
+    reflection = reflection_payload(final_attempt.reflection)
+    if reflection:
+        repair_instruction = reflection.get("repair_instruction")
+        if isinstance(repair_instruction, str) and repair_instruction:
+            lines.append(f"  Repair: {repair_instruction}")
     return truncate_preserving_edges("\n".join(lines), max_chars)
 
 
@@ -165,6 +199,14 @@ def format_attempt_context(attempt: TaskAttempt, max_chars: int) -> str:
         text += f": missing {', '.join(attempt.missing_artifact_paths)}"
     if attempt.conflict_paths:
         text += f": conflicts {', '.join(attempt.conflict_paths)}"
+    evaluation_lines = failed_evaluation_lines(attempt.evaluation_results)
+    if evaluation_lines:
+        text += f": evaluation {evaluation_lines[0]}"
+    reflection = reflection_payload(attempt.reflection)
+    if reflection:
+        repair_instruction = reflection.get("repair_instruction")
+        if isinstance(repair_instruction, str) and repair_instruction:
+            text += f": repair {repair_instruction}"
     return truncate_preserving_edges(text, max_chars)
 
 

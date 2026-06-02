@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from uuid import UUID, uuid4
 
 from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.orchestrator.tools import OrchestratorToolResult
+from app.agents.orchestrator.types import SubTask, TaskResult
 from app.agents.types import ChatMessage
 from tests.orchestrator_fakes import (
     FakeSubAdapter,
@@ -108,6 +110,68 @@ class FakePlatformToolExecutor:
             output="unexpected tool",
             error_code="tool_not_allowed",
         )
+
+
+class FakeMemoryWriter:
+    def __init__(self) -> None:
+        self.run_id = uuid4()
+        self.events: list[tuple[str, dict[str, Any] | None]] = []
+
+    async def start_run(
+        self,
+        *,
+        user_request: str,
+        plan_source: str,
+        tasks: list[SubTask],
+    ) -> UUID:
+        _ = (user_request, plan_source, tasks)
+        return self.run_id
+
+    async def record_task_planned(self, *, run_id: UUID, task: SubTask) -> None:
+        _ = (run_id, task)
+
+    async def record_task_started(
+        self,
+        *,
+        run_id: UUID,
+        task: SubTask,
+        agent_id: str,
+        attempt_index: int,
+    ) -> None:
+        _ = (run_id, task, agent_id, attempt_index)
+
+    async def record_task_result(
+        self,
+        *,
+        run_id: UUID,
+        task: SubTask,
+        result: TaskResult,
+    ) -> None:
+        _ = (run_id, task, result)
+
+    async def record_event(
+        self,
+        *,
+        run_id: UUID,
+        event_type: str,
+        task_id: str | None = None,
+        agent_id: str | None = None,
+        payload: dict[str, object] | None = None,
+    ) -> None:
+        _ = (run_id, task_id, agent_id)
+        self.events.append((event_type, payload))
+
+    async def finish_run(
+        self,
+        *,
+        run_id: UUID,
+        status: str,
+        final_summary: str,
+    ) -> None:
+        _ = (run_id, status, final_summary)
+
+    async def cancel_active_run(self) -> None:
+        pass
 
 
 async def test_quality_gate_repairs_failed_browser_verification(
@@ -359,3 +423,55 @@ async def test_quality_gate_packages_source_and_container_placeholder(
         "container",
     ]
     assert sum(chunk.block_type == "deployment_status" for chunk in chunks) == 3
+
+
+async def test_quality_gate_records_evaluation_events(tmp_path: Path) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>任务 代码 Diff 预览</h1></body></html>",
+    )
+    executor = FakePlatformToolExecutor([True])
+    writer = FakeMemoryWriter()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content="@orchestrator 做一个前端网页演示，部署在端口8082，完成浏览器质量验收",
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code"],
+            "sub_adapters": {"claude-code": generator},
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_memory_writer": writer,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    result_payloads = [
+        payload for event_type, payload in writer.events if event_type == "evaluation_result"
+    ]
+    result_evaluators = [
+        result["evaluator"]
+        for payload in result_payloads
+        if payload
+        for result in payload["results"]
+    ]
+    assert "browser_preview_quality" in result_evaluators
+    assert "deployment_health" in result_evaluators

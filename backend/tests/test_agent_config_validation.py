@@ -108,6 +108,10 @@ class TestValidConfigs:
             "orchestrator_tool_read_max_bytes": 65536,
             "orchestrator_parallel_enabled": True,
             "orchestrator_parallel_max_concurrency": 3,
+            "orchestrator_evaluation_enabled": True,
+            "orchestrator_evaluation_read_max_bytes": 65536,
+            "orchestrator_test_runner_enabled": False,
+            "orchestrator_test_command_allowlist": ["python_compile_artifacts"],
         }
         result = validate_agent_config(
             provider="builtin",
@@ -470,6 +474,50 @@ class TestNumericValidation:
 
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "orchestrator_parallel_max_concurrency" in exc_info.value.message
+
+    def test_invalid_orchestrator_evaluation_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_evaluation_enabled": "yes"},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_orchestrator_evaluation_read_budget_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_evaluation_read_max_bytes": 0},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_evaluation_read_max_bytes" in exc_info.value.message
+
+    def test_invalid_orchestrator_test_runner_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_test_runner_enabled": "yes"},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_orchestrator_test_allowlist_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_test_command_allowlist": "pytest"},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_test_command_allowlist" in exc_info.value.message
 
 
 class TestImmutability:

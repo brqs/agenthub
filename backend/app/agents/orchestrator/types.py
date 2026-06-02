@@ -65,6 +65,7 @@ class TaskState(StrEnum):
     FAILED = "failed"
     SKIPPED = "skipped"
     ARTIFACT_MISSING = "artifact_missing"
+    EVALUATION_FAILED = "evaluation_failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +106,8 @@ class TaskAttempt:
         default_factory=lambda: {"created": [], "modified": [], "deleted": []}
     )
     conflict_paths: list[str] = field(default_factory=list)
+    evaluation_results: list[Any] = field(default_factory=list)
+    reflection: Any | None = None
     error: str | None = None
 
 
