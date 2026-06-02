@@ -3,7 +3,7 @@
 > 目的：作为 Orchestrator 相关 spec 的包级入口，区分当前契约、实现报告和后续 proposal。
 >
 > 状态：Current package index
-> 最后更新：2026-06-01
+> 最后更新：2026-06-02
 
 ---
 
@@ -19,6 +19,7 @@
 | [memory-context.execution.spec.md](memory-context.execution.spec.md) | Implemented report | structured memory v1 真实执行结果 |
 | [live-e2e-report.spec.md](live-e2e-report.spec.md) | Implemented report | 真实部署链路 E2E、回归部署和 bugfix 证据 |
 | [react-dynamic-task-graph.proposal.md](react-dynamic-task-graph.proposal.md) | Backlog / proposal | ReAct 动态任务图方案；不是当前默认主链 |
+| [evaluation-reflection.proposal.md](evaluation-reflection.proposal.md) | Phase 2 MVP implemented / remaining proposal | 通用 Evaluation / Reflection：“生成 -> 验证 -> 修复 -> 再验证”闭环 |
 
 ---
 
@@ -50,6 +51,7 @@
 
 - 当前默认主链是 `llm_planning=true` + 静态 DAG 并行 executor。
 - ReAct 动态任务图仍是 proposal，不作为当前代码事实来源。
+- 通用 Evaluation / Reflection Phase 2 MVP 已实现；网页 preview/browser verify、Workflow、PPT outline、受控 test runner 和 deployment health 已接入 evaluator 语义。
 - DAG 并行是 Orchestrator execution 能力，不是 platform tool。
 - Preview / browser verify / create custom agent / deployment 是 Orchestrator 可调用的平台 tool，但实际执行由平台 service 完成。
 - 自建 Agent 的显式 `allowed_tools` 尚未进入 v1 tool schema；当前只完成基础创建和入群链路。
