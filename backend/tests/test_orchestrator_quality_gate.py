@@ -19,8 +19,14 @@ from tests.orchestrator_fakes import (
 
 
 class FakePlatformToolExecutor:
-    def __init__(self, verify_passes: list[bool]) -> None:
+    def __init__(
+        self,
+        verify_passes: list[bool],
+        *,
+        issue_code: str = "console_error",
+    ) -> None:
         self.verify_passes = verify_passes
+        self.issue_code = issue_code
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def __call__(
@@ -45,7 +51,7 @@ class FakePlatformToolExecutor:
             passed = self.verify_passes.pop(0)
             report = {
                 "passed": passed,
-                "issues": [] if passed else [{"code": "console_error", "message": "boom"}],
+                "issues": [] if passed else [{"code": self.issue_code, "message": "boom"}],
                 "screenshots": {"desktop": "/tmp/desktop.png", "mobile": "/tmp/mobile.png"},
                 "console_errors": [] if passed else ["boom"],
                 "page_errors": [],
@@ -119,7 +125,10 @@ async def test_quality_gate_repairs_failed_browser_verification(
         "index.html",
         "<!doctype html><html><body><h1>任务 代码 Diff 预览 按钮 移动</h1></body></html>",
     )
-    executor = FakePlatformToolExecutor([False, True])
+    executor = FakePlatformToolExecutor(
+        [False, True],
+        issue_code="mobile_no_horizontal_overflow",
+    )
     orchestrator = OrchestratorAdapter(agent_id="orchestrator")
 
     chunks = await _collect(
@@ -163,6 +172,7 @@ async def test_quality_gate_repairs_failed_browser_verification(
     assert [call[0] for call in executor.calls] == [
         "start_workspace_preview",
         "verify_web_preview",
+        "start_workspace_preview",
         "verify_web_preview",
         "create_deployment",
     ]
@@ -171,6 +181,7 @@ async def test_quality_gate_repairs_failed_browser_verification(
     ] == [
         "start_workspace_preview",
         "verify_web_preview",
+        "start_workspace_preview",
         "verify_web_preview",
         "create_deployment",
     ]
@@ -178,6 +189,8 @@ async def test_quality_gate_repairs_failed_browser_verification(
     text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert "Browser quality verification passed" in text
     assert "浏览器验证问题" in repair.received_messages[-1].content
+    assert "mobile_no_horizontal_overflow" in repair.received_messages[-1].content
+    assert "overflow-wrap:anywhere" in repair.received_messages[-1].content
 
 
 async def test_quality_gate_creates_missing_frontend_artifacts_before_preview(
@@ -287,6 +300,7 @@ async def test_quality_gate_fails_after_repair_limit(tmp_path: Path) -> None:
     assert [call[0] for call in executor.calls] == [
         "start_workspace_preview",
         "verify_web_preview",
+        "start_workspace_preview",
         "verify_web_preview",
     ]
 

@@ -16,7 +16,6 @@ from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.services.orchestrator_platform_tools import OrchestratorPlatformToolExecutor
-from app.services.workspace_preview import WorkspacePreviewService
 from app.services.workspace_service import WorkspaceService
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -183,6 +182,7 @@ async def test_create_deployment_tool_publishes_static_site(
     monkeypatch.setattr(settings, "preview_port_start", preview_port)
     monkeypatch.setattr(settings, "preview_port_end", preview_port)
     monkeypatch.setattr(settings, "preview_public_base_url", "http://127.0.0.1")
+    monkeypatch.setattr(settings, "deployment_static_root", str(tmp_path / "static-releases"))
     async with SessionFactory() as db:
         workspace = await WorkspaceService().get_or_create(db, conversation.id)
         WorkspaceService().write_file(
@@ -209,8 +209,9 @@ async def test_create_deployment_tool_publishes_static_site(
         assert payload["kind"] == "static_site"
         assert payload["status"] == "published"
         assert payload["status_card"]["type"] == "deployment_status"
-        assert payload["url"].endswith(f":{preview_port}/index.html")
-        await WorkspacePreviewService().stop(db, conversation.id)
+        assert "/releases/" in payload["url"]
+        assert payload["url"].endswith("/index.html")
+        assert "Ignored requested_port" in payload["logs_preview"]
 
 
 async def test_package_workspace_source_tool_excludes_sensitive_paths(
@@ -247,7 +248,12 @@ async def test_package_workspace_source_tool_excludes_sensitive_paths(
         assert ".env" not in names
 
 
-async def test_create_deployment_tool_returns_container_not_supported() -> None:
+async def test_create_deployment_tool_returns_container_not_supported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "deployment_container_enabled", False)
     conversation = await _conversation()
     async with SessionFactory() as db:
         executor = OrchestratorPlatformToolExecutor(

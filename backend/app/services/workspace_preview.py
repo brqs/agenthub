@@ -8,7 +8,7 @@ import socket
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
 from urllib.request import ProxyHandler, build_opener
@@ -18,8 +18,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.workspace import Workspace, WorkspacePreviewSession
-from app.services.workspace_service import WorkspaceService, WorkspaceViolation
+from app.models.workspace import WorkspacePreviewSession
+from app.services.workspace_service import WorkspaceService
+from app.services.workspace_static_snapshot import WorkspaceStaticSnapshotService
 
 
 class WorkspacePreviewDisabledError(RuntimeError):
@@ -35,8 +36,13 @@ class WorkspacePreviewService:
 
     mode = "static"
 
-    def __init__(self, workspace_service: WorkspaceService | None = None) -> None:
+    def __init__(
+        self,
+        workspace_service: WorkspaceService | None = None,
+        snapshot_service: WorkspaceStaticSnapshotService | None = None,
+    ) -> None:
         self._workspace_service = workspace_service or WorkspaceService()
+        self._snapshot_service = snapshot_service or WorkspaceStaticSnapshotService()
 
     async def get(
         self,
@@ -71,14 +77,20 @@ class WorkspacePreviewService:
             )
 
         workspace = await self._workspace_service.get_or_create(db, conversation_id)
-        entry = self._validate_entry(workspace, entry_path)
-        normalized_entry_path = entry.relative_to(Path(workspace.root_path)).as_posix()
+        snapshot_path = self.snapshot_path(conversation_id)
+        snapshot = self._snapshot_service.build(
+            Path(workspace.root_path),
+            snapshot_path,
+            entry_path=entry_path,
+        )
+        normalized_entry_path = snapshot.entry_path
 
         session = await self._session_for_conversation(db, conversation_id)
         if session is not None:
             await self._refresh_session_status(session)
             if (
                 session.entry_path == normalized_entry_path
+                and session.artifact_digest == snapshot.artifact_digest
                 and session.status == "running"
                 and self._pid_alive(session.pid)
                 and (requested_port is None or session.port == requested_port)
@@ -105,6 +117,8 @@ class WorkspacePreviewService:
         )
         session.workspace_id = workspace.id
         session.entry_path = normalized_entry_path
+        session.snapshot_path = str(snapshot.root)
+        session.artifact_digest = snapshot.artifact_digest
         session.port = port
         session.pid = None
         session.url = self._public_url(port, normalized_entry_path)
@@ -113,12 +127,13 @@ class WorkspacePreviewService:
         self._touch(session)
         await db.flush()
 
-        process = self._start_process(Path(workspace.root_path), port)
+        process = self._start_process(snapshot.root, normalized_entry_path, port)
         session.pid = process.pid
         try:
             self._wait_until_healthy(port, normalized_entry_path)
         except Exception as exc:
             await self._stop_process(session)
+            self._remove_snapshot(session)
             session.status = "error"
             session.error = str(exc)
             self._touch(session)
@@ -140,6 +155,7 @@ class WorkspacePreviewService:
         if session is None:
             return None
         await self._stop_process(session)
+        self._remove_snapshot(session)
         session.status = "stopped"
         session.error = None
         self._touch(session)
@@ -155,15 +171,6 @@ class WorkspacePreviewService:
             WorkspacePreviewSession.conversation_id == conversation_id
         )
         return (await db.execute(stmt)).scalar_one_or_none()
-
-    def _validate_entry(self, workspace: Workspace, entry_path: str) -> Path:
-        path = self._workspace_service.validate_read_path(
-            Path(workspace.root_path),
-            entry_path,
-        )
-        if path.suffix.lower() not in {".html", ".htm"}:
-            raise WorkspaceViolation(f"preview entry must be an HTML file: {entry_path}")
-        return path
 
     async def _allocate_port(
         self,
@@ -203,17 +210,18 @@ class WorkspacePreviewService:
             )
         raise WorkspacePreviewStartError("no preview port is available")
 
-    def _start_process(self, root: Path, port: int) -> subprocess.Popen[bytes]:
+    def _start_process(self, root: Path, entry_path: str, port: int) -> subprocess.Popen[bytes]:
         return subprocess.Popen(  # noqa: S603 - static argv, workspace path is validated.
             [
                 sys.executable,
                 "-m",
-                "http.server",
-                str(port),
-                "--bind",
-                "0.0.0.0",  # noqa: S104 - preview must be reachable through public port.
-                "--directory",
+                "app.services.workspace_static_server",
+                "--root",
                 str(root),
+                "--entry",
+                entry_path,
+                "--port",
+                str(port),
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -306,3 +314,40 @@ class WorkspacePreviewService:
         now = datetime.now(UTC)
         session.updated_at = now
         session.last_accessed_at = now
+
+    def snapshot_path(self, conversation_id: UUID) -> Path:
+        """Return the isolated preview snapshot path for a conversation."""
+        return Path(settings.preview_snapshot_dir).expanduser() / str(conversation_id)
+
+    def _remove_snapshot(self, session: WorkspacePreviewSession) -> None:
+        target = (
+            Path(session.snapshot_path)
+            if session.snapshot_path
+            else self.snapshot_path(session.conversation_id)
+        )
+        self._snapshot_service.remove(
+            target,
+            allowed_root=Path(settings.preview_snapshot_dir),
+        )
+        session.snapshot_path = None
+        session.artifact_digest = None
+
+    async def cleanup_stale(self, db: AsyncSession) -> int:
+        """Stop legacy or idle preview sessions and remove their snapshots."""
+        cutoff = datetime.now(UTC) - timedelta(seconds=settings.preview_idle_ttl_seconds)
+        stmt = select(WorkspacePreviewSession).where(
+            WorkspacePreviewSession.status.in_(("starting", "running"))
+        )
+        sessions = list((await db.execute(stmt)).scalars().all())
+        cleaned = 0
+        for session in sessions:
+            if session.snapshot_path is None or session.last_accessed_at < cutoff:
+                await self._stop_process(session)
+                self._remove_snapshot(session)
+                session.status = "stopped"
+                session.error = None
+                self._touch(session)
+                cleaned += 1
+        if cleaned:
+            await db.flush()
+        return cleaned

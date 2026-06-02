@@ -42,6 +42,7 @@ PLATFORM_TOOL_NAMES = {
     "create_custom_agent",
     "create_deployment",
     "get_deployment_status",
+    "stop_deployment",
     "package_workspace_source",
 }
 CREATABLE_PROVIDERS = {"builtin", "claude_code", "codex", "opencode"}
@@ -63,9 +64,7 @@ class OrchestratorPlatformToolExecutor:
         self._conversation_id = conversation_id
         self._preview_service = preview_service or WorkspacePreviewService()
         self._browser_verifier = browser_verifier or BrowserPreviewVerifier()
-        self._deployment_service = deployment_service or WorkspaceDeploymentService(
-            preview_service=self._preview_service
-        )
+        self._deployment_service = deployment_service or WorkspaceDeploymentService()
 
     async def __call__(
         self,
@@ -82,6 +81,8 @@ class OrchestratorPlatformToolExecutor:
             return await self._create_deployment(arguments)
         if tool_name == "get_deployment_status":
             return await self._get_deployment_status(arguments)
+        if tool_name == "stop_deployment":
+            return await self._stop_deployment(arguments)
         if tool_name == "package_workspace_source":
             return await self._package_workspace_source(arguments)
         return OrchestratorToolResult(
@@ -146,7 +147,12 @@ class OrchestratorPlatformToolExecutor:
         requested_port = _optional_port(arguments.get("requested_port"))
         if isinstance(requested_port, OrchestratorToolResult):
             return requested_port
+        container_port = _optional_port(arguments.get("container_port"))
+        if isinstance(container_port, OrchestratorToolResult):
+            return container_port
         entry_path = _optional_str(arguments.get("entry_path"))
+        health_path = _optional_str(arguments.get("health_path"))
+        start_command = _optional_str(arguments.get("start_command"))
         try:
             deployment = await self._deployment_service.create(
                 self._db,
@@ -154,6 +160,9 @@ class OrchestratorPlatformToolExecutor:
                 kind=kind,
                 entry_path=entry_path,
                 requested_port=requested_port,
+                container_port=container_port,
+                health_path=health_path,
+                start_command=start_command,
             )
         except (
             WorkspaceDeploymentDisabledError,
@@ -177,6 +186,25 @@ class OrchestratorPlatformToolExecutor:
         if isinstance(deployment_id, OrchestratorToolResult):
             return deployment_id
         deployment = await self._deployment_service.get(
+            self._db,
+            self._conversation_id,
+            deployment_id,
+        )
+        if deployment is None:
+            return _tool_error("workspace deployment not found", "deployment_not_found")
+        return OrchestratorToolResult(
+            status="ok",
+            output=_json_output(_deployment_payload(deployment.summary())),
+        )
+
+    async def _stop_deployment(
+        self,
+        arguments: Mapping[str, Any],
+    ) -> OrchestratorToolResult:
+        deployment_id = _uuid_value(arguments.get("deployment_id"), "deployment_id")
+        if isinstance(deployment_id, OrchestratorToolResult):
+            return deployment_id
+        deployment = await self._deployment_service.stop(
             self._db,
             self._conversation_id,
             deployment_id,
@@ -431,6 +459,16 @@ def _deployment_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "error": payload.get("error"),
         "logs_preview": payload.get("logs_preview"),
         "size_bytes": payload.get("size_bytes"),
+        "artifact_digest": payload.get("artifact_digest"),
+        "file_count": payload.get("file_count"),
+        "published_at": payload.get("published_at"),
+        "stopped_at": payload.get("stopped_at"),
+        "expires_at": payload.get("expires_at"),
+        "runtime_kind": payload.get("runtime_kind"),
+        "runtime_status": payload.get("runtime_status"),
+        "host_port": payload.get("host_port"),
+        "container_port": payload.get("container_port"),
+        "healthcheck_url": payload.get("healthcheck_url"),
     }
     return payload
 
