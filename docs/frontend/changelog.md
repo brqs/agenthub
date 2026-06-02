@@ -1344,3 +1344,30 @@
 - `pnpm vitest run src/components/agents/RightAgentPanel.test.tsx` ✅
 - `pnpm lint` ✅
 - `pnpm build` ✅
+## 2026-06-02 — 移动端 P1 PWA 基础能力
+
+### 改动范围
+- `frontend/public/**`
+- `frontend/index.html`
+- `frontend/src/lib/pwa.ts`
+- `frontend/src/hooks/useNetworkStatus.ts`
+- `frontend/src/components/layout/OfflineBanner.tsx`
+- `frontend/src/components/layout/AppLayout.tsx`
+- `frontend/src/components/chat/MessageInput.tsx`
+- `frontend/src/pages/ChatPage.tsx`
+
+### 更新内容
+- **可安装 PWA**：新增 manifest、常规图标、maskable 图标和 iOS Web App meta。
+- **静态壳离线缓存**：新增原生 Service Worker，缓存 HTML、静态脚本、样式、字体和图标；真实 `/api`、SSE、Workspace 与消息请求全部绕过缓存。
+- **离线状态反馈**：应用布局增加离线横幅，已加载内容可以继续查看。
+- **发送保护**：聊天页离线时禁用输入与发送按钮，提示“当前离线，恢复网络后可继续发送”。
+- **更新提示**：Service Worker 检测到新版本时显示刷新入口。
+
+### 验证方式
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vitest run` ✅ 42 files / 127 tests
+- `./node_modules/.bin/vite build` ✅
+- 生产预览验证：manifest 链接、主题色、静态文件复制和 `/api` 缓存绕过规则均正确。
+
+---
