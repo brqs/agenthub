@@ -23,13 +23,27 @@ USERNAME = os.getenv("AGENTHUB_E2E_USERNAME", "12345678")
 PASSWORD = os.getenv("AGENTHUB_E2E_PASSWORD", "12345678")
 SCENARIO = os.getenv("AGENTHUB_E2E_SCENARIO", "quality").strip().lower()
 FULLSTACK_SCENARIO = SCENARIO == "fullstack"
-DEPLOYMENT_SCENARIO = SCENARIO == "deployment"
+DEPLOYMENT_REPAIR_SCENARIO = SCENARIO == "deployment_repair"
+CUSTOM_AGENT_TOOLS_SCENARIO = SCENARIO == "custom_agent_tools"
+DEPLOYMENT_SCENARIO = SCENARIO in {"deployment", "deployment_repair"}
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
+DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
+)
+DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_custom_agent_tools_sse.jsonl"  # noqa: S108
+)
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
+DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
+)
+DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_custom_agent_tools_report.json"  # noqa: S108
+)
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
 )
@@ -39,12 +53,19 @@ DEFAULT_QUALITY_BROWSER_REPORT_PATH = (  # noqa: S108
 DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
 )
+DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_deployment_repair_flow_browser.json"  # noqa: S108
+)
 SSE_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_SSE_PATH",
         (
             DEFAULT_FULLSTACK_SSE_PATH
             if FULLSTACK_SCENARIO
+            else DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH
+            if CUSTOM_AGENT_TOOLS_SCENARIO
+            else DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH
+            if DEPLOYMENT_REPAIR_SCENARIO
             else DEFAULT_DEPLOYMENT_SSE_PATH
             if DEPLOYMENT_SCENARIO
             else DEFAULT_QUALITY_SSE_PATH
@@ -57,6 +78,10 @@ REPORT_PATH = Path(
         (
             DEFAULT_FULLSTACK_REPORT_PATH
             if FULLSTACK_SCENARIO
+            else DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH
+            if CUSTOM_AGENT_TOOLS_SCENARIO
+            else DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH
+            if DEPLOYMENT_REPAIR_SCENARIO
             else DEFAULT_DEPLOYMENT_REPORT_PATH
             if DEPLOYMENT_SCENARIO
             else DEFAULT_QUALITY_REPORT_PATH
@@ -69,6 +94,8 @@ BROWSER_REPORT_PATH = Path(
         (
             DEFAULT_FULLSTACK_BROWSER_REPORT_PATH
             if FULLSTACK_SCENARIO
+            else DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH
+            if DEPLOYMENT_REPAIR_SCENARIO
             else DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH
             if DEPLOYMENT_SCENARIO
             else DEFAULT_QUALITY_BROWSER_REPORT_PATH
@@ -107,10 +134,29 @@ DEPLOYMENT_PROMPT = (
     "并额外打包源码供下载。最后请执行容器化部署并返回容器 URL，同时完成浏览器级"
     "质量验收。"
 )
+DEPLOYMENT_REPAIR_PROMPT = (
+    "@orchestrator 当前 workspace 已经有完整可用的 index.html、styles.css、app.js，"
+    "以及一个故意有问题的 Dockerfile。首次容器部署前不要修改任何 workspace 文件，"
+    "也不要让子 Agent 先修复 Dockerfile；请先只在端口8082执行浏览器级质量验收、静态发布、"
+    "源码打包和 create_deployment(kind=container)。当 deployment_health 失败后，"
+    "再由 reflection/repair agent 根据 deployment logs 修复 Dockerfile 或应用健康检查路由，"
+    "然后重新调用 create_deployment(kind=container)，直到返回 published 的容器 URL。"
+    "不要手动运行 Docker 或启动长驻服务。"
+)
+CUSTOM_AGENT_TOOLS_PROMPT = (
+    "@orchestrator 请创建一个新的自建 Agent，名字为 LiveReader-{timestamp}，"
+    "provider 使用 builtin，system_prompt 为“你是一个只能读取 workspace 文件的中文"
+    "检查 Agent；需要文件内容时必须使用 read_file 工具；不能写文件或运行命令”，"
+    "capabilities 设置为 reading、review，工具白名单设置为 read_file，并把它加入当前群聊。"
+)
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
     FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
+    else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
+    if CUSTOM_AGENT_TOOLS_SCENARIO
+    else DEPLOYMENT_REPAIR_PROMPT
+    if DEPLOYMENT_REPAIR_SCENARIO
     else DEPLOYMENT_PROMPT
     if DEPLOYMENT_SCENARIO
     else (
@@ -389,6 +435,40 @@ def parse_tool_json(event: dict[str, Any] | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def send_message_and_stream(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conversation_id: str,
+    *,
+    content: str,
+    target_agent_id: str,
+    started_at: float,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any] | None]:
+    send = client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={
+            "content": [{"type": "text", "text": content}],
+            "target_agent_id": target_agent_id,
+        },
+    )
+    send.raise_for_status()
+    sent = send.json()
+    agent_message_id = sent["agent_message"]["id"]
+    with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as stream:
+        stream.raise_for_status()
+        events = parse_sse(stream, started_at)
+    messages = client.get(f"/api/v1/conversations/{conversation_id}/messages", headers=headers)
+    messages.raise_for_status()
+    items = messages.json().get("items", [])
+    target = next((item for item in items if item.get("id") == agent_message_id), None)
+    return sent, events, target
+
+
 def file_by_basename(files: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for item in files:
@@ -408,6 +488,21 @@ def read_workspace_file(
     response = client.get(f"/api/v1/workspaces/{conv_id}/files/{path}", headers=headers)
     response.raise_for_status()
     return response.text
+
+
+def put_workspace_file(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    path: str,
+    content: str,
+) -> None:
+    response = client.put(
+        f"/api/v1/workspaces/{conv_id}/files/{path}",
+        headers=headers,
+        content=content.encode("utf-8"),
+    )
+    response.raise_for_status()
 
 
 def task_text(task: dict[str, Any]) -> str:
@@ -521,6 +616,140 @@ def fullstack_parallel_report(run_detail: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def run_custom_agent_tools_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"Custom Agent Tools E2E {int(started_at)}",
+            "mode": "group",
+            "agent_ids": ["orchestrator", "opencode-helper"],
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+    put_workspace_file(
+        client,
+        conv_id,
+        headers,
+        "notes.txt",
+        "allowed-tools-live-sentinel",
+    )
+
+    _, create_events, create_target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    report["custom_agent_create_message"] = create_target
+    create_tool_results = tool_results_by_name(create_events).get("create_custom_agent", [])
+    create_payload = parse_tool_json(create_tool_results[-1] if create_tool_results else None)
+    agent_payload = create_payload.get("agent") if isinstance(create_payload, dict) else None
+    agent_id = agent_payload.get("id") if isinstance(agent_payload, dict) else None
+
+    agents = client.get("/api/v1/agents", headers=headers)
+    agents.raise_for_status()
+    agent_items = agents.json().get("items", [])
+    created_agent = next(
+        (
+            item
+            for item in agent_items
+            if item.get("id") == agent_id
+            or str(item.get("name", "")).startswith("LiveReader-")
+        ),
+        None,
+    )
+    if not isinstance(agent_id, str) and created_agent:
+        agent_id = created_agent.get("id")
+    report["created_custom_agent"] = created_agent
+    allowed_tools = (
+        (created_agent.get("config") or {}).get("allowed_tools")
+        if isinstance(created_agent, dict)
+        else None
+    )
+    conversation_after_create = client.get(f"/api/v1/conversations/{conv_id}", headers=headers)
+    conversation_after_create.raise_for_status()
+    report["conversation_after_create"] = conversation_after_create.json()
+
+    read_events: list[dict[str, Any]] = []
+    write_events: list[dict[str, Any]] = []
+    read_target: dict[str, Any] | None = None
+    write_target: dict[str, Any] | None = None
+    if isinstance(agent_id, str) and agent_id:
+        _, read_events, read_target = send_message_and_stream(
+            client,
+            headers,
+            conv_id,
+            content=(
+                "请使用 read_file 工具读取 notes.txt，并原样说出其中的 sentinel。"
+            ),
+            target_agent_id=agent_id,
+            started_at=started_at,
+        )
+        _, write_events, write_target = send_message_and_stream(
+            client,
+            headers,
+            conv_id,
+            content=(
+                "请尝试写入 forbidden.txt 或运行 bash。"
+                "如果你没有相关工具，请直接说明无法执行。"
+            ),
+            target_agent_id=agent_id,
+            started_at=started_at,
+        )
+    report["custom_agent_read_message"] = read_target
+    report["custom_agent_write_message"] = write_target
+    read_tool_calls = [
+        event.get("data", {}).get("tool_name")
+        for event in read_events
+        if event.get("event") == "tool_call"
+    ]
+    write_tool_calls = [
+        event.get("data", {}).get("tool_name")
+        for event in write_events
+        if event.get("event") == "tool_call"
+    ]
+    read_text = visible_agent_text((read_target or {}).get("content") or [])
+    report["custom_agent_tool_calls"] = {
+        "read": read_tool_calls,
+        "write": write_tool_calls,
+    }
+    report["checks"]["custom_agent_created"] = isinstance(agent_id, str) and bool(agent_id)
+    report["checks"]["custom_agent_allowed_tools_persisted"] = allowed_tools == ["read_file"]
+    report["checks"]["custom_agent_added_to_group"] = (
+        isinstance(agent_id, str)
+        and agent_id in report["conversation_after_create"].get("agent_ids", [])
+    )
+    report["checks"]["custom_agent_read_file_available"] = (
+        "read_file" in read_tool_calls or "allowed-tools-live-sentinel" in read_text
+    )
+    report["checks"]["custom_agent_unauthorized_tools_blocked"] = not any(
+        tool_name in {"write_file", "bash"} for tool_name in write_tool_calls
+    )
+    acceptance = {
+        key: report["checks"].get(key, False)
+        for key in (
+            "custom_agent_created",
+            "custom_agent_allowed_tools_persisted",
+            "custom_agent_added_to_group",
+            "custom_agent_read_file_available",
+            "custom_agent_unauthorized_tools_blocked",
+        )
+    }
+    report["acceptance"] = {**acceptance, "passed": all(acceptance.values())}
+
+
 def main() -> None:
     started_at = time.time()
     SSE_PATH.write_text("", encoding="utf-8")
@@ -561,6 +790,16 @@ def main() -> None:
         report["checks"]["target_agents_present"] = not missing_agents
         if missing_agents:
             raise RuntimeError(f"missing target agents: {missing_agents}")
+        if CUSTOM_AGENT_TOOLS_SCENARIO:
+            run_custom_agent_tools_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
         orchestrator_item: dict[str, Any] = next(
             (item for item in agent_items if item.get("id") == "orchestrator"),
             {},
@@ -584,6 +823,8 @@ def main() -> None:
                 "title": (
                     f"Orchestrator Fullstack Flow {int(started_at)}"
                     if FULLSTACK_SCENARIO
+                    else f"Orchestrator Deployment Repair Flow {int(started_at)}"
+                    if DEPLOYMENT_REPAIR_SCENARIO
                     else f"Orchestrator Deployment Flow {int(started_at)}"
                     if DEPLOYMENT_SCENARIO
                     else f"Orchestrator Real Flow 8082 Demo {int(started_at)}"
@@ -597,6 +838,61 @@ def main() -> None:
         conv_id = conv["id"]
         report["conversation"] = conv
         report["conversation_id"] = conv_id
+        if DEPLOYMENT_REPAIR_SCENARIO:
+            put_workspace_file(
+                client,
+                conv_id,
+                headers,
+                "index.html",
+                (
+                    "<!doctype html><html><head><link rel='stylesheet' href='styles.css'>"
+                    "</head><body><h1>任务 代码 Diff 预览 按钮 移动</h1>"
+                    "<button>Run</button><script src='app.js'></script></body></html>"
+                ),
+            )
+            put_workspace_file(
+                client,
+                conv_id,
+                headers,
+                "styles.css",
+                "body{font-family:sans-serif}button{padding:12px}",
+            )
+            put_workspace_file(
+                client,
+                conv_id,
+                headers,
+                "app.js",
+                "document.querySelector('button').addEventListener('click',()=>{})",
+            )
+            put_workspace_file(
+                client,
+                conv_id,
+                headers,
+                "server.py",
+                (
+                    "from http.server import BaseHTTPRequestHandler, HTTPServer\n"
+                    "class Handler(BaseHTTPRequestHandler):\n"
+                    "    def do_GET(self):\n"
+                    "        self.send_response(200)\n"
+                    "        self.end_headers()\n"
+                    "        self.wfile.write(b'ok')\n"
+                    "HTTPServer(('0.0.0.0', 8000), Handler).serve_forever()\n"
+                ),
+            )
+            put_workspace_file(
+                client,
+                conv_id,
+                headers,
+                "Dockerfile",
+                (
+                    "FROM python:3.12-slim\n"
+                    "WORKDIR /app\n"
+                    "COPY missing-requirements.txt .\n"
+                    "COPY server.py .\n"
+                    "EXPOSE 8000\n"
+                    "CMD [\"python\", \"server.py\"]\n"
+                ),
+            )
 
         send = client.post(
             f"/api/v1/conversations/{conv_id}/messages",
@@ -1022,9 +1318,15 @@ def main() -> None:
                 if item.get("kind") == "container"
                 and item.get("status") == "published"
             ]
+            failed_container_items = [
+                item
+                for item in deployment_items
+                if item.get("kind") == "container" and item.get("status") == "failed"
+            ]
             report["checks"]["static_site_deployment_published"] = bool(static_items)
             report["checks"]["container_deployment_published"] = bool(container_items)
             report["checks"]["source_zip_deployment_published"] = bool(source_items)
+            report["failed_container_deployments"] = failed_container_items
             if static_items:
                 static_url = static_items[0].get("url")
                 report["static_site_deployment_url"] = static_url
@@ -1085,6 +1387,38 @@ def main() -> None:
                             )
                             for name in archive_names
                         )
+            if DEPLOYMENT_REPAIR_SCENARIO:
+                run_events = (
+                    report.get("orchestrator_run_detail", {}).get("events", [])
+                    if isinstance(report.get("orchestrator_run_detail"), dict)
+                    else []
+                )
+                deployment_reflections = [
+                    event
+                    for event in run_events
+                    if event.get("event_type") == "reflection_created"
+                    and (
+                        ((event.get("payload") or {}).get("reflection") or {}).get(
+                            "failure_category"
+                        )
+                        == "deployment_health_failed"
+                    )
+                ]
+                container_tool_blocks = [
+                    block
+                    for block in deployment_tool_blocks
+                    if (block.get("arguments") or {}).get("kind") == "container"
+                ]
+                report["deployment_repair_reflections"] = deployment_reflections
+                report["checks"]["deployment_repair_initial_failure_seen"] = bool(
+                    failed_container_items
+                )
+                report["checks"]["deployment_repair_reflection_created"] = bool(
+                    deployment_reflections
+                )
+                report["checks"]["deployment_repair_redeploy_called"] = (
+                    len(container_tool_blocks) >= 2
+                )
             deployment_checks = (
                 "deployment_tool_called",
                 "source_package_tool_called",
@@ -1098,6 +1432,13 @@ def main() -> None:
                 "container_url_200",
                 "container_health_ok",
             )
+            if DEPLOYMENT_REPAIR_SCENARIO:
+                deployment_checks = (
+                    *deployment_checks,
+                    "deployment_repair_initial_failure_seen",
+                    "deployment_repair_reflection_created",
+                    "deployment_repair_redeploy_called",
+                )
             if not all(report["checks"].get(key, False) for key in deployment_checks):
                 report["bugs"].append(
                     {
@@ -1430,6 +1771,23 @@ def main() -> None:
                     ),
                 }
             )
+            if DEPLOYMENT_REPAIR_SCENARIO:
+                hard_checks.update(
+                    {
+                        "deployment_repair_initial_failure_seen": report["checks"].get(
+                            "deployment_repair_initial_failure_seen",
+                            False,
+                        ),
+                        "deployment_repair_reflection_created": report["checks"].get(
+                            "deployment_repair_reflection_created",
+                            False,
+                        ),
+                        "deployment_repair_redeploy_called": report["checks"].get(
+                            "deployment_repair_redeploy_called",
+                            False,
+                        ),
+                    }
+                )
         else:
             hard_checks["artifact_covers_required_sections"] = all(
                 report["checks"].get(key, False)

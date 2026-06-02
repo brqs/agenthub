@@ -569,6 +569,10 @@ components:
         mcp_servers:
           type: array
           items: { type: object, additionalProperties: true }
+        allowed_tools:
+          type: array
+          items: { type: string }
+          description: Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools.
         command:
           oneOf:
             - { type: string }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.agents.config_fields import (
@@ -15,6 +16,8 @@ from app.agents.config_fields import (
 )
 
 QA_MODEL_BACKENDS = SUPPORTED_UPSTREAM_PROVIDERS
+BUILTIN_NATIVE_TOOL_NAMES = {"read_file", "write_file", "bash"}
+MCP_TOOL_NAME_RE = re.compile(r"^mcp_([^_][A-Za-z0-9_-]*)__(.+)$")
 
 
 class AgentConfigValidationError(ValueError):
@@ -78,6 +81,52 @@ def _validate_string_list(config: dict[str, Any], key: str) -> None:
             code="INVALID_AGENT_CONFIG",
             message=f"'{key}' must be a list of strings",
             details={"field": key, "value": value},
+        )
+
+
+def _validate_allowed_tools(config: dict[str, Any]) -> None:
+    value = config.get("allowed_tools")
+    if value is None:
+        return
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'allowed_tools' must be a list of strings",
+            details={"field": "allowed_tools", "value": value},
+        )
+
+    seen: set[str] = set()
+    server_names = {
+        str(server["name"])
+        for server in config.get("mcp_servers", [])
+        if isinstance(server, dict) and isinstance(server.get("name"), str)
+    }
+    for tool_name in value:
+        if not tool_name:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'allowed_tools' entries must be non-empty strings",
+                details={"field": "allowed_tools", "value": value},
+            )
+        if tool_name in seen:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'allowed_tools' entries must be unique",
+                details={"field": "allowed_tools", "value": tool_name},
+            )
+        seen.add(tool_name)
+        if tool_name in BUILTIN_NATIVE_TOOL_NAMES:
+            continue
+        match = MCP_TOOL_NAME_RE.match(tool_name)
+        if match and match.group(1) in server_names and match.group(2):
+            continue
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=(
+                "'allowed_tools' entries must be builtin native tools or "
+                "configured MCP tools"
+            ),
+            details={"field": "allowed_tools", "value": tool_name},
         )
 
 
@@ -261,6 +310,7 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "orchestrator_test_runner_enabled")
     _validate_string_list(config, "orchestrator_test_command_allowlist")
     _validate_mcp_servers(config)
+    _validate_allowed_tools(config)
 
 
 def validate_agent_config(

@@ -149,6 +149,13 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                         "items": {"type": "string"},
                     },
                     "config": {"type": "object"},
+                    "allowed_tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Builtin native/MCP tool allowlist. [] means no tools."
+                        ),
+                    },
                     "add_to_conversation": {"type": "boolean", "default": True},
                 },
                 "required": ["name", "provider", "system_prompt"],
