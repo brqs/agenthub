@@ -76,7 +76,7 @@ export function MessageBubble({
           <AgentAvatar agent={agent} />
         </div>
       )}
-      <div className={cn(isUser ? 'order-1 flex max-w-[min(680px,78%)] flex-col items-end' : 'min-w-0 flex-1')}>
+      <div className={cn(isUser ? 'order-1 flex max-w-[min(680px,88%)] flex-col items-end sm:max-w-[min(680px,78%)]' : 'min-w-0 flex-1')}>
         <div className={cn('mb-1.5 flex items-center gap-2 px-1 text-xs text-slate-500', isUser && 'justify-end')}>
           <span className="font-medium text-slate-800 dark:text-slate-300">{isUser ? '你' : agent?.name ?? 'Agent'}</span>
           <span>{formatTime(message.created_at)}</span>

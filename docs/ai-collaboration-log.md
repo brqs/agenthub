@@ -1066,3 +1066,24 @@ Orchestrator 的增强应优先落在单轮内存态和只读校验上；per-tas
 
 ### 经验
 移动适配要同时处理 CSS 可见性和 React 挂载行为。只隐藏桌面工作台会保留后台请求；通过媒体查询控制挂载，才能避免窄屏下重复加载 Workspace。
+
+## 2026-06-02 — Codex 完成移动端 P0 第二批适配
+
+### 任务
+继续完成 Agent 详情移动 sheet、创建编辑表单、Workspace 窄屏文件树交互和 iOS Safari 软键盘适配。
+
+### 关键 Prompt
+> 下一批应继续完成 Agent 详情移动 sheet、创建编辑表单、Workspace 窄屏文件树交互和 iOS Safari 软键盘真机验证
+
+### AI 输出摘要
+1. Agent 详情侧栏增加移动 presentation，手机端通过 `MobileSheet` 复用同一详情内容。
+2. Agent 创建 / 编辑表单增加手机全屏容器、可滚动内容区和固定安全区底部操作栏。
+3. Workspace 手机端从深层缩进树改为逐级目录列表，保留桌面树形浏览。
+4. Artifact 全屏预览使用 `100dvh`，聊天输入区、消息区、气泡和 Mention Picker 增加窄屏样式。
+5. 新增 `useVisualViewportHeight`，根据 iOS Safari `visualViewport` 动态更新应用高度和键盘可见状态。
+
+### 人工调整
+本次只修改前端与文档，不修改 OpenAPI、后端接口或数据库结构。本地浏览器已核对移动页面；iPhone Safari 软键盘仍需真实设备最终验收。
+
+### 经验
+手机端文件树更适合逐级目录浏览而不是继续缩进。iOS Safari 键盘适配不能只依赖 `100dvh`，还要监听 `visualViewport`，并把真机复验保留为明确验收项。

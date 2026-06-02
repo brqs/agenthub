@@ -4,6 +4,7 @@ import { AgentCard } from '@/components/agents/AgentCard';
 import { AgentCreateDialog } from '@/components/agents/AgentCreateDialog';
 import { AgentDetailPanel } from '@/components/agents/AgentDetailPanel';
 import { AgentEditDialog } from '@/components/agents/AgentEditDialog';
+import { MobileSheet } from '@/components/mobile/MobileSheet';
 import { useAgents } from '@/hooks/useAgents';
 import { useCreateAgent } from '@/hooks/useCreateAgent';
 import { useDeleteAgent } from '@/hooks/useDeleteAgent';
@@ -16,6 +17,7 @@ export function AgentsPage() {
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const selectedAgentId = useAgentStore((state) => state.selectedAgentId);
   const setSelectedAgentId = useAgentStore((state) => state.setSelectedAgentId);
   const createAgent = useCreateAgent();
@@ -102,6 +104,7 @@ export function AgentsPage() {
                 agents={custom}
                 selectedAgentId={selectedAgent?.id ?? null}
                 onSelect={setSelectedAgentId}
+                onOpenMobileDetail={() => setMobileDetailOpen(true)}
                 emptyText="还没有自建 Agent，创建一个即可在会话中使用。"
               />
               <AgentSection
@@ -109,6 +112,7 @@ export function AgentsPage() {
                 agents={builtin}
                 selectedAgentId={selectedAgent?.id ?? null}
                 onSelect={setSelectedAgentId}
+                onOpenMobileDetail={() => setMobileDetailOpen(true)}
                 emptyText="当前筛选条件下没有内置 Agent。"
               />
             </div>
@@ -125,6 +129,23 @@ export function AgentsPage() {
         }}
         isDeleting={deleteAgent.isPending}
       />
+      <MobileSheet open={mobileDetailOpen} onClose={() => setMobileDetailOpen(false)}>
+        <AgentDetailPanel
+          agent={selectedAgent}
+          presentation="mobile"
+          onClose={() => setMobileDetailOpen(false)}
+          onEdit={(agent) => {
+            setMobileDetailOpen(false);
+            setEditingAgent(agent);
+          }}
+          onDelete={async (agent) => {
+            if (!window.confirm(`确认删除 ${agent.name}？`)) return;
+            await deleteAgent.mutateAsync(agent.id);
+            setMobileDetailOpen(false);
+          }}
+          isDeleting={deleteAgent.isPending}
+        />
+      </MobileSheet>
       <AgentCreateDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
@@ -152,12 +173,14 @@ function AgentSection({
   agents,
   selectedAgentId,
   onSelect,
+  onOpenMobileDetail,
   emptyText,
 }: {
   title: string;
   agents: ReturnType<typeof useAgents>['data'];
   selectedAgentId: string | null;
   onSelect: (agentId: string) => void;
+  onOpenMobileDetail: () => void;
   emptyText: string;
 }) {
   return (
@@ -173,7 +196,10 @@ function AgentSection({
               key={agent.id}
               agent={agent}
               active={agent.id === selectedAgentId}
-              onSelect={() => onSelect(agent.id)}
+              onSelect={() => {
+                onSelect(agent.id);
+                onOpenMobileDetail();
+              }}
             />
           ))}
         </div>
