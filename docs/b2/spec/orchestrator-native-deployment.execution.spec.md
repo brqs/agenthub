@@ -306,6 +306,9 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - 已分配 `8081-8085` host port。
 - 已执行健康检查。
 - stop / conversation cleanup / TTL janitor 会停止容器并清理 snapshot。
+- build/run/health 失败路径会清理本轮 build context、container 和 image，避免失败发布留下孤儿资源。
+- container build/run 资源带有 managed label，janitor 在 runtime 可用时可按 label 清理未被 DB 追踪的
+  orphan container/image。
 
 ### Phase 3 - Orchestrator 原生部署闭环
 
@@ -314,6 +317,9 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - `create_deployment(container)` 默认真实 build/run；worker 被显式关闭时返回 `not_supported`。
 - 已返回 runtime metadata、healthcheck URL、logs tail。
 - 质量门失败后会调度 repair agent；repair 修改 workspace 后必须刷新 preview snapshot，再重新执行 browser verify，避免验证旧快照。
+- 部署阶段已接入 `deployment_health` evaluation：失败时生成结构化 reflection，repair instruction
+  包含 deployment kind、error、logs/logs_tail 和原始 tool arguments；repair agent 修改 workspace 后会重新调用
+  同一个 deployment tool。`not_supported` 仅记录平台限制，不触发自动修复。
 - 后端直连 API/SSE E2E 已验证：质量门通过后会继续调用 static release、source zip 和 container deployment tool。
 
 ### Phase 4 - E2E 与前端联调
@@ -321,6 +327,9 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - 直接 API E2E 已扩展 container case，默认要求 `published`。
 - 前端未完成时，后端验收以直接 API E2E 和 Orchestrator API/SSE E2E 为准，不要求远端 UI 渲染状态卡。
 - Orchestrator API/SSE E2E 已验证静态发布、源码包和默认开启的容器发布链路。
+- Orchestrator live E2E 增加 deployment repair 专用场景：首次容器部署失败后必须观察到
+  `deployment_health` failure、`reflection_created`、repair agent attempt、第二次 `create_deployment` 和最终
+  `published=true`。
 - 前端状态卡新增字段为可选 metadata，旧 UI 兼容；前端联调不影响后端部署能力验收。
 
 ## 9. 测试计划

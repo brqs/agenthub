@@ -112,6 +112,43 @@ class FakePlatformToolExecutor:
         )
 
 
+class FakeDeploymentRepairExecutor(FakePlatformToolExecutor):
+    def __init__(self) -> None:
+        super().__init__([True])
+        self.container_results = ["failed", "published"]
+
+    async def __call__(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> OrchestratorToolResult:
+        if tool_name != "create_deployment" or arguments.get("kind") != "container":
+            return await super().__call__(tool_name, arguments)
+        self.calls.append((tool_name, dict(arguments)))
+        status = self.container_results.pop(0)
+        payload = {
+            "deployment_id": f"dep-container-{status}",
+            "kind": "container",
+            "status": status,
+            "entry_path": None,
+            "url": "http://127.0.0.1:8083" if status == "published" else None,
+            "download_url": None,
+            "error": None if status == "published" else "container image build failed",
+            "logs_preview": "Dockerfile COPY failed",
+            "logs_tail": "failed to calculate checksum for requirements.txt",
+            "runtime_status": "running" if status == "published" else "failed",
+            "healthcheck_url": "http://127.0.0.1:8083/health"
+            if status == "published"
+            else None,
+            "size_bytes": None,
+        }
+        payload["status_card"] = {
+            "type": "deployment_status",
+            **payload,
+        }
+        return OrchestratorToolResult(status="ok", output=json.dumps(payload))
+
+
 class FakeMemoryWriter:
     def __init__(self) -> None:
         self.run_id = uuid4()
@@ -475,3 +512,144 @@ async def test_quality_gate_records_evaluation_events(tmp_path: Path) -> None:
     ]
     assert "browser_preview_quality" in result_evaluators
     assert "deployment_health" in result_evaluators
+
+
+async def test_quality_gate_repairs_failed_deployment_and_redeploys(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>任务 代码 Diff 预览 按钮 移动</h1></body></html>",
+    )
+    repair = FakeWorkspaceWriterAdapter(
+        "codex-helper",
+        _text_chunks("Fixed Dockerfile"),
+        "Dockerfile",
+        "FROM python:3.12-slim\nEXPOSE 8000\nCMD [\"python\", \"-m\", \"http.server\", \"8000\"]\n",
+    )
+    executor = FakeDeploymentRepairExecutor()
+    writer = FakeMemoryWriter()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 做一个前端网页演示，部署在端口8082，"
+                    "完成浏览器质量验收，并尝试容器化部署"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": generator,
+                "codex-helper": repair,
+            },
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_memory_writer": writer,
+            "orchestrator_quality_max_repair_rounds": 2,
+        },
+    )
+
+    container_calls = [
+        call
+        for call in executor.calls
+        if call[0] == "create_deployment" and call[1].get("kind") == "container"
+    ]
+    reflection_payloads = [
+        payload for event_type, payload in writer.events if event_type == "reflection_created"
+    ]
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+
+    assert chunks[-1].event_type == "done"
+    assert len(container_calls) == 2
+    assert "container image build failed" in repair.received_messages[-1].content
+    assert "logs_tail" in repair.received_messages[-1].content
+    assert any(
+        payload
+        and payload["reflection"]["failure_category"] == "deployment_health_failed"
+        for payload in reflection_payloads
+    )
+    assert "Deployment repair rounds: 1." in text
+
+
+async def test_quality_gate_does_not_repair_container_not_supported(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>任务 代码 Diff 预览 按钮 移动</h1></body></html>",
+    )
+    repair = FakeWorkspaceWriterAdapter(
+        "codex-helper",
+        _text_chunks("Should not run"),
+        "Dockerfile",
+        "FROM nginx:alpine\n",
+    )
+    executor = FakePlatformToolExecutor([True])
+    writer = FakeMemoryWriter()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 做一个前端网页演示，部署在端口8082，"
+                    "完成浏览器质量验收，并尝试容器化部署"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": generator,
+                "codex-helper": repair,
+            },
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_memory_writer": writer,
+            "orchestrator_quality_max_repair_rounds": 2,
+        },
+    )
+
+    deployment_reflections = [
+        payload
+        for event_type, payload in writer.events
+        if event_type == "reflection_created"
+        and payload
+        and payload["reflection"]["failure_category"] == "deployment_health_failed"
+    ]
+
+    assert chunks[-1].event_type == "done"
+    assert repair.received_messages == []
+    assert deployment_reflections == []

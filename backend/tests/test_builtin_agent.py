@@ -102,6 +102,7 @@ async def _collect(
     tmp_path: Path,
     *,
     config: dict[str, Any] | None = None,
+    tool_specs: list[ToolSpec] | None = None,
 ) -> list[StreamChunk]:
     return [
         chunk
@@ -110,13 +111,25 @@ async def _collect(
             workspace_path=tmp_path,
             config=config,
             system_prompt="be useful",
+            tool_specs=tool_specs,
         )
     ]
 
 
-def _adapter(streams: list[list[StreamChunk]]) -> tuple[BuiltinAgentAdapter, FakeModelGateway]:
+def _adapter(
+    streams: list[list[StreamChunk]],
+    *,
+    default_config: dict[str, Any] | None = None,
+) -> tuple[BuiltinAgentAdapter, FakeModelGateway]:
     gateway = FakeModelGateway(streams)
-    return BuiltinAgentAdapter(agent_id="builtin-test", model_gateway=gateway), gateway
+    return (
+        BuiltinAgentAdapter(
+            agent_id="builtin-test",
+            default_config=default_config,
+            model_gateway=gateway,
+        ),
+        gateway,
+    )
 
 
 def _text_stream(text: str) -> list[StreamChunk]:
@@ -174,6 +187,46 @@ async def test_single_turn_text_response_done(tmp_path: Path) -> None:
         "done",
     ]
     assert chunks[2].text_delta == "hello"
+
+
+async def test_configured_empty_allowed_tools_exposes_no_tools(tmp_path: Path) -> None:
+    adapter, gateway = _adapter(
+        [_text_stream("hello")],
+        default_config={"allowed_tools": []},
+    )
+
+    await _collect(adapter, tmp_path)
+
+    assert gateway.calls[0]["tools"] == []
+
+
+async def test_configured_allowed_tools_filters_native_tools(tmp_path: Path) -> None:
+    adapter, gateway = _adapter(
+        [_text_stream("hello")],
+        default_config={"allowed_tools": ["read_file"]},
+    )
+
+    await _collect(adapter, tmp_path)
+
+    assert [tool.name for tool in gateway.calls[0]["tools"]] == ["read_file"]
+
+
+async def test_tool_specs_cannot_expand_configured_allowed_tools(tmp_path: Path) -> None:
+    adapter, gateway = _adapter(
+        [_text_stream("hello")],
+        default_config={"allowed_tools": ["read_file", "write_file"]},
+    )
+
+    await _collect(
+        adapter,
+        tmp_path,
+        tool_specs=[
+            ToolSpec(name="write_file", parameters={"type": "object"}),
+            ToolSpec(name="bash", parameters={"type": "object"}),
+        ],
+    )
+
+    assert [tool.name for tool in gateway.calls[0]["tools"]] == ["write_file"]
 
 
 async def test_write_file_success_and_call_id_pairing(tmp_path: Path) -> None:

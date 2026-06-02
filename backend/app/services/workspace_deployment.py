@@ -488,6 +488,19 @@ class WorkspaceDeploymentService:
             await db.flush()
         return len(deployments) + len(expired_containers)
 
+    async def cleanup_container_runtime_orphans(
+        self,
+        *,
+        tracked_deployment_ids: set[str],
+        tracked_container_ids: set[str],
+        tracked_image_ids: set[str],
+    ) -> None:
+        await self._container_worker.cleanup_orphans(
+            tracked_deployment_ids=tracked_deployment_ids,
+            tracked_container_ids=tracked_container_ids,
+            tracked_image_ids=tracked_image_ids,
+        )
+
     def _write_zip(self, workspace_root: Path, export_path: Path) -> tuple[int, int, str]:
         root = workspace_root.resolve()
         total_bytes = 0

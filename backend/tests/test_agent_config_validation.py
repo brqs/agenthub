@@ -94,6 +94,7 @@ class TestValidConfigs:
             "react_trace_visible": False,
             "react_decision_max_tokens": 1024,
             "mcp_servers": [],
+            "allowed_tools": ["read_file", "write_file"],
             "task_fallback_agent_ids": ["codex-helper"],
             "max_task_attempts": 2,
             "task_result_context_max_chars": 4000,
@@ -112,6 +113,21 @@ class TestValidConfigs:
             "orchestrator_evaluation_read_max_bytes": 65536,
             "orchestrator_test_runner_enabled": False,
             "orchestrator_test_command_allowlist": ["python_compile_artifacts"],
+        }
+        result = validate_agent_config(
+            provider="builtin",
+            config=config,
+            system_prompt=None,
+        )
+        assert result == config
+
+    def test_valid_builtin_mcp_allowed_tool(self) -> None:
+        config = {
+            "model_backend": "claude",
+            "mcp_servers": [
+                {"name": "fs", "command": "agenthub-fs", "args": []},
+            ],
+            "allowed_tools": ["mcp_fs__list_directory"],
         }
         result = validate_agent_config(
             provider="builtin",
@@ -178,6 +194,31 @@ class TestModelValidation:
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+
+    @pytest.mark.parametrize(
+        ("allowed_tools", "expected_message"),
+        [
+            ("read_file", "'allowed_tools' must be a list of strings"),
+            (["read_file", ""], "entries must be non-empty"),
+            (["read_file", "read_file"], "entries must be unique"),
+            (["delete_file"], "builtin native tools or configured MCP tools"),
+            (["mcp_fs__list_directory"], "builtin native tools or configured MCP tools"),
+            (["mcp_bad"], "builtin native tools or configured MCP tools"),
+        ],
+    )
+    def test_invalid_allowed_tools_rejected(
+        self,
+        allowed_tools: object,
+        expected_message: str,
+    ) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"mcp_servers": [], "allowed_tools": allowed_tools},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert expected_message in exc_info.value.message
 
 
 class TestNumericValidation:

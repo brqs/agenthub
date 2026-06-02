@@ -347,9 +347,10 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
 当前权限边界：
 
 - Adapter 入口支持通过 `tool_specs` 对 native tools 和 MCP tools 做统一过滤。
-- 但对话式 `create_custom_agent` v1 尚未提供独立 `allowed_tools` 字段，也没有把持久化 allowlist 自动转换为 `tool_specs`。
-- 未显式传入 `tool_specs` 时，Builtin Agent 会获得全部 native tools 和 MCP tools。
-- 后续必须补充持久化 `allowed_tools` schema、最小权限默认值和 config validation，避免将“支持运行时过滤”误写成“自建 Agent 已完成工具集配置”。
+- `Agent.config.allowed_tools` 已作为持久化最大权限集合接入运行时；有该字段时，传入的 `tool_specs` 只能进一步收窄，不能放大。
+- 对话式 `create_custom_agent` 创建 builtin Agent 时默认写入 `allowed_tools=[]`，表示最小权限。
+- 已有未配置 `allowed_tools` 的历史/内置 Builtin Agent 保持旧行为：未显式传入 `tool_specs` 时会获得全部 native tools 和 MCP tools。
+- 当前 MVP 覆盖 builtin native/MCP tools；external runtime 的 CLI/SDK 权限映射仍属于后续 hardening。
 
 ---
 

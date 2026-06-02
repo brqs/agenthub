@@ -28,6 +28,8 @@ CONTAINER_EXCLUDED_PARTS = {
     "secrets",
 }
 EXPOSE_RE = re.compile(r"^\s*EXPOSE\s+(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+MANAGED_LABEL = "agenthub.managed=true"
+DEPLOYMENT_LABEL = "agenthub.deployment_id"
 CommandRunner = Callable[[list[str], int], Awaitable[tuple[int, str, str]]]
 
 
@@ -154,16 +156,31 @@ class ContainerDeployWorker(DeploymentWorker):
         runtime = settings.deployment_container_runtime
         logs: list[str] = [f"Building image {image_tag} from workspace snapshot."]
         build_rc, build_out, build_err = await self._command_runner(
-            [runtime, "build", "-t", image_tag, str(build_context)],
+            [
+                runtime,
+                "build",
+                "--label",
+                MANAGED_LABEL,
+                "--label",
+                f"{DEPLOYMENT_LABEL}={deployment_id}",
+                "-t",
+                image_tag,
+                str(build_context),
+            ],
             settings.deployment_container_health_timeout_seconds,
         )
         logs.append(_trim_logs(build_out, build_err))
         if build_rc != 0:
+            await self.remove(container_id=None, image_id=image_tag, snapshot_path=build_context)
             raise ContainerDeploymentError(_trim_message("container image build failed", logs))
         run_command = [
             runtime,
             "run",
             "--detach",
+            "--label",
+            MANAGED_LABEL,
+            "--label",
+            f"{DEPLOYMENT_LABEL}={deployment_id}",
             "--cpus",
             str(settings.deployment_container_max_cpu),
             "--memory",
@@ -248,6 +265,63 @@ class ContainerDeployWorker(DeploymentWorker):
             )
         if snapshot_path:
             self._remove_snapshot(Path(snapshot_path))
+
+    async def cleanup_orphans(
+        self,
+        *,
+        tracked_deployment_ids: set[str],
+        tracked_container_ids: set[str],
+        tracked_image_ids: set[str],
+    ) -> None:
+        """Best-effort cleanup for managed runtime resources no longer tracked by DB."""
+        runtime = settings.deployment_container_runtime
+        timeout = settings.deployment_container_health_timeout_seconds
+        try:
+            container_rc, container_out, _ = await self._command_runner(
+                [
+                    runtime,
+                    "ps",
+                    "-a",
+                    "--filter",
+                    f"label={MANAGED_LABEL}",
+                    "--format",
+                    f'{{{{.ID}}}}\t{{{{.Label "{DEPLOYMENT_LABEL}"}}}}',
+                ],
+                timeout,
+            )
+            if container_rc == 0:
+                for resource_id, deployment_id in _managed_resource_rows(container_out):
+                    if (
+                        deployment_id not in tracked_deployment_ids
+                        and resource_id not in tracked_container_ids
+                    ):
+                        await self._command_runner(
+                            [runtime, "rm", "-f", resource_id],
+                            timeout,
+                        )
+            image_rc, image_out, _ = await self._command_runner(
+                [
+                    runtime,
+                    "images",
+                    "--filter",
+                    f"label={MANAGED_LABEL}",
+                    "--format",
+                    f'{{{{.ID}}}}\t{{{{.Label "{DEPLOYMENT_LABEL}"}}}}',
+                ],
+                timeout,
+            )
+            if image_rc == 0:
+                for resource_id, deployment_id in _managed_resource_rows(image_out):
+                    if (
+                        deployment_id not in tracked_deployment_ids
+                        and resource_id not in tracked_image_ids
+                    ):
+                        await self._command_runner(
+                            [runtime, "rmi", "-f", resource_id],
+                            timeout,
+                        )
+        except Exception:
+            return
 
     def _build_context(self, workspace_root: Path, deployment_id: UUID) -> Path:
         target = Path(settings.deployment_container_build_root).expanduser() / str(deployment_id)
@@ -392,3 +466,12 @@ def _trim_text(text: str, max_bytes: int) -> str:
     if len(encoded) <= max_bytes:
         return text
     return encoded[-max_bytes:].decode("utf-8", errors="replace")
+
+
+def _managed_resource_rows(output: str) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    for line in output.splitlines():
+        resource_id, separator, deployment_id = line.strip().partition("\t")
+        if resource_id and separator and deployment_id:
+            rows.append((resource_id, deployment_id))
+    return rows

@@ -404,6 +404,10 @@ Schema：
         "items": {"type": "string"}
       },
       "config": {"type": "object"},
+      "allowed_tools": {
+        "type": "array",
+        "items": {"type": "string"}
+      },
       "add_to_conversation": {"type": "boolean"}
     },
     "required": ["name", "provider", "system_prompt"]
@@ -417,20 +421,21 @@ Schema：
 - 复用 `validate_agent_config`。
 - 缺少必要字段时返回 `needs_user_input=true`，不创建半成品。
 - `add_to_conversation=true` 时，将新 Agent id 加入当前 group conversation 的 `agent_ids`。
-- 返回 id、name、provider、capabilities。
+- 返回 id、name、provider、capabilities、allowed_tools。
+- `provider="builtin"` 且未提供 `allowed_tools` 时，默认写入 `allowed_tools=[]`，表示最小权限。
+- `allowed_tools` 支持 builtin native tools：`read_file`、`write_file`、`bash`。
+- MCP 工具名使用 `mcp_<server_name>__<tool_name>`，其中 `server_name` 必须存在于同一 config 的 `mcp_servers`。
 
 当前边界：
 
-- v1 schema 只有通用 `config`，尚未提供独立 `allowed_tools` 字段。
-- Builtin Agent 未显式传入 `tool_specs` 时会获得全部 native tools 和 MCP tools。
-- 因此，课程要求中的“System Prompt + 工具集”目前只完成 System Prompt 和基础创建链路；显式工具白名单、最小权限默认值和权限 UI 仍属于 backlog。
+- 显式 `allowed_tools` MVP 已实现，覆盖 builtin native/MCP tools。
+- 已有未配置 `allowed_tools` 的历史/内置 Builtin Agent 保持旧行为：未显式传入 `tool_specs` 时仍可获得全部 native tools 和 MCP tools。
+- 外部 runtime 的 CLI/SDK 权限白名单仍属于后续 hardening，不由本字段控制。
 
 后续 contract：
 
-- `create_custom_agent` 增加 `allowed_tools: string[]`。
-- native tools 和 MCP tools 使用同一份 allowlist 校验。
-- 未显式授权时使用最小权限工具集，不自动授予全部工具。
-- Agent CRUD 与聊天创建复用同一份工具权限 schema。
+- 前端 UI 提供工具选择器，复用 Agent CRUD 与聊天创建的同一份工具权限 schema。
+- 继续扩展 external runtime 的 provider-specific 权限映射。
 
 平台执行：
 
@@ -482,6 +487,9 @@ Schema：
   `not_supported`。
 - 返回 deployment id、kind、status、url/download_url、error、logs preview。
 - 成功或失败都应产生 `deployment_status` 消息块，方便前端展示状态卡片。
+- 当 `deployment_health` 判断发布失败且状态不是 `not_supported` 时，Orchestrator 会生成结构化
+  reflection，调用 repair agent 修复 workspace，然后重新调用同一个 deployment tool；这条闭环不新增
+  REST endpoint，也不允许 Agent 手动运行 Docker / dev server。
 - `static_site` 由平台创建不可变 snapshot，并通过稳定 Token URL 发布；不复用 Preview 端口或生命周期。
 - `requested_port` 仅为兼容字段，Static Release 会忽略并记录日志。
 - 后端部署基础能力见 [deployment-release-backend.execution.spec.md](../deployment-release-backend.execution.spec.md)。

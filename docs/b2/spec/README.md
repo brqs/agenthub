@@ -26,11 +26,11 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 剩余主要 backlog：
 
 - External runtime 最小权限与 worker 隔离。
-- 自建 Agent 显式工具白名单。
+- 自建 Agent 权限选择 UI 与 external runtime provider-specific 权限 hardening。
 - Workflow artifact。
 - Agent-to-Agent review thread。
 - 长期 agent 能力画像。
-- 通用 evaluation/reflection 闭环。
+- 通用 evaluation/reflection 深化。
 - Orchestrator Native Deployment：后端直连 API/SSE E2E 已通过，Orchestrator 可通过平台 Worker
   完成 preview、静态发布、源码打包和受控 container build/run。
 
