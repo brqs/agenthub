@@ -1224,6 +1224,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/releases/{release_token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the HTML entry of a published immutable static release */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    release_token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Released static HTML entry */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/html": string;
+                    };
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/releases/{release_token}/{path}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one public file from a published immutable static release */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    release_token: string;
+                    /** @description Nested static resource path. */
+                    path: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Released static resource */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                404: components["responses"]["NotFound"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents": {
         parameters: {
             query?: never;
@@ -1404,6 +1482,7 @@ export interface components {
              * @enum {string}
              */
             type: "text";
+            agent_id?: string | null;
             text: string;
         };
         CodeBlock: {
@@ -1412,6 +1491,7 @@ export interface components {
              * @enum {string}
              */
             type: "code";
+            agent_id?: string | null;
             language: string;
             code: string;
         };
@@ -1421,6 +1501,7 @@ export interface components {
              * @enum {string}
              */
             type: "diff";
+            agent_id?: string | null;
             filename: string;
             before: string;
             after: string;
@@ -1431,6 +1512,7 @@ export interface components {
              * @enum {string}
              */
             type: "web_preview";
+            agent_id?: string | null;
             /** Format: uri */
             url: string;
             title?: string | null;
@@ -1443,6 +1525,7 @@ export interface components {
              * @enum {string}
              */
             type: "file";
+            agent_id?: string | null;
             filename: string;
             /** Format: uri */
             url: string;
@@ -1459,13 +1542,26 @@ export interface components {
             /** @enum {string} */
             kind: "static_site" | "source_zip" | "container";
             /** @enum {string} */
-            status: "publishing" | "published" | "failed" | "stopped" | "not_supported";
+            status: "queued" | "publishing" | "published" | "failed" | "stopped" | "not_supported";
             title?: string | null;
             url?: string | null;
             download_url?: string | null;
             error?: string | null;
             logs_preview?: string | null;
             size_bytes?: number | null;
+            artifact_digest?: string | null;
+            file_count?: number | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            stopped_at?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            runtime_kind?: string | null;
+            runtime_status?: string | null;
+            host_port?: number | null;
+            container_port?: number | null;
+            healthcheck_url?: string | null;
         };
         ToolCallBlock: {
             /**
@@ -1473,6 +1569,7 @@ export interface components {
              * @enum {string}
              */
             type: "tool_call";
+            agent_id?: string | null;
             call_id: string;
             tool_name: string;
             arguments: {
@@ -1892,6 +1989,9 @@ export interface components {
             kind: "static_site" | "source_zip" | "container";
             entry_path?: string | null;
             requested_port?: number | null;
+            container_port?: number | null;
+            health_path?: string | null;
+            start_command?: string | null;
         };
         WorkspaceDeploymentResponse: {
             /** Format: uuid */
@@ -1903,13 +2003,38 @@ export interface components {
             /** @enum {string} */
             kind: "static_site" | "source_zip" | "container";
             /** @enum {string} */
-            status: "publishing" | "published" | "failed" | "stopped" | "not_supported";
+            status: "queued" | "publishing" | "published" | "failed" | "stopped" | "not_supported";
             entry_path?: string | null;
             url?: string | null;
             download_url?: string | null;
             error?: string | null;
             logs: string[];
             size_bytes?: number | null;
+            artifact_digest?: string | null;
+            file_count?: number | null;
+            /** Format: date-time */
+            published_at?: string | null;
+            /** Format: date-time */
+            stopped_at?: string | null;
+            /** Format: date-time */
+            expires_at?: string | null;
+            runtime_id?: string | null;
+            image_id?: string | null;
+            container_id?: string | null;
+            host_port?: number | null;
+            container_port?: number | null;
+            runtime_kind?: string | null;
+            runtime_status?: string | null;
+            healthcheck_url?: string | null;
+            logs_tail?: string | null;
+            /** Format: date-time */
+            queued_at?: string | null;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            last_checked_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */

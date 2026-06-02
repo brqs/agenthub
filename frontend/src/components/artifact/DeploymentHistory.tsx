@@ -1,21 +1,15 @@
 import { Check, Copy, ExternalLink, History, Loader2, Square, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import {
+  DEPLOYMENT_KIND_LABELS,
+  DEPLOYMENT_STATUS_META,
+  formatBytes,
+  formatDateTime,
+  isDeploymentInProgress,
+} from './deploymentPresentation';
 import { useDeployments, useStopDeployment } from '@/hooks/useDeployments';
 import type { WorkspaceDeploymentResponse } from '@/lib/types';
-
-const STATUS_LABELS: Record<WorkspaceDeploymentResponse['status'], string> = {
-  publishing: 'Publishing',
-  published: 'Published',
-  failed: 'Failed',
-  stopped: 'Stopped',
-  not_supported: 'Not supported',
-};
-
-const KIND_LABELS: Record<WorkspaceDeploymentResponse['kind'], string> = {
-  static_site: 'Static site',
-  source_zip: 'Source archive',
-  container: 'Container',
-};
+import { handleExternalLink } from '@/lib/nativeShell';
 
 export function DeploymentHistory({ conversationId }: { conversationId: string }) {
   const deploymentsQuery = useDeployments(conversationId);
@@ -96,25 +90,50 @@ function DeploymentHistoryItem({
   onStop: () => void;
 }) {
   const canStop = ['publishing', 'published'].includes(deployment.status);
+  const statusMeta = DEPLOYMENT_STATUS_META[deployment.status];
+  const updatedAt = formatDateTime(deployment.updated_at);
+  const sizeLabel = formatBytes(deployment.size_bytes);
 
   return (
     <div className="rounded-md border border-slate-300 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/60">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-medium text-slate-900 dark:text-slate-200">
-            {KIND_LABELS[deployment.kind]}
+            {DEPLOYMENT_KIND_LABELS[deployment.kind]}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-            <span>{STATUS_LABELS[deployment.status]}</span>
-            <span>·</span>
-            <span>{new Date(deployment.updated_at).toLocaleString()}</span>
+            <span className="font-medium text-slate-600 dark:text-slate-400">{statusMeta.label}</span>
+            {updatedAt && (
+              <>
+                <span>·</span>
+                <span>{updatedAt}</span>
+              </>
+            )}
+            {sizeLabel && (
+              <>
+                <span>·</span>
+                <span>{sizeLabel}</span>
+              </>
+            )}
           </div>
+          {deployment.error && (
+            <p className="mt-2 line-clamp-2 text-[11px] leading-5 text-rose-600 dark:text-rose-300">
+              {deployment.error}
+            </p>
+          )}
+          {deployment.kind === 'container' && (deployment.runtime_status || deployment.host_port) && (
+            <p className="mt-2 truncate text-[11px] leading-5 text-slate-500">
+              {deployment.runtime_status ? `运行状态：${deployment.runtime_status}` : '容器运行中'}
+              {deployment.host_port ? ` · 端口 ${deployment.host_port}` : ''}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           {deployment.url && (
             <>
               <a
                 href={deployment.url}
+                onClick={(event) => handleExternalLink(event, deployment.url)}
                 target="_blank"
                 rel="noreferrer"
                 className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
@@ -147,6 +166,12 @@ function DeploymentHistoryItem({
           )}
         </div>
       </div>
+      {isDeploymentInProgress(deployment.status) && (
+        <p className="mt-2 inline-flex items-center gap-1.5 text-[11px] leading-5 text-amber-700 dark:text-amber-200">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          平台正在处理，发布历史会自动刷新。
+        </p>
+      )}
       {deployment.kind === 'source_zip' && deployment.status === 'published' && (
         <p className="mt-2 text-[11px] leading-5 text-slate-500">临时源码包，请及时下载并妥善保存。</p>
       )}

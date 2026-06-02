@@ -1,5 +1,6 @@
 import { api } from '@/lib/api';
 import type {
+  WorkspaceDeploymentRequest,
   WorkspaceDeploymentListResponse,
   WorkspaceDeploymentResponse,
 } from '@/lib/types';
@@ -22,6 +23,17 @@ export async function getDeployment(
 ): Promise<WorkspaceDeploymentResponse> {
   const { data } = await api.get<WorkspaceDeploymentResponse>(
     deploymentPath(conversationId, deploymentId),
+  );
+  return data;
+}
+
+export async function createDeployment(
+  conversationId: string,
+  payload: WorkspaceDeploymentRequest,
+): Promise<WorkspaceDeploymentResponse> {
+  const { data } = await api.post<WorkspaceDeploymentResponse>(
+    deploymentPath(conversationId),
+    payload,
   );
   return data;
 }

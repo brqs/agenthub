@@ -12,12 +12,14 @@ import {
 import { AgentAvatar } from './AgentAvatar';
 import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact/ArtifactPreview';
 import { DeploymentHistory } from '@/components/artifact/DeploymentHistory';
+import { DEPLOYMENT_ACTIONS, type DeploymentKind } from '@/components/artifact/deploymentPresentation';
 import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/WorkspaceFileTree';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
 import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
+import { useCreateDeployment } from '@/hooks/useDeployments';
 import { useWorkspaceFile, useWorkspaceTree, useWriteWorkspaceFile } from '@/hooks/useWorkspace';
-import type { Agent } from '@/lib/types';
+import type { Agent, WorkspaceDeploymentRequest } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
 
@@ -304,6 +306,16 @@ function WorkspacePanel({
   onSaveArtifact?: (path: string, content: string | Blob, mimeType: string) => Promise<void> | void;
   isSavingArtifact?: boolean;
 }) {
+  const createDeployment = useCreateDeployment(conversationId);
+
+  function createRelease(kind: DeploymentKind) {
+    const payload: WorkspaceDeploymentRequest = { kind };
+    if (kind === 'static_site' && selectedArtifactPath?.endsWith('.html')) {
+      payload.entry_path = selectedArtifactPath;
+    }
+    void createDeployment.mutate(payload);
+  }
+
   return (
     <section className="space-y-5">
       <div>
@@ -340,6 +352,16 @@ function WorkspacePanel({
               isSaving={isSavingArtifact}
             />
           )}
+          <DeploymentReleaseActions
+            selectedPath={selectedArtifactPath}
+            disabled={createDeployment.isPending}
+            onCreate={createRelease}
+          />
+          {createDeployment.isError && (
+            <p className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700 dark:border-rose-400/25 dark:bg-rose-950/20 dark:text-rose-200">
+              发布请求创建失败，请稍后重试。
+            </p>
+          )}
         </div>
       ) : (
         <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm leading-6 text-slate-500">
@@ -348,6 +370,54 @@ function WorkspacePanel({
       )}
       </div>
       <DeploymentHistory conversationId={conversationId} />
+    </section>
+  );
+}
+
+function DeploymentReleaseActions({
+  selectedPath,
+  disabled,
+  onCreate,
+}: {
+  selectedPath: string | null;
+  disabled: boolean;
+  onCreate: (kind: DeploymentKind) => void;
+}) {
+  return (
+    <section className="rounded-md border border-slate-800 bg-slate-950/70 p-3">
+      <div className="mb-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">发布操作</div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          前端只创建发布请求，部署、打包和容器运行由后端平台 tool 完成。
+        </p>
+        <p className="mt-1 truncate text-[11px] text-slate-600" title={selectedPath ?? undefined}>
+          {selectedPath?.endsWith('.html')
+            ? `静态发布入口：${selectedPath}`
+            : '静态发布默认使用 workspace 中的 index.html。'}
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
+        {DEPLOYMENT_ACTIONS.map((action) => {
+          const Icon = action.icon;
+          return (
+            <button
+              key={action.kind}
+              type="button"
+              onClick={() => onCreate(action.kind)}
+              disabled={disabled}
+              className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-left transition hover:border-brand/40 hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+            >
+              <span className="flex items-center gap-2 text-xs font-medium text-slate-100">
+                <Icon className={cn('h-3.5 w-3.5 text-brand-light', disabled && 'animate-spin')} />
+                {action.label}
+              </span>
+              <span className="mt-1 block text-[11px] leading-4 text-slate-500">
+                {action.description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </section>
   );
 }
