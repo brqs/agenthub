@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react';
+import { Capacitor } from '@capacitor/core';
 
 const listeners = new Set<() => void>();
 let updateAvailable = false;
 
 export function registerPwa(): void {
-  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return;
+  if (!import.meta.env.PROD || Capacitor.isNativePlatform() || !('serviceWorker' in navigator)) return;
 
   window.addEventListener(
     'load',

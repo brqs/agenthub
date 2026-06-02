@@ -1371,3 +1371,31 @@
 - 生产预览验证：manifest 链接、主题色、静态文件复制和 `/api` 缓存绕过规则均正确。
 
 ---
+## 2026-06-02 — 移动端 P2 Capacitor 原生壳
+
+### 改动范围
+- `frontend/capacitor.config.ts`
+- `frontend/ios/**`
+- `frontend/android/**`
+- `frontend/scripts/build-capacitor.mjs`
+- `frontend/src/lib/nativeShell.ts`
+- `frontend/src/lib/env.ts`
+- `frontend/src/lib/pwa.ts`
+- 前端外链渲染组件
+
+### 更新内容
+- **原生工程**：接入 Capacitor v8，生成 iOS / Android 壳并复用同一份 `dist/`。
+- **HTTPS 构建守卫**：`pnpm build:native` 和 `pnpm cap:sync` 要求完整 HTTPS `VITE_API_BASE_URL`，避免原生包误依赖 Vite proxy。
+- **Android 返回键**：优先关闭 Workspace / 会话 sheet、设置页和账号菜单，再返回历史页面，最后退出 App。
+- **外链策略**：部署地址、网页预览、文件地址和 Markdown 外链在原生端使用 Capacitor Browser。
+- **PWA 隔离**：原生壳跳过 Service Worker 注册，避免本地 bundle 再叠加缓存。
+- **键盘适配**：Capacitor Keyboard 使用 `resize: body`，继续配合现有 `visualViewport` 逻辑。
+
+### 验证方式
+- `pnpm build:native` 未配置 HTTPS 时明确失败 ✅
+- `VITE_API_BASE_URL=https://api.example.com pnpm cap:sync` ✅
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- iOS 本机编译待安装完整 Xcode；Android Gradle 首次初始化待允许写入 `~/.gradle`。
+
+---

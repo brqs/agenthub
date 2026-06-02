@@ -1128,3 +1128,23 @@ Orchestrator 的增强应优先落在单轮内存态和只读校验上；per-tas
 
 ### 经验
 真实 API 模式下的 PWA 缓存必须保持保守：缓存静态壳即可，鉴权、SSE、消息和 Workspace 请求全部走网络。离线模式的首要目标是清晰反馈和阻止误发送，不是伪造可编辑状态。
+## 2026-06-02 — Codex 接入移动端 P2 Capacitor 原生壳
+
+### 任务
+在移动 Web 与 PWA 基础完成后，进入 Capacitor 阶段，生成 iOS / Android 原生壳并处理原生平台交互。
+
+### 关键 Prompt
+> 进入 Capacitor
+
+### AI 输出摘要
+1. 新增 Capacitor v8 核心、CLI、iOS、Android、App、Browser 和 Keyboard 依赖，并生成两个平台工程。
+2. 新增 `frontend-capacitor-shell.spec.md`，明确同一份 React `dist/`、HTTPS API、CORS、外链、下载和真机验收边界。
+3. 新增原生构建守卫，缺少 HTTPS `VITE_API_BASE_URL` 时阻止打包。
+4. 新增集中式 `nativeShell`：Android 返回键优先关闭临时 UI，再返回历史或退出；外链在原生端统一使用 Capacitor Browser。
+5. 原生平台跳过 PWA Service Worker 注册，避免缓存层叠加。
+
+### 人工调整
+本次只修改前端、原生壳工程和文档，不修改 OpenAPI、后端接口或数据库结构。zip 下载仍保留现有 Blob 实现，等待 iOS / Android 真机验收后决定是否引入 Filesystem / File Transfer。
+
+### 经验
+Capacitor 应作为薄包装层存在。业务页面继续保持一份代码；原生差异集中在 HTTPS 构建守卫、返回键、外链和后续下载适配中，避免把平台判断散落到业务组件。

@@ -2,6 +2,7 @@ import { Check, Copy, ExternalLink, History, Loader2, Square, Trash2 } from 'luc
 import { useState } from 'react';
 import { useDeployments, useStopDeployment } from '@/hooks/useDeployments';
 import type { WorkspaceDeploymentResponse } from '@/lib/types';
+import { handleExternalLink } from '@/lib/nativeShell';
 
 const STATUS_LABELS: Record<WorkspaceDeploymentResponse['status'], string> = {
   publishing: 'Publishing',
@@ -115,6 +116,7 @@ function DeploymentHistoryItem({
             <>
               <a
                 href={deployment.url}
+                onClick={(event) => handleExternalLink(event, deployment.url)}
                 target="_blank"
                 rel="noreferrer"
                 className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
