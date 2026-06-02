@@ -159,7 +159,7 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
             description=(
                 "Create a platform-managed workspace deployment. Use static_site "
                 "for deploy/publish/go-live requests, source_zip for source export, "
-                "and container only to return a not_supported deployment status."
+                "and container for platform-managed Docker/Podman deployment when enabled."
             ),
             parameters={
                 "type": "object",
@@ -170,6 +170,9 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                     },
                     "entry_path": {"type": "string"},
                     "requested_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                    "container_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+                    "health_path": {"type": "string"},
+                    "start_command": {"type": "string"},
                 },
                 "required": ["kind"],
             },
@@ -177,6 +180,15 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
         ToolSpec(
             name="get_deployment_status",
             description="Read the status of a platform-managed deployment.",
+            parameters={
+                "type": "object",
+                "properties": {"deployment_id": {"type": "string"}},
+                "required": ["deployment_id"],
+            },
+        ),
+        ToolSpec(
+            name="stop_deployment",
+            description="Stop a platform-managed deployment and release its resources.",
             parameters={
                 "type": "object",
                 "properties": {"deployment_id": {"type": "string"}},
