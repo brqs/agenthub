@@ -101,10 +101,11 @@ FULLSTACK_PROMPT = "\n".join(
 )
 DEPLOYMENT_PROMPT = (
     "@orchestrator 请生成一个“团队 OKR 轻量看板”静态前端产品，包含 "
-    "index.html、styles.css、app.js。页面中需要清晰展示任务拆解、代码产物、"
-    "Diff、网页预览、按钮交互和移动端适配。完成后请部署发布到端口8082，"
-    "返回部署状态卡片、访问 URL，并额外打包源码供下载。最后请尝试容器化部署"
-    "并说明当前平台是否支持，同时完成浏览器级质量验收。"
+    "index.html、styles.css、app.js 和 Dockerfile，Dockerfile 使用 nginx 静态服务并 "
+    "EXPOSE 80。页面中需要清晰展示任务拆解、代码产物、Diff、网页预览、按钮交互"
+    "和移动端适配。完成后请部署发布到端口8082，返回部署状态卡片、访问 URL，"
+    "并额外打包源码供下载。最后请执行容器化部署并返回容器 URL，同时完成浏览器级"
+    "质量验收。"
 )
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
@@ -159,6 +160,59 @@ def write_json(path: Path, value: Any) -> None:
 def append_jsonl(path: Path, value: Any) -> None:
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(value, ensure_ascii=False) + "\n")
+
+
+def normalize_http_url(raw_url: Any) -> str | None:
+    if not isinstance(raw_url, str):
+        return None
+    url = raw_url.strip()
+    if not url:
+        return None
+    if re.match(r"^[a-z][a-z0-9+.-]*://", url, re.I):
+        return url
+    if url.startswith("//"):
+        return f"http:{url}"
+    return f"http://{url.lstrip('/')}"
+
+
+def cleanup_previous_preview(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+) -> None:
+    if os.getenv("AGENTHUB_E2E_SKIP_PREVIEW_CLEANUP", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        report["preflight_preview_cleanup"] = {"skipped": True}
+        return
+    if not REPORT_PATH.exists():
+        return
+    try:
+        previous = json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        report["preflight_preview_cleanup"] = {"error": str(exc)}
+        return
+    conversation_id = previous.get("conversation_id")
+    if not isinstance(conversation_id, str) or not conversation_id:
+        return
+    try:
+        response = client.delete(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+        )
+    except httpx.HTTPError as exc:
+        report["preflight_preview_cleanup"] = {
+            "conversation_id": conversation_id,
+            "error": str(exc),
+        }
+        return
+    report["preflight_preview_cleanup"] = {
+        "conversation_id": conversation_id,
+        "status_code": response.status_code,
+        "ok": response.status_code in {200, 404},
+    }
 
 
 def parse_sse(response: httpx.Response, started_at: float) -> list[dict[str, Any]]:
@@ -497,6 +551,7 @@ def main() -> None:
         login.raise_for_status()
         token = login.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
+        cleanup_previous_preview(client, headers, report)
 
         agents = client.get("/api/v1/agents", headers=headers)
         agents.raise_for_status()
@@ -838,38 +893,40 @@ def main() -> None:
             if preview.status_code == 200:
                 preview_body = preview.json()
                 report["preview_8082"] = preview_body
-                report["preview_url"] = preview_body.get("url")
+                raw_preview_url = preview_body.get("url")
+                preview_url = normalize_http_url(raw_preview_url)
+                report["preview_url"] = preview_url
+                report["preview_url_raw"] = raw_preview_url
                 report["checks"]["preview_uses_requested_8082"] = (
                     preview_body.get("port") == 8082
-                    and ":8082/" in str(preview_body.get("url", ""))
+                    and ":8082/" in str(preview_url or "")
                 )
                 report["checks"]["platform_preview_auto_started"] = (
                     preview_body.get("entry_path") == entry["path"]
                     and preview_body.get("status") == "running"
                 )
-                public = httpx.get(preview_body["url"], timeout=10, trust_env=False)
-                report["checks"]["preview_8082_public_accessible"] = (
-                    public.status_code == 200
-                )
+                if preview_url:
+                    public = httpx.get(preview_url, timeout=10, trust_env=False)
+                    report["checks"]["preview_8082_public_accessible"] = (
+                        public.status_code == 200
+                    )
+                else:
+                    report["checks"]["preview_8082_public_accessible"] = False
             else:
                 report["preview_8082_error"] = preview.text
                 report["checks"]["preview_uses_requested_8082"] = False
                 report["checks"]["platform_preview_auto_started"] = False
                 report["checks"]["preview_8082_public_accessible"] = False
-            if not all(
-                report["checks"].get(key, False)
-                for key in (
-                    "platform_preview_tool_called",
-                    "platform_preview_tool_succeeded",
-                    "platform_preview_auto_started",
-                    "preview_url_in_agent_message",
-                    "formal_preview_tool_called",
-                    "browser_verify_tool_called",
-                    "formal_browser_verify_tool_called",
-                    "browser_verify_tool_succeeded",
-                    "browser_verify_passed",
-                )
-            ):
+            preview_checks = (
+                "platform_preview_tool_called",
+                "platform_preview_tool_succeeded",
+                "platform_preview_auto_started",
+                "preview_url_in_agent_message",
+                "formal_preview_tool_called",
+                "preview_uses_requested_8082",
+                "preview_8082_public_accessible",
+            )
+            if not all(report["checks"].get(key, False) for key in preview_checks):
                 report["bugs"].append(
                     {
                         "code": "platform_preview_not_auto_started",
@@ -879,15 +936,38 @@ def main() -> None:
                         ),
                         "checks": {
                             key: report["checks"].get(key, False)
-                            for key in (
-                                "platform_preview_tool_called",
-                                "platform_preview_tool_succeeded",
-                                "platform_preview_auto_started",
-                                "preview_url_in_agent_message",
-                            )
+                            for key in preview_checks
                         },
                         "preview_get_status_code": preview.status_code,
                         "preview_error": report.get("preview_8082_error"),
+                    }
+                )
+            browser_checks = (
+                "browser_verify_tool_called",
+                "formal_browser_verify_tool_called",
+                "browser_verify_tool_succeeded",
+                "browser_verify_passed",
+                "browser_no_console_errors",
+                "browser_no_page_errors",
+                "browser_no_failed_requests",
+                "browser_mobile_no_horizontal_overflow",
+                "browser_button_interaction_ok",
+            )
+            if not all(report["checks"].get(key, False) for key in browser_checks):
+                report["bugs"].append(
+                    {
+                        "code": "browser_quality_gate_failed",
+                        "symptom": (
+                            "Platform preview started, but browser verification did not "
+                            "pass all quality checks before deployment."
+                        ),
+                        "checks": {
+                            key: report["checks"].get(key, False)
+                            for key in browser_checks
+                        },
+                        "browser_issues": (
+                            browser_report.get("issues") if browser_report else None
+                        ),
                     }
                 )
 
@@ -940,12 +1020,10 @@ def main() -> None:
                 item
                 for item in deployment_items
                 if item.get("kind") == "container"
-                and item.get("status") == "not_supported"
+                and item.get("status") == "published"
             ]
             report["checks"]["static_site_deployment_published"] = bool(static_items)
-            report["checks"]["container_deployment_not_supported"] = bool(
-                container_items
-            )
+            report["checks"]["container_deployment_published"] = bool(container_items)
             report["checks"]["source_zip_deployment_published"] = bool(source_items)
             if static_items:
                 static_url = static_items[0].get("url")
@@ -963,6 +1041,31 @@ def main() -> None:
                     report["checks"]["static_site_url_200"] = False
             else:
                 report["checks"]["static_site_url_200"] = False
+            report["checks"]["container_url_200"] = False
+            report["checks"]["container_health_ok"] = False
+            if container_items:
+                container_url = container_items[0].get("url")
+                healthcheck_url = container_items[0].get("healthcheck_url")
+                report["container_deployment_url"] = container_url
+                report["container_healthcheck_url"] = healthcheck_url
+                if isinstance(container_url, str) and container_url.startswith("http"):
+                    container_response = httpx.get(
+                        container_url,
+                        timeout=10,
+                        trust_env=False,
+                    )
+                    report["checks"]["container_url_200"] = (
+                        container_response.status_code == 200
+                    )
+                if isinstance(healthcheck_url, str) and healthcheck_url.startswith("http"):
+                    health_response = httpx.get(
+                        healthcheck_url,
+                        timeout=10,
+                        trust_env=False,
+                    )
+                    report["checks"]["container_health_ok"] = (
+                        health_response.status_code == 200
+                    )
             report["checks"]["source_zip_downloaded"] = False
             report["checks"]["source_zip_excludes_sensitive_paths"] = False
             if source_items:
@@ -991,7 +1094,9 @@ def main() -> None:
                 "source_zip_deployment_published",
                 "source_zip_downloaded",
                 "source_zip_excludes_sensitive_paths",
-                "container_deployment_not_supported",
+                "container_deployment_published",
+                "container_url_200",
+                "container_health_ok",
             )
             if not all(report["checks"].get(key, False) for key in deployment_checks):
                 report["bugs"].append(
@@ -999,7 +1104,7 @@ def main() -> None:
                         "code": "deployment_release_flow_failed",
                         "symptom": (
                             "Deployment Case 3 did not complete static publish, "
-                            "source zip export, status card, or container placeholder."
+                            "source zip export, status card, or container deployment."
                         ),
                         "checks": {
                             key: report["checks"].get(key, False)
@@ -1311,8 +1416,16 @@ def main() -> None:
                         "source_zip_excludes_sensitive_paths",
                         False,
                     ),
-                    "container_deployment_not_supported": report["checks"].get(
-                        "container_deployment_not_supported",
+                    "container_deployment_published": report["checks"].get(
+                        "container_deployment_published",
+                        False,
+                    ),
+                    "container_url_200": report["checks"].get(
+                        "container_url_200",
+                        False,
+                    ),
+                    "container_health_ok": report["checks"].get(
+                        "container_health_ok",
                         False,
                     ),
                 }

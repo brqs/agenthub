@@ -166,6 +166,19 @@ uv run alembic current
 - 新增 API：检查 OpenAPI 是否暴露新路由。
 - Preview / deployment：请求对应 API 并检查状态字段。
 
+部署发布后端或原生部署相关变更可直接执行公网 API E2E，不依赖远端前端重新发布：
+
+```bash
+cd /home/ubuntu/agenthub/backend
+uv run python scripts/deployment_release_api_e2e.py
+```
+
+报告写入：
+
+```text
+/tmp/agenthub_deployment_release_api_e2e_report.json
+```
+
 只有“PID 已变化 + health 正常 + migration 正确 + 关键 API 断言通过”才能说明运行实例已经同步到本轮代码。
 
 ## Troubleshooting

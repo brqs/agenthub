@@ -166,7 +166,27 @@ async def run_quality_gate(
         )
         next_block_index += 1
 
+    preview_refresh_needed = False
     while True:
+        if preview_refresh_needed:
+            entry_path = _find_preview_entry(workspace_path) or entry_path
+            if entry_path:
+                preview_args["entry_path"] = entry_path
+            refresh_call_id = f"orch.quality.preview.refresh.{repair_round}"
+            yield (
+                _tool_call(refresh_call_id, "start_workspace_preview", preview_args),
+                next_block_index,
+            )
+            refresh_result = await executor("start_workspace_preview", preview_args)
+            yield _tool_result(refresh_call_id, refresh_result), next_block_index
+            if refresh_result.status != "ok":
+                yield (
+                    _error("workspace_preview_start_failed", refresh_result.output),
+                    next_block_index,
+                )
+                return
+            preview_refresh_needed = False
+
         verify_call_id = f"orch.quality.verify.{repair_round + 1}"
         verify_args = {
             "required_text": required_text,
@@ -234,6 +254,7 @@ async def run_quality_gate(
         ):
             next_block_index = updated_block_index
             yield chunk, updated_block_index
+        preview_refresh_needed = True
 
 
 def _should_run_quality_gate(user_request: str) -> bool:
@@ -425,12 +446,26 @@ def _repair_instruction(
         json.dumps(issues[:20], ensure_ascii=False) if issues else raw_output,
         4000,
     )
+    issue_codes = {
+        item.get("code")
+        for item in issues
+        if isinstance(item, Mapping) and isinstance(item.get("code"), str)
+    }
+    mobile_overflow_guidance = ""
+    if "mobile_no_horizontal_overflow" in issue_codes:
+        mobile_overflow_guidance = (
+            "\n特别修复 mobile_no_horizontal_overflow：添加全局 box-sizing；限制 "
+            "html/body 和主容器 max-width:100% 与 overflow-x:hidden；让 grid/flex "
+            "在移动端换行或改为单列；让 img/svg/video/canvas/table/pre/code/button "
+            "不超过视口宽度，并对长文本使用 overflow-wrap:anywhere。"
+        )
     return (
         "修复浏览器级质量验收失败的问题。只修改 workspace 内的静态前端文件，"
         "不要创建 server.js/package.json，不要启动服务。"
         f"\n入口 HTML: {entry_path}"
         "\n必须保持任务拆解、代码产物、Diff、网页预览、按钮交互和移动端适配可见。"
         "\n修复以下浏览器验证问题后，确保桌面和移动端都没有 JS 错误、资源错误或横向溢出："
+        f"{mobile_overflow_guidance}"
         f"\n{issue_text}"
     )
 

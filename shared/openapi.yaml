@@ -114,13 +114,23 @@ components:
         type: { type: string, enum: [deployment_status] }
         deployment_id: { type: string }
         kind: { type: string, enum: [static_site, source_zip, container] }
-        status: { type: string, enum: [publishing, published, failed, stopped, not_supported] }
+        status: { type: string, enum: [queued, publishing, published, failed, stopped, not_supported] }
         title: { type: string, nullable: true }
         url: { type: string, nullable: true }
         download_url: { type: string, nullable: true }
         error: { type: string, nullable: true }
         logs_preview: { type: string, nullable: true }
         size_bytes: { type: integer, nullable: true }
+        artifact_digest: { type: string, nullable: true }
+        file_count: { type: integer, nullable: true }
+        published_at: { type: string, format: date-time, nullable: true }
+        stopped_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        runtime_kind: { type: string, nullable: true }
+        runtime_status: { type: string, nullable: true }
+        host_port: { type: integer, nullable: true }
+        container_port: { type: integer, nullable: true }
+        healthcheck_url: { type: string, nullable: true }
 
     ToolCallBlock:
       type: object
@@ -720,6 +730,9 @@ components:
         kind: { type: string, enum: [static_site, source_zip, container] }
         entry_path: { type: string, minLength: 1, maxLength: 512, nullable: true }
         requested_port: { type: integer, minimum: 1, maximum: 65535, nullable: true }
+        container_port: { type: integer, minimum: 1, maximum: 65535, nullable: true }
+        health_path: { type: string, minLength: 1, maxLength: 256, nullable: true }
+        start_command: { type: string, maxLength: 512, nullable: true }
 
     WorkspaceDeploymentResponse:
       type: object
@@ -729,13 +742,31 @@ components:
         conversation_id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
         kind: { type: string, enum: [static_site, source_zip, container] }
-        status: { type: string, enum: [publishing, published, failed, stopped, not_supported] }
+        status: { type: string, enum: [queued, publishing, published, failed, stopped, not_supported] }
         entry_path: { type: string, nullable: true }
         url: { type: string, nullable: true }
         download_url: { type: string, nullable: true }
         error: { type: string, nullable: true }
         logs: { type: array, items: { type: string } }
         size_bytes: { type: integer, nullable: true }
+        artifact_digest: { type: string, nullable: true }
+        file_count: { type: integer, nullable: true }
+        published_at: { type: string, format: date-time, nullable: true }
+        stopped_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        runtime_id: { type: string, nullable: true }
+        image_id: { type: string, nullable: true }
+        container_id: { type: string, nullable: true }
+        host_port: { type: integer, nullable: true }
+        container_port: { type: integer, nullable: true }
+        runtime_kind: { type: string, nullable: true }
+        runtime_status: { type: string, nullable: true }
+        healthcheck_url: { type: string, nullable: true }
+        logs_tail: { type: string, nullable: true }
+        queued_at: { type: string, format: date-time, nullable: true }
+        started_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        last_checked_at: { type: string, format: date-time, nullable: true }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -1388,6 +1419,42 @@ paths:
             application/zip:
               schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /releases/{release_token}:
+    get:
+      summary: Read the HTML entry of a published immutable static release
+      tags: [Releases]
+      parameters:
+        - name: release_token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Released static HTML entry
+          content:
+            text/html:
+              schema: { type: string }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /releases/{release_token}/{path}:
+    get:
+      summary: Read one public file from a published immutable static release
+      tags: [Releases]
+      parameters:
+        - name: release_token
+          in: path
+          required: true
+          schema: { type: string }
+        - name: path
+          in: path
+          required: true
+          description: Nested static resource path.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Released static resource
         '404': { $ref: '#/components/responses/NotFound' }
 
   # ─── Agents ───
