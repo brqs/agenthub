@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import anthropic
 import openai
@@ -168,12 +168,15 @@ class CompressionModelGateway:
 
         client = openai.AsyncOpenAI(**kwargs)
         try:
-            response = await client.chat.completions.create(
+            response = cast(
+                Any,
+                await client.chat.completions.create(
                 model=model,
-                messages=messages,
+                messages=cast(Any, messages),
                 temperature=0,
                 max_tokens=max_tokens,
                 stream=False,
+                ),
             )
         except openai.OpenAIError as exc:
             raise ModelGatewayUnavailableError(str(exc)) from exc
@@ -208,11 +211,11 @@ class CompressionModelGateway:
         except anthropic.APIError as exc:
             raise ModelGatewayUnavailableError(str(exc)) from exc
 
-        content_parts = [
-            block.text
-            for block in response.content
-            if getattr(block, "type", None) == "text" and getattr(block, "text", None)
-        ]
+        content_parts: list[str] = []
+        for block in response.content:
+            text = getattr(block, "text", None)
+            if getattr(block, "type", None) == "text" and isinstance(text, str):
+                content_parts.append(text)
         content = "\n".join(content_parts)
         if not content:
             raise ModelGatewayUnavailableError("empty compression response")

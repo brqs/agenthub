@@ -6,6 +6,7 @@ import socket
 import zipfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import httpx
@@ -19,6 +20,8 @@ from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
 from app.models.workspace import Workspace
+from app.services.workspace_container_release import ContainerDeploymentResult
+from app.services.workspace_deployment import WorkspaceDeploymentService
 from app.services.workspace_service import WorkspaceService
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -48,6 +51,9 @@ def workspace_settings(
     monkeypatch.setattr(settings, "preview_port_end", preview_port)
     monkeypatch.setattr(settings, "preview_public_base_url", "http://127.0.0.1")
     monkeypatch.setattr(settings, "preview_start_timeout_seconds", 5)
+    monkeypatch.setattr(settings, "preview_snapshot_dir", str(tmp_path / "preview-snapshots"))
+    monkeypatch.setattr(settings, "deployment_static_root", str(tmp_path / "static-releases"))
+    monkeypatch.setattr(settings, "deployment_export_dir", str(tmp_path / "exports"))
     monkeypatch.setattr(settings, "browser_verify_enabled", True)
     monkeypatch.setattr(settings, "browser_verify_timeout_seconds", 10)
     monkeypatch.setattr(
@@ -381,12 +387,10 @@ async def test_workspace_static_site_deployment_lifecycle(client: AsyncClient) -
         assert body["kind"] == "static_site"
         assert body["status"] == "published"
         assert body["entry_path"] == "index.html"
-        assert body["url"].endswith(f":{settings.preview_port_start}/index.html")
-        public = httpx.get(
-            f"http://127.0.0.1:{settings.preview_port_start}/index.html",
-            timeout=5,
-            trust_env=False,
-        )
+        assert "/releases/" in body["url"]
+        assert body["artifact_digest"]
+        assert body["file_count"] == 1
+        public = await client.get(urlparse(body["url"]).path)
         assert public.status_code == 200
         assert "Deploy OK" in public.text
 
@@ -398,7 +402,7 @@ async def test_workspace_static_site_deployment_lifecycle(client: AsyncClient) -
         assert get_response.json()["status"] == "published"
     finally:
         await client.delete(
-            f"/api/v1/workspaces/{conversation_id}/preview",
+            f"/api/v1/workspaces/{conversation_id}/deployments/{body['id']}",
             headers=headers,
         )
 
@@ -428,8 +432,187 @@ async def test_workspace_static_site_deployment_does_not_fallback_port(
             },
         )
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["error"]["code"] == "workspace_deployment_failed"
+    assert response.status_code == 201
+    assert response.json()["status"] == "published"
+    assert "/releases/" in response.json()["url"]
+    await client.delete(
+        f"/api/v1/workspaces/{conversation_id}/deployments/{response.json()['id']}",
+        headers=headers,
+    )
+
+
+async def test_workspace_preview_serves_only_guarded_static_snapshot(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<html><head><link rel='stylesheet' href='assets/styles.css'></head></html>",
+    )
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/assets/styles.css",
+        headers=headers,
+        content=b"body{color:#123}",
+    )
+
+    started = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "index.html"},
+    )
+    assert started.status_code == 201, started.text
+    port = started.json()["port"]
+    try:
+        index = httpx.get(f"http://127.0.0.1:{port}/", timeout=5, trust_env=False)
+        css = httpx.get(
+            f"http://127.0.0.1:{port}/assets/styles.css",
+            timeout=5,
+            trust_env=False,
+        )
+        metadata = httpx.get(
+            f"http://127.0.0.1:{port}/.agenthub/manifest.json",
+            timeout=5,
+            trust_env=False,
+        )
+        directory = httpx.get(f"http://127.0.0.1:{port}/assets/", timeout=5, trust_env=False)
+        assert index.status_code == 200
+        assert index.headers["x-content-type-options"] == "nosniff"
+        assert "content-security-policy" in index.headers
+        assert css.status_code == 200
+        assert metadata.status_code == 404
+        assert directory.status_code == 404
+    finally:
+        await client.delete(f"/api/v1/workspaces/{conversation_id}/preview", headers=headers)
+
+
+async def test_workspace_preview_rebuilds_snapshot_after_workspace_change(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<html><body>preview-v1</body></html>",
+    )
+    started = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "index.html"},
+    )
+    assert started.status_code == 201, started.text
+    url = started.json()["url"]
+    try:
+        assert "preview-v1" in httpx.get(url, timeout=5, trust_env=False).text
+        await client.put(
+            f"/api/v1/workspaces/{conversation_id}/files/index.html",
+            headers=headers,
+            content=b"<html><body>preview-v2</body></html>",
+        )
+        restarted = await client.post(
+            f"/api/v1/workspaces/{conversation_id}/preview",
+            headers=headers,
+            json={"entry_path": "index.html"},
+        )
+        assert restarted.status_code == 201, restarted.text
+        updated = httpx.get(restarted.json()["url"], timeout=5, trust_env=False)
+        assert updated.status_code == 200
+        assert "preview-v2" in updated.text
+        assert "preview-v1" not in updated.text
+    finally:
+        await client.delete(f"/api/v1/workspaces/{conversation_id}/preview", headers=headers)
+
+
+async def test_workspace_static_release_is_immutable_and_stop_invalidates_url(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<html><body>release-v1</body></html>",
+    )
+    deployment = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "static_site", "entry_path": "index.html"},
+    )
+    assert deployment.status_code == 201, deployment.text
+    body = deployment.json()
+    release_path = urlparse(body["url"]).path
+    assert "release-v1" in (await client.get(release_path)).text
+
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<html><body>release-v2</body></html>",
+    )
+    unchanged = await client.get(release_path)
+    assert unchanged.status_code == 200
+    assert "release-v1" in unchanged.text
+    assert "release-v2" not in unchanged.text
+
+    stopped = await client.delete(
+        f"/api/v1/workspaces/{conversation_id}/deployments/{body['id']}",
+        headers=headers,
+    )
+    assert stopped.status_code == 200
+    assert stopped.json()["status"] == "stopped"
+    assert stopped.json()["url"] is None
+    assert (await client.get(release_path)).status_code == 404
+
+
+async def test_delete_conversation_cleans_workspace_preview_and_deployment_resources(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<html><body>cleanup</body></html>",
+    )
+    preview = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/preview",
+        headers=headers,
+        json={"entry_path": "index.html"},
+    )
+    assert preview.status_code == 201, preview.text
+    static_release = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "static_site", "entry_path": "index.html"},
+    )
+    source_zip = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "source_zip"},
+    )
+    assert static_release.status_code == 201, static_release.text
+    assert source_zip.status_code == 201, source_zip.text
+    release_path = urlparse(static_release.json()["url"]).path
+    release_dir = Path(settings.deployment_static_root) / static_release.json()["id"]
+    preview_dir = Path(settings.preview_snapshot_dir) / conversation_id
+    export_dir = Path(settings.deployment_export_dir) / conversation_id
+    workspace_dir = Path(settings.workspace_base_dir) / conversation_id
+    assert release_dir.is_dir()
+    assert preview_dir.is_dir()
+    assert export_dir.is_dir()
+    assert workspace_dir.is_dir()
+
+    deleted = await client.delete(f"/api/v1/conversations/{conversation_id}", headers=headers)
+
+    assert deleted.status_code == 204, deleted.text
+    assert not release_dir.exists()
+    assert not preview_dir.exists()
+    assert not export_dir.exists()
+    assert not workspace_dir.exists()
+    assert (await client.get(release_path)).status_code == 404
 
 
 async def test_workspace_source_zip_deployment_excludes_sensitive_paths(
@@ -447,6 +630,7 @@ async def test_workspace_source_zip_deployment_excludes_sensitive_paths(
         workspace = await WorkspaceService().get_or_create(db, UUID(conversation_id))
         root = Path(workspace.root_path)
         (root / ".env").write_text("SECRET=1", encoding="utf-8")
+        (root / ".env.local").write_text("LOCAL_SECRET=1", encoding="utf-8")
         (root / "node_modules").mkdir(exist_ok=True)
         (root / "node_modules" / "skip.js").write_text("skip", encoding="utf-8")
         await db.commit()
@@ -461,6 +645,9 @@ async def test_workspace_source_zip_deployment_excludes_sensitive_paths(
     assert body["kind"] == "source_zip"
     assert body["status"] == "published"
     assert body["download_url"]
+    assert body["artifact_digest"]
+    assert body["file_count"] >= 1
+    assert body["expires_at"]
 
     download = await client.get(body["download_url"], headers=headers)
     assert download.status_code == 200, download.text
@@ -469,12 +656,68 @@ async def test_workspace_source_zip_deployment_excludes_sensitive_paths(
         names = set(archive.namelist())
     assert "index.html" in names
     assert ".env" not in names
+    assert ".env.local" not in names
     assert "node_modules/skip.js" not in names
+
+
+async def test_workspace_source_zip_expired_download_is_removed(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "deployment_export_ttl_seconds", -1)
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/index.html",
+        headers=headers,
+        content=b"<html>expired</html>",
+    )
+    deployment = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "source_zip"},
+    )
+    assert deployment.status_code == 201, deployment.text
+    body = deployment.json()
+    export_path = Path(settings.deployment_export_dir) / conversation_id / f"{body['id']}.zip"
+    assert export_path.is_file()
+
+    download = await client.get(body["download_url"], headers=headers)
+
+    assert download.status_code == 404
+    assert not export_path.exists()
+
+
+async def test_workspace_source_zip_rejects_single_file_over_limit(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "deployment_max_single_file_bytes", 64)
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/large.txt",
+        headers=headers,
+        content=b"x" * 65,
+    )
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "source_zip"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["error"]["code"] == "workspace_deployment_failed"
 
 
 async def test_workspace_container_deployment_returns_not_supported(
     client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "deployment_container_enabled", False)
     _, headers = await _register(client)
     conversation = await _create_conversation(client, headers)
 
@@ -488,7 +731,114 @@ async def test_workspace_container_deployment_returns_not_supported(
     body = response.json()
     assert body["kind"] == "container"
     assert body["status"] == "not_supported"
-    assert "not supported" in body["error"].lower()
+    assert "disabled" in body["error"].lower()
+
+
+async def test_workspace_container_deployment_fails_without_dockerfile(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation['id']}/deployments",
+        headers=headers,
+        json={"kind": "container", "container_port": 8000, "health_path": "/health"},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["kind"] == "container"
+    assert body["status"] == "failed"
+    assert "Dockerfile" in body["error"]
+
+
+async def test_workspace_container_deployment_uses_worker_and_stops(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.v1 import workspaces as workspace_api
+
+    class FakeContainerWorker:
+        def __init__(self) -> None:
+            self.removed: list[tuple[str | None, str | None]] = []
+
+        async def publish(
+            self,
+            workspace_root: Path,
+            deployment_id: UUID,
+            *,
+            container_port: int | None,
+            health_path: str,
+        ) -> ContainerDeploymentResult:
+            assert (workspace_root / "Dockerfile").is_file()
+            assert container_port == 8000
+            assert health_path == "/health"
+            return ContainerDeploymentResult(
+                url="http://127.0.0.1:8200",
+                healthcheck_url="http://127.0.0.1:8200/health",
+                runtime_id="container-123",
+                image_id="image-123",
+                container_id="container-123",
+                host_port=8200,
+                container_port=8000,
+                runtime_kind="docker",
+                runtime_status="running",
+                logs_tail="healthy",
+                snapshot_path=tmp_path / "container-snapshot",
+            )
+
+        async def remove(
+            self,
+            *,
+            container_id: str | None,
+            image_id: str | None,
+            snapshot_path: Path | str | None,
+        ) -> None:
+            _ = snapshot_path
+            self.removed.append((container_id, image_id))
+
+    fake_worker = FakeContainerWorker()
+    monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
+    monkeypatch.setattr(
+        workspace_api,
+        "deployment_service",
+        WorkspaceDeploymentService(container_worker=fake_worker),  # type: ignore[arg-type]
+    )
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/Dockerfile",
+        headers=headers,
+        content=b"FROM python:3.12-slim\nEXPOSE 8000\n",
+    )
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "container", "container_port": 8000, "health_path": "/health"},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["status"] == "published"
+    assert body["url"] == "http://127.0.0.1:8200"
+    assert body["healthcheck_url"] == "http://127.0.0.1:8200/health"
+    assert body["host_port"] == 8200
+    assert body["container_port"] == 8000
+    assert body["runtime_status"] == "running"
+
+    stopped = await client.delete(
+        f"/api/v1/workspaces/{conversation_id}/deployments/{body['id']}",
+        headers=headers,
+    )
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["status"] == "stopped"
+    assert fake_worker.removed == [("container-123", "image-123")]
 
 
 async def test_workspace_deployment_rejects_invalid_entries(
@@ -707,3 +1057,5 @@ async def test_openapi_includes_workspace_routes(client: AsyncClient) -> None:
     assert "/api/v1/workspaces/{conversation_id}/tree" in paths
     assert "/api/v1/workspaces/{conversation_id}/files/{path}" in paths
     assert "/api/v1/workspaces/{conversation_id}/preview/verify" in paths
+    assert "/releases/{release_token}" in paths
+    assert "/releases/{release_token}/{path}" in paths

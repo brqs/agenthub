@@ -35,7 +35,9 @@ from app.services.orchestrator_memory import (
     get_orchestrator_run_detail,
     list_orchestrator_runs,
 )
+from app.services.workspace_deployment import WorkspaceDeploymentService
 from app.services.workspace_preview import WorkspacePreviewService
+from app.services.workspace_service import WorkspaceService
 
 router = APIRouter()
 
@@ -273,4 +275,6 @@ async def delete_conversation(
 ) -> None:
     conv = await _get_owned_conversation(db, user.id, conv_id)
     await WorkspacePreviewService().stop(db, conv_id)
+    await WorkspaceDeploymentService().cleanup_for_conversation(db, conv_id)
+    await WorkspaceService().delete(db, conv_id)
     await db.delete(conv)

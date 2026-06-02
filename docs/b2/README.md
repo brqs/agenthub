@@ -15,6 +15,7 @@
 | [spec/external-runtime-adapters.spec.md](spec/external-runtime-adapters.spec.md) | Claude Code / Codex / OpenCode adapter 细节 |
 | [spec/external-direct-chat-routing.spec.md](spec/external-direct-chat-routing.spec.md) | External Agent 纯问答 / Runtime 路由 |
 | [spec/model-gateway.spec.md](spec/model-gateway.spec.md) | ModelGateway backend 与 resilience |
+| [frontend-release-handoff.md](frontend-release-handoff.md) | 前端远端发布交接：当前线上构建差异、状态卡发布步骤和联调信息清单 |
 
 ## 当前模块地图
 

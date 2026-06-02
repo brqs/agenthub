@@ -1,7 +1,7 @@
 # Workspace Artifact / Preview / Deployment Spec
 
-> 状态：Artifact / Preview / Deployment v1 为 Current contract。
-> 最后更新：2026-05-31
+> 状态：Artifact / guarded Preview / immutable Static Release 为 Current contract。
+> 最后更新：2026-06-01
 
 ## 目标
 
@@ -102,6 +102,8 @@ class WorkspacePreviewSession(Base):
     url: str
     status: Literal["starting", "running", "stopped", "error"]
     error: str | None
+    snapshot_path: str | None
+    artifact_digest: str | None
     created_at: datetime
     updated_at: datetime
     last_accessed_at: datetime
@@ -121,10 +123,17 @@ class WorkspacePreviewSession(Base):
 | `PREVIEW_PORT_START` | `8082` | 端口池起始 |
 | `PREVIEW_PORT_END` | `8182` | 端口池结束 |
 | `PREVIEW_PUBLIC_BASE_URL` | null | 公网 base URL |
+| `PREVIEW_ALLOWED_FRAME_ANCESTORS` | `http://154.44.25.94:1573` | 允许嵌入 Preview 的前端来源 |
 | `PREVIEW_IDLE_TTL_SECONDS` | `1800` | 闲置清理时间 |
 | `PREVIEW_START_TIMEOUT_SECONDS` | `15` | 启动健康检查超时 |
+| `PREVIEW_SNAPSHOT_DIR` | `/tmp/agenthub_preview_snapshots` | 隔离快照目录 |
 
-8082 是平台端口池的一部分，不允许 agent runtime 直接监听。
+8082 是平台端口池的一部分，不允许 agent runtime 直接监听。Preview 只服务隔离后的静态快照，
+不直接公开 conversation workspace。
+
+当 Orchestrator 的 browser quality gate 调度 repair agent 修改 workspace 后，下一轮
+`verify_web_preview` 前必须重新调用 `start_workspace_preview`。Preview service 应比较
+`artifact_digest`：内容未变时复用 session，内容变化时重建隔离快照并重启/刷新服务。
 
 ## API
 
@@ -201,14 +210,20 @@ StreamChunk(
 
 ## Deployment v1
 
-> 当前状态：MVP 已实现。静态发布与 Preview 生命周期解耦、不可变 release snapshot、稳定 release route、真实 stop 和 container 安全底座见 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)。
+> 当前状态：后端部署基础能力已实现。静态发布与 Preview 生命周期解耦、不可变 release
+> snapshot、稳定 release route、真实 stop 和 container 安全底座见
+> [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)。
+> 设计文档要求的原生容器部署已按
+> [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)
+> 实现后端 MVP，当前课程演示环境默认执行受控 Docker build/run。
 
 Deploy 不等同 preview：
 
 - `preview`：临时开发预览，端口池管理，适合浏览器验收。
 - `deployment`：一次可追踪发布记录，有状态、URL、日志、失败原因和历史。
 - `source_export`：源码 zip 打包下载，不等同部署。
-- `container_deploy`：本阶段只返回 `not_supported`，不执行 Docker。
+- `container_deploy`：默认通过平台 Deployment Worker 执行受控 build/run，不允许 agent
+  直接执行裸 Docker/shell；管理员显式关闭 worker 时返回 `not_supported`。
 
 v1 平台记录一次 deployment：
 
@@ -218,7 +233,6 @@ class WorkspaceDeployment(Base):
     conversation_id: UUID
     workspace_id: UUID
     kind: Literal["static_site", "source_zip", "container"]
-    artifact_path: str
     status: Literal[
         "queued",
         "publishing",
@@ -229,6 +243,14 @@ class WorkspaceDeployment(Base):
     ]
     url: str | None
     download_url: str | None
+    release_token: str | None
+    snapshot_path: str | None
+    artifact_digest: str | None
+    file_count: int | None
+    size_bytes: int | None
+    published_at: datetime | None
+    stopped_at: datetime | None
+    expires_at: datetime | None
     error: str | None
     logs: list[str]
     created_at: datetime
@@ -239,9 +261,9 @@ class WorkspaceDeployment(Base):
 
 | kind | 行为 | v1 状态 |
 |---|---|---|
-| `static_site` | 校验 workspace HTML 入口，创建 deployment record，复用平台静态服务返回 URL | Implemented |
-| `source_zip` | 打包 workspace 源码，返回下载 URL | Implemented |
-| `container` | 返回 `not_supported` 状态卡，说明容器化部署未开放 | Implemented placeholder |
+| `static_site` | 创建不可变静态快照，返回稳定 Token URL，不占 Preview 端口 | Implemented |
+| `source_zip` | 安全打包 workspace 源码，返回有过期时间的下载 URL | Implemented |
+| `container` | 默认返回真实发布状态、URL 与 healthcheck；管理员关闭 worker 时返回 `not_supported` | Implemented |
 
 `POST deployments` body：
 
@@ -255,7 +277,17 @@ class WorkspaceDeployment(Base):
 
 `source_zip` 必须排除 `.agenthub/`、`.git/`、`node_modules/`、`.venv/`、`__pycache__/`，且禁止打包 `.env`、`.ssh`、`secrets/`。
 
-本轮不允许 agent runtime 执行 Netlify、Vercel、SSH、Docker、`npm run dev`、`vite --host`、`python -m http.server` 等部署或长驻服务命令。
+Static Release 公共路由：
+
+```text
+GET /releases/{release_token}
+GET /releases/{release_token}/{path:path}
+```
+
+该 URL 不暴露 conversation id、workspace path 或内部 snapshot path。后续修改 workspace 不影响
+已经发布的静态版本；停止发布后 token 失效。
+
+不允许 agent runtime 执行 Netlify、Vercel、SSH、Docker、`npm run dev`、`vite --host`、`python -m http.server` 等裸部署或长驻服务命令。真实容器发布必须由平台 Deployment Worker 受控执行。
 
 ## Deployment Status Block
 
@@ -280,7 +312,7 @@ type DeploymentStatusBlock = {
 - `published`：展示访问 URL、复制和打开入口。
 - `source_zip`：展示源码下载入口。
 - `failed`：展示错误原因和日志摘要。
-- `not_supported`：展示容器化部署未开放说明。
+- `not_supported`：展示当前环境被管理员关闭原生容器 worker 的说明。
 - `stopped`：展示已停止状态。
 
 ## 生命周期
@@ -293,9 +325,9 @@ type DeploymentStatusBlock = {
 | 用户重复启动 preview | 复用或重启当前 conversation session |
 | 用户发送部署/发布/上线 | 创建 deployment record，执行平台受控部署 |
 | 用户请求源码打包下载 | 创建 source zip export，返回下载 URL |
-| 用户请求容器化部署 | 创建 `not_supported` 状态记录，不执行 Docker |
+| 用户请求容器化部署 | 默认创建受控 container deployment；worker 被关闭时创建 `not_supported` 状态记录 |
 | SSE 断开 | 不影响已启动 preview；preview 由 TTL 管理 |
-| Conversation 删除 | 当前停止 preview 并删除 DB record；release snapshot、source zip 和稳定 route token 的完整清理由 hardening 补齐 |
+| Conversation 删除 | 停止 preview，失效 release token，删除 release snapshot、source zip 和 workspace |
 | Workspace 删除 | 停止 preview |
 
 ## Orchestrator 集成
@@ -314,18 +346,18 @@ Deployment tools：
 - 用户只说“预览”时，Orchestrator 使用 `start_workspace_preview`。
 - 用户说“部署 / 发布 / 上线”时，Orchestrator 使用 `create_deployment(kind="static_site")`。
 - 用户说“源码打包 / 下载源码”时，Orchestrator 使用 `package_workspace_source`。
-- 用户说“容器化部署”时，Orchestrator 使用 `create_deployment(kind="container")`，返回 `not_supported`。
+- 用户说“容器化部署”时，Orchestrator 使用 `create_deployment(kind="container")`；默认由 Deployment Worker 执行真实 build/run，worker 被关闭时返回 `not_supported`。
 
 ## 安全规则
 
 - `entry_path` 必须在 workspace 内。
 - 禁止预览 `.env`、`.ssh`、`secrets/`、`.agenthub/`。
-- Preview 静态 server 只能暴露当前 workspace；hardening 后正式 static release 只能暴露不可变 snapshot。
+- Preview 静态 server 和正式 static release 都只能暴露受控静态快照。
 - 默认禁止目录列表。
 - HTML 预览必须设置 sandbox / CSP。
 - 平台 preview 进程不接收 provider API key。
 - Deployment / source export 不打包或暴露敏感目录。
-- Container deployment 在未实现隔离前只能返回 `not_supported`。
+- Container deployment 必须通过受控隔离 worker；worker 被关闭时只能返回 `not_supported`，不能降级为 agent 直接执行 Docker。
 
 ## 测试计划
 
@@ -338,7 +370,7 @@ Deployment tools：
 - Orchestrator 能把 `done` 但无文件判为 `artifact_missing`。
 - `static_site` deployment 返回 deployment status 和 URL。
 - `source_zip` 可下载且不包含敏感目录。
-- `container` 请求返回 `not_supported` 且不执行 Docker。
+- `container` 请求默认按原生部署计划做 build/run、健康检查和停止清理；worker disabled 时返回 `not_supported` 且不执行 Docker。
 
 ## 验收标准
 

@@ -2,21 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.releases import router as releases_router
 from app.api.v1 import api_router
 from app.core.config import settings
+from app.services.workspace_janitor import WorkspaceResourceJanitor
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown hooks."""
-    # TODO: warmup connections, prewarm caches, etc.
-    yield
+    _ = app
+    janitor = WorkspaceResourceJanitor()
+    await janitor.cleanup_once()
+    task = asyncio.create_task(janitor.run_forever())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(
@@ -44,3 +55,4 @@ async def health() -> dict[str, str]:
 
 # ─── API v1 ───
 app.include_router(api_router)
+app.include_router(releases_router)

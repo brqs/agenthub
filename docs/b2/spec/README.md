@@ -3,7 +3,7 @@
 > 目的：作为 B2 Agent Runtime Layer 的 spec 总入口，帮助接手者快速判断“现在真实契约是什么、哪些已经实现、哪些只是提案或后续 TODO”。
 >
 > 状态：Current index
-> 最后更新：2026-06-01
+> 最后更新：2026-06-02
 
 ---
 
@@ -14,7 +14,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 - External Agent Runtime：Claude Code / Codex / OpenCode。
 - Builtin Agent Framework：团队自建 agent loop + tools + ModelGateway。
 - Orchestrator：群聊主协调器，支持 LLM planning、DAG 并行、workspace conflict detection、平台 preview/browser verify tool、对话式自建 Agent 基础链路。
-- Workspace Artifact / Preview / Deployment：Agent 只生成文件，平台负责 preview、URL、浏览器验收、静态发布、源码 zip 和容器化占位状态。
+- Workspace Artifact / Preview / Deployment：Agent 只生成文件，平台负责 preview、URL、浏览器验收、静态发布、源码 zip 和受控容器化部署。
 
 对照课程 PDF，B2 P0 已完成并通过真实 E2E：
 
@@ -30,7 +30,8 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 - Agent-to-Agent review thread。
 - 长期 agent 能力画像。
 - 通用 evaluation/reflection 闭环。
-- Deployment hardening：静态发布与 Preview 生命周期解耦、不可变 release snapshot、稳定 release route、远端状态卡发布和 container 安全底座。
+- Orchestrator Native Deployment：后端直连 API/SSE E2E 已通过，Orchestrator 可通过平台 Worker
+  完成 preview、静态发布、源码打包和受控 container build/run。
 
 ---
 
@@ -129,10 +130,12 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 ### 4.5 修改 Artifact / Preview / 部署相关能力
 
 1. [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md)
-2. [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)
-3. [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md)
-4. [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)
-5. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md)
+2. [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)
+3. [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)
+4. [deployment-release-frontend-handoff.spec.md](deployment-release-frontend-handoff.spec.md)
+5. [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md)
+6. [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)
+7. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md)
 
 ---
 
@@ -186,8 +189,10 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 
 | Spec | 状态 | 说明 |
 |---|---|---|
-| [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) | Current contract + Hardening backlog | workspace artifact、preview API、deployment 发布边界 |
-| [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md) | Backlog execution plan | 静态发布与 Preview 解耦、不可变 snapshot、稳定 release route、资源清理、远端状态卡发布和 container 安全底座 |
+| [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) | Current contract | workspace artifact、隔离 preview、不可变 static release 与 deployment 发布边界 |
+| [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md) | Implemented report | Preview 快照隔离、Static Release、Source Zip、Container Worker、migration 与 API E2E |
+| [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md) | Implemented backend MVP | Orchestrator 原生部署能力、trusted Docker/rootless Podman Worker、container E2E |
+| [deployment-release-frontend-handoff.spec.md](deployment-release-frontend-handoff.spec.md) | Handoff | 前端可选 metadata 增强与联调清单 |
 | [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md) | Current contract | text/code/diff/web_preview 解析规则 |
 | [stream-error-status.spec.md](stream-error-status.spec.md) | Historical boundary / current rule | B1 SSE 层消费 B2 error chunk 时的状态持久化规则 |
 
@@ -209,7 +214,7 @@ B2 当前主线已经从早期 raw LLM adapter 演进为 Agent Runtime Layer：
 | Workspace 冲突如何检测 | [orchestrator/workspace-conflict.spec.md](orchestrator/workspace-conflict.spec.md) |
 | Orchestrator 记忆怎么持久化 | [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md) |
 | 8082 preview 是谁启动的 | [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) |
-| 部署发布还缺什么 | [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)、[workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) |
+| 部署发布后端完成了什么、如何做原生容器部署 | [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)、[orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md) |
 | B2 对照 PDF 还缺什么 | [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) |
 | Orchestrator 是否真实跑通 | [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md) |
 
