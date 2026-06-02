@@ -1,6 +1,7 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RightAgentPanel } from './RightAgentPanel';
+import * as deploymentsAdapter from '@/lib/adapters/deployments';
 import { mockAgents, type DemoConversation, type DemoMessage } from '@/lib/mockData';
 
 vi.mock('@/lib/adapters/workspaces', () => ({
@@ -27,6 +28,16 @@ vi.mock('@/lib/adapters/workspaces', () => ({
 
 vi.mock('@/lib/adapters/deployments', () => ({
   listDeployments: vi.fn().mockResolvedValue({ items: [] }),
+  createDeployment: vi.fn().mockResolvedValue({
+    id: 'deployment-created',
+    conversation_id: 'conv-demo-flow',
+    workspace_id: 'workspace-1',
+    kind: 'static_site',
+    status: 'queued',
+    logs: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }),
   getDeployment: vi.fn(),
   stopDeployment: vi.fn(),
   downloadSourceArchive: vi.fn(),
@@ -121,6 +132,26 @@ describe('RightAgentPanel', () => {
 
     expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
     expect(screen.getByText('1 outputs')).toBeInTheDocument();
+  });
+
+  it('creates a static deployment from the selected workspace HTML file', async () => {
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: /发布静态站点/ }));
+
+    await waitFor(() => {
+      expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
+        kind: 'static_site',
+        entry_path: 'demo.html',
+      });
+    });
   });
 
   it('keeps agents and pinned messages in the context tab', () => {

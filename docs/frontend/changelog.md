@@ -72,6 +72,36 @@
 
 ---
 
+## 2026-06-02 — 部署发布前端体验增强
+
+### 改动范围
+- `frontend/src/components/blocks/DeploymentStatusBlock.tsx`
+- `frontend/src/components/artifact/{DeploymentHistory,deploymentPresentation}.ts*`
+- `frontend/src/components/agents/RightAgentPanel.tsx`
+- `frontend/src/hooks/useDeployments.ts`
+- `frontend/src/lib/adapters/deployments.ts`
+
+### 更新内容
+- 部署状态卡改为中文产品文案，覆盖排队中、发布中、已发布、发布失败、已停止、暂不支持。
+- Workspace 右侧增加一键发布入口：发布静态站点、打包源码、容器化部署。
+- 部署卡增加发布进度时间线、文件数、摘要、发布时间、端口、健康检查、镜像 ID、容器 ID 和日志展开。
+- 部署历史同步中文状态和容器运行信息，并对 queued / publishing 自动轮询刷新。
+- 新增部署创建 mutation，前端只创建发布请求；部署、打包、容器运行仍由后端平台 tool 完成。
+
+### API / 契约影响
+- 不修改 `shared/openapi.yaml`。
+- 使用既有 `POST /workspaces/{conversation_id}/deployments`、列表、详情、停止和下载接口。
+
+### 验证方式
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0` ✅
+- `./node_modules/.bin/vitest run` ✅ 43 files / 133 tests
+- `./node_modules/.bin/vite build` ✅（仅 Vite 大 chunk 既有提醒）
+
+### 后续事项
+- 需要在部署后的线上前端 `http://154.44.25.94:1573` 单独确认构建版本已更新。
+- 需要配合真后端数据回归：静态站点 URL、源码 zip 下载、停止部署、容器 not_supported / published 状态展示。
+
 ## 2026-06-02 — 移动端 P0 触屏菜单与弹窗收尾
 
 ### 改动范围
