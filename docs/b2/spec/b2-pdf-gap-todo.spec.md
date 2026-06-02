@@ -259,7 +259,7 @@ PDF 对应要求：
 - timeout、cancel、服务重启后不存在残留子进程。
 - runtime 日志和审计事件能够说明 provider、agent、sandbox mode、workspace 和退出原因。
 
-### B2-GAP-05 Deployment / Release Tool（MVP 已实现，完整 P2 继续完善）
+### B2-GAP-05 Deployment / Release Tool（后端 API/SSE 已验收，前端 UI 待联调）
 
 PDF 对应要求：
 
@@ -271,17 +271,32 @@ PDF 对应要求：
 - 已实现平台 static preview 和可追踪 `WorkspaceDeployment` record。
 - Orchestrator 有正式 `create_deployment`、`get_deployment_status`、`package_workspace_source` tool。
 - 已实现 `deployment_status` 消息块、前端卡片、静态站点发布和源码 zip 下载。
-- 容器化部署返回 `not_supported`，不执行 Docker 或 shell。
-- 当前静态发布仍复用 Preview 生命周期；尚未形成不可变 release snapshot。
-- 当前停止 static deployment 只更新 record，没有失效 URL 或清理独立 release 资源。
-- 远端前端尚未重新发布状态卡 UI。
-- 真正容器化发布仍未实现。
+- 容器化部署当前课程演示环境默认开启 trusted Docker Worker，由平台 Worker 真实
+  build/run；管理员仍可显式关闭并返回 `not_supported`。
+- Preview 已改为隔离静态快照，不直接公开 workspace。
+- 静态发布已与 Preview 生命周期解耦，使用不可变 release snapshot 和稳定 Token URL。
+- 停止 static deployment 会使 token 失效并清理 release snapshot。
+- Source zip 已具备限额、digest、过期时间和 janitor 清理。
+- Container policy、Worker Protocol、`ContainerDeployWorker` 已存在，默认开启。
+- 为贴合设计文档“一键容器化部署”，Orchestrator Native Deployment 后端 MVP 已实现：
+  Orchestrator 调用平台 deployment tool，Deployment Worker 在 Trusted Host Mode 下真实执行
+  container build/run。
+- 远端前端的 metadata 增强属于可选交接项；旧卡片继续兼容。
+- 直接公网 API E2E 已通过，证据见
+  [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)。
+- 后端直连 Orchestrator API/SSE E2E 已通过，证据见
+  [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)。
+- 真正容器化发布已实现为后端 Worker MVP，后续重点是 rootless runtime、队列化和更强隔离。
 
 后续完善计划：
 
-- 见 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md)。
-- 先完成静态发布与 Preview 解耦、snapshot、真实 stop、资源清理和前端发布准备。
-- Container 先补安全底座和默认关闭的 feature flag；真实 E2E 等用户后续明确命令再执行。
+- 后端实现与验证见 [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)。
+- 前端增强交接见 [deployment-release-frontend-handoff.spec.md](deployment-release-frontend-handoff.spec.md)。
+- 原生部署实现说明见
+  [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)。
+- 前端 UI 卡片渲染、停止按钮、部署历史入口和轮询刷新按
+  [deployment-release-frontend-handoff.spec.md](deployment-release-frontend-handoff.spec.md)
+  交给前端联调。
 
 实现内容：
 
@@ -302,8 +317,8 @@ PDF 对应要求：
   - error
   - created / updated timestamps
 - 新增 `deployment_status` 消息块 / 前端卡片。
-- MVP 先支持 `static_site` deployment + `source_zip` download。
-- 容器化部署本阶段返回 `not_supported`，不执行 Docker 或 shell。
+- MVP 支持 `static_site` deployment、`source_zip` download 和受控 `container` deployment。
+- 容器化部署默认走受控 `ContainerDeployWorker`，返回 `published / failed / stopped` 等真实状态。
 
 建议影响文件：
 
@@ -324,7 +339,7 @@ PDF 对应要求：
 - 返回部署状态和 URL，不由 Agent 编造 URL。
 - 部署失败有状态、错误原因和日志。
 - 源码打包下载接口可用。
-- 用户说“容器化部署”时返回 `not_supported` 状态卡，不执行 Docker。
+- 用户说“容器化部署”时，默认返回真实 container deployment 状态；管理员关闭 worker 时返回 `not_supported` 状态卡。
 - 用户只说“预览”时仍走 `start_workspace_preview`，不混淆 preview 与 deployment。
 
 ### B2-GAP-06 Workflow 产物支持
@@ -488,8 +503,10 @@ PDF 对应要求：
 
    先收紧 `danger-full-access` 默认值，再将 runtime 与 API 进程隔离。
 
-2. B2-GAP-05 Deployment hardening
-   MVP 已补齐演示缺口；下一步按 [deployment-release-hardening.execution.spec.md](deployment-release-hardening.execution.spec.md) 将静态发布与 Preview 解耦，并补 container 安全底座。
+2. B2-GAP-05 Orchestrator Native Deployment
+   静态发布、源码包和状态卡已补齐演示缺口；下一步按
+   [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)
+   让 Orchestrator 通过平台 Worker 真实执行 container build/run。
 
 3. 对话式自建 Agent 显式工具白名单
 
@@ -530,6 +547,6 @@ PDF 对应要求：
 | 聊天中创建自建 Agent | 基础创建和入群可以 | 增加显式 `allowed_tools`、最小权限默认值和权限 UI |
 | External runtime 隔离 | cwd、timeout、cleanup 已有 | 独立 worker、最小权限 sandbox、资源限额和审计 |
 | 生成 Workflow 产物 | 不可以 | workflow schema + validator |
-| 部署状态卡片 | 仓库内已实现，远端前端待发布 | 发布前端构建，并补状态刷新、停止入口和部署历史 |
-| 源码打包下载 | 可以 | 补限额、digest、过期清理和更多安全测试 |
-| 容器化部署 | 仅 `not_supported` 占位 | 补 rootless runtime、policy、Worker、限额与清理后再开放 |
+| 部署状态卡片 | 后端消息块/SSE 已有，远端前端 UI 待联调 | 发布前端构建，并补状态刷新、停止入口和部署历史 |
+| 源码打包下载 | 可以，API/SSE E2E 已通过 | 继续补更多安全测试和前端下载入口 |
+| 容器化部署 | 后端 MVP 默认启用 trusted Docker worker，API/SSE E2E 已通过 | 后续补 rootless runtime / 队列 / 更强隔离 |

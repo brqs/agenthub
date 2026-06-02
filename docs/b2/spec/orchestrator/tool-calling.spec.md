@@ -76,7 +76,7 @@ v1 已实现范围：
 
 - 不让 Orchestrator 任意执行 shell。
 - v1 不实现 `run_test` / 通用 bash；测试命令 runner 进入 v1.1 或后续版本。
-- v1 不让 Orchestrator 或子 agent 直接执行 Netlify、Vercel、SSH、Docker、`npm run dev`、`vite --host`、`python -m http.server` 等部署/长驻服务命令。
+- v1 不让 Orchestrator 或子 agent 执行任意裸 shell 部署命令；Netlify、Vercel、SSH、Docker/Podman、`npm run dev`、`vite --host`、`python -m http.server` 等能力必须收敛到平台受控 tool / deployment worker。
 - 不替换 Claude Code / Codex / OpenCode 的真实 runtime。
 - 不实现并行 tool execution；默认 DAG 并行属于 [core.spec.md](core.spec.md) 的静态任务执行器能力，不通过本 tool loop 承载。
 - 不暴露模型 hidden thought / chain of thought。
@@ -476,10 +476,17 @@ Schema：
 
 - `static_site` 必须指定 workspace-relative HTML `entry_path`。
 - `source_zip` 不要求 `entry_path`，由平台打包当前 workspace。
-- `container` 本阶段返回 `not_supported`，不得执行 Docker 或 shell。
+- `container` 当前默认按
+  [orchestrator-native-deployment.execution.spec.md](../orchestrator-native-deployment.execution.spec.md)
+  通过 `ContainerDeployWorker` 执行真实 build/run；管理员关闭 worker 时返回
+  `not_supported`。
 - 返回 deployment id、kind、status、url/download_url、error、logs preview。
 - 成功或失败都应产生 `deployment_status` 消息块，方便前端展示状态卡片。
-- 当前 MVP 的 `static_site` 仍复用 Preview 生命周期；不可变 snapshot 和稳定 release route 属于 [deployment-release-hardening.execution.spec.md](../deployment-release-hardening.execution.spec.md) backlog。
+- `static_site` 由平台创建不可变 snapshot，并通过稳定 Token URL 发布；不复用 Preview 端口或生命周期。
+- `requested_port` 仅为兼容字段，Static Release 会忽略并记录日志。
+- 后端部署基础能力见 [deployment-release-backend.execution.spec.md](../deployment-release-backend.execution.spec.md)。
+- 原生部署重构计划见
+  [orchestrator-native-deployment.execution.spec.md](../orchestrator-native-deployment.execution.spec.md)。
 
 ### 5.9 `get_deployment_status`
 
@@ -531,7 +538,7 @@ Schema：
 - v1 只支持 `zip`。
 - 排除 `.agenthub/`、`.git/`、`node_modules/`、`.venv/`、`__pycache__/`。
 - 禁止打包 `.env`、`.ssh`、`secrets/`。
-- 返回 export id、download URL、文件大小和状态。
+- 返回 export id、download URL、文件大小、文件数、摘要、过期时间和状态。
 
 ### 5.11 `run_test`（v1.1+，不在 v1 默认范围）
 
@@ -771,7 +778,7 @@ model tool_call
 - `shared/openapi.yaml`
   - 同步 config 字段。
 - `backend/app/seeds/seed_agents.py`
-  - 先保留默认关闭，或仅 dev seed 开启。
+  - 内置 Orchestrator 默认启用 LLM planning、DAG 并行和正式 tool loop。
 
 实现顺序：
 

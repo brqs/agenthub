@@ -45,11 +45,13 @@ PLATFORM_TOOL_NAMES = {
     "create_custom_agent",
     "create_deployment",
     "get_deployment_status",
+    "stop_deployment",
     "package_workspace_source",
 }
 DEPLOYMENT_TOOL_NAMES = {
     "create_deployment",
     "get_deployment_status",
+    "stop_deployment",
     "package_workspace_source",
 }
 
@@ -354,8 +356,9 @@ def _tool_system_prompt(config: Mapping[str, Any]) -> str:
         "start_workspace_preview after files exist, then verify_web_preview for browser "
         "quality. For deploy/publish/go-live requests, call create_deployment with "
         "kind=static_site after files exist. For source download requests, call "
-        "package_workspace_source. For container deployment requests, call "
-        "create_deployment with kind=container and report the not_supported status. "
+        "package_workspace_source. For container deployment or backend service deploy "
+        "requests, call create_deployment with kind=container after Dockerfile exists; "
+        "include container_port and health_path when known. "
         "Use create_custom_agent when the user asks to create a new Agent. "
         "Use read_artifact, inspect_workspace, and validate_html when useful. "
         "Final answers must be based on tool results. Keep user-visible text concise "

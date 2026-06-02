@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
 > 状态：Passed
-> 最后更新：2026-05-31
+> 最后更新：2026-06-02
 
 ---
 
@@ -13,6 +13,7 @@
 - 平台 tools / 自建 Agent：[tool-calling.spec.md](tool-calling.spec.md)
 - Workspace 冲突：[workspace-conflict.spec.md](workspace-conflict.spec.md)
 - Preview / browser verify：[../workspace-artifact-preview.spec.md](../workspace-artifact-preview.spec.md)
+- Deployment / Release：[../orchestrator-native-deployment.execution.spec.md](../orchestrator-native-deployment.execution.spec.md)
 
 真实链路：
 
@@ -30,6 +31,9 @@
 
 最终结论：`passed=true`。
 
+第五点部署发布后端直连 E2E 结论：`passed=true`。前端未完成期间，该结果只验收 API/SSE
+数据和公网 URL，不验收远端前端 UI 卡片渲染。
+
 ---
 
 ## 2. Case Results
@@ -41,6 +45,26 @@
 | Case 2 - Parallel DAG | `claude-code` 与 `opencode-helper` 并行生成前置文件，`codex-helper` 等待后生成 `review.md` | passed |
 | Case 3 - Workspace Conflict | `shared-conflict.md` 同一 run 内被多个 task 修改，summary / memory event 记录 conflict，run 不崩溃 | passed |
 | Case 4 - Create Custom Agent | `LiveCopywriter-{timestamp}` 创建成功、加入群聊，tool result 返回 id/name/provider/capabilities | passed |
+| Case 5 - Deployment / Release API-SSE | Orchestrator 直连后端 API/SSE，正式调用 preview、browser verify、static release、source zip、container deployment，并返回 3 个 `deployment_status` block | passed |
+
+Case 5 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: deployment
+report: /tmp/agenthub_deployment_flow_report.json
+sse: /tmp/agenthub_deployment_flow_sse.jsonl
+browser_report: /tmp/agenthub_deployment_flow_browser.json
+conversation_id: dfa956ab-9e76-4d06-bfbf-2a743428415b
+passed: true
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/Qh2JFsw6lWNvTOydrBpW_Q8Y_9Bkmxiw/index.html
+container_url: http://111.229.151.159:8083
+deployment_status_blocks: 3
+bugs: []
+warnings: []
+```
 
 ---
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -51,7 +52,7 @@ router = APIRouter()
 workspace_service = WorkspaceService()
 preview_service = WorkspacePreviewService(workspace_service)
 browser_verifier = BrowserPreviewVerifier()
-deployment_service = WorkspaceDeploymentService(workspace_service, preview_service)
+deployment_service = WorkspaceDeploymentService(workspace_service)
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -328,6 +329,9 @@ async def create_workspace_deployment(
             kind=payload.kind,
             entry_path=payload.entry_path,
             requested_port=payload.requested_port,
+            container_port=payload.container_port,
+            health_path=payload.health_path,
+            start_command=payload.start_command,
         )
     except (
         WorkspaceDeploymentDisabledError,
@@ -408,6 +412,11 @@ async def download_workspace_deployment(
     if deployment is None or deployment.kind != "source_zip":
         raise _map_deployment_error(
             WorkspaceDeploymentNotFoundError("workspace source export not found")
+        )
+    if deployment.expires_at is not None and deployment.expires_at <= datetime.now(UTC):
+        await deployment_service.stop(db, conversation_id, deployment_id)
+        raise _map_deployment_error(
+            WorkspaceDeploymentNotFoundError("workspace source export expired")
         )
     path = deployment_service.export_path(conversation_id, deployment_id)
     if deployment.status != "published" or not path.is_file():

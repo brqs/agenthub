@@ -357,6 +357,7 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
         "create_custom_agent",
         "create_deployment",
         "get_deployment_status",
+        "stop_deployment",
         "package_workspace_source",
         "ask_user",
     }
