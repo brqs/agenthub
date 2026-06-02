@@ -1,12 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">AgentHub maskable icon</title>
+  <desc id="desc">A safe-zone AgentHub app icon with a connected AI hub mark.</desc>
   <defs>
-    <linearGradient id="brand" x1="24" y1="16" x2="488" y2="496" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#818cf8"/>
-      <stop offset="1" stop-color="#3730a3"/>
+    <linearGradient id="bg" x1="70" y1="42" x2="452" y2="470" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8b5cf6"/>
+      <stop offset=".48" stop-color="#635bff"/>
+      <stop offset="1" stop-color="#06b6d4"/>
     </linearGradient>
+    <linearGradient id="core" x1="190" y1="164" x2="330" y2="348" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dbeafe"/>
+    </linearGradient>
+    <filter id="softShadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#1e1b4b" flood-opacity=".28"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" fill="url(#brand)"/>
-  <path d="M256 128c12 65 27 80 92 92-65 12-80 27-92 92-12-65-27-80-92-92 65-12 80-27 92-92Z" fill="white"/>
-  <path d="M352 284c6 33 14 41 47 47-33 6-41 14-47 47-6-33-14-41-47-47 33-6 41-14 47-47Z" fill="white" opacity=".88"/>
-  <path d="M158 296c4 24 10 30 34 34-24 4-30 10-34 34-4-24-10-30-34-34 24-4 30-10 34-34Z" fill="white" opacity=".76"/>
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <g transform="translate(256 256) scale(.86) translate(-256 -256)">
+    <path d="M126 151c0-25 20-45 45-45h170c25 0 45 20 45 45v154c0 25-20 45-45 45h-91l-61 54c-10 9-26 2-26-12v-43c-22-4-37-22-37-44V151Z" fill="#ffffff" opacity=".13"/>
+    <g fill="none" stroke="#e0f2fe" stroke-linecap="round" stroke-width="16" opacity=".86">
+      <path d="M184 205 134 176"/>
+      <path d="M328 205 378 176"/>
+      <path d="M184 307 134 336"/>
+      <path d="M328 307 378 336"/>
+    </g>
+    <g filter="url(#softShadow)">
+      <path d="M256 139c22 0 40 18 40 40v18h18c22 0 40 18 40 40v38c0 22-18 40-40 40h-18v18c0 22-18 40-40 40s-40-18-40-40v-18h-18c-22 0-40-18-40-40v-38c0-22 18-40 40-40h18v-18c0-22 18-40 40-40Z" fill="url(#core)"/>
+      <path d="M256 164c12 0 22 10 22 22v29h29c12 0 22 10 22 22v38c0 12-10 22-22 22h-29v29c0 12-10 22-22 22s-22-10-22-22v-29h-29c-12 0-22-10-22-22v-38c0-12 10-22 22-22h29v-29c0-12 10-22 22-22Z" fill="#4f46e5"/>
+      <circle cx="256" cy="256" r="32" fill="#ffffff"/>
+      <path d="M256 213c6 25 18 37 43 43-25 6-37 18-43 43-6-25-18-37-43-43 25-6 37-18 43-43Z" fill="#6d5dfc"/>
+    </g>
+    <g fill="#ffffff">
+      <circle cx="126" cy="171" r="25"/>
+      <circle cx="386" cy="171" r="25"/>
+      <circle cx="126" cy="341" r="25"/>
+      <circle cx="386" cy="341" r="25"/>
+    </g>
+    <g fill="#635bff">
+      <circle cx="126" cy="171" r="10"/>
+      <circle cx="386" cy="171" r="10"/>
+      <circle cx="126" cy="341" r="10"/>
+      <circle cx="386" cy="341" r="10"/>
+    </g>
+  </g>
 </svg>
