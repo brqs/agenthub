@@ -74,6 +74,7 @@ class WorkspacePreviewVerifyResponse(BaseModel):
 
 DeploymentKind = Literal["static_site", "source_zip", "container"]
 DeploymentStatus = Literal[
+    "queued",
     "publishing",
     "published",
     "failed",
@@ -86,6 +87,9 @@ class WorkspaceDeploymentRequest(BaseModel):
     kind: DeploymentKind
     entry_path: str | None = Field(default=None, min_length=1, max_length=512)
     requested_port: int | None = Field(default=None, ge=1, le=65535)
+    container_port: int | None = Field(default=None, ge=1, le=65535)
+    health_path: str | None = Field(default=None, min_length=1, max_length=256)
+    start_command: str | None = Field(default=None, max_length=512)
 
 
 class WorkspaceDeploymentResponse(BaseModel):
@@ -102,6 +106,24 @@ class WorkspaceDeploymentResponse(BaseModel):
     error: str | None = None
     logs: list[str] = Field(default_factory=list)
     size_bytes: int | None = None
+    artifact_digest: str | None = None
+    file_count: int | None = None
+    published_at: datetime | None = None
+    stopped_at: datetime | None = None
+    expires_at: datetime | None = None
+    runtime_id: str | None = None
+    image_id: str | None = None
+    container_id: str | None = None
+    host_port: int | None = None
+    container_port: int | None = None
+    runtime_kind: str | None = None
+    runtime_status: str | None = None
+    healthcheck_url: str | None = None
+    logs_tail: str | None = None
+    queued_at: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    last_checked_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

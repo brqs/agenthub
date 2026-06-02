@@ -11,6 +11,7 @@ Use this skill when the user asks to:
 
 - 检查当前 Git 修改。
 - 提交本地代码
+- 推送本地代码
 - 对远程代码进行更新
 - 创建提交、推送分支或准备 PR。
 - 整理 PR 描述、测试证据和变更摘要。

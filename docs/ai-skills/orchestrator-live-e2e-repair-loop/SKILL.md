@@ -19,6 +19,7 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 
 - “真实执行任务流转测试”
 - “跑 live E2E”
+- 进行E2E测试
 - “测试不通过就继续修”
 - “验证 8082 preview / browser verify”
 - “验证 DAG 并行 / workspace conflict / create_custom_agent”
@@ -55,6 +56,18 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 - 后端公网：`http://111.229.151.159:8000`
 - Preview：`http://111.229.151.159:8082/index.html`
 - 账号：`12345678 / 12345678`
+
+前端未完成或不验收 UI 卡片渲染时，使用后端直连 API/SSE 链路：
+
+```bash
+cd /home/ubuntu/agenthub/backend
+uv run python scripts/deployment_release_api_e2e.py
+AGENTHUB_E2E_BASE_URL=http://111.229.151.159:8000 \
+AGENTHUB_E2E_SCENARIO=deployment \
+uv run python scripts/orchestrator_live_e2e.py
+```
+
+该模式只验收 API、SSE、workspace、preview、deployment record、源码包和容器 URL，不把远端前端是否渲染 `deployment_status` 卡片作为阻断项。
 
 默认群聊成员：
 
@@ -254,7 +267,37 @@ docs/ai-skills/backend-deploy/SKILL.md
 
 ---
 
-## 6. 失败现场必须保留
+## 6. Deployment / Release Direct API
+
+### Case 5 - Deployment / Release Direct API
+
+当修改 Preview、Static Release、Source Zip 或 Container policy 时，先运行不依赖远端前端的直接公网
+后端 E2E：
+
+```bash
+cd /home/ubuntu/agenthub/backend
+uv run python scripts/deployment_release_api_e2e.py
+```
+
+验收：
+
+- Preview `8082` 使用隔离快照，禁止目录列表和 `.agenthub` 访问。
+- Static Release 返回稳定 `/releases/{token}` URL。
+- 修改 workspace 后旧 release 内容不变。
+- Source zip 可下载且不含敏感目录。
+- Container 默认使用原生 worker，必须校验 `published/failed/stopped`、公开 URL 与健康检查；如果管理员关闭 worker，才接受 `not_supported` 作为环境说明。
+- Stop 后旧 release URL 失效。
+- 删除 conversation 后临时资源不可访问。
+
+报告：
+
+```text
+/tmp/agenthub_deployment_release_api_e2e_report.json
+```
+
+---
+
+## 7. 失败现场必须保留
 
 每次失败都保留：
 
@@ -282,7 +325,7 @@ docs/ai-skills/backend-deploy/SKILL.md
 
 ---
 
-## 7. 失败分类
+## 8. 失败分类
 
 按以下层级定位：
 
@@ -306,7 +349,7 @@ docs/ai-skills/backend-deploy/SKILL.md
 
 ---
 
-## 8. 修复规则
+## 9. 修复规则
 
 - 优先最小改动，不重构无关模块。
 - 修复后补或更新自动化测试。
@@ -327,7 +370,7 @@ sed -n '1,240p' /home/ubuntu/agenthub/docs/ai-skills/backend-deploy/SKILL.md
 
 ---
 
-## 9. 结果沉淀位置
+## 10. 结果沉淀位置
 
 这类计划不应全部堆进单个 spec。建议分层沉淀：
 

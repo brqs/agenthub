@@ -63,8 +63,12 @@ class Settings(BaseSettings):
     preview_port_start: int = Field(default=8082)
     preview_port_end: int = Field(default=8182)
     preview_public_base_url: str = Field(default="http://111.229.151.159")
+    preview_allowed_frame_ancestors: str = Field(default="http://154.44.25.94:1573")
     preview_idle_ttl_seconds: int = Field(default=1800)
     preview_start_timeout_seconds: int = Field(default=15)
+    preview_snapshot_dir: str = Field(
+        default="/tmp/agenthub_preview_snapshots"  # noqa: S108 - generated previews.
+    )
 
     # Workspace deployment / source export service
     deployment_enabled: bool = Field(default=True)
@@ -72,6 +76,34 @@ class Settings(BaseSettings):
         default="/tmp/agenthub_workspace_exports"  # noqa: S108 - generated exports.
     )
     deployment_max_export_bytes: int = Field(default=25_000_000)
+    deployment_max_file_count: int = Field(default=1000)
+    deployment_max_single_file_bytes: int = Field(default=5_000_000)
+    deployment_export_ttl_seconds: int = Field(default=86_400)
+    deployment_janitor_interval_seconds: int = Field(default=300)
+    deployment_public_base_url: str = Field(default="http://111.229.151.159:8000")
+    deployment_static_root: str = Field(
+        default="/tmp/agenthub_static_releases"  # noqa: S108 - generated releases.
+    )
+    deployment_release_token_bytes: int = Field(default=24)
+    deployment_container_enabled: bool = Field(default=True)
+    deployment_container_runtime: str = Field(default="docker")
+    deployment_container_trusted_host_mode: bool = Field(default=True)
+    deployment_container_public_base_url: str = Field(default="http://111.229.151.159")
+    deployment_container_build_root: str = Field(
+        default="/tmp/agenthub_container_deployments"  # noqa: S108 - generated deployments.
+    )
+    deployment_container_port_start: int = Field(default=8081)
+    deployment_container_port_end: int = Field(default=8085)
+    deployment_container_max_cpu: float = Field(default=1)
+    deployment_container_max_memory_mb: int = Field(default=512)
+    deployment_container_max_runtime_seconds: int = Field(default=3600)
+    deployment_container_health_timeout_seconds: int = Field(default=30)
+    deployment_container_log_tail_bytes: int = Field(default=20_000)
+
+    # Shared static snapshot limits
+    static_snapshot_max_file_count: int = Field(default=1000)
+    static_snapshot_max_single_file_bytes: int = Field(default=5_000_000)
+    static_snapshot_max_total_bytes: int = Field(default=25_000_000)
 
     # Browser-level workspace preview verification
     browser_verify_enabled: bool = Field(default=True)

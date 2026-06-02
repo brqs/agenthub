@@ -115,6 +115,11 @@ class StreamContentAccumulator:
                     "error",
                     "logs_preview",
                     "size_bytes",
+                    "artifact_digest",
+                    "file_count",
+                    "published_at",
+                    "stopped_at",
+                    "expires_at",
                 ):
                     if key in meta:
                         self.current[key] = meta[key]
