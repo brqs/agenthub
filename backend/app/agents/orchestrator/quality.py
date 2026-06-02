@@ -8,6 +8,14 @@ from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.agents.orchestrator.evaluation import (
+    EvaluationIssue,
+    EvaluationResult,
+    ReflectionResult,
+    evaluation_results_payload,
+    reflection_payload,
+)
+from app.agents.orchestrator.memory_hooks import record_event as _memory_record_event
 from app.agents.orchestrator.tools import OrchestratorToolResult, available_agent_ids
 from app.agents.orchestrator.types import OrchestratorRunContext, SubTask
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
@@ -58,7 +66,7 @@ async def run_quality_gate(
     text_block_with_next: TextBlockWithNext,
     positive_int_config: PositiveIntConfig,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
-    """Run platform preview and browser verification for frontend deploy requests."""
+    """Run the browser_preview_quality evaluator for frontend deploy requests."""
 
     user_request = _latest_user_request(messages)
     if not _should_run_quality_gate(user_request):
@@ -67,9 +75,23 @@ async def run_quality_gate(
     if executor is None:
         return
     if workspace_path is None:
+        await _record_evaluation_failure(
+            config,
+            run_context,
+            "browser_preview_quality",
+            "workspace_missing",
+            "workspace_path is required",
+            repair_hint="Run the Orchestrator with a workspace path before preview verification.",
+        )
         yield _error("workspace_missing", "workspace_path is required"), next_block_index
         return
 
+    await _record_evaluation_started(
+        config,
+        run_context,
+        "browser_preview_quality",
+        {"requested_port": _requested_port(user_request)},
+    )
     max_rounds = _max_repair_rounds(config, positive_int_config)
     required_text = _required_text(user_request)
     repair_round = 0
@@ -77,6 +99,14 @@ async def run_quality_gate(
     while entry_path is None and repair_round < max_rounds:
         repair_agent = _repair_agent(config)
         if repair_agent is None:
+            await _record_evaluation_failure(
+                config,
+                run_context,
+                "browser_preview_quality",
+                "repair_agent_missing",
+                "no repair agent is available",
+                repair_hint="Configure a quality repair agent or create the missing HTML artifact.",
+            )
             yield (
                 _error("browser_verification_failed", "no repair agent is available"),
                 next_block_index,
@@ -138,6 +168,15 @@ async def run_quality_gate(
         result = await executor("start_workspace_preview", preview_args)
     yield _tool_result(preview_call_id, result), next_block_index
     if result.status != "ok":
+        await _record_evaluation_failure(
+            config,
+            run_context,
+            "browser_preview_quality",
+            result.error_code or "workspace_preview_start_failed",
+            result.output,
+            checked_artifacts=[entry_path] if entry_path else [],
+            repair_hint="Fix the preview entry artifact and retry start_workspace_preview.",
+        )
         yield _error("workspace_preview_start_failed", result.output), next_block_index
         return
 
@@ -180,6 +219,15 @@ async def run_quality_gate(
             refresh_result = await executor("start_workspace_preview", preview_args)
             yield _tool_result(refresh_call_id, refresh_result), next_block_index
             if refresh_result.status != "ok":
+                await _record_evaluation_failure(
+                    config,
+                    run_context,
+                    "browser_preview_quality",
+                    refresh_result.error_code or "workspace_preview_start_failed",
+                    refresh_result.output,
+                    checked_artifacts=[entry_path] if entry_path else [],
+                    repair_hint="Fix the preview entry artifact and retry start_workspace_preview.",
+                )
                 yield (
                     _error("workspace_preview_start_failed", refresh_result.output),
                     next_block_index,
@@ -199,29 +247,80 @@ async def run_quality_gate(
         yield _tool_result(verify_call_id, verify_result), next_block_index
         verify_payload = _json_payload(verify_result.output)
         if verify_result.status == "ok" and verify_payload.get("passed") is True:
+            await _record_evaluation_result(
+                config,
+                run_context,
+                EvaluationResult(
+                    evaluator="browser_preview_quality",
+                    status="passed",
+                    passed=True,
+                    checked_artifacts=[entry_path] if entry_path else [],
+                    issues=[
+                        EvaluationIssue(
+                            code="browser_verification_passed",
+                            message="verify_web_preview passed for desktop and mobile.",
+                            evidence=preview_url,
+                        )
+                    ],
+                ),
+            )
+            deployment_tool_results: list[
+                tuple[str, dict[str, Any], OrchestratorToolResult]
+            ] = []
             async for chunk, updated_block_index in _run_deployment_tools(
                 executor=executor,
                 user_request=user_request,
                 entry_path=entry_path,
                 requested_port=requested_port,
                 next_block_index=next_block_index,
+                deployment_tool_results=deployment_tool_results,
             ):
                 next_block_index = updated_block_index
                 yield chunk, updated_block_index
+            deployment_result = _deployment_health_result(
+                user_request,
+                deployment_tool_results,
+            )
+            if deployment_result is not None:
+                await _record_evaluation_started(
+                    config,
+                    run_context,
+                    "deployment_health",
+                    {"tool_count": len(deployment_tool_results)},
+                )
+                await _record_evaluation_result(config, run_context, deployment_result)
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
-                "Browser quality verification passed.\n",
+                _quality_passed_text(deployment_result),
             ):
                 next_block_index = updated_block_index
                 yield chunk, updated_block_index
             return
 
         if repair_round >= max_rounds:
+            await _record_evaluation_failure(
+                config,
+                run_context,
+                "browser_preview_quality",
+                verify_result.error_code or "browser_verification_failed",
+                verify_result.output,
+                checked_artifacts=[entry_path] if entry_path else [],
+                repair_hint="Repair the static frontend until verify_web_preview passes.",
+            )
             yield _error("browser_verification_failed", verify_result.output), next_block_index
             return
 
         repair_agent = _repair_agent(config)
         if repair_agent is None:
+            await _record_evaluation_failure(
+                config,
+                run_context,
+                "browser_preview_quality",
+                "repair_agent_missing",
+                "no repair agent is available",
+                checked_artifacts=[entry_path] if entry_path else [],
+                repair_hint="Configure a quality repair agent or manually fix the browser issues.",
+            )
             yield (
                 _error("browser_verification_failed", "no repair agent is available"),
                 next_block_index,
@@ -290,6 +389,8 @@ async def _run_deployment_tools(
     entry_path: str | None,
     requested_port: int | None,
     next_block_index: int,
+    deployment_tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]]
+    | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     if RELEASE_INTENT_RE.search(user_request) and entry_path:
         args: dict[str, Any] = {
@@ -304,6 +405,7 @@ async def _run_deployment_tools(
             "create_deployment",
             args,
             next_block_index,
+            deployment_tool_results,
         ):
             chunk, next_block_index = item
             yield chunk, next_block_index
@@ -315,6 +417,7 @@ async def _run_deployment_tools(
             "package_workspace_source",
             {"format": "zip"},
             next_block_index,
+            deployment_tool_results,
         ):
             chunk, next_block_index = item
             yield chunk, next_block_index
@@ -326,6 +429,7 @@ async def _run_deployment_tools(
             "create_deployment",
             {"kind": "container"},
             next_block_index,
+            deployment_tool_results,
         ):
             chunk, next_block_index = item
             yield chunk, next_block_index
@@ -337,9 +441,13 @@ async def _call_deployment_tool(
     tool_name: str,
     arguments: dict[str, Any],
     next_block_index: int,
+    deployment_tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]]
+    | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     yield _tool_call(call_id, tool_name, arguments), next_block_index
     result = await executor(tool_name, arguments)
+    if deployment_tool_results is not None:
+        deployment_tool_results.append((tool_name, dict(arguments), result))
     yield _tool_result(call_id, result), next_block_index
     status_card = _deployment_status_card(result.output)
     if status_card is not None:
@@ -368,6 +476,195 @@ def _deployment_status_card(output: str) -> dict[str, Any] | None:
     if not isinstance(card.get("deployment_id"), str) or not card["deployment_id"]:
         return None
     return card
+
+
+def _deployment_health_result(
+    user_request: str,
+    tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]],
+) -> EvaluationResult | None:
+    if not (
+        RELEASE_INTENT_RE.search(user_request)
+        or SOURCE_EXPORT_INTENT_RE.search(user_request)
+        or CONTAINER_INTENT_RE.search(user_request)
+    ):
+        return None
+    if not tool_results:
+        return EvaluationResult(
+            evaluator="deployment_health",
+            status="failed",
+            passed=False,
+            severity="major",
+            issues=[
+                EvaluationIssue(
+                    code="deployment_tool_not_called",
+                    message="No deployment tool was called for a deployment request.",
+                    repair_hint=(
+                        "Call the required deployment/export platform tool after preview passes."
+                    ),
+                )
+            ],
+        )
+    issues: list[EvaluationIssue] = []
+    checked: list[str] = []
+    for tool_name, arguments, result in tool_results:
+        kind = str(arguments.get("kind") or tool_name)
+        checked.append(kind)
+        payload = _json_payload(result.output)
+        status = payload.get("status")
+        if result.status != "ok":
+            issues.append(
+                EvaluationIssue(
+                    code="deployment_tool_error",
+                    message=f"{tool_name} for {kind} returned an error.",
+                    evidence=result.output,
+                    repair_hint=(
+                        "Fix the deployment input artifact and rerun the platform deployment tool."
+                    ),
+                )
+            )
+            continue
+        if tool_name == "package_workspace_source":
+            if status != "published" or not _optional_str(payload.get("download_url")):
+                issues.append(
+                    EvaluationIssue(
+                        code="source_export_unhealthy",
+                        message="Source package export did not publish a download URL.",
+                        evidence=result.output,
+                        repair_hint=(
+                            "Ensure package_workspace_source returns a published source_zip "
+                            "with download_url."
+                        ),
+                    )
+                )
+            continue
+        if kind == "container" and status == "not_supported":
+            issues.append(
+                EvaluationIssue(
+                    code="container_deployment_not_supported",
+                    message="Container deployment is not supported by the current platform.",
+                    evidence=result.output,
+                    repair_hint=(
+                        "Keep the static/source deployment healthy and document the "
+                        "container limitation."
+                    ),
+                )
+            )
+            continue
+        if status != "published" or not _optional_str(payload.get("url")):
+            issues.append(
+                EvaluationIssue(
+                    code="deployment_not_published",
+                    message=f"{kind} deployment is not published with a URL.",
+                    evidence=result.output,
+                    repair_hint=(
+                        "Fix the deployment artifact until create_deployment returns "
+                        "published with url."
+                    ),
+                )
+            )
+    return EvaluationResult(
+        evaluator="deployment_health",
+        status="failed" if issues else "passed",
+        passed=not issues,
+        severity="major" if issues else "info",
+        issues=issues,
+        checked_artifacts=checked,
+    )
+
+
+def _quality_passed_text(deployment_result: EvaluationResult | None) -> str:
+    lines = [
+        "Browser quality verification passed.",
+        "Evaluation: browser_preview_quality passed.",
+    ]
+    if deployment_result is not None:
+        lines.append(f"Evaluation: deployment_health {deployment_result.status}.")
+        if deployment_result.issues:
+            first_issue = deployment_result.issues[0]
+            lines.append(f"Deployment health issue: {first_issue.code} - {first_issue.message}")
+    return "\n".join(lines) + "\n"
+
+
+async def _record_evaluation_started(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    evaluator: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    if config.get("orchestrator_evaluation_enabled", True) is False:
+        return
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="evaluation_started",
+        agent_id="orchestrator",
+        payload={"evaluator": evaluator, **(payload or {})},
+    )
+
+
+async def _record_evaluation_result(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    result: EvaluationResult,
+    reflection: ReflectionResult | None = None,
+) -> None:
+    if config.get("orchestrator_evaluation_enabled", True) is False:
+        return
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="evaluation_result",
+        agent_id="orchestrator",
+        payload={"results": evaluation_results_payload([result])},
+    )
+    if reflection is not None:
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="reflection_created",
+            agent_id="orchestrator",
+            payload={"reflection": reflection_payload(reflection)},
+        )
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="evaluation_finished",
+        agent_id="orchestrator",
+        payload={"evaluator": result.evaluator, "status": result.status},
+    )
+
+
+async def _record_evaluation_failure(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    evaluator: str,
+    code: str,
+    message: str,
+    *,
+    checked_artifacts: list[str] | None = None,
+    repair_hint: str | None = None,
+) -> None:
+    issue = EvaluationIssue(
+        code=code,
+        message=_truncate(message, 1000),
+        evidence=_truncate(message, 1000),
+        repair_hint=repair_hint,
+    )
+    result = EvaluationResult(
+        evaluator=evaluator,
+        status="failed",
+        passed=False,
+        severity="major",
+        issues=[issue],
+        checked_artifacts=checked_artifacts or [],
+    )
+    reflection = ReflectionResult(
+        failure_category="evaluation_failed",
+        summary=f"{evaluator} failed.",
+        evidence=[f"{code}: {_truncate(message, 500)}"],
+        repair_instruction=repair_hint or f"Fix the issues reported by {evaluator}.",
+    )
+    await _record_evaluation_result(config, run_context, result, reflection)
 
 
 def _find_preview_entry(workspace_path: Path) -> str | None:

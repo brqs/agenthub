@@ -10,6 +10,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.orchestrator.evaluation import (
+    evaluation_results_payload,
+    reflection_payload,
+)
 from app.agents.orchestrator.types import SubTask, TaskResult
 from app.agents.types import ChatMessage
 from app.models.orchestrator_memory import (
@@ -169,6 +173,10 @@ class OrchestratorMemoryStore:
                         "missing_artifact_paths": attempt.missing_artifact_paths,
                         "file_changes": attempt.file_changes,
                         "conflict_paths": attempt.conflict_paths,
+                        "evaluation_results": evaluation_results_payload(
+                            attempt.evaluation_results
+                        ),
+                        "reflection": reflection_payload(attempt.reflection),
                         "error": attempt.error,
                     }
                     for attempt in result.attempts
