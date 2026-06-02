@@ -1,5 +1,6 @@
 import { ExternalLink, Globe2, Maximize2, X } from 'lucide-react';
 import { useState } from 'react';
+import { handleExternalLink } from '@/lib/nativeShell';
 
 function getHostname(url: string): string {
   try {
@@ -41,6 +42,7 @@ export function WebPreviewBlock({
             </button>
             <a
               href={url}
+              onClick={(event) => handleExternalLink(event, url)}
               target="_blank"
               rel="noreferrer"
               className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-white"

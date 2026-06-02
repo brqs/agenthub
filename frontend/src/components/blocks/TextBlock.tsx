@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import type { Agent } from '@/lib/types';
+import { handleExternalLink } from '@/lib/nativeShell';
 
 const FENCED_CODE_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 const INLINE_CODE_PATTERN = /(`+[^`\n]*?`+)/g;
@@ -245,6 +246,7 @@ const components: Components = {
         target="_blank"
         rel="noreferrer"
         href={href}
+        onClick={(event) => handleExternalLink(event, href)}
         {...props}
       >
         {children}

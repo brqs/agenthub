@@ -29,6 +29,7 @@
 | [theme-auto-optimization](spec/frontend-theme-auto-optimization.spec.md) | 深色 / 浅色主题可读性优化 |
 | [orchestrated-message-rendering](spec/orchestrated-message-rendering.spec.md) | 多 Agent 消息拆分渲染 |
 | [mobile-development](spec/frontend-mobile-development.spec.md) | 移动 Web、PWA 与 Capacitor 分阶段适配 |
+| [capacitor-shell](spec/frontend-capacitor-shell.spec.md) | Capacitor v8 iOS / Android 壳层、HTTPS 构建约束与原生桥接 |
 
 ---
 

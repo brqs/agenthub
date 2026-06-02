@@ -14,6 +14,7 @@ import {
 import { useState } from 'react';
 import * as deploymentsAdapter from '@/lib/adapters/deployments';
 import { useDeploymentStatus, useStopDeployment } from '@/hooks/useDeployments';
+import { handleExternalLink } from '@/lib/nativeShell';
 import type { DeploymentStatusBlock as DeploymentStatusBlockType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -178,6 +179,7 @@ export function DeploymentStatusBlock({
           {url && (
             <a
               href={url}
+              onClick={(event) => handleExternalLink(event, url)}
               target="_blank"
               rel="noreferrer"
               className="flex h-8 w-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
