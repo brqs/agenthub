@@ -2,6 +2,7 @@ import { ExternalLink, Eye, FileArchive, FileCode2, FileText, FileType, X } from
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { handleExternalLink } from '@/lib/nativeShell';
 
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -57,6 +58,7 @@ export function FileBlock({
         )}
         <a
           href={url}
+          onClick={(event) => handleExternalLink(event, url)}
           target="_blank"
           rel="noreferrer"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-800 hover:text-white"

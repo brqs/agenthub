@@ -80,7 +80,7 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('write_file')).toBeInTheDocument();
     expect(screen.getByText('call-1')).toBeInTheDocument();
     expect(screen.getByText('Static site deployment')).toBeInTheDocument();
-    expect(screen.getByText('Published')).toBeInTheDocument();
+    expect(screen.getByText('已发布')).toBeInTheDocument();
     expect(screen.getByText('Orchestrator')).toBeInTheDocument();
     expect(screen.getByText('Codex Helper')).toBeInTheDocument();
   });

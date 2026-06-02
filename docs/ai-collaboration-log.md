@@ -1128,3 +1128,44 @@ Orchestrator 的增强应优先落在单轮内存态和只读校验上；per-tas
 
 ### 经验
 真实 API 模式下的 PWA 缓存必须保持保守：缓存静态壳即可，鉴权、SSE、消息和 Workspace 请求全部走网络。离线模式的首要目标是清晰反馈和阻止误发送，不是伪造可编辑状态。
+## 2026-06-02 — Codex 接入移动端 P2 Capacitor 原生壳
+
+### 任务
+在移动 Web 与 PWA 基础完成后，进入 Capacitor 阶段，生成 iOS / Android 原生壳并处理原生平台交互。
+
+### 关键 Prompt
+> 进入 Capacitor
+
+### AI 输出摘要
+1. 新增 Capacitor v8 核心、CLI、iOS、Android、App、Browser 和 Keyboard 依赖，并生成两个平台工程。
+2. 新增 `frontend-capacitor-shell.spec.md`，明确同一份 React `dist/`、HTTPS API、CORS、外链、下载和真机验收边界。
+3. 新增原生构建守卫，缺少 HTTPS `VITE_API_BASE_URL` 时阻止打包。
+4. 新增集中式 `nativeShell`：Android 返回键优先关闭临时 UI，再返回历史或退出；外链在原生端统一使用 Capacitor Browser。
+5. 原生平台跳过 PWA Service Worker 注册，避免缓存层叠加。
+
+### 人工调整
+本次只修改前端、原生壳工程和文档，不修改 OpenAPI、后端接口或数据库结构。zip 下载仍保留现有 Blob 实现，等待 iOS / Android 真机验收后决定是否引入 Filesystem / File Transfer。
+
+### 经验
+Capacitor 应作为薄包装层存在。业务页面继续保持一份代码；原生差异集中在 HTTPS 构建守卫、返回键、外链和后续下载适配中，避免把平台判断散落到业务组件。
+
+## 2026-06-02 — Codex 完善部署发布前端体验
+
+### 任务
+根据 B2 部署发布 handoff spec，继续完善前端部署状态卡、部署历史和 Workspace 一键发布入口。
+
+### 关键 Prompt
+> 整个项目第五点“部署发布”主要还差这些：前端产品体验还不完整...前端本轮只需要根据 handoff spec 接入 deployment_status 卡片、部署历史、源码下载、停止部署和状态轮询。
+
+### AI 输出摘要
+1. 部署状态、部署类型和动作文案统一中文化，并抽到 `deploymentPresentation` 复用。
+2. Workspace 右侧新增“发布静态站点 / 打包源码 / 容器化部署”入口，只创建发布请求，不实现部署逻辑。
+3. DeploymentStatusBlock 增加进度时间线、容器端口、健康检查、镜像 / 容器 ID、文件数、摘要和日志展开。
+4. 部署历史补充中文状态、容器信息和 queued / publishing 自动刷新。
+5. 扩展前端部署 hook 和 adapter，接入 create/list/get/stop/download 的完整展示链路。
+
+### 人工调整
+本次只修改前端与文档，不修改 OpenAPI、后端接口或部署平台实现。后续仍需在 `154.44.25.94:1573` 确认线上构建已更新，并用真后端部署数据回归。
+
+### 经验
+发布功能前端边界要守得很清楚：按钮只是请求平台执行，状态卡负责把平台结果讲清楚。中文状态、进度时间线和容器运行详情比裸 URL 更适合比赛演示和用户排障。
