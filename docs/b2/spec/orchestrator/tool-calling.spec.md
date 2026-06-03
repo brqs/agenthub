@@ -2,8 +2,8 @@
 
 > 定义将 Orchestrator 从“程序化多 Agent 调度器 + LLM planner/replanner”升级为“具备原生 tool calling 的 autonomous manager agent”的技术设计。
 >
-> 状态：v1 implemented / platform tools extended
-> 最后更新：2026-05-31
+> 状态：v1 implemented / platform tools extended / allowed_tools live E2E passed
+> 最后更新：2026-06-03
 
 ---
 
@@ -482,7 +482,7 @@ Schema：
 - `static_site` 必须指定 workspace-relative HTML `entry_path`。
 - `source_zip` 不要求 `entry_path`，由平台打包当前 workspace。
 - `container` 当前默认按
-  [orchestrator-native-deployment.execution.spec.md](../orchestrator-native-deployment.execution.spec.md)
+  [native-deployment.execution.spec.md](native-deployment.execution.spec.md)
   通过 `ContainerDeployWorker` 执行真实 build/run；管理员关闭 worker 时返回
   `not_supported`。
 - 返回 deployment id、kind、status、url/download_url、error、logs preview。
@@ -494,7 +494,7 @@ Schema：
 - `requested_port` 仅为兼容字段，Static Release 会忽略并记录日志。
 - 后端部署基础能力见 [deployment-release-backend.execution.spec.md](../deployment-release-backend.execution.spec.md)。
 - 原生部署重构计划见
-  [orchestrator-native-deployment.execution.spec.md](../orchestrator-native-deployment.execution.spec.md)。
+  [native-deployment.execution.spec.md](native-deployment.execution.spec.md)。
 
 ### 5.9 `get_deployment_status`
 
@@ -868,7 +868,6 @@ uv run python -m mypy app/agents app/schemas/agent.py
 
 - [../builtin-agent-framework.spec.md](../builtin-agent-framework.spec.md) 定义通用 model/tool loop 参考。
 - [core.spec.md](core.spec.md) 定义当前程序化任务调度契约。
-- [react-dynamic-task-graph.proposal.md](react-dynamic-task-graph.proposal.md) 定义 task graph ReAct。
 - [memory-context.spec.md](memory-context.spec.md) 定义结构化 run memory。
 - 本文档定义 Orchestrator 原生 tool calling 执行模型。
 
@@ -947,11 +946,18 @@ uv run python -m mypy app/agents app/schemas/agent.py
 - `start_workspace_preview` 作为正式 Orchestrator tool 调用，启动 `8082` static preview。
 - `verify_web_preview` 作为正式 Orchestrator tool 调用，生成桌面/移动端截图和浏览器校验 JSON。
 - `create_custom_agent` 作为正式 platform tool 调用，创建 `LiveCopywriter-{timestamp}` 并加入当前群聊。
+- `create_custom_agent.allowed_tools` 作为正式 schema 字段通过 live E2E：创建 builtin
+  `LiveReader-{timestamp}` 时 `allowed_tools=["read_file"]` 持久化，后续运行可读文件，未授权
+  `write_file` / `bash` 不进入模型 tool list。
+- `create_deployment(container)` 失败后通过 `deployment_health` reflection 调度 repair agent，
+  repair 后第二次调用 deployment tool 并最终 `published=true`。
 
 报告：
 
 - `/tmp/agenthub_b2_p0_live_report.json`
 - `/tmp/agenthub_orchestrator_quality_report.json`
 - `/tmp/agenthub_orchestrator_quality_browser.json`
+- `/tmp/agenthub_deployment_repair_flow_report.json`
+- `/tmp/agenthub_custom_agent_tools_report.json`
 
 详细验收记录见 [live-e2e-report.spec.md](live-e2e-report.spec.md)。

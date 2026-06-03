@@ -3,7 +3,7 @@
 > 定义 AgentHub 多 Agent 编排器的当前行为契约，包括任务规划、任务分配、子任务流转、事件聚合和失败处理。
 >
 > 版本：v1.5
-> 最后更新：2026-06-02
+> 最后更新：2026-06-03
 
 ---
 
@@ -207,7 +207,6 @@ class OrchestratorRunContext:
 - Model：`backend/app/models/orchestrator_memory.py`
 - Migration：`backend/alembic/versions/9a1b2c3d4e5f_add_orchestrator_memory.py`
 - Service：`backend/app/services/orchestrator_memory.py`
-- 执行记录：[memory-context.execution.spec.md](memory-context.execution.spec.md)
 
 下一轮 Orchestrator 请求前，stream 层会读取最近 terminal runs，并在最新 user request 之前插入 system message：
 
@@ -595,7 +594,7 @@ Orchestrator v1.5+ Evaluation / Reflection MVP：
 - `ppt_validation` 校验 `ppt_outline.json` / `ppt.md` 的标题、slides 和每页内容；`.pptx` 二进制深度解析暂不阻断。
 - `test_report_quality` 仅在 `orchestrator_test_runner_enabled=true` 且 allowlist 包含 `python_compile_artifacts` 时执行受控 Python compile runner。
 - `browser_preview_quality` 包装现有网页 preview/browser quality gate，继续保持 `start_workspace_preview` / `verify_web_preview` SSE tool event 兼容。
-- `deployment_health` 记录部署 tool 结果健康状态；失败不改变现有网页 stream 终止语义，但会写入 evaluation event 和提示。
+- `deployment_health` 记录部署 tool 结果健康状态；失败会生成 structured issue / reflection，并复用 repair agent 修复 workspace 后重新调用同一个 deployment tool；`not_supported` 仅记录平台限制，不触发修复。
 - `requirements_coverage` 只有注入 `orchestrator_evaluation_judge` 时执行；生产默认 skipped。
 - 读取 artifact 遵守 `orchestrator_evaluation_read_max_bytes`，并跳过 `.agenthub`、`.env`、`.ssh`、`secrets` 等敏感路径。
 - evaluation 失败会生成结构化 reflection，并把 repair instruction 注入下一次 fallback attempt 的上下文。
@@ -622,7 +621,7 @@ Orchestrator v1.5+ Evaluation / Reflection MVP：
 - 明确 expected artifact 缺失时任务标记 `artifact_missing`。
 - artifact evaluation 失败时任务标记 `evaluation_failed`，summary 展示 evaluator、issue 和 repair hint。
 - 开启 per-task fallback 后，`evaluation_failed` 可改派 fallback agent 修复并再验证。
-- 网页 preview/browser 请求会产生 `browser_preview_quality` evaluation event；部署请求会产生 `deployment_health` evaluation event。
+- 网页 preview/browser 请求会产生 `browser_preview_quality` evaluation event；部署请求会产生 `deployment_health` evaluation event，部署失败可进入 reflection/repair/redeploy 闭环。
 - 同一 run 内多个 task 修改同一文件时，summary 和 memory event 记录 workspace conflict。
 - preview/deploy 请求必须通过平台 `start_workspace_preview` / `verify_web_preview` tool，不由 Agent runtime 启动服务。
 - 聊天中创建自建 Agent 时可以调用 `create_custom_agent` tool。

@@ -1,425 +1,393 @@
 # B2 PDF Gap TODO
 
-> 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，列出尚未达标或只部分达标的 B2 TODO 清单。
+> 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，维护 B2 当前完成度、剩余缺口和建议执行顺序。
 >
-> 状态：P0 core implemented / P1+ backlog
-> 最后更新：2026-06-02
+> 状态：P0 core implemented / P1 active backlog / P2 hardening backlog
+> 最后更新：2026-06-03
 >
-> Spec 整理入口：完整状态分类、保留/精简/提案/历史边界见 [README.md](README.md)。
+> Spec 整理入口：当前契约、验证报告和剩余 backlog 见 [README.md](README.md)。
 
 ---
 
-## 1. 当前结论
+## 1. 总体结论
 
-B2 当前已经具备 Agent Runtime Layer 的主体能力：
+B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 - `BaseAgentAdapter` / `StreamChunk` 统一协议。
 - Claude Code / Codex / OpenCode external runtime 接入。
-- Builtin Agent Framework + ModelGateway 底座。
-- Orchestrator 任务拆解、群聊内子 Agent 调度、结果聚合。
-- Artifact 追踪、平台 preview tool、8082 static preview、网页浏览器级质量验收与修复闭环。
-- 通用 Reflection / Evaluation artifact MVP 已实现；网页 gate、Workflow、PPT outline、受控 test runner 和 deployment health 已接入 evaluator 语义。
+- Builtin Agent Framework + ModelGateway。
+- 对话式自建 Agent 与 builtin `allowed_tools` 白名单 MVP。
+- Orchestrator 任务拆解、DAG 并行、失败降级、workspace conflict detection。
+- Artifact tracking、platform preview、8082 static preview、browser quality gate。
+- 通用 Evaluation / Reflection MVP。
+- Deployment / Release 演示 MVP：static release、source zip、container deployment、deployment repair/redeploy。
 
-与 PDF 要求相比，P0 核心缺口已经补齐并通过真实 E2E：
+当前最影响课程设计完成度的缺口不再是 P1 三项基础能力，而是后续产品深化。按 B2 owner 口径，最高优先级收敛为：
 
-1. 并行 DAG 调度：已实现，默认开启。
-2. Workspace snapshot / diff / conflict detection：已实现，冲突先记录和展示，不自动 merge。
-3. 对话式自建 Agent：已实现 `create_custom_agent` 平台 tool、加入当前群聊链路，以及 builtin native/MCP 显式工具白名单 MVP。
+1. **P1-B2-02 更多产物类型与预览**：文档、PPT、图片、附件、archive、manifest API 后端 MVP 和公网 API/SSE E2E 已完成；版本历史和局部编辑仍属于前端/后续产品化。
+2. **P1-B2-03 Evaluation / Reflection 深化**：Workflow validation / runtime dry-run、PPT outline、`.pptx` 轻量解析、图片、archive、文档结构质量、`manual_review_required`、deployment health 和 evaluator repair loop 已有 MVP 或公网 E2E 证据；更多 runner、生产 LLM-as-judge 仍待后续扩展。
+3. **P2-B2-01 Workflow runtime 扩展**：本地无副作用 dry-run runner / run history / health check 已完成；后续如需真实外部 step、队列化长任务或平台 tool step，再按 P2 扩展。
 
-当前剩余缺口集中在：
+跨团队最高优先级交接项：
 
-1. 部署发布 hardening：失败修复/再部署闭环、container build 失败清理、rootless/队列化等。
-2. Workflow 产物产品化：已有 evaluator MVP，但还缺正式 artifact kind、preview/runtime/health check。
-3. Agent-to-Agent review thread。
-4. 长期记忆与 Agent 能力画像。
-5. 通用 Reflection / Evaluation 深化：更多 runner、`.pptx`/图片 evaluator、生产 LLM-as-judge。
-6. 更丰富产物类型。
+- **F-P1 Review thread 前端产品化**：Agent-to-Agent Review Thread 后端 MVP、并行动态 repair、memory/API 元数据和 live E2E 已完成；前端 handoff timeline 已交接，见 [../../frontend/agent-review-thread-handoff.md](../../frontend/agent-review-thread-handoff.md)。该项不再作为 B2 后端阻塞项。
+- **F-P1 Rich artifact 前端产品化**：B2 后端已提供 `file` ContentBlock、`artifact_kind`、preview metadata、artifact manifest 只读 API 和 evaluation status；前端 rich card、manifest 消费、版本历史和局部编辑入口已交接，见 [../../frontend/rich-artifact-preview-handoff.md](../../frontend/rich-artifact-preview-handoff.md)。该项不再作为 B2 后端阻塞项。
 
-本轮先忽略 External runtime 最小权限与 worker 隔离；该项保留为 hardening backlog，不进入当前建议执行顺序。
+2026-06-03 更新：原最高优先级 **Orchestrator 合流消息归属** 已完成公网 live E2E；B2 会给 Orchestrator plan/summary、子 Agent text/code/tool/failure/fallback chunk 写入结构化 `agent_id`，前端可按 block `agent_id` 分段展示。Workflow 产物产品化也已完成 MVP 和公网 live E2E：正式 `workflow` ContentBlock、parser / accumulator、OpenAPI 和前端 workflow card 已接入。Workflow runtime / dry-run 也已完成本地无副作用 MVP 和公网 live E2E：支持 allowlist DAG dry-run、run history / health API、Orchestrator 自动 dry-run 和 persisted workflow block 状态回填。Agent-to-Agent Review Thread 也已完成后端 MVP 和公网 live E2E：关键 implementation task 可自动 handoff 给其他 Agent review，review outcome 会进入 summary / memory，并能在 needs_repair / failed outcome 下追加 repair task。Rich Artifact manifest 和 Evaluation repair loop 也已完成公网 API/SSE E2E：`p1_rich_artifacts` 覆盖 document / ppt / image / archive file block、manifest API 和 path/kind/agent 对齐；`p1_evaluation_repair` 覆盖 document_quality failed -> reflection -> repair/fallback -> final passed，且 manifest 无 false passed。
+
+本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
 
 ---
 
-## 2. P0 已完成 - 核心多 Agent 达标项
+## 2. PDF 核心要求对照
 
-本节只保留 PDF gap 对照结论。具体能力契约按架构归位：
+| PDF 核心功能 | B2 当前状态 | 完成度 | 当前结论 |
+|---|---|---:|---|
+| 1. IM 聊天式交互 | 支撑消息流、群聊 Orchestrator、消息 block、deployment card；子 Agent block 归属和前端分段展示已完成 live E2E | 基本达标 | 保持回归 |
+| 2. 主 Agent 协调器 | 任务拆解、DAG 并行、失败降级、冲突检测、summary、Evaluation MVP、Agent-to-Agent Review Thread / repair live E2E 已完成 | 基本达标 | 前端 handoff timeline 已交接给 F |
+| 3. 多 Agent 接入 | Claude Code / Codex / OpenCode 接入；自建 Agent 和 `allowed_tools` MVP 完成 | 基本达标 | external runtime 最小权限暂缓 |
+| 4. 产物预览与编辑 | HTML / Diff / preview / deployment card 强；Workflow card、runtime dry-run、run history / health API MVP 已完成；文档、PPT、图片、archive 后端 MVP 和公网 API/SSE E2E 已完成；版本历史、局部编辑弱 | 部分达标 | 前端产品化 |
+| 5. 部署发布 | static release、source zip、container deployment、status card、repair/redeploy 已完成演示 MVP | 基本达标 | 只剩生产 hardening |
+| 6. 多端支持 | Web 端为主；桌面/移动端非 B2 主责 | 部分达标 | B2 不作为当前主线 |
 
-- 并行 DAG 调度：见 [orchestrator/core.spec.md](orchestrator/core.spec.md) 与 [orchestrator/task-planning.spec.md](orchestrator/task-planning.spec.md)。
-- Workspace 冲突处理：见 [orchestrator/workspace-conflict.spec.md](orchestrator/workspace-conflict.spec.md)。
-- 对话式自建 Agent：见 [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md) 与 [builtin-agent-framework.spec.md](builtin-agent-framework.spec.md)。
-- 真实 E2E 证据：见 [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)。
+---
 
-### B2-GAP-01 并行 DAG 调度
+## 3. 已完成项
 
-PDF 对应要求：
+### B2-DONE-01 Agent Runtime 统一协议
 
-- Orchestrator 支持并行调度。
-- 多个 Agent 像群聊成员一样依次或协同产出。
+对应 PDF：
 
-当前状态：
-
-- `SubTask.depends_on` 已存在。
-- 静态任务执行器已支持 DAG ready queue。
-- `llm_planning=true` 与 `orchestrator_parallel_enabled=true` 已作为 Orchestrator 默认配置。
-- `orchestrator_parallel_max_concurrency=3` 已作为默认并发上限。
-- 任务执行仍复用 `_run_task()`、fallback、artifact check 和 memory hooks。
-
-已实现：
-
-- 同一轮中并发执行所有依赖已满足的 runnable tasks。
-- SSE 输出需要保持可读：并发内部可同时执行，但前端展示可按任务开始时间或完成时间串行落地。
-- 增加配置：
-  - `orchestrator_parallel_enabled`
-  - `orchestrator_parallel_max_concurrency`
-- 增加环境变量默认值覆盖：
-  - `ORCHESTRATOR_LLM_PLANNING_DEFAULT`
-  - `ORCHESTRATOR_PARALLEL_ENABLED_DEFAULT`
-  - `ORCHESTRATOR_PARALLEL_MAX_CONCURRENCY_DEFAULT`
-
-主要影响文件：
-
-- `backend/app/agents/orchestrator/execution.py`
-- `backend/app/agents/orchestrator/types.py`
-- `backend/app/agents/config_fields.py`
-- `backend/app/schemas/agent.py`
-- `backend/app/core/config.py`
-- `backend/tests/test_orchestrator.py`
-
-验收结果：
-
-- 两个互不依赖任务能并发调度。
-- 有依赖任务等待依赖成功后执行。
-- 前置失败时下游 task 标记 `skipped`。
-- 真实 E2E Case 2 已通过，workspace 生成 `parallel-claude.md`、`parallel-opencode.md`、`review.md`。
-
-### B2-GAP-02 Workspace 冲突处理
-
-PDF 对应要求：
-
-- Orchestrator 支持代码冲突处理。
-- 多 Agent 共同产出代码时不能互相覆盖。
+- 统一适配器层，屏蔽不同 Agent runtime 差异。
 
 当前状态：
 
-- Workspace 路径安全已经有。
-- Artifact missing check 已经有。
-- 已有 workspace snapshot、created / modified / deleted diff、同一 run 内冲突检测。
-- 已记录 `workspace_snapshot`、`workspace_file_changes`、`workspace_conflict_detected` memory events。
-- 冲突先在 summary 和 memory event 中展示，不自动 merge。
+- `BaseAgentAdapter`、`StreamChunk`、tool events、workspace 参数已形成统一协议。
+- Agent config validation、runtime test matrix 已有当前契约。
 
-已实现：
+相关 spec：
 
-- 在每个 subtask 开始前记录 workspace snapshot。
-- subtask 结束后计算 created / modified / deleted。
-- 检测同一 run 内多个 Agent 修改同一文件的冲突。
-- 对冲突文件生成 conflict report，列出冲突文件、涉及 task、涉及 agent。
+- [agent-runtime-adapter.spec.md](agent-runtime-adapter.spec.md)
+- [agent-config-validation.spec.md](agent-config-validation.spec.md)
+- [agent-runtime-test-matrix.spec.md](agent-runtime-test-matrix.spec.md)
 
-本阶段边界：
+### B2-DONE-02 多 Agent Runtime 接入
 
-- 不做自动 merge。
-- 不做文件级锁。
-- 不做 rollback。
-- 后续 P1/P2 再接入 patch review / repair / merge 策略。
+对应 PDF：
 
-主要影响文件：
-
-- `backend/app/agents/orchestrator/artifacts.py`
-- `backend/app/agents/orchestrator/execution.py`
-- `backend/app/agents/orchestrator/workspace_changes.py`
-- `backend/app/agents/orchestrator/memory_hooks.py`
-- `backend/app/services/orchestrator_memory.py`
-- `backend/tests/test_orchestrator.py`
-
-验收结果：
-
-- A、B 两个 Agent 修改同一文件时能记录冲突。
-- Orchestrator summary 中显示冲突文件、涉及 task、涉及 agent。
-- 冲突不能被静默覆盖。
-- 冲突处理过程有可追踪 event / memory 记录。
-- 真实 E2E Case 3 已通过，`shared-conflict.md` 冲突被记录且 run 未崩溃。
-
-### B2-GAP-03 对话式自建 Agent
-
-PDF 对应要求：
-
-- 支持用户自建 Agent。
-- 创建方式是对话式创建，设定 System Prompt + 工具集。
+- 至少接入 2 个主流 Agent 平台。
 
 当前状态：
 
-- 后端已有 Agent CRUD。
-- Builtin Agent Framework 已存在。
-- Orchestrator 已支持聊天中通过正式平台 tool `create_custom_agent` 创建自建 Agent。
-- 支持创建后加入当前 group conversation。
+- Claude Code / Codex / OpenCode external runtime 已接入。
+- direct chat routing、lifecycle、timeout、heartbeat、cancel、process cleanup、日志脱敏已有。
+
+相关 spec：
+
+- [external-runtime-adapters.spec.md](external-runtime-adapters.spec.md)
+- [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)
+- [external-direct-chat-routing.spec.md](external-direct-chat-routing.spec.md)
+
+### B2-DONE-03 Builtin Agent 与自建 Agent
+
+对应 PDF：
+
+- 支持用户自建 Agent，设定 System Prompt + 工具集。
+
+当前状态：
+
+- Builtin Agent Framework + ModelGateway 已完成。
+- Orchestrator 可通过 `create_custom_agent` 平台 tool 对话式创建自建 Agent。
+- 新建 builtin Agent 默认 `allowed_tools=[]`，显式授权后才暴露 native/MCP tools。
 - 缺少必要字段时返回 `needs_user_input=true`，不创建半成品。
-- 当前正式 tool schema 已有独立 `allowed_tools` 字段。
-- `Agent.config.allowed_tools` 已作为 builtin native/MCP tools 的持久化最大权限集合接入运行时。
-- 新创建的自建 builtin Agent 默认写入 `allowed_tools=[]`，表示最小权限；已有未配置字段的历史/内置 Agent 保持旧行为。
 
-已实现：
+相关 spec：
 
-- 新增 Orchestrator / Builtin tool：`create_custom_agent`。
-- 支持从用户描述中提取：
-  - name
-  - provider
-  - system_prompt
-  - capabilities
-  - allowed_tools
-  - model/runtime config
-- 对缺失字段调用 `ask_user`。
-- 创建后返回 Agent 联系人信息，并允许立即拉入当前会话。
-- 对 native tools 和 MCP tools 做统一白名单校验。
-- Agent CRUD 与聊天创建链路复用同一份 config validation。
-- 本项剩余为前端权限选择 UI 和 external runtime provider-specific 权限 hardening。
+- [builtin-agent-framework.spec.md](builtin-agent-framework.spec.md)
+- [model-gateway.spec.md](model-gateway.spec.md)
+- [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)
 
-主要影响文件：
+### B2-DONE-04 Orchestrator 核心执行
 
-- `backend/app/agents/orchestrator/tools.py`
-- `backend/app/agents/orchestrator/tool_loop.py`
-- `backend/app/agents/orchestrator/adapter.py`
-- `backend/app/services/orchestrator_platform_tools.py`
-- `backend/app/agents/config_validation.py`
-- `backend/tests/test_orchestrator_tool_calling.py`
-- `backend/tests/test_agent_config_validation.py`
+对应 PDF：
 
-验收结果：
-
-- 用户在聊天里说“创建一个文案 Agent，语气专业，能读写文件”，平台能生成自建 Agent。
-- 缺少 `name/provider/system_prompt` 时会追问，而不是创建半成品。
-- 新 Agent 出现在 `/api/v1/agents`。
-- 新 Agent 可在后续会话中被 Orchestrator 调度。
-- 真实 E2E Case 4 已通过，`LiveCopywriter-{timestamp}` 创建成功并加入当前群聊。
-- 显式工具白名单 MVP 已通过单元/集成测试；本项剩余为权限选择 UI 和 external runtime 权限 hardening。
-
-### P0 验证记录
-
-自动化验证：
-
-```bash
-cd backend
-uv run pytest -q
-# 460 passed, 7 skipped, 1 warning
-
-uv run ruff check app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/browser_preview_verifier.py app/core/config.py app/schemas/agent.py app/api/v1/stream_orchestrator_context.py app/agents/registry.py
-# passed
-
-uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/browser_preview_verifier.py app/core/config.py app/schemas/agent.py
-# passed
-```
-
-真实 E2E 验证：
-
-- 报告：`/tmp/agenthub_b2_p0_live_report.json`
-- 结果：`passed=true`
-- Case 0：数据库内 Orchestrator config 已开启 `llm_planning=true`、`orchestrator_parallel_enabled=true`、`orchestrator_parallel_max_concurrency=3`。
-- Case 1：8082 前端质量门通过，`start_workspace_preview` / `verify_web_preview` 为正式 tool 调用。
-- Case 2：DAG 并行调度通过。
-- Case 3：Workspace conflict 检测通过。
-- Case 4：对话式自建 Agent 通过。
-
-部署验证：
-
-- 后端已从当前本地代码重启到 `0.0.0.0:8000`。
-- 已重新执行 `uv run python -m app.seeds.seed_agents`。
-- `http://127.0.0.1:8000/health` 与 `http://111.229.151.159:8000/health` 均返回正常。
-
----
-
-## 3. P1 TODO - 影响产物交付完整度
-
-> 本轮优先级说明：B2-GAP-04 仍是重要安全 hardening，但本次 TODO 排期先忽略 external runtime 权限收紧，优先推进部署闭环和 Workflow 产物产品化。
-
-### B2-GAP-04 External Runtime 最小权限与 Worker 隔离
-
-PDF 对应要求：
-
-- 平台接入 Claude Code、Codex、OpenCode 等 Agent runtime。
-- Agent 产出应在平台可控环境中执行，不能将宿主机权限隐式交给 Agent。
+- 自动理解意图、拆解任务、分派子 Agent、聚合产出。
+- 支持并行调度、失败降级、代码冲突处理。
 
 当前状态：
 
-- External runtime 已统一使用 conversation workspace 作为 `cwd`。
-- 已有 timeout、heartbeat、cancel、process group cleanup 和日志脱敏。
-- 已有 workspace prompt guard 和 preview/server 命令过滤。
-- `codex-helper` seed 默认仍使用 `sandbox_mode="danger-full-access"`。
-- 当前 external runtime 仍在 API 服务宿主环境附近执行，缺少独立 worker、OS 级目录隔离和资源限额。
+- 任务规划、DAG 并行、fallback、summary 已完成。
+- Workspace snapshot / diff / conflict detection 已完成。
+- 冲突当前记录和展示，不自动 merge、rollback 或加文件锁。
 
-待办：
+相关 spec：
 
-- 将默认 Codex sandbox 收紧为 `workspace-write`；需要更高权限时必须显式配置并记录审计事件。
-- 抽象独立 `ExternalRuntimeWorker`，将 CLI/SDK runtime 与 API 进程隔离。
-- 为 worker 增加工作目录 allowlist、只读敏感目录、CPU、memory、process count 和 timeout 限额。
-- 禁止把数据库密码、provider API key 之外的宿主 env 整体透传给 runtime。
-- 对 runtime 出网能力增加 feature flag 和 allowlist。
-- 增加残留进程、越界访问、敏感 env、危险 sandbox mode 的回归测试。
+- [orchestrator/core.spec.md](orchestrator/core.spec.md)
+- [orchestrator/task-planning.spec.md](orchestrator/task-planning.spec.md)
+- [orchestrator/workspace-conflict.spec.md](orchestrator/workspace-conflict.spec.md)
 
-验收标准：
+### B2-DONE-05 Preview 与 Evaluation / Reflection MVP
 
-- 默认 external runtime 只能写当前 conversation workspace。
-- API 进程不直接承载长时间 CLI 子进程。
-- `danger-full-access` 不能作为 seed 默认值。
-- timeout、cancel、服务重启后不存在残留子进程。
-- runtime 日志和审计事件能够说明 provider、agent、sandbox mode、workspace 和退出原因。
+对应 PDF：
 
-### B2-GAP-05 Deployment / Release Tool（后端 API/SSE 与前端状态卡已对齐）
+- 产物内联预览。
+- 生成效果质量。
 
-PDF 对应要求：
+当前状态：
+
+- `start_workspace_preview` / `verify_web_preview` 已作为正式 platform tools。
+- Browser quality gate 支持 desktop/mobile、资源、JS error、按钮交互等检查。
+- 通用 evaluator 已覆盖 `artifact_exists`、`document_quality`、`code_static_quality`、`workflow_validation`、`ppt_validation`、受控 `test_report_quality`、`browser_preview_quality`、`deployment_health`。
+- Evaluation 失败会生成 reflection，并进入 repair / re-evaluate MVP。
+
+相关 spec：
+
+- [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md)
+- [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md)
+
+### B2-DONE-06 Deployment / Release 演示 MVP
+
+对应 PDF：
 
 - 聊天中直接发送“部署”指令，Agent 返回部署状态卡片。
 - 一键生成预览 URL / 静态站点部署 / 容器化部署 / 源码打包下载。
 
 当前状态：
 
-- 已实现平台 static preview 和可追踪 `WorkspaceDeployment` record。
-- Orchestrator 有正式 `create_deployment`、`get_deployment_status`、`package_workspace_source` tool。
-- 已实现 `deployment_status` 消息块、前端卡片、静态站点发布和源码 zip 下载。
-- 容器化部署当前课程演示环境默认开启 trusted Docker Worker，由平台 Worker 真实
-  build/run；管理员仍可显式关闭并返回 `not_supported`。
-- Preview 已改为隔离静态快照，不直接公开 workspace。
-- 静态发布已与 Preview 生命周期解耦，使用不可变 release snapshot 和稳定 Token URL。
-- 停止 static deployment 会使 token 失效并清理 release snapshot。
-- Source zip 已具备限额、digest、过期时间和 janitor 清理。
-- Container policy、Worker Protocol、`ContainerDeployWorker` 已存在，默认开启。
-- 为贴合设计文档“一键容器化部署”，Orchestrator Native Deployment 后端 MVP 已实现：
-  Orchestrator 调用平台 deployment tool，Deployment Worker 在 Trusted Host Mode 下真实执行
-  container build/run。
-- 远端前端的 metadata 增强属于可选交接项；旧卡片继续兼容。
-- 直接公网 API E2E 已通过，证据见
-  [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)。
-- 后端直连 Orchestrator API/SSE E2E 已通过，证据见
-  [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)。
-- 部署失败后的 `deployment_health -> reflection -> repair agent -> redeploy` MVP 已接入网页质量门后的
-  deployment 阶段；失败证据会携带 deployment kind、error、logs tail 和原始 tool arguments。
-- Container build/run/health 失败路径会清理本轮 build context、container 和 image；janitor 已纳入
-  `DEPLOYMENT_CONTAINER_BUILD_ROOT` orphan cleanup，并在 runtime 可用时按 managed label 清理 orphan
-  container/image。
-- 真正容器化发布已实现为后端 Worker MVP，后续重点是 rootless runtime、队列化和更强隔离。
-- 前端生成类型、`queued` 状态、部署状态卡、停止按钮、部署历史入口已经与当前
-  OpenAPI 契约对齐；本地前端 `DeploymentStatusBlock` / `RightAgentPanel` 测试与
-  `pnpm tsc --noEmit` 已通过。
+- `create_deployment`、`get_deployment_status`、`stop_deployment`、`package_workspace_source` 已完成。
+- `deployment_status` 消息块和前端卡片已对齐。
+- Static release 使用不可变 release snapshot 和 token URL。
+- Source zip 支持 digest、size、file count、过期和 janitor。
+- Container deployment 默认走受控 `ContainerDeployWorker`，支持 build/run/health check/stop/cleanup。
+- Deployment 失败后已接入 `deployment_health -> reflection -> repair agent -> redeploy`。
+- Container build/run/health 失败路径会清理 build context、container、image；janitor 已覆盖 container build root 和 managed runtime orphan cleanup。
 
-后续完善计划：
+相关 spec：
 
-- 后端实现与验证见 [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)。
-- 前端增强交接见 [deployment-release-frontend-handoff.spec.md](deployment-release-frontend-handoff.spec.md)。
-- 原生部署实现说明见
-  [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)。
-- Rootless runtime、队列化 worker、生产级探活重试和更强宿主隔离仍属于 hardening backlog。
-- 前端部署历史 / 状态卡的更细粒度 repair 展示仍属于后续 UI 增强；本轮不新增部署修复 REST endpoint。
+- [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)
+- [orchestrator/native-deployment.execution.spec.md](orchestrator/native-deployment.execution.spec.md)
+- [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)
 
-实现内容：
+### B2-DONE-07 Orchestrator 合流消息归属
 
-- 新增正式平台 deployment tools：
-  - `create_deployment`
-  - `get_deployment_status`
-  - `package_workspace_source`
-- 新增部署记录模型：
-  - deployment id
-  - conversation id
-  - workspace id
-  - artifact path
-  - deployment kind：`static_site | source_zip | container`
-  - status
-  - public url
-  - download url
-  - logs
-  - error
-  - created / updated timestamps
-- 新增 `deployment_status` 消息块 / 前端卡片。
-- MVP 支持 `static_site` deployment、`source_zip` download 和受控 `container` deployment。
-- 容器化部署默认走受控 `ContainerDeployWorker`，返回 `published / failed / stopped` 等真实状态。
+对应 PDF：
+
+- 群聊协作中多个 Agent 像群聊成员一样依次回复各自的产出。
+- Agent 回复中的代码、Diff、文件、部署状态等产物需要保留真实来源。
+
+当前状态：
+
+- B1 / OpenAPI 已为 content block 增加 optional `agent_id` 字段。
+- B1 `StreamContentAccumulator` 已能持久化 block 级 `agent_id`。
+- B2 Orchestrator 已给 plan / summary / platform fact / direct answer 标记 `agent_id="orchestrator"`。
+- B2 子 Agent stream remap 已对子 Agent `block_start` / `delta` / `block_end` / `tool_call` / `tool_result` / `heartbeat` 附加实际 attempt `agent_id`。
+- 子 Agent 失败文本不再使用正文 `@<agent_id>` header，而是用 `agent_id=<failed_agent_id>` 的 text block 表示。
+- fallback attempt 输出使用 fallback agent id。
+- 前端 SSE 类型、流式 store 和 ContentRenderer 已能消费 block `agent_id`，并按连续 Agent 分段展示 Orchestrator 合流消息。
+
+验证：
+
+- `uv run pytest tests/test_orchestrator.py -q`
+- `uv run ruff check app/agents/orchestrator tests/test_orchestrator.py`
+- `uv run mypy app/agents/orchestrator`
+- `pnpm test -- --run src/components/blocks/ContentRenderer.test.tsx src/stores/chatStore.test.ts`
+- `pnpm exec tsc --noEmit`
+- Live E2E：`AGENTHUB_E2E_SCENARIO=p1_attribution uv run python scripts/orchestrator_live_e2e.py`
+  - report: `/tmp/agenthub_p1_attribution_report.json`
+  - sse: `/tmp/agenthub_p1_attribution_sse.jsonl`
+  - conversation_id: `6df2b527-cc76-4881-bb24-f8aed18e433b`
+  - passed: true
+
+相关 spec：
+
+- [orchestrator/message-attribution.spec.md](orchestrator/message-attribution.spec.md)
+- [../../frontend/spec/orchestrated-message-rendering.spec.md](../../frontend/spec/orchestrated-message-rendering.spec.md)
+
+### B2-DONE-08 Workflow 产物产品化 MVP
+
+对应 PDF：
+
+- 通过对话式交互创建网页、Workflow 等产物。
+- Agent 回复中内联展示富媒体产物。
+
+当前状态：
+
+- 新增正式 `workflow` ContentBlock / OpenAPI schema。
+- `StreamChunk.block_type` 支持 `workflow`。
+- `StreamingArtifactParser` 可识别 `workflow` / `workflow-json` / `workflow-yaml` fenced block。
+- SSE accumulator 可持久化 workflow block，并可将符合 workflow schema 的普通 JSON/YAML code block 升级为 workflow block。
+- SSE accumulator 可从真实外部 Agent 的普通 text block 中提取 fenced workflow，并追加正式 workflow block。
+- Workflow block 会输出 `validation_status`、`runtime_status`、`dry_run_status`、`health_status`。
+- 前端 `WorkflowBlock` card 可展示名称、path、节点、边、validation/runtime/dry-run/health 状态和原始定义。
+- 上下文压缩会保留 workflow 摘要，后续对话不会把 workflow 产物静默丢失。
+
+当前边界：
+
+- 已有 `workflow_validation` evaluator 继续负责 workspace 文件级验证。
+- 现在的 `runtime_status="ready"` 表示 schema valid 且当前 allowlist runtime 支持。
+- `dry_run_status="passed"` 表示本地无副作用 dry-run 已通过；shell、HTTP、部署、workspace 写入、外部 Agent 调用类 step 仍不支持。
+- 队列化长任务 runtime、平台 tool step、外部 workflow worker 属于后续 P2 扩展。
+
+验证：
+
+- `uv run pytest tests/test_artifact_parser.py tests/test_stream_content_blocks.py tests/test_stream_tool_calls.py::test_openapi_includes_tool_call_block -q`
+- `uv run ruff check app/agents/types.py app/agents/artifact_parser.py app/api/v1/stream_accumulator.py app/schemas/message.py app/services/context_compression.py tests/test_artifact_parser.py tests/test_stream_content_blocks.py tests/test_stream_tool_calls.py`
+- `uv run mypy app/agents/types.py app/agents/artifact_parser.py app/api/v1/stream_accumulator.py app/schemas/message.py app/services/context_compression.py`
+- `pnpm test -- --run src/components/blocks/ContentRenderer.test.tsx src/stores/chatStore.test.ts`
+- `pnpm exec tsc --noEmit`
+- Live E2E：`AGENTHUB_E2E_SCENARIO=p1_workflow uv run python scripts/orchestrator_live_e2e.py`
+  - report: `/tmp/agenthub_p1_workflow_report.json`
+  - sse: `/tmp/agenthub_p1_workflow_sse.jsonl`
+  - conversation_id: `a6bdaa88-e142-4a56-9cf2-1f45afd47119`
+  - passed: true
+
+相关 spec：
+
+- [workflow-artifact.spec.md](workflow-artifact.spec.md)
+- [artifact-parser-v2.spec.md](artifact-parser-v2.spec.md)
+- [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md)
+
+---
+
+## 4. P1 Active TODO
+
+### B2-TODO-01 Orchestrator 合流消息归属
+
+状态：DONE 2026-06-03；保留本节作为历史验收说明。
+
+对应 PDF：
+
+- 群聊协作中多个 Agent 像群聊成员一样依次回复各自的产出。
+- Agent 回复中的代码、Diff、文件、部署状态等产物需要保留真实来源。
+
+当前状态：
+
+- B1 / OpenAPI 已为 content block 增加 optional `agent_id` 字段。
+- B1 `StreamContentAccumulator` 已能持久化 block 级 `agent_id`。
+- B2 spec 已定义 Orchestrator 合流时由 B2 生产真实 `StreamChunk.agent_id`。
+- B2 子 Agent stream remap 已稳定 attach 实际 attempt `agent_id`。
+- `_text_block()` / `_text_block_with_next()` 已支持 `agent_id`，默认 `orchestrator`。
+- 当前执行流默认不再输出普通正文 `@<agent_id>` header。
+- 前端 grouped rendering 已完成基础实现。
+
+已完成：
+
+- Orchestrator `_text_block()` / `_text_block_with_next()` 支持 `agent_id` 参数。
+- Orchestrator plan / summary / platform fact / fallback summary 明确写 `agent_id="orchestrator"`。
+- `orchestrator/streams.py` 新增 `attach_agent_id()`，对子 Agent `block_start` / `delta` / `block_end` / `tool_call` / `tool_result` 附加实际 attempt `agent_id`。
+- 移除默认 `@<agent_id>` 正文 header。
+- 子 Agent 失败文本改为 `failed: ...`，并将 text block `agent_id` 标记为失败的实际 Agent。
+- fallback attempt 的所有输出使用 fallback agent id。
+- 已补 B2 后端测试：text/code/tool/failure/fallback attribution、summary attribution、不再输出正文 header。
+- 前端按 block `agent_id` 分组渲染 Orchestrator 消息。
 
 建议影响文件：
 
-- `backend/app/agents/orchestrator/tools.py`
-- `backend/app/services/orchestrator_platform_tools.py`
-- `backend/app/services/workspace_preview.py`
-- `backend/app/api/v1/workspaces.py`
-- `backend/app/models/workspace.py`
-- `backend/app/schemas/workspace.py`
-- `backend/tests/test_workspace_api.py`
-- `backend/tests/test_orchestrator_tool_calling.py`
-- `frontend/src/components/blocks/ContentRenderer.tsx`
-- `frontend/src/components/blocks/DeploymentStatusBlock.tsx`
+- `backend/app/agents/orchestrator/execution.py`
+- `backend/app/agents/orchestrator/streams.py`
+- `backend/app/agents/orchestrator/adapter.py`
+- `backend/app/agents/orchestrator/adapters.py`
+- `backend/tests/test_orchestrator_attribution.py`
+- `backend/tests/test_orchestrator.py`
+- `frontend/src/components/chat/MessageBubble.tsx`
+- `frontend/src/components/chat/messageGrouping.ts`
+- `frontend/src/stores/chatStore.ts`
 
 验收标准：
 
-- 用户说“部署这个网页”，Orchestrator 明确调用 `create_deployment(kind="static_site")`。
-- 返回部署状态和 URL，不由 Agent 编造 URL。
-- 部署失败有状态、错误原因和日志。
-- 源码打包下载接口可用。
-- 用户说“容器化部署”时，默认返回真实 container deployment 状态；管理员关闭 worker 时返回 `not_supported` 状态卡。
-- 用户只说“预览”时仍走 `start_workspace_preview`，不混淆 preview 与 deployment。
-- 前端能渲染 `queued/publishing/published/failed/stopped/not_supported`，不会因新增 metadata 或
-  `queued` 状态运行时报错。
+- SSE live event 中，子 Agent block/tool chunk 带真实 `agent_id`。
+- B1 accumulator 落库后 content block 保留该 `agent_id`。
+- Orchestrator planning / final summary block 明确归属 `orchestrator`。
+- 子 Agent 失败和 fallback 输出归属实际 attempt agent。
+- 默认不再通过普通正文 `@agent` header 表达归属。
+- 前端刷新后能按真实 Agent 分段展示一条 Orchestrator 合流消息。
 
-### B2-GAP-06 Workflow 产物支持
+相关 spec：
 
-PDF 对应要求：
+- [orchestrator/message-attribution.spec.md](orchestrator/message-attribution.spec.md)
+- [../../frontend/spec/orchestrated-message-rendering.spec.md](../../frontend/spec/orchestrated-message-rendering.spec.md)
+
+### B2-DONE-10 Workflow runtime / dry-run MVP
+
+状态：DONE 2026-06-03；本地无副作用 runtime / dry-run runner / run history / health API 已完成公网 live E2E。
+
+对应 PDF：
 
 - 通过对话式交互创建网页、Workflow 等产物。
 
 当前状态：
 
-- 当前产物链路主要覆盖代码、HTML、Diff、网页预览。
-- Orchestrator Evaluation / Reflection MVP 已提供 `workflow_validation` evaluator：
-  对 JSON/YAML workflow 校验 `version/name/nodes/edges`、节点唯一性和 edge 悬空引用。
-- 当前还没有正式 `workflow` ContentBlock / artifact kind、前端 DAG 预览、workflow runtime
-  或 workflow health check，因此“Workflow 产物支持”仍未完整达标。
+- 已有 `workflow_validation` evaluator，可校验 JSON/YAML workflow 的 `version/name/nodes/edges`、节点唯一性、edge 悬空引用。
+- 已有正式 `workflow` ContentBlock / artifact kind MVP。
+- Artifact parser / SSE accumulator / OpenAPI / 前端 preview card 已接入。
+- Workflow block 已暴露 validation / runtime / dry-run / health 状态。
+- 已有本地 allowlist dry-run runner：支持 `trigger`、`task(set_context)`、`assert(equals)`、`end`。
+- 已有 workflow run history / health API。
+- Orchestrator 在 `workflow_validation` passed 后会自动 dry-run，并将结果写入 summary / memory / persisted workflow block。
 
-待办：
+已完成：
 
-- 将当前 evaluator schema 产品化为正式 Workflow artifact schema，例如：
-  - nodes
-  - edges
-  - inputs
-  - outputs
-  - trigger
-  - steps
+- 定义正式 Workflow artifact schema：`nodes`、`edges`、`inputs`、`outputs`、`trigger`、`steps`。
 - 新增 artifact kind：`workflow`。
-- Orchestrator 能识别“帮我做一个工作流/流程”的任务意图。
-- Builtin Agent 可生成 workflow JSON。
-- 平台 validator 复用/扩展现有 `workflow_validation` evaluator。
-- 前端展示可先用 JSON / mermaid / 简单 DAG metadata。
-- 后续补 workflow runtime / dry-run / health check。
+- Artifact parser / summary 能识别 workflow artifact。
+- 前端用简单 DAG metadata 展示。
+- 可执行 dry-run runner。
+- workflow run history / health check API。
+- 公网 live E2E 覆盖 `p1-runtime-workflow.yaml` 自动 dry-run、额外 API dry-run 和 history 增长。
+
+后续 P2 扩展：
+
+- Orchestrator 对“帮我做一个工作流/流程”的任务意图增加更明确的生成提示和 artifact handoff。
+- Builtin Agent workflow 生成模板 / tool prompt。
+- 外部 step、平台 tool step 或长任务队列化 runtime。
 
 建议影响文件：
 
 - `backend/app/agents/artifact_parser.py`
-- `backend/app/agents/orchestrator/task_planning.py`
-- `backend/app/agents/orchestrator/artifacts.py`
 - `backend/app/schemas/message.py`
-- `backend/app/schemas/workspace.py`
 - `backend/tests/test_artifact_parser.py`
-- `backend/tests/test_orchestrator_planning.py`
+- `backend/tests/test_stream_content_blocks.py`
+- `backend/tests/test_workflow_runtime.py`
+- `frontend/src/components/blocks/WorkflowBlock.tsx`
+- `frontend/src/components/blocks/ContentRenderer.tsx`
+- `frontend/src/stores/chatStore.ts`
 
 验收标准：
 
-- 用户请求 workflow 时，workspace 生成结构化 workflow 文件。
+- workflow fenced block 可进入正式 `workflow` ContentBlock。
 - workflow 文件通过平台 validator。
-- Orchestrator summary 能列出 workflow artifact。
 - 非法 workflow 不被标记为 ready。
+- 前端能展示 workflow card。
+- dry-run passed 后 workflow block 有 `last_run_id`、`dry_run_status="passed"`、`health_status="passed"`。
+- Live E2E report：
+  - report: `/tmp/agenthub_p1_workflow_runtime_report.json`
+  - sse: `/tmp/agenthub_p1_workflow_runtime_sse.jsonl`
+  - conversation_id: `12ac1864-0158-48ca-a9f3-6640da9ab6ab`
+  - passed: true
 
-### B2-GAP-07 Agent-to-Agent Review Thread
+### B2-DONE-09 Agent-to-Agent Review Thread MVP
 
-PDF 对应要求：
+优先级：P1。
+
+对应 PDF：
 
 - 多 Agent 群聊协作，而不只是主 Agent 串行转述。
 
 当前状态：
 
-- 子 Agent 之间主要通过 Orchestrator 汇总上下文接力。
-- 没有直接互评、质疑、确认或 handoff thread。
+- `SubTask` 已支持 `task_type=implementation/review/repair`、`review_of`、`handoff_reason`。
+- 开启 `orchestrator_agent_review_enabled=true` 后，关键 implementation task 会自动安排另一个当前群聊 Agent review。
+- Review prompt 要求引用 artifact / diff / file changes / tool result / evaluation / deployment status，并首行返回 `review_outcome`。
+- Review outcome 已写入 attempt、summary 和 memory event。
+- 顺序和并行静态执行路径下，`review_outcome: failed` 或 `review_outcome: needs_repair` 会动态追加 repair task，repair agent 只从当前群聊成员中选择。
+- 同一个 review task 只允许生成一个动态 repair task。
+- `orchestrator_tasks` / `orchestrator_task_attempts` 和 run detail API 已暴露 `task_type`、`review_of`、`handoff_reason`、`review_outcome`，便于 live E2E 和前端读取。
+- Review task 正常完成后不会把被审 artifact 当作 review 自己的交付物跑 document/workflow evaluator，避免 `needs_repair` 被质量 evaluator 覆盖成 `failed`。
+- 公网 live E2E 已覆盖 implementation -> review(`needs_repair`) -> repair -> final summary。
 
-待办：
+剩余 hardening：
 
-- 新增 review task 类型：
-  - implementation task
-  - review task
-  - repair task
-- Orchestrator 在关键产物生成后自动安排另一个 Agent review。
-- review agent 必须引用具体 artifact/diff。
-- review 失败时生成 repair task。
-- 记录 handoff reason 和 review outcome。
+- 前端独立 review thread / handoff timeline UI 已交接给 F，不作为 B2 后端阻塞项。
 
 建议影响文件：
 
@@ -433,21 +401,97 @@ PDF 对应要求：
 
 验收标准：
 
-- 构建任务后至少一个群聊内其他 Agent 能执行 review。
-- review 明确指出通过/失败/需修复。
-- 修复任务只使用当前群聊成员。
-- 最终 summary 展示 review 结论。
+- 构建任务后至少一个群聊内其他 Agent 能执行 review。已完成。
+- Review 明确指出通过/失败/需修复。已完成，解析 `review_outcome`。
+- 修复任务只使用当前群聊成员。已完成，顺序和并行执行 MVP。
+- 最终 summary 展示 review 结论。已完成。
+- Run detail / memory event 可稳定断言 review metadata。已完成。
+- Live E2E report：
+  - report: `/tmp/agenthub_p1_review_thread_report.json`
+  - sse: `/tmp/agenthub_p1_review_thread_sse.jsonl`
+  - conversation_id: `5d0373e4-3801-4242-b812-f03ddacd3fb1`
+  - passed: true
+
+相关 spec：
+
+- [orchestrator/agent-review-thread.spec.md](orchestrator/agent-review-thread.spec.md)
+- [../../frontend/agent-review-thread-handoff.md](../../frontend/agent-review-thread-handoff.md)
+
+### B2-TODO-04 产物类型与预览增强
+
+优先级：P1；B2 后端 DONE 2026-06-03，公网 API/SSE Live E2E 已通过。
+
+对应 PDF：
+
+- Agent 回复中内联产物预览卡片：网页 iframe、文档渲染、PPT 浏览。
+- 支持 Diff 视图、版本历史、对话式局部修改。
+
+当前状态：
+
+- HTML / code / diff / web preview / deployment status 较强。
+- `document`、`ppt`、`image`、`archive` 已作为 `FileBlock.artifact_kind` 进入消息块和 manifest API。
+- `FileBlock` 已支持 `path`、`preview_text`、`preview_truncated`、`metadata`，并使用 workspace file API 作为 URL。
+- 文档/PPT outline 可文本预览，图片可通过 workspace file URL 预览，archive 可展示 file count/top entries。
+- 平台内部 `.agenthub/artifacts.json` v1 已落地，并通过 `GET /api/v1/workspaces/{conversation_id}/artifacts` 只读暴露 entries。
+- 版本历史、局部编辑和更复杂附件工作流仍未产品化。
+
+已完成：
+
+- 复用 `file` ContentBlock，新增 artifact kind 和 preview metadata。
+- `StreamChunk.block_type` 支持 `file`，SSE accumulator 可持久化 file block。
+- Artifact path extraction 已支持 `.pptx/.pdf/.docx/.zip/.tar/.tar.gz/.tgz/.csv` 等常见产物。
+- 为 markdown/report/document 提供稳定识别和 summary。
+- Orchestrator artifact check 成功后会为 document/ppt/image/archive 追加 file block，并保留真实子 Agent `agent_id`。
+- Orchestrator 会将 file block 同步写入 artifact manifest，并回填 `task_id`、`run_id`、`evaluation_status` 和 `evaluation_results`。
+- 前端产品化边界已交接：B2 只保证 API / SSE / persisted ContentBlock / manifest 契约；卡片视觉、manifest 聚合视图、版本历史和局部编辑属于 F 侧。
+- 公网 Live E2E `p1_rich_artifacts` 已通过：report `/tmp/agenthub_p1_rich_artifacts_report.json`，SSE `/tmp/agenthub_p1_rich_artifacts_sse.jsonl`，conversation `c6da3473-b338-4321-ba7d-eb0f877e70ae`。
+
+后续待办：
+
+- B2：保持 rich artifact manifest / file block 回归；后续只按新增字段需求做契约调整。
+- F：版本历史、局部编辑与前端编辑器联动作为后续增强。
+
+验收标准：
+
+- Agent 生成 README / report 时能被识别为 document artifact。
+- 生成 PPT outline 或 PPT 文件时能进入明确 artifact / preview / evaluator 路径。
+- 打包下载时能包含所有相关产物。
 
 ---
 
-## 4. P2 TODO - 提升真实多 Agent 系统成熟度
+## 5. P1/P2 Hardening / Long-Term TODO
 
-### B2-GAP-08 长期记忆与 Agent 能力画像
+### B2-TODO-05 Deployment / Release 生产 hardening
+
+优先级：P2。
+
+当前状态：
+
+- PDF 第五点演示 MVP 已达标。
+- repair/redeploy 与清理 MVP 已完成。
+
+待办：
+
+- Rootless runtime。
+- 队列化 worker。
+- 生产级 health check retry / backoff。
+- 更强宿主隔离。
+- 前端部署历史 / 状态卡的更细粒度 repair 展示。
+
+验收标准：
+
+- Container deployment 不依赖 trusted Docker host mode 作为长期默认。
+- Worker 可队列化执行并隔离 API 进程。
+- 部署失败路径有稳定、可审计、可恢复的状态流。
+
+### B2-TODO-06 长期记忆与 Agent 能力画像
+
+优先级：P2。
 
 当前状态：
 
 - 有 `orchestrator_runs` / `tasks` / `attempts` / `events`。
-- 更像 run log，不是长期经验系统。
+- 当前更像 run log，不是长期经验系统。
 
 待办：
 
@@ -461,101 +505,110 @@ PDF 对应要求：
 - 同类失败多次后，Orchestrator 会降低该 Agent 优先级。
 - 调度理由中能说明选择某 Agent 的历史依据。
 
-### B2-GAP-09 Reflection / Evaluation 闭环深化
+### B2-TODO-07 Evaluation / Reflection 深化
 
-方案草案见 [orchestrator/evaluation-reflection.proposal.md](orchestrator/evaluation-reflection.proposal.md)。
+优先级：P1/P2；B2 deterministic evaluator MVP 已增强，公网 evaluator repair loop E2E 已通过。
 
 当前状态：
 
-- 前端 preview/browser quality gate 已通过 `browser_preview_quality` evaluator 事件接入通用 Evaluation / Reflection。
-- 文档、代码、Workflow、PPT outline 等 artifact 已有默认开启的 Evaluation / Reflection MVP。
-- Workflow、PPT outline、受控 test runner、deployment health 已有 MVP evaluator。
-- Evaluation 失败会生成 reflection，并可复用 per-task fallback 进入“生成 -> 验证 -> 修复 -> 再验证”闭环。
+- 通用 Evaluation / Reflection MVP 已实现。
+- Workflow validation / runtime dry-run、PPT outline、受控 test runner、deployment health 已有 MVP evaluator 或 health gate。
+- `.pptx` OpenXML 轻量解析、图片完整性、archive 安全检查、文档结构质量和 `manual_review_required` 已有本地回归。
+- 公网 Live E2E `p1_evaluation_repair` 已通过：report `/tmp/agenthub_p1_evaluation_repair_report.json`，SSE `/tmp/agenthub_p1_evaluation_repair_sse.jsonl`，conversation `5186e757-6a7c-4d0f-8643-c9b3defbc181`。
 
 待办：
 
-- 扩展 `.pptx` 二进制深度解析、图片等产物 evaluator。
-- 扩展完整 workflow runtime / workflow 执行健康检查。
-- 扩展更多 allowlist test runner alias 和生产部署真实探活策略。
+- 扩展更多 allowlist test runner alias。
+- 引入生产可用 LLM-as-judge。
+- 将 workflow runtime 从本地 allowlist dry-run 扩展到外部 step、平台 tool step 或队列化长任务，并补对应健康检查策略。
 
 验收标准：
 
 - 可自动验证任务能进入“生成 -> 验证 -> 修复 -> 再验证”闭环。
-- 最终交付必须带 evaluation summary。
+- 最终交付带 evaluation summary。
+- 无法自动验证的产物明确进入 `manual_review_required`，不假装通过。
 
-### B2-GAP-10 更丰富产物类型
+---
+
+## 6. Deferred Security TODO
+
+### B2-DEFER-01 External Runtime 最小权限与 Worker 隔离
+
+优先级：Deferred。
+
+说明：
+
+- 该项仍是重要安全 hardening，但本轮按要求暂缓，不进入当前执行顺序。
 
 当前状态：
 
-- 代码、HTML、Diff 较强。
-- 文档、PPT、图片、附件、版本历史能力弱。
+- External runtime 已统一使用 conversation workspace 作为 `cwd`。
+- 已有 timeout、heartbeat、cancel、process group cleanup 和日志脱敏。
+- 已有 workspace prompt guard 和 preview/server 命令过滤。
+- `codex-helper` seed 默认仍使用 `sandbox_mode="danger-full-access"`。
+- 当前 external runtime 仍在 API 服务宿主环境附近执行，缺少独立 worker、OS 级目录隔离和资源限额。
 
-待办：
+后续待办：
 
-- 补充 artifact kind：
-  - markdown document
-  - pdf/document
-  - ppt
-  - image
-  - archive
-- 扩展 artifact manifest。
-- 支持文件附件 block 与下载链接。
+- 将默认 Codex sandbox 收紧为 `workspace-write`。
+- 抽象独立 `ExternalRuntimeWorker`，将 CLI/SDK runtime 与 API 进程隔离。
+- 为 worker 增加工作目录 allowlist、只读敏感目录、CPU、memory、process count 和 timeout 限额。
+- 禁止把数据库密码、provider API key 之外的宿主 env 整体透传给 runtime。
+- 对 runtime 出网能力增加 feature flag 和 allowlist。
+- 增加残留进程、越界访问、敏感 env、危险 sandbox mode 的回归测试。
 
 验收标准：
 
-- Agent 生成 README / report 时能被识别为 document artifact。
-- 打包下载时能包含所有相关产物。
+- 默认 external runtime 只能写当前 conversation workspace。
+- API 进程不直接承载长时间 CLI 子进程。
+- `danger-full-access` 不能作为 seed 默认值。
+- Timeout、cancel、服务重启后不存在残留子进程。
+- Runtime 日志和审计事件能够说明 provider、agent、sandbox mode、workspace 和退出原因。
 
 ---
 
-## 5. 建议执行顺序
+## 7. 建议执行顺序
 
-建议按照以下顺序推进：
+1. F-P1 Review Thread / Rich Artifact 前端产品化（B2 已交接）
 
-1. B2-GAP-05 Deployment / Release hardening
+   后端 review / repair / memory / live E2E 已完成；rich artifact 后端 `file` block、manifest API、evaluation status 和公网 API/SSE E2E 已完成。前端补 handoff timeline、rich artifact card、manifest 聚合、版本历史和局部编辑入口。交接文档：[../../frontend/agent-review-thread-handoff.md](../../frontend/agent-review-thread-handoff.md)、[../../frontend/rich-artifact-preview-handoff.md](../../frontend/rich-artifact-preview-handoff.md)。
 
-   静态发布、源码包、状态卡和真实 container build/run 已补齐演示缺口；下一步补
-   deployment 失败后的 repair / redeploy 闭环、container build 失败清理、rootless/队列化 worker
-   和生产级 health check。
+2. P1-B2-03 后续扩展 / B2-TODO-07 Evaluation / Reflection 深化
 
-2. B2-GAP-06 Workflow 产物产品化
+   当前 deterministic evaluator MVP 和公网 repair loop E2E 已完成。更多 runner alias、生产 LLM-as-judge 和 workflow 外部 step 作为后续扩展。
 
-   已有 `workflow_validation` evaluator MVP；下一步补正式 artifact kind、前端预览和 runtime / health check。
+3. B2-TODO-05 Deployment / Release 生产 hardening
 
-3. B2-GAP-07 Agent-to-Agent Review Thread
+   PDF 第五点已达演示 MVP，后续以生产安全和稳定性为主。
 
-   让协作从“Orchestrator 转派”更接近真实多 Agent 讨论。
+4. B2-TODO-06 长期记忆与 Agent 能力画像
 
-4. B2-GAP-08 长期记忆与 Agent 能力画像
+   提升 planner 选择 Agent 的智能度和可解释性。
 
-   让 planner 从固定规则升级为带历史依据的 agent 选择。
-
-5. B2-GAP-09 Reflection / Evaluation 闭环深化
-
-   当前通用 MVP 已实现；后续扩展 `.pptx`、图片、更多 runner、生产 LLM-as-judge 和 workflow runtime。
-
-6. B2-GAP-10 更丰富产物类型
-
-   作为答辩加分项和长期演进。
-
-暂缓：B2-GAP-04 External Runtime 最小权限与 Worker 隔离。本项仍是重要安全 hardening，但本轮按要求先忽略，
-不参与当前优先级排序。
+暂缓：B2-DEFER-01 External Runtime 最小权限与 Worker 隔离。
 
 ---
 
-## 6. Demo 验收矩阵
+## 8. Demo 验收矩阵
 
-| 场景 | 当前能否演示 | 完成 TODO 后的目标 |
+| 场景 | 当前能否演示 | 当前目标 |
 |---|---:|---|
 | 群聊 @orchestrator 做前端页面 | 可以 | 保持稳定 |
 | 自动生成 workspace 代码产物 | 可以 | 保持稳定 |
-| 8082 静态预览 | 可以 | Preview 保持临时验收职责，Static release 使用独立生命周期 |
-| 浏览器质量验收 | 可以 | 已接入通用 evaluation framework，继续保持 tool event 兼容 |
-| 并行调用多个 Agent | 可以 | 继续补并行可观测性和更复杂依赖图 |
-| 多 Agent 修改同一文件冲突检测 | 可以 | 冲突报告 + 修复/合并策略 |
-| 聊天中创建自建 Agent | 显式 `allowed_tools` MVP 可以 | 后续补权限选择 UI 和 external runtime provider-specific 权限 hardening |
-| External runtime 隔离 | cwd、timeout、cleanup 已有 | 本轮暂缓；后续做独立 worker、最小权限 sandbox、资源限额和审计 |
-| 生成 Workflow 产物 | evaluator MVP 可以 | workflow schema validator 已有，后续补正式 artifact kind、preview、runtime / health check |
-| 部署状态卡片 | 后端消息块/SSE 与本地前端卡片已对齐 | 继续保持远端发布交接，并补部署失败 repair/redeploy 与生产 hardening |
-| 源码打包下载 | 可以，API/SSE E2E 已通过 | 继续补更多安全测试和前端下载入口 |
-| 容器化部署 | 后端 MVP 默认启用 trusted Docker worker，API/SSE E2E 已通过 | 后续补 rootless runtime / 队列 / 更强隔离 |
+| 并行调用多个 Agent | 可以 | 保持 DAG 并行和可观测性 |
+| 多 Agent 修改同一文件冲突检测 | 可以 | 后续补 review / merge 策略 |
+| 聊天中创建自建 Agent | 可以 | 后续补权限选择 UI |
+| Builtin Agent `allowed_tools` | 可以 | 保持最小权限 MVP |
+| 8082 静态预览 | 可以 | Preview 保持临时验收职责 |
+| 浏览器质量验收 | 可以 | 保持 browser quality gate |
+| 通用 Evaluation / Reflection | MVP 可以 | 后续扩展更多 evaluator |
+| 部署状态卡片 | 可以 | 已达演示 MVP |
+| Static release | 可以 | 已达演示 MVP |
+| Source zip 下载 | 可以 | 已达演示 MVP |
+| Container deployment | 可以 | 已达演示 MVP，后续 hardening |
+| Deployment repair/redeploy | 可以 | 已达演示 MVP |
+| Orchestrator 子 Agent 分段显示 | 可以 | 保持 attribution / grouped rendering 回归测试 |
+| Workflow 产物 | artifact / preview / runtime dry-run MVP 可以 | 后续按需扩展外部 step / 平台 tool step |
+| Agent-to-Agent review | 可以 | 后端 repair live E2E 已过，前端 timeline 已交接给 F |
+| 文档/PPT/图片/附件丰富产物 | 后端 API/SSE live E2E 可以 | 前端 rich card / manifest / 编辑入口已交接 |
+| External runtime 强隔离 | 暂缓 | 后续安全 hardening |

@@ -6,7 +6,11 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
-from app.agents.orchestrator.streams import remap_block_index, remap_tool_call_id
+from app.agents.orchestrator.streams import (
+    attach_agent_id,
+    remap_block_index,
+    remap_tool_call_id,
+)
 from app.agents.types import ChatMessage, StreamChunk
 
 DIRECT_ANSWER_SYSTEM_PROMPT = """You are AgentHub's Orchestrator.
@@ -97,18 +101,19 @@ async def run_direct_answer(
             if chunk.event_type == "error":
                 if open_block_index is not None:
                     yield StreamChunk(
-                        event_type="block_end", block_index=open_block_index
+                        event_type="block_end",
+                        block_index=open_block_index,
+                        agent_id="orchestrator",
                     ), next_block_index, False
                     open_block_index = None
-                yield chunk, next_block_index, True
+                yield attach_agent_id(chunk, "orchestrator"), next_block_index, True
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
-                yield remap_tool_call_id(
-                    chunk, "direct-answer"
-                ), next_block_index, False
+                remapped = remap_tool_call_id(chunk, "direct-answer")
+                yield attach_agent_id(remapped, "orchestrator"), next_block_index, False
                 continue
             if chunk.event_type == "heartbeat":
-                yield chunk, next_block_index, False
+                yield attach_agent_id(chunk, "orchestrator"), next_block_index, False
                 continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
@@ -121,11 +126,13 @@ async def run_direct_answer(
                 open_block_index = remapped.block_index
             elif remapped.event_type == "block_end":
                 open_block_index = None
-            yield remapped, next_block_index, False
+            yield attach_agent_id(remapped, "orchestrator"), next_block_index, False
     except Exception as exc:
         if open_block_index is not None:
             yield StreamChunk(
-                event_type="block_end", block_index=open_block_index
+                event_type="block_end",
+                block_index=open_block_index,
+                agent_id="orchestrator",
             ), next_block_index, False
         yield StreamChunk(
             event_type="error",

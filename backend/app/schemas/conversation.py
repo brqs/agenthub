@@ -74,6 +74,7 @@ class OrchestratorTaskAttemptOut(BaseModel):
     tool_summaries: list[str] = Field(default_factory=list)
     artifact_paths: list[str] = Field(default_factory=list)
     missing_artifact_paths: list[str] = Field(default_factory=list)
+    review_outcome: str | None = None
     error: str | None = None
     created_at: datetime
     completed_at: datetime | None = None
@@ -92,6 +93,9 @@ class OrchestratorTaskOut(BaseModel):
     priority: int
     expected_output: str | None = None
     include_history: bool
+    task_type: str = "implementation"
+    review_of: list[str] = Field(default_factory=list)
+    handoff_reason: str | None = None
     final_state: str
     created_at: datetime
     updated_at: datetime

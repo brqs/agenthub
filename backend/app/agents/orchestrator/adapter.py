@@ -64,6 +64,9 @@ from app.agents.orchestrator.task_planning import (
     agent_id_list as _agent_id_list,
 )
 from app.agents.orchestrator.task_planning import (
+    expand_agent_review_tasks as _expand_agent_review_tasks,
+)
+from app.agents.orchestrator.task_planning import (
     explicit_agent_mentions as _explicit_agent_mentions,
 )
 from app.agents.orchestrator.task_planning import (
@@ -166,6 +169,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 call_id=call_id,
                 tool_name="create_custom_agent",
                 tool_arguments=custom_agent_args,
+                agent_id=self.agent_id,
             )
             executor = merged_config.get("orchestrator_platform_tool_executor")
             if executor is None:
@@ -188,6 +192,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 tool_status=tool_status,
                 tool_output=tool_output,
                 tool_output_truncated=False,
+                agent_id=self.agent_id,
             )
             final_text = _custom_agent_result_text(tool_status, tool_output)
             for chunk in _text_block(next_block_index, final_text):
@@ -313,6 +318,8 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 agent_id=self.agent_id,
             )
             return
+
+        tasks = _expand_agent_review_tasks(merged_config, tasks)
 
         try:
             _ensure_adapter_source(merged_config)

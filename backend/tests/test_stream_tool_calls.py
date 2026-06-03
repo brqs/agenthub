@@ -995,12 +995,15 @@ async def test_openapi_includes_tool_call_block(client: AsyncClient) -> None:
     assert response.status_code == 200
     schemas = response.json()["components"]["schemas"]
     assert "ToolCallBlock" in schemas
+    assert "WorkflowBlock" in schemas
     for schema_name in (
         "TextBlock",
         "CodeBlock",
         "DiffBlock",
         "WebPreviewBlock",
         "FileBlock",
+        "DeploymentStatusBlock",
+        "WorkflowBlock",
         "ToolCallBlock",
     ):
         assert schemas[schema_name]["properties"]["agent_id"] == {

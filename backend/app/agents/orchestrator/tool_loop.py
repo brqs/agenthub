@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator.streams import attach_agent_id
 from app.agents.orchestrator.tools import (
     DEFAULT_TOOL_READ_MAX_BYTES,
     DEFAULT_TOOL_RESULT_MAX_CHARS,
@@ -129,6 +130,7 @@ async def run_orchestrator_tool_loop(
                         yield StreamChunk(
                             event_type="block_end",
                             block_index=open_block_index,
+                            agent_id="orchestrator",
                         ), next_block_index
                     await _finish_memory_run(
                         config,
@@ -136,10 +138,10 @@ async def run_orchestrator_tool_loop(
                         "error",
                         chunk.error or "tool loop model error",
                     )
-                    yield chunk, next_block_index
+                    yield attach_agent_id(chunk, "orchestrator"), next_block_index
                     return
                 if chunk.event_type == "heartbeat":
-                    yield chunk, next_block_index
+                    yield attach_agent_id(chunk, "orchestrator"), next_block_index
                     continue
                 if chunk.event_type not in {"block_start", "delta", "block_end"}:
                     continue
@@ -154,12 +156,13 @@ async def run_orchestrator_tool_loop(
                     open_block_index = remapped.block_index
                 elif remapped.event_type == "block_end":
                     open_block_index = None
-                yield remapped, next_block_index
+                yield attach_agent_id(remapped, "orchestrator"), next_block_index
         except Exception as exc:
             if open_block_index is not None:
                 yield StreamChunk(
                     event_type="block_end",
                     block_index=open_block_index,
+                    agent_id="orchestrator",
                 ), next_block_index
             await _finish_memory_run(config, run_context, "error", str(exc))
             yield StreamChunk(
@@ -227,10 +230,12 @@ async def run_orchestrator_tool_loop(
                         block_index=next_block_index,
                         block_type="deployment_status",
                         metadata=status_card,
+                        agent_id="orchestrator",
                     ), next_block_index + 1
                     yield StreamChunk(
                         event_type="block_end",
                         block_index=next_block_index,
+                        agent_id="orchestrator",
                     ), next_block_index + 1
                     next_block_index += 1
 

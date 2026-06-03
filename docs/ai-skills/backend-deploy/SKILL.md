@@ -13,6 +13,7 @@ Use this skill when the user asks to:
 - 检查当前本地代码是否已同步到运行中的后端服务。
 - 修改 `seed_agents.py`、`ORCHESTRATOR_DEFAULTS` 或内置 Agent 配置后重新 seed。
 - 验证本机后端与公网后端健康状态。
+- 部署后端代码
 - 前端不变，只更新本机后端服务。
 
 ## Environment Facts

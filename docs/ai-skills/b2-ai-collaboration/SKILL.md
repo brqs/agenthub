@@ -122,4 +122,4 @@ B2 协作过程需要保留可评分证据：
 - 可复用流程：更新本 skill 或其他 `docs/ai-skills/*/SKILL.md`。
 - 真实执行结果：写入 implementation report 或 live E2E report。
 - 协作过程：追加 `docs/ai-collaboration-log.md`。
-- 历史任务单：放在 `docs/archive/b2-task-dispatch/`，不要再作为 B2 当前入口。
+- 任务单只保留当前必要 spec / skill；过时历史任务单不再保留为 B2 当前入口。

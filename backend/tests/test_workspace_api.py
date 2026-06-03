@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import zipfile
 from pathlib import Path
@@ -20,6 +21,7 @@ from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
 from app.models.workspace import Workspace
+from app.services.artifact_manifest import ArtifactManifestError, ArtifactManifestService
 from app.services.workspace_container_release import ContainerDeploymentResult
 from app.services.workspace_deployment import WorkspaceDeploymentService
 from app.services.workspace_service import WorkspaceService
@@ -274,6 +276,142 @@ async def test_workspace_file_routes_reject_forbidden_paths(
 
     assert response.status_code == 403
     assert response.json()["detail"]["error"]["code"] == "workspace_violation"
+
+
+async def test_workspace_file_api_forbids_internal_artifact_manifest(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+
+    response = await client.get(
+        f"/api/v1/workspaces/{conversation['id']}/files/.agenthub/artifacts.json",
+        headers=headers,
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"]["code"] == "workspace_violation"
+
+
+async def test_artifact_manifest_service_upserts_and_recovers_bad_json(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    service = ArtifactManifestService()
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, UUID(conversation["id"]))
+        root = Path(workspace.root_path)
+        first = service.upsert_entry(
+            root,
+            {
+                "path": "docs/report.md",
+                "artifact_kind": "document",
+                "filename": "report.md",
+                "size": 10,
+                "mime_type": "text/markdown",
+                "url": "/api/v1/workspaces/x/files/docs/report.md",
+                "agent_id": "agent-a",
+                "task_id": "task-a",
+                "run_id": "run-a",
+                "preview_text": "# Report",
+                "preview_truncated": False,
+                "metadata": {"section_count": 1},
+                "evaluation_status": "unknown",
+                "evaluation_results": [],
+            },
+        )
+        second = service.upsert_entry(
+            root,
+            {
+                **first,
+                "path": "docs/report.md",
+                "size": 20,
+                "evaluation_status": "passed",
+            },
+        )
+        await db.commit()
+
+    entries = service.list_entries(root)
+    assert len(entries) == 1
+    assert entries[0]["size"] == 20
+    assert entries[0]["evaluation_status"] == "passed"
+    assert entries[0]["created_at"] == first["created_at"]
+    assert second["updated_at"] != first["updated_at"]
+
+    (root / ".agenthub" / "artifacts.json").write_text("{bad json", encoding="utf-8")
+    assert service.list_entries(root) == []
+    recovered = (root / ".agenthub" / "artifacts.json").read_text(encoding="utf-8")
+    assert '"version": 1' in recovered
+    assert '"entries": []' in recovered
+
+    with pytest.raises(ArtifactManifestError):
+        service.upsert_entry(root, {"path": ".agenthub/artifacts.json"})
+
+
+async def test_workspace_artifacts_api_returns_manifest_entries(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, UUID(conversation["id"]))
+        ArtifactManifestService().upsert_entry(
+            Path(workspace.root_path),
+            {
+                "path": "slides/deck.pptx",
+                "artifact_kind": "ppt",
+                "filename": "deck.pptx",
+                "size": 123,
+                "mime_type": (
+                    "application/vnd.openxmlformats-officedocument.presentationml."
+                    "presentation"
+                ),
+                "url": (
+                    f"/api/v1/workspaces/{conversation['id']}/files/slides/deck.pptx"
+                ),
+                "agent_id": "codex-helper",
+                "task_id": "task-ppt",
+                "run_id": "run-ppt",
+                "metadata": {"slide_count": 4},
+                "evaluation_status": "manual_review_required",
+                "evaluation_results": [
+                    {
+                        "evaluator": "manual_review_required",
+                        "status": "skipped",
+                        "passed": True,
+                        "checked_artifacts": ["slides/deck.pptx"],
+                    }
+                ],
+            },
+        )
+        await db.commit()
+
+    response = await client.get(
+        f"/api/v1/workspaces/{conversation['id']}/artifacts",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert len(body["items"]) == 1
+    item = body["items"][0]
+    assert item["path"] == "slides/deck.pptx"
+    assert item["artifact_kind"] == "ppt"
+    assert item["agent_id"] == "codex-helper"
+    assert item["task_id"] == "task-ppt"
+    assert item["run_id"] == "run-ppt"
+    assert item["evaluation_status"] == "manual_review_required"
+    assert ".agenthub" not in json.dumps(body)
+
+
+async def test_openapi_includes_workspace_artifact_schemas(client: AsyncClient) -> None:
+    response = await client.get("/openapi.json")
+
+    assert response.status_code == 200
+    schemas = response.json()["components"]["schemas"]
+    assert "WorkspaceArtifactResponse" in schemas
+    assert "WorkspaceArtifactListResponse" in schemas
 
 
 async def test_read_workspace_file_rejects_large_file(client: AsyncClient) -> None:
@@ -1057,5 +1195,8 @@ async def test_openapi_includes_workspace_routes(client: AsyncClient) -> None:
     assert "/api/v1/workspaces/{conversation_id}/tree" in paths
     assert "/api/v1/workspaces/{conversation_id}/files/{path}" in paths
     assert "/api/v1/workspaces/{conversation_id}/preview/verify" in paths
+    assert "/api/v1/workspaces/{conversation_id}/workflow-runs" in paths
+    assert "/api/v1/workspaces/{conversation_id}/workflow-runs/{run_id}" in paths
+    assert "/api/v1/workspaces/{conversation_id}/workflow-health" in paths
     assert "/releases/{release_token}" in paths
     assert "/releases/{release_token}/{path}" in paths
