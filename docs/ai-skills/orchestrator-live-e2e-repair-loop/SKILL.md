@@ -7,7 +7,7 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 
 > 类型：AI 协作 Skill / 测试修复闭环
 > 适用范围：AgentHub Orchestrator、workspace artifact、preview/browser verify、B2 P0/P1 live E2E
-> 最后更新：2026-06-01
+> 最后更新：2026-06-03
 
 ---
 
@@ -91,6 +91,14 @@ orchestrator, claude-code, opencode-helper, codex-helper
 
 每次首次执行 live E2E，以及每次修复代码后重跑失败 case 前，都必须先完成本节。不能因为上一次 E2E 跑通过就跳过。
 
+核心原则：
+
+- live E2E 测试的是“当前运行中的服务实例”，不是本地工作区源码。
+- `/health` 只能证明服务活着，不能证明它已经加载本轮代码。
+- 只要本轮修改了后端运行代码、配置、migration、seed 默认值或脚本，就必须先同步运行实例，再跑 E2E。
+- 当前后端和代码仓库在同一台机器上，但 Python 服务不会自动热更新；本地文件改完后，如果后端进程没有重启，E2E 仍可能测到旧代码。
+- 只有在确认本轮变更不影响运行实例时，才可以跳过同步，并且必须在报告里写明原因。
+
 ### 4.1 判断变更范围
 
 ```bash
@@ -99,6 +107,17 @@ git status --short
 git diff --name-only
 git ls-files --others --exclude-standard
 ```
+
+同时记录当前代码版本和运行进程：
+
+```bash
+git branch --show-current
+git log -1 --oneline
+systemctl show agenthub-backend -p MainPID -p ExecMainStartTimestamp --no-pager
+pgrep -af 'uvicorn app.main:app.*--port 8000'
+```
+
+如果本轮有未提交或未部署的 runtime 相关改动，不能因为 `git log -1` 没变就认为运行实例已同步；未提交改动同样需要重启或重新部署。
 
 按文件范围执行同步动作：
 
@@ -109,6 +128,14 @@ git ls-files --others --exclude-standard
 | `seed_agents.py`、`ORCHESTRATOR_DEFAULTS`、内置 Agent config | 重启后端后重新执行 `uv run python -m app.seeds.seed_agents` |
 | `frontend/**`、`shared/openapi.yaml` 且验收远端 UI | 重新构建并部署前端 |
 | 仅 docs / tests | 不要求重启运行服务，但要明确记录 |
+
+跳过运行代码同步只允许以下情况：
+
+- 只修改了 docs、spec、skill、测试文件，且本轮 E2E 不依赖这些文件。
+- 只修改了前端代码，但本轮 E2E 明确只验证后端 API/SSE，不验收远端 UI。
+- 已经在本轮修改后完成过部署同步，并且记录了新 PID、health、migration/seed 状态和关键 API 断言。
+
+其他情况默认需要同步运行代码。不要把“服务正在运行”当作“代码已同步”。
 
 ### 4.2 同步本机后端运行实例
 
@@ -129,6 +156,17 @@ docs/ai-skills/backend-deploy/SKILL.md
 - 对本轮关键能力的 API 断言，例如 `/api/v1/agents` 配置或 OpenAPI 新路由。
 
 `/health` 返回正常只能证明服务存活，不能单独证明运行实例已经加载本轮代码。必须结合进程重启证据和关键 API 断言。
+
+判定运行代码已同步的最低证据：
+
+```text
+1. 已记录本地 diff / commit。
+2. 如有后端 runtime 变更，重启后 PID 与重启前不同。
+3. 如有 migration，alembic current 已到最新 head。
+4. 如有 seed/default config 变更，seed 已执行并通过 API 查到新配置。
+5. 本机和公网 /health 正常。
+6. 至少一个与本轮改动相关的关键 API 断言通过。
+```
 
 ### 4.3 通过门禁后再运行 live E2E
 

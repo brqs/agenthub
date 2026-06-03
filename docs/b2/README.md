@@ -7,7 +7,6 @@
 | 入口 | 用途 |
 |---|---|
 | [spec/README.md](spec/README.md) | B2 spec 总索引：阅读顺序、状态分类、唯一事实来源、更新规则 |
-| [spec/b2-refactor-plan.spec.md](spec/b2-refactor-plan.spec.md) | B2 业务代码与文档重构计划、当前执行状态、后续拆分边界 |
 | [spec/b2-pdf-gap-todo.spec.md](spec/b2-pdf-gap-todo.spec.md) | 对照课程 PDF 后的 B2 缺口 TODO 清单 |
 | [spec/orchestrator/README.md](spec/orchestrator/README.md) | Orchestrator spec package：主契约、planning、tools、memory、conflict、E2E |
 | [spec/orchestrator/live-e2e-report.spec.md](spec/orchestrator/live-e2e-report.spec.md) | Orchestrator 真实 E2E、回归部署与 bugfix 证据 |
@@ -15,7 +14,6 @@
 | [spec/external-runtime-adapters.spec.md](spec/external-runtime-adapters.spec.md) | Claude Code / Codex / OpenCode adapter 细节 |
 | [spec/external-direct-chat-routing.spec.md](spec/external-direct-chat-routing.spec.md) | External Agent 纯问答 / Runtime 路由 |
 | [spec/model-gateway.spec.md](spec/model-gateway.spec.md) | ModelGateway backend 与 resilience |
-| [frontend-release-handoff.md](frontend-release-handoff.md) | 前端远端发布交接：当前线上构建差异、状态卡发布步骤和联调信息清单 |
 
 ## 当前模块地图
 
@@ -41,16 +39,24 @@
 | Stream boundary extraction | partial implemented | content accumulator / orchestrator context 已拆出 |
 | External runtime common layer | mostly implemented | prelude、SDK stream folding、argv/error/truncate utility 已拆出，OpenCode JSONL 主循环保留在 adapter 内 |
 | Config schema single source | mostly implemented | numeric field metadata 与 seed 默认值已共享，OpenAPI 字段/bounds 有测试防漂移 |
-| Docs re-index | implemented | 本 README 和 refactor plan 作为当前接手入口，历史 spec 暂不大搬迁以保留链接稳定 |
+| Docs re-index | implemented | 本 README 和 spec index 作为当前接手入口；过时过程文档已删除 |
 | B2 P0 PDF gaps | implemented | 并行 DAG、workspace 冲突检测、对话式自建 Agent 已通过 live E2E，见对应架构 spec 与 live E2E report |
 
-## Task Dispatch
+## AI 协作流程
 
 | 文档 | 用途 |
 |---|---|
 | [../ai-skills/b2-ai-collaboration/SKILL.md](../ai-skills/b2-ai-collaboration/SKILL.md) | B2 AI 子任务分发、批量派工与 Codex 复审 Skill |
 | [../ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md](../ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md) | Orchestrator 真实 E2E 测试与失败修复闭环 Skill |
-| [../archive/b2-task-dispatch/README.md](../archive/b2-task-dispatch/README.md) | B2-01 到 B2-20 历史子任务分发证据 |
+
+## 相关外部协作文档
+
+| 文档 | 用途 |
+|---|---|
+| [../b1/spec/stream-error-status.spec.md](../b1/spec/stream-error-status.spec.md) | B1 SSE error 状态持久化协同 |
+| [../frontend/deployment-release-handoff.md](../frontend/deployment-release-handoff.md) | 前端远端发布交接：状态卡发布步骤和联调信息清单 |
+| [../frontend/agent-review-thread-handoff.md](../frontend/agent-review-thread-handoff.md) | Agent-to-Agent Review Thread 前端 timeline 产品化交接 |
+| [../frontend/rich-artifact-preview-handoff.md](../frontend/rich-artifact-preview-handoff.md) | Rich Artifact / manifest API / evaluation status 前端产品化交接 |
 
 ## Spec
 
@@ -59,7 +65,6 @@
 | Spec | 用途 |
 |---|---|
 | [spec/README.md](spec/README.md) | B2 spec 总索引 |
-| [spec/b2-refactor-plan.spec.md](spec/b2-refactor-plan.spec.md) | B2 业务代码与文档重构计划 |
 | [spec/b2-pdf-gap-todo.spec.md](spec/b2-pdf-gap-todo.spec.md) | 对照课程 PDF 后的 B2 缺口 TODO 清单 |
 | [spec/orchestrator/README.md](spec/orchestrator/README.md) | Orchestrator spec package 总入口 |
 | [spec/orchestrator/live-e2e-report.spec.md](spec/orchestrator/live-e2e-report.spec.md) | Orchestrator 真实 E2E、回归部署与 bugfix 证据 |
@@ -70,14 +75,11 @@
 | [spec/model-gateway.spec.md](spec/model-gateway.spec.md) | ModelGateway backend 与 resilience |
 | [spec/orchestrator/core.spec.md](spec/orchestrator/core.spec.md) | Orchestrator 行为契约 |
 | [spec/orchestrator/task-planning.spec.md](spec/orchestrator/task-planning.spec.md) | Orchestrator 任务规划与分配规则 |
-| [spec/orchestrator/react-dynamic-task-graph.proposal.md](spec/orchestrator/react-dynamic-task-graph.proposal.md) | Orchestrator ReAct 动态任务图设计 |
 | [spec/orchestrator/memory-context.spec.md](spec/orchestrator/memory-context.spec.md) | Orchestrator 结构化记忆与上下文管理 |
-| [spec/orchestrator/memory-context.execution.spec.md](spec/orchestrator/memory-context.execution.spec.md) | Orchestrator 结构化记忆 v1 真实执行结果 |
 | [spec/orchestrator/tool-calling.spec.md](spec/orchestrator/tool-calling.spec.md) | Orchestrator 原生 Tool Calling Agent 设计 |
 | [spec/agent-config-validation.spec.md](spec/agent-config-validation.spec.md) | Agent 配置校验 |
 | [spec/artifact-parser-v2.spec.md](spec/artifact-parser-v2.spec.md) | ArtifactParser v2 |
 | [spec/external-direct-chat-routing.spec.md](spec/external-direct-chat-routing.spec.md) | External Agent 纯问答 / Runtime 路由 |
 | [spec/external-runtime-adapters.spec.md](spec/external-runtime-adapters.spec.md) | Claude Code / Codex / OpenCode adapter 细节 |
 | [spec/external-runtime-lifecycle.spec.md](spec/external-runtime-lifecycle.spec.md) | External runtime timeout / heartbeat / cancel / cleanup |
-| [spec/stream-error-status.spec.md](spec/stream-error-status.spec.md) | SSE error 状态持久化协同 |
 | [spec/workspace-artifact-preview.spec.md](spec/workspace-artifact-preview.spec.md) | Workspace artifact / preview / deploy 边界 |

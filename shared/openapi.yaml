@@ -1,1544 +1,3536 @@
-openapi: 3.0.3
+openapi: 3.1.0
 info:
   title: AgentHub API
+  description: Multi-agent collaboration platform — IM-style chat interface.
   version: 0.1.0
-  description: |
-    AgentHub 多 Agent 协作平台 API。
-
-    详细规范见 docs/api-spec.md。
-  contact:
-    name: AgentHub Team
-
-servers:
-  - url: http://localhost:8000
-    description: Local dev
-
-# ───────────────────────────────────────────────────────
-# 安全方案
-# ───────────────────────────────────────────────────────
-components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-  # ─────────────────────────────────────────────────────
-  # 数据模型
-  # ─────────────────────────────────────────────────────
-  schemas:
-    # ─── 通用 ───
-    Error:
-      type: object
-      required: [error]
-      properties:
-        error:
-          type: object
-          required: [code, message]
-          properties:
-            code: { type: string, example: RESOURCE_NOT_FOUND }
-            message: { type: string }
-            details: { type: object, additionalProperties: true }
-
-    OffsetPagination:
-      type: object
-      required: [items, total, page, page_size]
-      properties:
-        items: { type: array, items: {} }
-        total: { type: integer }
-        page: { type: integer }
-        page_size: { type: integer }
-
-    CursorPagination:
-      type: object
-      required: [items, has_more]
-      properties:
-        items: { type: array, items: {} }
-        next_cursor: { type: string, nullable: true }
-        has_more: { type: boolean }
-
-    # ─── ContentBlock 联合类型 ───
-    TextBlock:
-      type: object
-      required: [type, text]
-      properties:
-        type: { type: string, enum: [text] }
-        agent_id: { type: string, nullable: true }
-        text: { type: string }
-
-    CodeBlock:
-      type: object
-      required: [type, language, code]
-      properties:
-        type: { type: string, enum: [code] }
-        agent_id: { type: string, nullable: true }
-        language: { type: string }
-        code: { type: string }
-
-    DiffBlock:
-      type: object
-      required: [type, filename, before, after]
-      properties:
-        type: { type: string, enum: [diff] }
-        agent_id: { type: string, nullable: true }
-        filename: { type: string }
-        before: { type: string }
-        after: { type: string }
-
-    WebPreviewBlock:
-      type: object
-      required: [type, url]
-      properties:
-        type: { type: string, enum: [web_preview] }
-        agent_id: { type: string, nullable: true }
-        url: { type: string, format: uri }
-        title: { type: string, nullable: true }
-        description: { type: string, nullable: true }
-        thumbnail_url: { type: string, nullable: true }
-
-    FileBlock:
-      type: object
-      required: [type, filename, url, size, mime_type]
-      properties:
-        type: { type: string, enum: [file] }
-        agent_id: { type: string, nullable: true }
-        filename: { type: string }
-        url: { type: string, format: uri }
-        size: { type: integer }
-        mime_type: { type: string }
-
-    DeploymentStatusBlock:
-      type: object
-      required: [type, deployment_id, kind, status]
-      properties:
-        type: { type: string, enum: [deployment_status] }
-        deployment_id: { type: string }
-        kind: { type: string, enum: [static_site, source_zip, container] }
-        status: { type: string, enum: [queued, publishing, published, failed, stopped, not_supported] }
-        title: { type: string, nullable: true }
-        url: { type: string, nullable: true }
-        download_url: { type: string, nullable: true }
-        error: { type: string, nullable: true }
-        logs_preview: { type: string, nullable: true }
-        size_bytes: { type: integer, nullable: true }
-        artifact_digest: { type: string, nullable: true }
-        file_count: { type: integer, nullable: true }
-        published_at: { type: string, format: date-time, nullable: true }
-        stopped_at: { type: string, format: date-time, nullable: true }
-        expires_at: { type: string, format: date-time, nullable: true }
-        runtime_kind: { type: string, nullable: true }
-        runtime_status: { type: string, nullable: true }
-        host_port: { type: integer, nullable: true }
-        container_port: { type: integer, nullable: true }
-        healthcheck_url: { type: string, nullable: true }
-
-    ToolCallBlock:
-      type: object
-      required: [type, call_id, tool_name, arguments, status]
-      properties:
-        type: { type: string, enum: [tool_call] }
-        agent_id: { type: string, nullable: true }
-        call_id: { type: string }
-        tool_name: { type: string }
-        arguments:
-          type: object
-          additionalProperties: true
-        status: { type: string, enum: [pending, ok, error] }
-        output_preview: { type: string, nullable: true }
-        output_truncated: { type: boolean, nullable: true }
-        error_code: { type: string, nullable: true }
-
-    ContentBlock:
-      oneOf:
-        - $ref: '#/components/schemas/TextBlock'
-        - $ref: '#/components/schemas/CodeBlock'
-        - $ref: '#/components/schemas/DiffBlock'
-        - $ref: '#/components/schemas/WebPreviewBlock'
-        - $ref: '#/components/schemas/FileBlock'
-        - $ref: '#/components/schemas/DeploymentStatusBlock'
-        - $ref: '#/components/schemas/ToolCallBlock'
-      discriminator:
-        propertyName: type
-        mapping:
-          text: '#/components/schemas/TextBlock'
-          code: '#/components/schemas/CodeBlock'
-          diff: '#/components/schemas/DiffBlock'
-          web_preview: '#/components/schemas/WebPreviewBlock'
-          file: '#/components/schemas/FileBlock'
-          deployment_status: '#/components/schemas/DeploymentStatusBlock'
-          tool_call: '#/components/schemas/ToolCallBlock'
-
-    # ─── User ───
-    User:
-      type: object
-      required: [id, username, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        username: { type: string }
-        avatar_url: { type: string, nullable: true }
-        created_at: { type: string, format: date-time }
-
-    RegisterRequest:
-      type: object
-      required: [username, password]
-      properties:
-        username:
-          type: string
-          minLength: 3
-          maxLength: 32
-          pattern: '^[a-zA-Z0-9_]+$'
-        password:
-          type: string
-          minLength: 8
-
-    LoginRequest:
-      type: object
-      required: [username, password]
-      properties:
-        username: { type: string }
-        password: { type: string }
-
-    AuthResponse:
-      type: object
-      required: [access_token, token_type, expires_in, user]
-      properties:
-        access_token: { type: string }
-        token_type: { type: string, enum: [bearer] }
-        expires_in: { type: integer, description: 'seconds' }
-        user: { $ref: '#/components/schemas/User' }
-
-    # ─── Conversation ───
-    ConversationMode:
-      type: string
-      enum: [single, group]
-
-    Conversation:
-      type: object
-      required: [id, title, mode, agent_ids, is_pinned, is_archived, last_message_at, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        title: { type: string }
-        mode: { $ref: '#/components/schemas/ConversationMode' }
-        agent_ids:
-          type: array
-          items: { type: string }
-        is_pinned: { type: boolean }
-        is_archived: { type: boolean }
-        last_message_at: { type: string, format: date-time }
-        last_message_preview: { type: string, nullable: true }
-        created_at: { type: string, format: date-time }
-
-    CreateConversationRequest:
-      type: object
-      required: [title, mode, agent_ids]
-      properties:
-        title: { type: string, minLength: 1, maxLength: 255 }
-        mode: { $ref: '#/components/schemas/ConversationMode' }
-        agent_ids:
-          type: array
-          items: { type: string }
-          minItems: 1
-
-    UpdateConversationRequest:
-      type: object
-      properties:
-        title: { type: string }
-        is_pinned: { type: boolean }
-        is_archived: { type: boolean }
-
-    ConversationList:
-      allOf:
-        - $ref: '#/components/schemas/OffsetPagination'
-        - type: object
-          properties:
-            items:
-              type: array
-              items: { $ref: '#/components/schemas/Conversation' }
-
-    ConversationMemory:
-      type: object
-      required:
-        - conversation_id
-        - summary_text
-        - source_message_count
-        - source_token_estimate
-        - summary_token_estimate
-        - algorithm_version
-        - created_at
-        - updated_at
-      properties:
-        conversation_id: { type: string, format: uuid }
-        summary_text: { type: string }
-        summarized_until_message_id:
-          type: string
-          format: uuid
-          nullable: true
-        source_message_count: { type: integer }
-        source_token_estimate: { type: integer }
-        summary_token_estimate: { type: integer }
-        algorithm_version: { type: string, example: rules-v1 }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-
-    OrchestratorRun:
-      type: object
-      required: [id, conversation_id, status, user_request, plan_source, final_summary, created_at, updated_at]
-      properties:
-        id: { type: string, format: uuid }
-        conversation_id: { type: string, format: uuid }
-        agent_message_id: { type: string, format: uuid, nullable: true }
-        user_message_id: { type: string, format: uuid, nullable: true }
-        status: { type: string, enum: [running, done, error, cancelled] }
-        user_request: { type: string }
-        plan_source: { type: string }
-        final_summary: { type: string }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-        completed_at: { type: string, format: date-time, nullable: true }
-
-    OrchestratorTask:
-      type: object
-      required: [id, run_id, task_id, agent_id, title, instruction, depends_on, priority, include_history, final_state, created_at, updated_at]
-      properties:
-        id: { type: string, format: uuid }
-        run_id: { type: string, format: uuid }
-        task_id: { type: string }
-        agent_id: { type: string }
-        title: { type: string }
-        instruction: { type: string }
-        depends_on:
-          type: array
-          items: { type: string }
-        priority: { type: integer }
-        expected_output: { type: string, nullable: true }
-        include_history: { type: boolean }
-        final_state: { type: string }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-
-    OrchestratorTaskAttempt:
-      type: object
-      required: [id, run_id, task_row_id, task_id, attempt_index, agent_id, state, text_preview, tool_summaries, artifact_paths, missing_artifact_paths, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        run_id: { type: string, format: uuid }
-        task_row_id: { type: string, format: uuid }
-        task_id: { type: string }
-        attempt_index: { type: integer }
-        agent_id: { type: string }
-        state: { type: string }
-        text_preview: { type: string }
-        tool_summaries:
-          type: array
-          items: { type: string }
-        artifact_paths:
-          type: array
-          items: { type: string }
-        missing_artifact_paths:
-          type: array
-          items: { type: string }
-        error: { type: string, nullable: true }
-        created_at: { type: string, format: date-time }
-        completed_at: { type: string, format: date-time, nullable: true }
-
-    OrchestratorRunEvent:
-      type: object
-      required: [id, run_id, event_type, payload, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        run_id: { type: string, format: uuid }
-        event_type: { type: string }
-        task_id: { type: string, nullable: true }
-        agent_id: { type: string, nullable: true }
-        payload: { type: object, additionalProperties: true }
-        created_at: { type: string, format: date-time }
-
-    OrchestratorRunList:
-      type: object
-      required: [items, total]
-      properties:
-        items:
-          type: array
-          items: { $ref: '#/components/schemas/OrchestratorRun' }
-        total: { type: integer }
-
-    OrchestratorRunDetail:
-      type: object
-      required: [run, tasks, attempts, events]
-      properties:
-        run: { $ref: '#/components/schemas/OrchestratorRun' }
-        tasks:
-          type: array
-          items: { $ref: '#/components/schemas/OrchestratorTask' }
-        attempts:
-          type: array
-          items: { $ref: '#/components/schemas/OrchestratorTaskAttempt' }
-        events:
-          type: array
-          items: { $ref: '#/components/schemas/OrchestratorRunEvent' }
-
-    ContextCompressionConfig:
-      type: object
-      required:
-        - mode
-        - provider
-        - model
-        - summary_max_tokens
-        - recent_raw_keep
-        - api_key_configured
-        - api_key_source
-        - base_url
-        - supported_models
-      properties:
-        mode: { type: string, enum: [hybrid, rules] }
-        provider:
-          type: string
-          enum: [deepseek, openai, openai_compatible, anthropic]
-        model: { type: string, example: deepseek-v4-flash }
-        summary_max_tokens: { type: integer, example: 1200 }
-        recent_raw_keep: { type: integer, example: 12 }
-        api_key_configured: { type: boolean }
-        api_key_source:
-          type: string
-          enum:
-            - context_compression_api_key
-            - missing
-        api_key_preview:
-          type: string
-          nullable: true
-          example: sk-***f0cb
-        base_url: { type: string, example: https://api.deepseek.com }
-        supported_models:
-          type: array
-          items: { type: string }
-
-    UpdateContextCompressionConfigRequest:
-      type: object
-      properties:
-        mode: { type: string, enum: [hybrid, rules] }
-        provider:
-          type: string
-          enum: [deepseek, openai, openai_compatible, anthropic, claude]
-        model:
-          type: string
-          example: deepseek-v4-flash
-        api_key:
-          type: string
-          writeOnly: true
-        base_url:
-          type: string
-          example: https://api.deepseek.com
-        summary_max_tokens:
-          type: integer
-          minimum: 256
-          maximum: 8192
-        recent_raw_keep:
-          type: integer
-          minimum: 1
-          maximum: 100
-
-    ContextCompressionTestRequest:
-      type: object
-      properties:
-        provider:
-          type: string
-          enum: [deepseek, openai, openai_compatible, anthropic, claude]
-        model:
-          type: string
-          example: deepseek-v4-flash
-        api_key:
-          type: string
-          writeOnly: true
-        base_url:
-          type: string
-          example: https://api.deepseek.com
-
-    ContextCompressionTestResult:
-      type: object
-      required: [ok, provider, model]
-      properties:
-        ok: { type: boolean }
-        provider: { type: string }
-        model: { type: string }
-        error_code: { type: string, nullable: true }
-        message: { type: string, nullable: true }
-
-    # ─── Message ───
-    MessageRole:
-      type: string
-      enum: [user, agent, system]
-
-    MessageStatus:
-      type: string
-      enum: [pending, streaming, done, error]
-
-    Message:
-      type: object
-      required: [id, conversation_id, role, content, status, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        conversation_id: { type: string, format: uuid }
-        role: { $ref: '#/components/schemas/MessageRole' }
-        agent_id: { type: string, nullable: true }
-        content:
-          type: array
-          items: { $ref: '#/components/schemas/ContentBlock' }
-        reply_to_id: { type: string, format: uuid, nullable: true }
-        status: { $ref: '#/components/schemas/MessageStatus' }
-        is_pinned: { type: boolean, default: false }
-        created_at: { type: string, format: date-time }
-
-    SendMessageRequest:
-      type: object
-      required: [content]
-      properties:
-        content:
-          type: array
-          items: { $ref: '#/components/schemas/ContentBlock' }
-          minItems: 1
-        target_agent_id:
-          type: string
-          nullable: true
-          description: '群聊时指定目标 Agent；单聊可省略'
-
-    SendMessageResponse:
-      type: object
-      required: [user_message, agent_message]
-      properties:
-        user_message: { $ref: '#/components/schemas/Message' }
-        agent_message: { $ref: '#/components/schemas/Message' }
-
-    UpdateMessageRequest:
-      type: object
-      properties:
-        is_pinned: { type: boolean }
-
-    MessageList:
-      allOf:
-        - $ref: '#/components/schemas/CursorPagination'
-        - type: object
-          properties:
-            items:
-              type: array
-              items: { $ref: '#/components/schemas/Message' }
-
-    # ─── Agent ───
-    AgentProvider:
-      type: string
-      enum: [claude_code, codex, opencode, builtin, mock, claude, deepseek, openai, custom]
-
-    CreatableAgentProvider:
-      type: string
-      enum: [claude_code, codex, opencode, builtin]
-
-    AgentConfig:
-      type: object
-      additionalProperties: true
-      properties:
-        model_backend:
-          type: string
-          enum: [claude, deepseek, openai]
-          description: ModelGateway backend for builtin agents.
-        answer_model_backend:
-          type: string
-          enum: [claude, deepseek, openai]
-          description: ModelGateway backend for orchestrator direct answers.
-        planner_model_backend:
-          type: string
-          enum: [claude, deepseek, openai]
-          description: ModelGateway backend for orchestrator LLM planning.
-        llm_planning:
-          type: boolean
-          default: true
-          description: Whether Orchestrator uses LLM planning for task decomposition.
-        planner_fallback_to_template:
-          type: boolean
-          description: Whether planner failures may fall back to legacy template tasks.
-        orchestrator_llm_config:
-          type: object
-          additionalProperties: true
-          description: Model parameters shared by orchestrator planner/replanner.
-        max_iterations: { type: integer, minimum: 1, maximum: 50 }
-        react_enabled:
-          type: boolean
-          description: Whether builtin orchestrator uses ReAct dynamic task graph execution.
-        react_trace_visible:
-          type: boolean
-          description: Whether ReAct step/action/observation summaries are visible in chat output.
-        react_decision_max_tokens: { type: integer, minimum: 1, maximum: 4096 }
-        mcp_servers:
-          type: array
-          items: { type: object, additionalProperties: true }
-        allowed_tools:
-          type: array
-          items: { type: string }
-          description: Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools.
-        command:
-          oneOf:
-            - { type: string }
-            - type: array
-              items: { type: string }
-        args:
-          type: array
-          items: { type: string }
-        timeout_seconds: { type: number, minimum: 1, maximum: 3600 }
-        max_runtime_seconds: { type: number, minimum: 1, maximum: 3600 }
-        idle_timeout_seconds: { type: number, minimum: 1, maximum: 3600 }
-        heartbeat_interval_seconds: { type: number, minimum: 1, maximum: 3600 }
-        qa_short_circuit_enabled:
-          type: boolean
-          description: Whether external runtime agents may answer pure Q&A through ModelGateway without starting SDK/CLI.
-        qa_model_backend:
-          type: string
-          enum: [claude, deepseek, openai]
-          description: ModelGateway backend for external direct chat.
-        qa_model:
-          type: string
-          nullable: true
-        qa_classifier_model:
-          type: string
-          nullable: true
-        qa_max_tokens: { type: integer, minimum: 1, maximum: 32000 }
-        qa_classifier_max_tokens: { type: integer, minimum: 1, maximum: 1024 }
-        qa_temperature: { type: number, minimum: 0, maximum: 2 }
-        qa_request_timeout_seconds: { type: number, minimum: 1, maximum: 120 }
-        task_fallback_agent_ids:
-          type: array
-          items: { type: string }
-          description: Optional per-task fallback agents for orchestrator retries.
-        max_task_attempts: { type: integer, minimum: 1, maximum: 3 }
-        task_result_context_max_chars: { type: integer, minimum: 1, maximum: 32000 }
-        task_result_item_max_chars: { type: integer, minimum: 1, maximum: 8000 }
-        orchestrator_memory_enabled:
-          type: boolean
-          description: Whether Orchestrator writes and injects structured run memory.
-        orchestrator_memory_recent_runs: { type: integer, minimum: 1, maximum: 10 }
-        orchestrator_memory_context_max_chars: { type: integer, minimum: 1, maximum: 32000 }
-        orchestrator_tool_calling_enabled:
-          type: boolean
-          description: Whether Orchestrator uses native tool calling for ordinary task requests.
-        orchestrator_tool_trace_visible:
-          type: boolean
-          description: Whether Orchestrator native tool_call/tool_result events are visible in chat output.
-        orchestrator_tool_max_iterations: { type: integer, minimum: 1, maximum: 50 }
-        orchestrator_tool_result_max_chars: { type: integer, minimum: 1, maximum: 32000 }
-        orchestrator_tool_read_max_bytes: { type: integer, minimum: 1, maximum: 1048576 }
-        orchestrator_parallel_enabled:
-          type: boolean
-          default: true
-          description: Whether Orchestrator may execute independent DAG tasks concurrently.
-        orchestrator_parallel_max_concurrency: { type: integer, minimum: 1, maximum: 10, default: 3 }
-        orchestrator_evaluation_enabled:
-          type: boolean
-          default: true
-          description: Whether Orchestrator runs artifact evaluation and reflection.
-        orchestrator_evaluation_read_max_bytes: { type: integer, minimum: 1, maximum: 1048576, default: 65536 }
-        orchestrator_test_runner_enabled:
-          type: boolean
-          default: false
-          description: Whether Orchestrator may run allowlisted deterministic test evaluators.
-        orchestrator_test_command_allowlist:
-          type: array
-          default: []
-          items: { type: string }
-          description: Allowlisted test evaluator aliases, such as python_compile_artifacts.
-
-    Agent:
-      type: object
-      required: [id, name, provider, avatar_url, capabilities, config, is_builtin, created_at]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        provider: { $ref: '#/components/schemas/AgentProvider' }
-        avatar_url: { type: string }
-        capabilities:
-          type: array
-          items: { type: string }
-        system_prompt: { type: string, nullable: true }
-        config: { $ref: '#/components/schemas/AgentConfig' }
-        is_builtin: { type: boolean }
-        created_at: { type: string, format: date-time }
-
-    CreateAgentRequest:
-      type: object
-      required: [name, provider, config]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 64 }
-        provider: { $ref: '#/components/schemas/CreatableAgentProvider' }
-        avatar_url: { type: string, default: '' }
-        capabilities:
-          type: array
-          items: { type: string }
-          maxItems: 10
-          default: []
-        system_prompt: { type: string, nullable: true, maxLength: 8192 }
-        config: { $ref: '#/components/schemas/AgentConfig' }
-
-    UpdateAgentRequest:
-      type: object
-      properties:
-        name: { type: string, minLength: 1, maxLength: 64 }
-        avatar_url: { type: string }
-        capabilities:
-          type: array
-          items: { type: string }
-          maxItems: 10
-        system_prompt: { type: string, nullable: true, maxLength: 8192 }
-        config: { $ref: '#/components/schemas/AgentConfig' }
-
-    AgentList:
-      allOf:
-        - $ref: '#/components/schemas/OffsetPagination'
-        - type: object
-          properties:
-            items:
-              type: array
-              items: { $ref: '#/components/schemas/Agent' }
-
-    WorkspaceTreeNode:
-      type: object
-      required: [name, path, type]
-      properties:
-        name: { type: string }
-        path: { type: string, description: Path relative to workspace root }
-        type: { type: string, enum: [directory, file] }
-        children:
-          type: array
-          items: { $ref: '#/components/schemas/WorkspaceTreeNode' }
-        size: { type: integer, nullable: true }
-        mime_type: { type: string, nullable: true }
-
-    WorkspaceTreeResponse:
-      type: object
-      required: [root, tree]
-      properties:
-        root: { type: string, example: /workspaces/00000000-0000-0000-0000-000000000000 }
-        tree: { $ref: '#/components/schemas/WorkspaceTreeNode' }
-
-    WorkspacePreviewRequest:
-      type: object
-      required: [entry_path]
-      properties:
-        entry_path: { type: string, minLength: 1, maxLength: 512 }
-        mode: { type: string, enum: [static], default: static }
-        requested_port: { type: integer, minimum: 1, maximum: 65535, nullable: true }
-
-    WorkspacePreviewResponse:
-      type: object
-      required: [id, conversation_id, workspace_id, entry_path, mode, port, url, status, created_at, updated_at, last_accessed_at]
-      properties:
-        id: { type: string, format: uuid }
-        conversation_id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
-        entry_path: { type: string }
-        mode: { type: string, enum: [static] }
-        port: { type: integer }
-        pid: { type: integer, nullable: true }
-        url: { type: string }
-        status: { type: string, enum: [starting, running, stopped, error] }
-        error: { type: string, nullable: true }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-        last_accessed_at: { type: string, format: date-time }
-
-    WorkspaceDeploymentRequest:
-      type: object
-      required: [kind]
-      properties:
-        kind: { type: string, enum: [static_site, source_zip, container] }
-        entry_path: { type: string, minLength: 1, maxLength: 512, nullable: true }
-        requested_port: { type: integer, minimum: 1, maximum: 65535, nullable: true }
-        container_port: { type: integer, minimum: 1, maximum: 65535, nullable: true }
-        health_path: { type: string, minLength: 1, maxLength: 256, nullable: true }
-        start_command: { type: string, maxLength: 512, nullable: true }
-
-    WorkspaceDeploymentResponse:
-      type: object
-      required: [id, conversation_id, workspace_id, kind, status, logs, created_at, updated_at]
-      properties:
-        id: { type: string, format: uuid }
-        conversation_id: { type: string, format: uuid }
-        workspace_id: { type: string, format: uuid }
-        kind: { type: string, enum: [static_site, source_zip, container] }
-        status: { type: string, enum: [queued, publishing, published, failed, stopped, not_supported] }
-        entry_path: { type: string, nullable: true }
-        url: { type: string, nullable: true }
-        download_url: { type: string, nullable: true }
-        error: { type: string, nullable: true }
-        logs: { type: array, items: { type: string } }
-        size_bytes: { type: integer, nullable: true }
-        artifact_digest: { type: string, nullable: true }
-        file_count: { type: integer, nullable: true }
-        published_at: { type: string, format: date-time, nullable: true }
-        stopped_at: { type: string, format: date-time, nullable: true }
-        expires_at: { type: string, format: date-time, nullable: true }
-        runtime_id: { type: string, nullable: true }
-        image_id: { type: string, nullable: true }
-        container_id: { type: string, nullable: true }
-        host_port: { type: integer, nullable: true }
-        container_port: { type: integer, nullable: true }
-        runtime_kind: { type: string, nullable: true }
-        runtime_status: { type: string, nullable: true }
-        healthcheck_url: { type: string, nullable: true }
-        logs_tail: { type: string, nullable: true }
-        queued_at: { type: string, format: date-time, nullable: true }
-        started_at: { type: string, format: date-time, nullable: true }
-        completed_at: { type: string, format: date-time, nullable: true }
-        last_checked_at: { type: string, format: date-time, nullable: true }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-
-    WorkspaceDeploymentListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
-
-  # ─── 通用响应 ───
-  responses:
-    BadRequest:
-      description: Bad request
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-    Unauthorized:
-      description: Unauthorized
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-    Forbidden:
-      description: Forbidden
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-    NotFound:
-      description: Resource not found
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-    Conflict:
-      description: Conflict
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-    ValidationError:
-      description: Validation error
-      content:
-        application/json:
-          schema: { $ref: '#/components/schemas/Error' }
-
-security:
-  - BearerAuth: []
-
-# ───────────────────────────────────────────────────────
-# 路径
-# ───────────────────────────────────────────────────────
 paths:
-  # ─── Health ───
   /health:
     get:
-      summary: Health check
-      security: []
-      tags: [Misc]
+      tags:
+      - Misc
+      summary: Health
+      operationId: health_health_get
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
               schema:
+                additionalProperties:
+                  type: string
                 type: object
-                properties:
-                  status: { type: string, example: ok }
-
-  # ─── Auth ───
+                title: Response Health Health Get
   /api/v1/auth/register:
     post:
-      summary: Register a new user
-      security: []
-      tags: [Auth]
+      tags:
+      - Auth
+      summary: Register
+      operationId: register_api_v1_auth_register_post
       requestBody:
-        required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/RegisterRequest' }
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
       responses:
         '201':
-          description: Created
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/auth/login:
     post:
+      tags:
+      - Auth
       summary: Login
-      security: []
-      tags: [Auth]
+      operationId: login_api_v1_auth_login_post
       requestBody:
-        required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/LoginRequest' }
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AuthResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/auth/me:
     get:
-      summary: Get current user
-      tags: [Auth]
+      tags:
+      - Auth
+      summary: Me
+      operationId: me_api_v1_auth_me_get
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/User' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-
-  # ─── Conversations ───
+              schema:
+                $ref: '#/components/schemas/UserOut'
+      security:
+      - HTTPBearer: []
   /api/v1/conversations:
     get:
-      summary: List conversations
-      tags: [Conversations]
+      tags:
+      - Conversations
+      summary: List Conversations
+      operationId: list_conversations_api_v1_conversations_get
+      security:
+      - HTTPBearer: []
       parameters:
-        - name: archived
-          in: query
-          schema: { type: boolean, default: false }
-        - name: pinned_only
-          in: query
-          schema: { type: boolean, default: false }
-        - name: search
-          in: query
-          schema: { type: string }
-        - name: page
-          in: query
-          schema: { type: integer, default: 1, minimum: 1 }
-        - name: page_size
-          in: query
-          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+      - name: archived
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Archived
+      - name: pinned_only
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Pinned Only
+      - name: search
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Page Size
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ConversationList' }
+              schema:
+                $ref: '#/components/schemas/ConversationList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     post:
-      summary: Create conversation
-      tags: [Conversations]
+      tags:
+      - Conversations
+      summary: Create Conversation
+      operationId: create_conversation_api_v1_conversations_post
+      security:
+      - HTTPBearer: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreateConversationRequest' }
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
       responses:
         '201':
-          description: Created
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Conversation' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
-  /api/v1/conversations/{id}:
-    parameters:
-      - name: id
+              schema:
+                $ref: '#/components/schemas/ConversationOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}:
+    get:
+      tags:
+      - Conversations
+      summary: Get Conversation
+      operationId: get_conversation_api_v1_conversations__conv_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
         in: path
         required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: Get conversation
-      tags: [Conversations]
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Conversation' }
-        '404': { $ref: '#/components/responses/NotFound' }
+              schema:
+                $ref: '#/components/schemas/ConversationOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     patch:
-      summary: Update conversation
-      tags: [Conversations]
+      tags:
+      - Conversations
+      summary: Update Conversation
+      operationId: update_conversation_api_v1_conversations__conv_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UpdateConversationRequest' }
+            schema:
+              $ref: '#/components/schemas/UpdateConversationRequest'
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Conversation' }
+              schema:
+                $ref: '#/components/schemas/ConversationOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
-      summary: Delete conversation
-      tags: [Conversations]
-      responses:
-        '204': { description: No Content }
-
-  /api/v1/conversations/{id}/memory:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: Get compressed conversation memory
-      tags: [Conversations]
-      description: Development-only endpoint for B1 memory debugging.
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ConversationMemory' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/conversations/{id}/orchestrator-runs:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: List Orchestrator structured runs
-      tags: [Conversations]
-      description: Development-only endpoint for Orchestrator memory debugging.
+      tags:
+      - Conversations
+      summary: Delete Conversation
+      operationId: delete_conversation_api_v1_conversations__conv_id__delete
+      security:
+      - HTTPBearer: []
       parameters:
-        - name: limit
-          in: query
-          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/OrchestratorRunList' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/conversations/{id}/orchestrator-runs/{run_id}:
-    parameters:
-      - name: id
+      - name: conv_id
         in: path
         required: true
-        schema: { type: string, format: uuid }
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/memory:
+    get:
+      tags:
+      - Conversations
+      summary: Get Conversation Memory
+      operationId: get_conversation_memory_api_v1_conversations__conv_id__memory_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationMemoryOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/orchestrator-runs:
+    get:
+      tags:
+      - Conversations
+      summary: List Conversation Orchestrator Runs
+      operationId: list_conversation_orchestrator_runs_api_v1_conversations__conv_id__orchestrator_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrchestratorRunList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/orchestrator-runs/{run_id}:
+    get:
+      tags:
+      - Conversations
+      summary: Get Conversation Orchestrator Run
+      operationId: get_conversation_orchestrator_run_api_v1_conversations__conv_id__orchestrator_runs__run_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
       - name: run_id
         in: path
         required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: Get Orchestrator structured run detail
-      tags: [Conversations]
-      description: Development-only endpoint for Orchestrator memory debugging.
+        schema:
+          type: string
+          format: uuid
+          title: Run Id
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/OrchestratorRunDetail' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
+              schema:
+                $ref: '#/components/schemas/OrchestratorRunDetailOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/context-compression/config:
     get:
-      summary: Get context compression config
-      tags: [Context Compression]
-      description: Returns active summarizer settings without exposing API keys.
+      tags:
+      - Context Compression
+      summary: Get Context Compression Config
+      description: Return the active context compression config without exposing API
+        keys.
+      operationId: get_context_compression_config_api_v1_context_compression_config_get
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ContextCompressionConfig' }
+              schema:
+                $ref: '#/components/schemas/ContextCompressionConfigOut'
+      security:
+      - HTTPBearer: []
     patch:
-      summary: Update context compression config
-      tags: [Context Compression]
-      description: Development-only runtime update for compression model settings.
+      tags:
+      - Context Compression
+      summary: Update Context Compression Config
+      description: Temporarily update compression model settings for local development.
+      operationId: update_context_compression_config_api_v1_context_compression_config_patch
       requestBody:
-        required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/UpdateContextCompressionConfigRequest' }
+            schema:
+              $ref: '#/components/schemas/UpdateContextCompressionConfigRequest'
+        required: true
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ContextCompressionConfig' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/ValidationError' }
-
+              schema:
+                $ref: '#/components/schemas/ContextCompressionConfigOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/context-compression/config/test:
     post:
-      summary: Test context compression config
-      tags: [Context Compression]
-      description: Development-only connection test for a compression model config.
+      tags:
+      - Context Compression
+      summary: Test Context Compression Config
+      description: Verify a compression provider/model/key/base_url combination.
+      operationId: test_context_compression_config_api_v1_context_compression_config_test_post
       requestBody:
-        required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ContextCompressionTestRequest' }
+            schema:
+              $ref: '#/components/schemas/ContextCompressionTestRequest'
+        required: true
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ContextCompressionTestResult' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ─── Messages ───
-  /api/v1/conversations/{id}/messages:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: List messages in conversation
-      tags: [Messages]
-      parameters:
-        - name: cursor
-          in: query
-          schema: { type: string }
-        - name: limit
-          in: query
-          schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
-        - name: direction
-          in: query
-          schema: { type: string, enum: [before, after], default: before }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/MessageList' }
-    post:
-      summary: Send message
-      tags: [Messages]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/SendMessageRequest' }
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/SendMessageResponse' }
-
-  /api/v1/messages/{id}:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    patch:
-      summary: Update message (Pin / Unpin)
-      tags: [Messages]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UpdateMessageRequest' }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Message' }
-    delete:
-      summary: Delete message
-      tags: [Messages]
-      responses:
-        '204': { description: No Content }
-
-  /api/v1/messages/{id}/regenerate:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    post:
-      summary: Regenerate agent message
-      tags: [Messages]
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Message' }
-
-  /api/v1/messages/{id}/stream:
-    parameters:
-      - name: id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: SSE stream for agent response
-      tags: [Messages]
-      description: |
-        服务端推送事件流。事件类型见 docs/api-spec.md § 5。
-        客户端应使用 fetch-event-source 库（支持自定义 Header）。
-      responses:
-        '200':
-          description: SSE stream
-          content:
-            text/event-stream:
               schema:
-                type: string
-                example: |
-                  event: start
-                  data: {"message_id":"...","agent_id":"..."}
-
-                  event: delta
-                  data: {"block_index":0,"text_delta":"Hello"}
-
-                  event: tool_call
-                  data: {"call_id":"c-001","tool_name":"write_file","tool_arguments":{"path":"App.tsx"}}
-
-                  event: tool_result
-                  data: {"call_id":"c-001","tool_status":"ok","tool_output":"wrote 312 bytes"}
-
-                  event: done
-                  data: {"message_id":"..."}
-
-  # Workspace & Artifact API
-  /api/v1/workspaces/{conversation_id}/tree:
-    parameters:
-      - name: conversation_id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: Get workspace file tree
-      tags: [Workspaces]
-      parameters:
-        - name: max_depth
-          in: query
-          schema: { type: integer, default: 5, minimum: 0, maximum: 20 }
-      responses:
-        '200':
-          description: OK
+                $ref: '#/components/schemas/ContextCompressionTestOut'
+        '422':
+          description: Validation Error
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/WorkspaceTreeResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/workspaces/{conversation_id}/files/{path}:
-    parameters:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/conversations/{conv_id}/messages:
+    get:
+      tags:
+      - Messages
+      summary: List Messages
+      operationId: list_messages_api_v1_conversations__conv_id__messages_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: direction
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(before|after)$
+          default: before
+          title: Direction
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Messages
+      summary: Send Message
+      operationId: send_message_api_v1_conversations__conv_id__messages_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/messages/{msg_id}:
+    patch:
+      tags:
+      - Messages
+      summary: Update Message
+      operationId: update_message_api_v1_messages__msg_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMessageRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Messages
+      summary: Delete Message
+      operationId: delete_message_api_v1_messages__msg_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/messages/{msg_id}/regenerate:
+    post:
+      tags:
+      - Messages
+      summary: Regenerate Message
+      operationId: regenerate_message_api_v1_messages__msg_id__regenerate_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/messages/{msg_id}/stream:
+    get:
+      tags:
+      - Messages
+      summary: Stream Message
+      description: SSE stream for an agent message.
+      operationId: stream_message_api_v1_messages__msg_id__stream_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents:
+    get:
+      tags:
+      - Agents
+      summary: List Agents
+      operationId: list_agents_api_v1_agents_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: builtin
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Builtin
+      - name: provider
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - claude_code
+            - codex
+            - opencode
+            - builtin
+            - mock
+            - claude
+            - deepseek
+            - openai
+            - custom
+            type: string
+          - type: 'null'
+          title: Provider
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 1
+          title: Page
+      - name: page_size
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Page Size
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Agents
+      summary: Create Agent
+      operationId: create_agent_api_v1_agents_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}:
+    get:
+      tags:
+      - Agents
+      summary: Get Agent
+      operationId: get_agent_api_v1_agents__agent_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - Agents
+      summary: Update Agent
+      operationId: update_agent_api_v1_agents__agent_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Agents
+      summary: Delete Agent
+      operationId: delete_agent_api_v1_agents__agent_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/tree:
+    get:
+      tags:
+      - Workspaces
+      summary: Get Workspace Tree
+      operationId: get_workspace_tree_api_v1_workspaces__conversation_id__tree_get
+      security:
+      - HTTPBearer: []
+      parameters:
       - name: conversation_id
         in: path
         required: true
-        schema: { type: string, format: uuid }
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: max_depth
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 20
+          minimum: 0
+          default: 5
+          title: Max Depth
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceTreeResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/files/{path}:
+    get:
+      tags:
+      - Workspaces
+      summary: Read Workspace File
+      operationId: read_workspace_file_api_v1_workspaces__conversation_id__files__path__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
       - name: path
         in: path
         required: true
-        schema: { type: string }
-    get:
-      summary: Read workspace file
-      tags: [Workspaces]
+        schema:
+          type: string
+          title: Path
       responses:
         '200':
-          description: File content
-          headers:
-            X-Content-Type-Options:
-              schema: { type: string, example: nosniff }
-            Content-Security-Policy:
-              schema: { type: string }
-              description: Present for text/html responses.
-            X-Frame-Options:
-              schema: { type: string, example: SAMEORIGIN }
-              description: Present for text/html responses.
-          content:
-            application/octet-stream:
-              schema: { type: string, format: binary }
-            text/plain:
-              schema: { type: string }
-            text/html:
-              schema: { type: string }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '413':
-          description: File too large
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     put:
-      summary: Write workspace file
-      tags: [Workspaces]
-      requestBody:
-        required: true
-        content:
-          application/octet-stream:
-            schema: { type: string, format: binary }
-          text/plain:
-            schema: { type: string }
-      responses:
-        '204': { description: No Content }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '413':
-          description: File too large
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  /api/v1/workspaces/{conversation_id}/preview:
-    parameters:
-      - name: conversation_id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    post:
-      summary: Start or reuse workspace static preview
-      tags: [Workspaces]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/WorkspacePreviewRequest' }
-      responses:
-        '201':
-          description: Preview session
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503':
-          description: Preview start failed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-    get:
-      summary: Get workspace preview status
-      tags: [Workspaces]
-      responses:
-        '200':
-          description: Preview session
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      summary: Stop workspace preview
-      tags: [Workspaces]
-      responses:
-        '200':
-          description: Stopped preview session
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WorkspacePreviewResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/workspaces/{conversation_id}/deployments:
-    parameters:
-      - name: conversation_id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    post:
-      summary: Create a workspace deployment or source export
-      tags: [Workspaces]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/WorkspaceDeploymentRequest' }
-      responses:
-        '201':
-          description: Deployment record
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503':
-          description: Deployment failed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-    get:
-      summary: List workspace deployments
-      tags: [Workspaces]
-      responses:
-        '200':
-          description: Deployment records
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WorkspaceDeploymentListResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}:
-    parameters:
-      - name: conversation_id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-      - name: deployment_id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: Get workspace deployment status
-      tags: [Workspaces]
-      responses:
-        '200':
-          description: Deployment record
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-    delete:
-      summary: Stop a workspace deployment or delete its source export
-      tags: [Workspaces]
-      responses:
-        '200':
-          description: Stopped deployment record
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/WorkspaceDeploymentResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download:
-    parameters:
-      - name: conversation_id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-      - name: deployment_id
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    get:
-      summary: Download a workspace source export
-      tags: [Workspaces]
-      responses:
-        '200':
-          description: Source zip archive
-          content:
-            application/zip:
-              schema: { type: string, format: binary }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /releases/{release_token}:
-    get:
-      summary: Read the HTML entry of a published immutable static release
-      tags: [Releases]
+      tags:
+      - Workspaces
+      summary: Write Workspace File
+      operationId: write_workspace_file_api_v1_workspaces__conversation_id__files__path__put
+      security:
+      - HTTPBearer: []
       parameters:
-        - name: release_token
-          in: path
-          required: true
-          schema: { type: string }
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Path
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/preview:
+    post:
+      tags:
+      - Workspaces
+      summary: Start Workspace Preview
+      operationId: start_workspace_preview_api_v1_workspaces__conversation_id__preview_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspacePreviewRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspacePreviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Workspaces
+      summary: Get Workspace Preview
+      operationId: get_workspace_preview_api_v1_workspaces__conversation_id__preview_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
       responses:
         '200':
-          description: Released static HTML entry
+          description: Successful Response
           content:
-            text/html:
-              schema: { type: string }
-        '404': { $ref: '#/components/responses/NotFound' }
-
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspacePreviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Workspaces
+      summary: Stop Workspace Preview
+      operationId: stop_workspace_preview_api_v1_workspaces__conversation_id__preview_delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspacePreviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/preview/verify:
+    post:
+      tags:
+      - Workspaces
+      summary: Verify Workspace Preview
+      operationId: verify_workspace_preview_api_v1_workspaces__conversation_id__preview_verify_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspacePreviewVerifyRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspacePreviewVerifyResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/deployments:
+    post:
+      tags:
+      - Workspaces
+      summary: Create Workspace Deployment
+      operationId: create_workspace_deployment_api_v1_workspaces__conversation_id__deployments_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceDeploymentRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Workspaces
+      summary: List Workspace Deployments
+      operationId: list_workspace_deployments_api_v1_workspaces__conversation_id__deployments_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDeploymentListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}:
+    get:
+      tags:
+      - Workspaces
+      summary: Get Workspace Deployment
+      operationId: get_workspace_deployment_api_v1_workspaces__conversation_id__deployments__deployment_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Deployment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Workspaces
+      summary: Stop Workspace Deployment
+      operationId: stop_workspace_deployment_api_v1_workspaces__conversation_id__deployments__deployment_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Deployment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download:
+    get:
+      tags:
+      - Workspaces
+      summary: Download Workspace Deployment
+      operationId: download_workspace_deployment_api_v1_workspaces__conversation_id__deployments__deployment_id__download_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Deployment Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/workflow-runs:
+    post:
+      tags:
+      - Workspaces
+      summary: Create Workspace Workflow Run
+      operationId: create_workspace_workflow_run_api_v1_workspaces__conversation_id__workflow_runs_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceWorkflowRunRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceWorkflowRunResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Workspaces
+      summary: List Workspace Workflow Runs
+      operationId: list_workspace_workflow_runs_api_v1_workspaces__conversation_id__workflow_runs_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: path
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 512
+          - type: 'null'
+          title: Path
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceWorkflowRunListResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/workflow-runs/{run_id}:
+    get:
+      tags:
+      - Workspaces
+      summary: Get Workspace Workflow Run
+      operationId: get_workspace_workflow_run_api_v1_workspaces__conversation_id__workflow_runs__run_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceWorkflowRunResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/workflow-health:
+    get:
+      tags:
+      - Workspaces
+      summary: Get Workspace Workflow Health
+      operationId: get_workspace_workflow_health_api_v1_workspaces__conversation_id__workflow_health_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: path
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+          title: Path
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceWorkflowHealthResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /releases/{release_token}/{path}:
     get:
-      summary: Read one public file from a published immutable static release
-      tags: [Releases]
+      tags:
+      - Releases
+      summary: Read Static Release
+      description: Return one file from a published immutable release snapshot.
+      operationId: read_static_release_releases__release_token___path__get
       parameters:
-        - name: release_token
-          in: path
-          required: true
-          schema: { type: string }
-        - name: path
-          in: path
-          required: true
-          description: Nested static resource path.
-          schema: { type: string }
-      responses:
-        '200':
-          description: Released static resource
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  # ─── Agents ───
-  /api/v1/agents:
-    get:
-      summary: List agents
-      tags: [Agents]
-      parameters:
-        - name: builtin
-          in: query
-          schema: { type: boolean }
-        - name: provider
-          in: query
-          schema: { $ref: '#/components/schemas/AgentProvider' }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/AgentList' }
-    post:
-      summary: Create agent
-      tags: [Agents]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/CreateAgentRequest' }
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Agent' }
-
-  /api/v1/agents/{id}:
-    parameters:
-      - name: id
+      - name: release_token
         in: path
         required: true
-        schema: { type: string }
-    get:
-      summary: Get agent
-      tags: [Agents]
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Agent' }
-    patch:
-      summary: Update agent
-      tags: [Agents]
-      requestBody:
+        schema:
+          type: string
+          title: Release Token
+      - name: path
+        in: path
         required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/UpdateAgentRequest' }
+        schema:
+          type: string
+          title: Path
       responses:
         '200':
-          description: OK
+          description: Successful Response
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Agent' }
-    delete:
-      summary: Delete agent
-      tags: [Agents]
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /releases/{release_token}:
+    get:
+      tags:
+      - Releases
+      summary: Read Static Release
+      description: Return one file from a published immutable release snapshot.
+      operationId: read_static_release_releases__release_token__get
+      parameters:
+      - name: release_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Release Token
+      - name: path
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ''
+          title: Path
       responses:
-        '204': { description: No Content }
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AgentList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AgentOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+      type: object
+      required:
+      - items
+      - total
+      - page
+      - page_size
+      title: AgentList
+    AgentOut:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        provider:
+          type: string
+          enum:
+          - claude_code
+          - codex
+          - opencode
+          - builtin
+          - mock
+          - claude
+          - deepseek
+          - openai
+          - custom
+          title: Provider
+        avatar_url:
+          type: string
+          title: Avatar Url
+          default: ''
+        capabilities:
+          items:
+            type: string
+          type: array
+          title: Capabilities
+        system_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: System Prompt
+        config:
+          additionalProperties: true
+          type: object
+          title: Config
+        is_builtin:
+          type: boolean
+          title: Is Builtin
+          default: false
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - name
+      - provider
+      - created_at
+      title: AgentOut
+    AuthResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        token_type:
+          type: string
+          title: Token Type
+          default: bearer
+        expires_in:
+          type: integer
+          title: Expires In
+        user:
+          $ref: '#/components/schemas/UserOut'
+      type: object
+      required:
+      - access_token
+      - expires_in
+      - user
+      title: AuthResponse
+    CodeBlock:
+      properties:
+        type:
+          type: string
+          const: code
+          title: Type
+          default: code
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        language:
+          type: string
+          title: Language
+        code:
+          type: string
+          title: Code
+      type: object
+      required:
+      - language
+      - code
+      title: CodeBlock
+    ContextCompressionConfigOut:
+      properties:
+        mode:
+          type: string
+          title: Mode
+        provider:
+          type: string
+          title: Provider
+        model:
+          type: string
+          title: Model
+        summary_max_tokens:
+          type: integer
+          title: Summary Max Tokens
+        recent_raw_keep:
+          type: integer
+          title: Recent Raw Keep
+        api_key_configured:
+          type: boolean
+          title: Api Key Configured
+        api_key_source:
+          type: string
+          title: Api Key Source
+        api_key_preview:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Api Key Preview
+        base_url:
+          type: string
+          title: Base Url
+        supported_models:
+          items:
+            type: string
+          type: array
+          title: Supported Models
+      type: object
+      required:
+      - mode
+      - provider
+      - model
+      - summary_max_tokens
+      - recent_raw_keep
+      - api_key_configured
+      - api_key_source
+      - base_url
+      - supported_models
+      title: ContextCompressionConfigOut
+    ContextCompressionTestOut:
+      properties:
+        ok:
+          type: boolean
+          title: Ok
+        provider:
+          type: string
+          title: Provider
+        model:
+          type: string
+          title: Model
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Code
+        message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Message
+      type: object
+      required:
+      - ok
+      - provider
+      - model
+      title: ContextCompressionTestOut
+    ContextCompressionTestRequest:
+      properties:
+        provider:
+          anyOf:
+          - type: string
+            enum:
+            - deepseek
+            - openai
+            - openai_compatible
+            - anthropic
+            - claude
+          - type: 'null'
+          title: Provider
+        model:
+          anyOf:
+          - type: string
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          title: Model
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 4096
+            minLength: 1
+          - type: 'null'
+          title: Api Key
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 2048
+          - type: 'null'
+          title: Base Url
+      type: object
+      title: ContextCompressionTestRequest
+    ConversationList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/ConversationOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+        page:
+          type: integer
+          title: Page
+        page_size:
+          type: integer
+          title: Page Size
+      type: object
+      required:
+      - items
+      - total
+      - page
+      - page_size
+      title: ConversationList
+    ConversationMemoryOut:
+      properties:
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        summary_text:
+          type: string
+          title: Summary Text
+        summarized_until_message_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Summarized Until Message Id
+        source_message_count:
+          type: integer
+          title: Source Message Count
+        source_token_estimate:
+          type: integer
+          title: Source Token Estimate
+        summary_token_estimate:
+          type: integer
+          title: Summary Token Estimate
+        algorithm_version:
+          type: string
+          title: Algorithm Version
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - conversation_id
+      - summary_text
+      - source_message_count
+      - source_token_estimate
+      - summary_token_estimate
+      - algorithm_version
+      - created_at
+      - updated_at
+      title: ConversationMemoryOut
+    ConversationOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        title:
+          type: string
+          title: Title
+        mode:
+          type: string
+          enum:
+          - single
+          - group
+          title: Mode
+        agent_ids:
+          items:
+            type: string
+          type: array
+          title: Agent Ids
+        is_pinned:
+          type: boolean
+          title: Is Pinned
+          default: false
+        is_archived:
+          type: boolean
+          title: Is Archived
+          default: false
+        last_message_at:
+          type: string
+          format: date-time
+          title: Last Message At
+        last_message_preview:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Message Preview
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - title
+      - mode
+      - last_message_at
+      - created_at
+      title: ConversationOut
+    CreateAgentRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Name
+        provider:
+          type: string
+          enum:
+          - claude_code
+          - codex
+          - opencode
+          - builtin
+          title: Provider
+        avatar_url:
+          type: string
+          title: Avatar Url
+          default: ''
+        capabilities:
+          items:
+            type: string
+          type: array
+          maxItems: 10
+          title: Capabilities
+        system_prompt:
+          anyOf:
+          - type: string
+            maxLength: 8192
+          - type: 'null'
+          title: System Prompt
+        config:
+          additionalProperties: true
+          type: object
+          title: Config
+      type: object
+      required:
+      - name
+      - provider
+      title: CreateAgentRequest
+    CreateConversationRequest:
+      properties:
+        title:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Title
+        mode:
+          type: string
+          enum:
+          - single
+          - group
+          title: Mode
+        agent_ids:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Agent Ids
+      type: object
+      required:
+      - title
+      - mode
+      - agent_ids
+      title: CreateConversationRequest
+    DeploymentStatusBlock:
+      properties:
+        type:
+          type: string
+          const: deployment_status
+          title: Type
+          default: deployment_status
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        deployment_id:
+          type: string
+          title: Deployment Id
+        kind:
+          type: string
+          enum:
+          - static_site
+          - source_zip
+          - container
+          title: Kind
+        status:
+          type: string
+          enum:
+          - queued
+          - publishing
+          - published
+          - failed
+          - stopped
+          - not_supported
+          title: Status
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        download_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Download Url
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        logs_preview:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Logs Preview
+        size_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Size Bytes
+        artifact_digest:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Artifact Digest
+        file_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: File Count
+        published_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Published At
+        stopped_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stopped At
+        expires_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expires At
+        runtime_kind:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Runtime Kind
+        runtime_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Runtime Status
+        host_port:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Host Port
+        container_port:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Container Port
+        healthcheck_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Healthcheck Url
+      type: object
+      required:
+      - deployment_id
+      - kind
+      - status
+      title: DeploymentStatusBlock
+    DiffBlock:
+      properties:
+        type:
+          type: string
+          const: diff
+          title: Type
+          default: diff
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        filename:
+          type: string
+          title: Filename
+        before:
+          type: string
+          title: Before
+        after:
+          type: string
+          title: After
+      type: object
+      required:
+      - filename
+      - before
+      - after
+      title: DiffBlock
+    FileBlock:
+      properties:
+        type:
+          type: string
+          const: file
+          title: Type
+          default: file
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Path
+        artifact_kind:
+          type: string
+          enum:
+          - document
+          - ppt
+          - image
+          - archive
+          - code
+          - workflow
+          - other
+          title: Artifact Kind
+          default: other
+        filename:
+          type: string
+          title: Filename
+        url:
+          type: string
+          title: Url
+        size:
+          type: integer
+          title: Size
+        mime_type:
+          type: string
+          title: Mime Type
+        preview_text:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Preview Text
+        preview_truncated:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Preview Truncated
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - filename
+      - url
+      - size
+      - mime_type
+      title: FileBlock
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    LoginRequest:
+      properties:
+        username:
+          type: string
+          title: Username
+        password:
+          type: string
+          title: Password
+      type: object
+      required:
+      - username
+      - password
+      title: LoginRequest
+    MessageList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MessageOut'
+          type: array
+          title: Items
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
+        has_more:
+          type: boolean
+          title: Has More
+          default: false
+      type: object
+      required:
+      - items
+      title: MessageList
+    MessageOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        role:
+          type: string
+          enum:
+          - user
+          - agent
+          - system
+          title: Role
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        content:
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/TextBlock'
+            - $ref: '#/components/schemas/CodeBlock'
+            - $ref: '#/components/schemas/DiffBlock'
+            - $ref: '#/components/schemas/WebPreviewBlock'
+            - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/DeploymentStatusBlock'
+            - $ref: '#/components/schemas/WorkflowBlock'
+            - $ref: '#/components/schemas/ToolCallBlock'
+            discriminator:
+              propertyName: type
+              mapping:
+                code: '#/components/schemas/CodeBlock'
+                deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                diff: '#/components/schemas/DiffBlock'
+                file: '#/components/schemas/FileBlock'
+                text: '#/components/schemas/TextBlock'
+                tool_call: '#/components/schemas/ToolCallBlock'
+                web_preview: '#/components/schemas/WebPreviewBlock'
+                workflow: '#/components/schemas/WorkflowBlock'
+          type: array
+          title: Content
+        reply_to_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Reply To Id
+        status:
+          type: string
+          enum:
+          - pending
+          - streaming
+          - done
+          - error
+          title: Status
+          default: done
+        is_pinned:
+          type: boolean
+          title: Is Pinned
+          default: false
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - conversation_id
+      - role
+      - created_at
+      title: MessageOut
+    OrchestratorRunDetailOut:
+      properties:
+        run:
+          $ref: '#/components/schemas/OrchestratorRunOut'
+        tasks:
+          items:
+            $ref: '#/components/schemas/OrchestratorTaskOut'
+          type: array
+          title: Tasks
+        attempts:
+          items:
+            $ref: '#/components/schemas/OrchestratorTaskAttemptOut'
+          type: array
+          title: Attempts
+        events:
+          items:
+            $ref: '#/components/schemas/OrchestratorRunEventOut'
+          type: array
+          title: Events
+      type: object
+      required:
+      - run
+      - tasks
+      - attempts
+      - events
+      title: OrchestratorRunDetailOut
+    OrchestratorRunEventOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        run_id:
+          type: string
+          format: uuid
+          title: Run Id
+        event_type:
+          type: string
+          title: Event Type
+        task_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Task Id
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - run_id
+      - event_type
+      - created_at
+      title: OrchestratorRunEventOut
+    OrchestratorRunList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/OrchestratorRunOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - total
+      title: OrchestratorRunList
+    OrchestratorRunOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        agent_message_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Agent Message Id
+        user_message_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: User Message Id
+        status:
+          type: string
+          title: Status
+        user_request:
+          type: string
+          title: User Request
+        plan_source:
+          type: string
+          title: Plan Source
+        final_summary:
+          type: string
+          title: Final Summary
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+      type: object
+      required:
+      - id
+      - conversation_id
+      - status
+      - user_request
+      - plan_source
+      - final_summary
+      - created_at
+      - updated_at
+      title: OrchestratorRunOut
+    OrchestratorTaskAttemptOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        run_id:
+          type: string
+          format: uuid
+          title: Run Id
+        task_row_id:
+          type: string
+          format: uuid
+          title: Task Row Id
+        task_id:
+          type: string
+          title: Task Id
+        attempt_index:
+          type: integer
+          title: Attempt Index
+        agent_id:
+          type: string
+          title: Agent Id
+        state:
+          type: string
+          title: State
+        text_preview:
+          type: string
+          title: Text Preview
+        tool_summaries:
+          items:
+            type: string
+          type: array
+          title: Tool Summaries
+        artifact_paths:
+          items:
+            type: string
+          type: array
+          title: Artifact Paths
+        missing_artifact_paths:
+          items:
+            type: string
+          type: array
+          title: Missing Artifact Paths
+        review_outcome:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Review Outcome
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+      type: object
+      required:
+      - id
+      - run_id
+      - task_row_id
+      - task_id
+      - attempt_index
+      - agent_id
+      - state
+      - text_preview
+      - created_at
+      title: OrchestratorTaskAttemptOut
+    OrchestratorTaskOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        run_id:
+          type: string
+          format: uuid
+          title: Run Id
+        task_id:
+          type: string
+          title: Task Id
+        agent_id:
+          type: string
+          title: Agent Id
+        title:
+          type: string
+          title: Title
+        instruction:
+          type: string
+          title: Instruction
+        depends_on:
+          items:
+            type: string
+          type: array
+          title: Depends On
+        priority:
+          type: integer
+          title: Priority
+        expected_output:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Output
+        include_history:
+          type: boolean
+          title: Include History
+        task_type:
+          type: string
+          title: Task Type
+          default: implementation
+        review_of:
+          items:
+            type: string
+          type: array
+          title: Review Of
+        handoff_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Handoff Reason
+        final_state:
+          type: string
+          title: Final State
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - run_id
+      - task_id
+      - agent_id
+      - title
+      - instruction
+      - priority
+      - include_history
+      - final_state
+      - created_at
+      - updated_at
+      title: OrchestratorTaskOut
+    RegisterRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          pattern: ^[a-zA-Z0-9_]+$
+          title: Username
+        password:
+          type: string
+          minLength: 8
+          title: Password
+      type: object
+      required:
+      - username
+      - password
+      title: RegisterRequest
+    SendMessageRequest:
+      properties:
+        content:
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/TextBlock'
+            - $ref: '#/components/schemas/CodeBlock'
+            - $ref: '#/components/schemas/DiffBlock'
+            - $ref: '#/components/schemas/WebPreviewBlock'
+            - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/DeploymentStatusBlock'
+            - $ref: '#/components/schemas/WorkflowBlock'
+            - $ref: '#/components/schemas/ToolCallBlock'
+            discriminator:
+              propertyName: type
+              mapping:
+                code: '#/components/schemas/CodeBlock'
+                deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                diff: '#/components/schemas/DiffBlock'
+                file: '#/components/schemas/FileBlock'
+                text: '#/components/schemas/TextBlock'
+                tool_call: '#/components/schemas/ToolCallBlock'
+                web_preview: '#/components/schemas/WebPreviewBlock'
+                workflow: '#/components/schemas/WorkflowBlock'
+          type: array
+          minItems: 1
+          title: Content
+        target_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Agent Id
+      type: object
+      required:
+      - content
+      title: SendMessageRequest
+    SendMessageResponse:
+      properties:
+        user_message:
+          $ref: '#/components/schemas/MessageOut'
+        agent_message:
+          $ref: '#/components/schemas/MessageOut'
+      type: object
+      required:
+      - user_message
+      - agent_message
+      title: SendMessageResponse
+    TextBlock:
+      properties:
+        type:
+          type: string
+          const: text
+          title: Type
+          default: text
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        text:
+          type: string
+          title: Text
+      type: object
+      required:
+      - text
+      title: TextBlock
+    ToolCallBlock:
+      properties:
+        type:
+          type: string
+          const: tool_call
+          title: Type
+          default: tool_call
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        call_id:
+          type: string
+          title: Call Id
+        tool_name:
+          type: string
+          title: Tool Name
+        arguments:
+          additionalProperties: true
+          type: object
+          title: Arguments
+        status:
+          type: string
+          enum:
+          - pending
+          - ok
+          - error
+          title: Status
+        output_preview:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Output Preview
+        output_truncated:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Output Truncated
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Code
+      type: object
+      required:
+      - call_id
+      - tool_name
+      - status
+      title: ToolCallBlock
+    UpdateAgentRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 1
+          - type: 'null'
+          title: Name
+        avatar_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avatar Url
+        capabilities:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 10
+          - type: 'null'
+          title: Capabilities
+        system_prompt:
+          anyOf:
+          - type: string
+            maxLength: 8192
+          - type: 'null'
+          title: System Prompt
+        config:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Config
+      type: object
+      title: UpdateAgentRequest
+    UpdateContextCompressionConfigRequest:
+      properties:
+        mode:
+          anyOf:
+          - type: string
+            enum:
+            - hybrid
+            - rules
+          - type: 'null'
+          title: Mode
+        provider:
+          anyOf:
+          - type: string
+            enum:
+            - deepseek
+            - openai
+            - openai_compatible
+            - anthropic
+            - claude
+          - type: 'null'
+          title: Provider
+        model:
+          anyOf:
+          - type: string
+            maxLength: 100
+            minLength: 1
+          - type: 'null'
+          title: Model
+        api_key:
+          anyOf:
+          - type: string
+            maxLength: 4096
+            minLength: 1
+          - type: 'null'
+          title: Api Key
+        base_url:
+          anyOf:
+          - type: string
+            maxLength: 2048
+          - type: 'null'
+          title: Base Url
+        summary_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 8192.0
+            minimum: 256.0
+          - type: 'null'
+          title: Summary Max Tokens
+        recent_raw_keep:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 1.0
+          - type: 'null'
+          title: Recent Raw Keep
+      type: object
+      title: UpdateContextCompressionConfigRequest
+    UpdateConversationRequest:
+      properties:
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        is_pinned:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Pinned
+        is_archived:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Archived
+      type: object
+      title: UpdateConversationRequest
+    UpdateMessageRequest:
+      properties:
+        is_pinned:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Pinned
+      type: object
+      title: UpdateMessageRequest
+    UserOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        username:
+          type: string
+          title: Username
+        avatar_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Avatar Url
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - username
+      - created_at
+      title: UserOut
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    WebPreviewBlock:
+      properties:
+        type:
+          type: string
+          const: web_preview
+          title: Type
+          default: web_preview
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        url:
+          type: string
+          title: Url
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        thumbnail_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Thumbnail Url
+      type: object
+      required:
+      - url
+      title: WebPreviewBlock
+    WorkflowBlock:
+      properties:
+        type:
+          type: string
+          const: workflow
+          title: Type
+          default: workflow
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        last_run_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Last Run Id
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Path
+        format:
+          type: string
+          enum:
+          - json
+          - yaml
+          title: Format
+          default: yaml
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+        raw_definition:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Raw Definition
+        nodes:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Nodes
+        edges:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Edges
+        validation_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - unknown
+          title: Validation Status
+          default: unknown
+        runtime_status:
+          type: string
+          enum:
+          - ready
+          - invalid
+          - not_supported
+          title: Runtime Status
+          default: not_supported
+        dry_run_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - not_supported
+          title: Dry Run Status
+          default: not_supported
+        health_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - unknown
+          title: Health Status
+          default: unknown
+        validation_errors:
+          items:
+            type: string
+          type: array
+          title: Validation Errors
+      type: object
+      title: WorkflowBlock
+    WorkspaceDeploymentListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/WorkspaceDeploymentResponse'
+          type: array
+          title: Items
+      type: object
+      required:
+      - items
+      title: WorkspaceDeploymentListResponse
+    WorkspaceDeploymentRequest:
+      properties:
+        kind:
+          type: string
+          enum:
+          - static_site
+          - source_zip
+          - container
+          title: Kind
+        entry_path:
+          anyOf:
+          - type: string
+            maxLength: 512
+            minLength: 1
+          - type: 'null'
+          title: Entry Path
+        requested_port:
+          anyOf:
+          - type: integer
+            maximum: 65535.0
+            minimum: 1.0
+          - type: 'null'
+          title: Requested Port
+        container_port:
+          anyOf:
+          - type: integer
+            maximum: 65535.0
+            minimum: 1.0
+          - type: 'null'
+          title: Container Port
+        health_path:
+          anyOf:
+          - type: string
+            maxLength: 256
+            minLength: 1
+          - type: 'null'
+          title: Health Path
+        start_command:
+          anyOf:
+          - type: string
+            maxLength: 512
+          - type: 'null'
+          title: Start Command
+      type: object
+      required:
+      - kind
+      title: WorkspaceDeploymentRequest
+    WorkspaceDeploymentResponse:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        kind:
+          type: string
+          enum:
+          - static_site
+          - source_zip
+          - container
+          title: Kind
+        status:
+          type: string
+          enum:
+          - queued
+          - publishing
+          - published
+          - failed
+          - stopped
+          - not_supported
+          title: Status
+        entry_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Entry Path
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        download_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Download Url
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        logs:
+          items:
+            type: string
+          type: array
+          title: Logs
+        size_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Size Bytes
+        artifact_digest:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Artifact Digest
+        file_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: File Count
+        published_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Published At
+        stopped_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Stopped At
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        runtime_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Runtime Id
+        image_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Image Id
+        container_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Container Id
+        host_port:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Host Port
+        container_port:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Container Port
+        runtime_kind:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Runtime Kind
+        runtime_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Runtime Status
+        healthcheck_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Healthcheck Url
+        logs_tail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Logs Tail
+        queued_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Queued At
+        started_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Started At
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+        last_checked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Checked At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - conversation_id
+      - workspace_id
+      - kind
+      - status
+      - created_at
+      - updated_at
+      title: WorkspaceDeploymentResponse
+    WorkspacePreviewRequest:
+      properties:
+        entry_path:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Entry Path
+        mode:
+          type: string
+          const: static
+          title: Mode
+          default: static
+        requested_port:
+          anyOf:
+          - type: integer
+            maximum: 65535.0
+            minimum: 1.0
+          - type: 'null'
+          title: Requested Port
+      type: object
+      required:
+      - entry_path
+      title: WorkspacePreviewRequest
+    WorkspacePreviewResponse:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        entry_path:
+          type: string
+          title: Entry Path
+        mode:
+          type: string
+          const: static
+          title: Mode
+          default: static
+        port:
+          type: integer
+          title: Port
+        pid:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Pid
+        url:
+          type: string
+          title: Url
+        status:
+          type: string
+          enum:
+          - starting
+          - running
+          - stopped
+          - error
+          title: Status
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        last_accessed_at:
+          type: string
+          format: date-time
+          title: Last Accessed At
+      type: object
+      required:
+      - id
+      - conversation_id
+      - workspace_id
+      - entry_path
+      - port
+      - url
+      - status
+      - created_at
+      - updated_at
+      - last_accessed_at
+      title: WorkspacePreviewResponse
+    WorkspacePreviewVerifyRequest:
+      properties:
+        required_text:
+          items:
+            type: string
+          type: array
+          title: Required Text
+        viewports:
+          items:
+            type: string
+            enum:
+            - desktop
+            - mobile
+          type: array
+          title: Viewports
+        click_buttons:
+          type: boolean
+          title: Click Buttons
+          default: true
+        max_clicks:
+          type: integer
+          maximum: 10.0
+          minimum: 0.0
+          title: Max Clicks
+          default: 5
+      type: object
+      title: WorkspacePreviewVerifyRequest
+    WorkspacePreviewVerifyResponse:
+      properties:
+        passed:
+          type: boolean
+          title: Passed
+        checks:
+          additionalProperties:
+            type: boolean
+          type: object
+          title: Checks
+        issues:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Issues
+        screenshots:
+          additionalProperties:
+            type: string
+          type: object
+          title: Screenshots
+        console_errors:
+          items:
+            type: string
+          type: array
+          title: Console Errors
+        page_errors:
+          items:
+            type: string
+          type: array
+          title: Page Errors
+        failed_requests:
+          items:
+            type: string
+          type: array
+          title: Failed Requests
+        duration_ms:
+          type: integer
+          title: Duration Ms
+        report_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Report Path
+      type: object
+      required:
+      - passed
+      - checks
+      - issues
+      - screenshots
+      - console_errors
+      - page_errors
+      - failed_requests
+      - duration_ms
+      title: WorkspacePreviewVerifyResponse
+    WorkspaceTreeNode:
+      properties:
+        name:
+          type: string
+          title: Name
+        path:
+          type: string
+          title: Path
+        type:
+          type: string
+          enum:
+          - directory
+          - file
+          title: Type
+        children:
+          items:
+            $ref: '#/components/schemas/WorkspaceTreeNode'
+          type: array
+          title: Children
+        size:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Size
+        mime_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mime Type
+      type: object
+      required:
+      - name
+      - path
+      - type
+      title: WorkspaceTreeNode
+    WorkspaceTreeResponse:
+      properties:
+        root:
+          type: string
+          title: Root
+        tree:
+          $ref: '#/components/schemas/WorkspaceTreeNode'
+      type: object
+      required:
+      - root
+      - tree
+      title: WorkspaceTreeResponse
+    WorkspaceWorkflowHealthResponse:
+      properties:
+        path:
+          type: string
+          title: Path
+        validation_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - unknown
+          title: Validation Status
+        runtime_status:
+          type: string
+          enum:
+          - ready
+          - invalid
+          - not_supported
+          title: Runtime Status
+        dry_run_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - not_supported
+          title: Dry Run Status
+        health_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - unknown
+          title: Health Status
+        latest_run:
+          anyOf:
+          - $ref: '#/components/schemas/WorkspaceWorkflowRunResponse'
+          - type: 'null'
+      type: object
+      required:
+      - path
+      - validation_status
+      - runtime_status
+      - dry_run_status
+      - health_status
+      title: WorkspaceWorkflowHealthResponse
+    WorkspaceWorkflowRunListResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/WorkspaceWorkflowRunResponse'
+          type: array
+          title: Items
+      type: object
+      required:
+      - items
+      title: WorkspaceWorkflowRunListResponse
+    WorkspaceWorkflowRunRequest:
+      properties:
+        path:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Path
+        inputs:
+          additionalProperties: true
+          type: object
+          title: Inputs
+        mode:
+          type: string
+          const: dry_run
+          title: Mode
+          default: dry_run
+      type: object
+      required:
+      - path
+      title: WorkspaceWorkflowRunRequest
+    WorkspaceWorkflowRunResponse:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        path:
+          type: string
+          title: Path
+        mode:
+          type: string
+          const: dry_run
+          title: Mode
+        status:
+          type: string
+          enum:
+          - passed
+          - failed
+          title: Status
+        validation_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - unknown
+          title: Validation Status
+        runtime_status:
+          type: string
+          enum:
+          - ready
+          - invalid
+          - not_supported
+          title: Runtime Status
+        dry_run_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - not_supported
+          title: Dry Run Status
+        health_status:
+          type: string
+          enum:
+          - passed
+          - failed
+          - unknown
+          title: Health Status
+        inputs:
+          additionalProperties: true
+          type: object
+          title: Inputs
+        definition:
+          additionalProperties: true
+          type: object
+          title: Definition
+        context:
+          additionalProperties: true
+          type: object
+          title: Context
+        node_results:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Node Results
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        completed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Completed At
+      type: object
+      required:
+      - id
+      - conversation_id
+      - workspace_id
+      - path
+      - mode
+      - status
+      - validation_status
+      - runtime_status
+      - dry_run_status
+      - health_status
+      - created_at
+      title: WorkspaceWorkflowRunResponse
+  securitySchemes:
+    HTTPBearer:
+      type: http
+      scheme: bearer

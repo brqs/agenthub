@@ -10,13 +10,21 @@ import os
 import re
 import sys
 import tomllib
+import zipfile
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 from app.agents.orchestrator.types import SubTask, TaskAttempt
+from app.services.artifact_metadata import (
+    classify_artifact,
+    read_pptx_slide_text,
+    validate_archive_artifact,
+    validate_image_artifact,
+)
 
 DEFAULT_EVALUATION_READ_MAX_BYTES = 65_536
 MAX_EVALUATION_READ_LIMIT = 1_048_576
@@ -24,9 +32,11 @@ SENSITIVE_PATH_PARTS = {".agenthub", ".env", ".ssh", "secrets"}
 DOCUMENT_SUFFIXES = {".md", ".txt"}
 STATIC_CODE_SUFFIXES = {".py", ".json", ".toml"}
 STRUCTURED_SUFFIXES = {".json", ".yaml", ".yml"}
+MANUAL_REVIEW_SUFFIXES = {".pdf", ".docx", ".ppt"}
 TEST_INTENT_RE = re.compile(r"(?i)(test|tests|pytest|测试|验收|校验)")
 WORKFLOW_INTENT_RE = re.compile(r"(?i)(workflow|工作流|流程编排|dag)")
 PPT_INTENT_RE = re.compile(r"(?i)(ppt|slides?|deck|presentation|幻灯片|演示文稿)")
+DOCUMENT_INTENT_RE = re.compile(r"(?i)(report|document|brief|readme|文档|报告|说明)")
 TEST_RUNNER_OUTPUT_MAX_CHARS = 4_000
 UNFINISHED_MARKERS = (
     "todo",
@@ -99,7 +109,7 @@ async def evaluate_attempt(
         if target is None:
             continue
         artifact_files[artifact_path] = target
-        suffix = target.suffix.lower()
+        suffix = _artifact_suffix(artifact_path)
         if suffix not in DOCUMENT_SUFFIXES | STATIC_CODE_SUFFIXES | STRUCTURED_SUFFIXES:
             continue
         text = _read_text_limited(target, read_max_bytes)
@@ -107,7 +117,13 @@ async def evaluate_attempt(
             continue
         artifact_texts[artifact_path] = text
         if suffix in DOCUMENT_SUFFIXES:
-            results.append(_evaluate_document(artifact_path, text))
+            results.append(
+                _evaluate_document(
+                    artifact_path,
+                    text,
+                    strict=_looks_like_document_artifact(task, artifact_path),
+                )
+            )
         elif suffix in STATIC_CODE_SUFFIXES:
             results.append(_evaluate_static_code(artifact_path, suffix, text))
         if _looks_like_workflow_artifact(task, artifact_path):
@@ -116,22 +132,16 @@ async def evaluate_attempt(
             results.append(_evaluate_ppt_artifact(artifact_path, suffix, text))
 
     for artifact_path, target in artifact_files.items():
-        if _looks_like_ppt_artifact(task, artifact_path) and target.suffix.lower() == ".pptx":
-            results.append(
-                EvaluationResult(
-                    evaluator="ppt_validation",
-                    status="skipped",
-                    passed=True,
-                    checked_artifacts=[artifact_path],
-                    issues=[
-                        EvaluationIssue(
-                            code="pptx_binary_not_parsed",
-                            message=".pptx binary validation is not part of the MVP evaluator.",
-                            evidence=artifact_path,
-                        )
-                    ],
-                )
-            )
+        kind = classify_artifact(artifact_path)
+        suffix = _artifact_suffix(artifact_path)
+        if _looks_like_ppt_artifact(task, artifact_path) and suffix == ".pptx":
+            results.append(_evaluate_pptx_artifact(artifact_path, target))
+        if kind == "image":
+            results.append(_evaluate_image_artifact(artifact_path, target))
+        elif kind == "archive":
+            results.append(_evaluate_archive_artifact(artifact_path, target))
+        elif suffix in MANUAL_REVIEW_SUFFIXES:
+            results.append(_manual_review_result(artifact_path, kind))
 
     test_result = await _test_report_quality_result(
         config,
@@ -213,7 +223,7 @@ def _artifact_exists_result(attempt: TaskAttempt) -> EvaluationResult:
     )
 
 
-def _evaluate_document(path: str, text: str) -> EvaluationResult:
+def _evaluate_document(path: str, text: str, *, strict: bool = False) -> EvaluationResult:
     stripped = text.strip()
     issues: list[EvaluationIssue] = []
     if not stripped:
@@ -234,6 +244,61 @@ def _evaluate_document(path: str, text: str) -> EvaluationResult:
                 repair_hint="Replace placeholders with complete, task-specific content.",
             )
         )
+    elif strict:
+        lines = [line.strip() for line in stripped.splitlines()]
+        has_title = any(
+            line.startswith("#") and len(line.lstrip("#").strip()) >= 3
+            for line in lines
+        )
+        meaningful_lines = [
+            line
+            for line in lines
+            if len(line) >= 8 and not line.startswith("#") and line not in {"---", "***"}
+        ]
+        placeholder_lines = _placeholder_lines(lines)
+        empty_headings = [
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("#") and not _heading_has_content(lines, index)
+        ]
+        if path.lower().endswith(".md") and not has_title:
+            issues.append(
+                EvaluationIssue(
+                    code="document_missing_title",
+                    message=f"{path} is missing a clear markdown title.",
+                    evidence=path,
+                    repair_hint="Add a top-level or section title that describes the document.",
+                )
+            )
+        if not meaningful_lines or (not has_title and len(stripped) < 40):
+            issues.append(
+                EvaluationIssue(
+                    code="document_too_short",
+                    message=f"{path} is too short to satisfy a report/document task.",
+                    evidence=path,
+                    repair_hint="Add substantive paragraphs with task-specific detail.",
+                )
+            )
+        if empty_headings:
+            issues.append(
+                EvaluationIssue(
+                    code="document_empty_section",
+                    message=f"{path} has headings without section content.",
+                    evidence=path,
+                    repair_hint=(
+                        "Fill each section with substantive content or remove empty sections."
+                    ),
+                )
+            )
+        if placeholder_lines:
+            issues.append(
+                EvaluationIssue(
+                    code="document_unfinished_marker",
+                    message=f"{path} still contains unfinished placeholder lines.",
+                    evidence="; ".join(placeholder_lines[:3]),
+                    repair_hint="Remove TODO/placeholder lines from the final document.",
+                )
+            )
     if issues:
         return EvaluationResult(
             evaluator="document_quality",
@@ -465,6 +530,132 @@ def _evaluate_ppt_artifact(path: str, suffix: str, text: str) -> EvaluationResul
     )
 
 
+def _evaluate_pptx_artifact(path: str, target: Path) -> EvaluationResult:
+    try:
+        slides = read_pptx_slide_text(target)
+    except (zipfile.BadZipFile, KeyError, ElementTree.ParseError):
+        return _failed(
+            "ppt_validation",
+            [path],
+            [
+                EvaluationIssue(
+                    code="pptx_parse_error",
+                    message=f"{path} is not a readable .pptx OpenXML presentation.",
+                    evidence=path,
+                    repair_hint="Regenerate a valid .pptx file or provide a PPT outline.",
+                )
+            ],
+        )
+    issues: list[EvaluationIssue] = []
+    if not slides:
+        issues.append(
+            EvaluationIssue(
+                code="pptx_no_slides",
+                message=f"{path} does not contain readable slides.",
+                evidence=path,
+                repair_hint="Add at least one slide with title or body text.",
+            )
+        )
+    for index, text in enumerate(slides):
+        if not text.strip() or _looks_placeholder_only(text):
+            issues.append(
+                EvaluationIssue(
+                    code="pptx_slide_incomplete",
+                    message=f"{path} slide {index + 1} lacks substantive text.",
+                    evidence=f"slide {index + 1}",
+                    repair_hint="Give every slide a title or meaningful body text.",
+                )
+            )
+    if issues:
+        return _failed("ppt_validation", [path], issues)
+    return EvaluationResult(
+        evaluator="ppt_validation",
+        status="passed",
+        passed=True,
+        checked_artifacts=[path],
+    )
+
+
+def _evaluate_image_artifact(path: str, target: Path) -> EvaluationResult:
+    ok, metadata, error = validate_image_artifact(target)
+    if not ok:
+        return _failed(
+            "image_validation",
+            [path],
+            [
+                EvaluationIssue(
+                    code=error or "image_invalid",
+                    message=f"{path} is not a valid image artifact.",
+                    evidence=json.dumps(metadata, ensure_ascii=False),
+                    repair_hint="Regenerate a valid PNG, JPEG, GIF, WebP, or SVG image.",
+                )
+            ],
+        )
+    return EvaluationResult(
+        evaluator="image_validation",
+        status="passed",
+        passed=True,
+        checked_artifacts=[path],
+        issues=[
+            EvaluationIssue(
+                code="image_metadata",
+                message="Image metadata parsed.",
+                evidence=json.dumps(metadata, ensure_ascii=False),
+            )
+        ],
+    )
+
+
+def _evaluate_archive_artifact(path: str, target: Path) -> EvaluationResult:
+    ok, metadata, error = validate_archive_artifact(target)
+    if not ok:
+        return _failed(
+            "archive_validation",
+            [path],
+            [
+                EvaluationIssue(
+                    code=error or "archive_invalid",
+                    message=f"{path} is not a valid safe archive.",
+                    evidence=json.dumps(metadata, ensure_ascii=False),
+                    repair_hint=(
+                        "Regenerate the archive without unsafe paths and within platform limits."
+                    ),
+                )
+            ],
+        )
+    return EvaluationResult(
+        evaluator="archive_validation",
+        status="passed",
+        passed=True,
+        checked_artifacts=[path],
+        issues=[
+            EvaluationIssue(
+                code="archive_metadata",
+                message="Archive metadata parsed.",
+                evidence=json.dumps(metadata, ensure_ascii=False),
+            )
+        ],
+    )
+
+
+def _manual_review_result(path: str, artifact_kind: str) -> EvaluationResult:
+    return EvaluationResult(
+        evaluator="manual_review_required",
+        status="skipped",
+        passed=True,
+        severity="info",
+        checked_artifacts=[path],
+        issues=[
+            EvaluationIssue(
+                code="manual_review_required",
+                message=f"{path} requires human review for {artifact_kind} quality.",
+                evidence=path,
+                repair_hint="Ask a reviewer to confirm the artifact content and visual quality.",
+            )
+        ],
+    )
+
+
 def _evaluate_ppt_outline_payload(path: str, payload: Any) -> EvaluationResult:
     issues: list[EvaluationIssue] = []
     if not isinstance(payload, Mapping):
@@ -686,6 +877,20 @@ def _coerce_judge_result(raw: Any, checked_artifacts: list[str]) -> EvaluationRe
             for issue in raw.get("issues", [])
             if isinstance(issue, Mapping)
         ]
+        raw_status = str(raw.get("status") or "")
+        if raw_status == "skipped":
+            return EvaluationResult(
+                evaluator="requirements_coverage",
+                status="skipped",
+                passed=True,
+                severity=str(raw.get("severity") or "info"),
+                issues=issues,
+                checked_artifacts=[
+                    str(item)
+                    for item in raw_checked_artifacts
+                    if isinstance(item, str)
+                ],
+            )
         passed = bool(raw.get("passed", not issues))
         return EvaluationResult(
             evaluator="requirements_coverage",
@@ -819,11 +1024,18 @@ def _looks_like_workflow_artifact(task: SubTask, path: str) -> bool:
 
 def _looks_like_ppt_artifact(task: SubTask, path: str) -> bool:
     lowered = path.lower()
-    if not lowered.endswith((".json", ".md", ".txt", ".pptx")):
+    if not lowered.endswith((".json", ".md", ".txt", ".ppt", ".pptx")):
         return False
     if any(token in lowered for token in ("ppt", "slides", "slide", "deck", "presentation")):
         return True
     return bool(PPT_INTENT_RE.search(f"{task.title}\n{task.instruction}"))
+
+
+def _looks_like_document_artifact(task: SubTask, path: str) -> bool:
+    lowered = path.lower()
+    if any(token in lowered for token in ("report", "document", "readme", "brief")):
+        return True
+    return bool(DOCUMENT_INTENT_RE.search(f"{task.title}\n{task.instruction}"))
 
 
 def _has_substantive_slide_content(content: Any) -> bool:
@@ -833,6 +1045,50 @@ def _has_substantive_slide_content(content: Any) -> bool:
         text = "\n".join(item for item in content if isinstance(item, str))
         return bool(text.strip()) and not _looks_placeholder_only(text)
     return False
+
+
+def _heading_has_content(lines: list[str], heading_index: int) -> bool:
+    heading_level = _markdown_heading_level(lines[heading_index])
+    if heading_level is None:
+        return True
+    saw_child_heading = False
+    for line in lines[heading_index + 1 :]:
+        next_heading_level = _markdown_heading_level(line)
+        if next_heading_level is not None:
+            if next_heading_level <= heading_level:
+                return saw_child_heading
+            saw_child_heading = True
+            continue
+        if saw_child_heading:
+            continue
+        if len(line.strip()) >= 8:
+            return True
+    return saw_child_heading
+
+
+def _markdown_heading_level(line: str) -> int | None:
+    if not line.startswith("#"):
+        return None
+    marker = line.split(maxsplit=1)[0]
+    if set(marker) != {"#"}:
+        return None
+    return len(marker)
+
+
+def _placeholder_lines(lines: list[str]) -> list[str]:
+    placeholder_re = re.compile(
+        r"(?i)^\s*(?:[-*]\s*)?(?:\[[ x]?\]\s*)?"
+        r"(todo|tbd|placeholder|待补充|待完善|未完成|占位)\b"
+    )
+    matches: list[str] = []
+    in_fence = False
+    for line in lines:
+        if line.startswith("```") or line.startswith("~~~"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and placeholder_re.search(line):
+            matches.append(line)
+    return matches
 
 
 def _wants_test_runner(task: SubTask) -> bool:
@@ -866,6 +1122,13 @@ def _read_max_bytes(config: Mapping[str, Any]) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return DEFAULT_EVALUATION_READ_MAX_BYTES
     return max(1, min(value, MAX_EVALUATION_READ_LIMIT))
+
+
+def _artifact_suffix(path: str) -> str:
+    lowered = path.lower()
+    if lowered.endswith(".tar.gz"):
+        return ".tar.gz"
+    return Path(lowered).suffix
 
 
 def _safe_artifact_file(workspace_path: Path, artifact_path: str) -> Path | None:

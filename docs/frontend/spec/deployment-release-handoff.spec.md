@@ -1,7 +1,7 @@
 # Deployment / Release Frontend Handoff Spec
 
 > 状态：Optional frontend enhancement handoff
-> 最后更新：2026-06-01
+> 最后更新：2026-06-03
 
 ## 1. 当前结论
 
@@ -25,6 +25,10 @@ size_bytes
 - 直接调用 preview / deployments / download API 验证后端能力。
 - 通过 Orchestrator 消息流验证正式 tool call 和 `deployment_status` block 数据。
 - 不把远端前端是否渲染状态卡作为 B2 后端阻断项。
+
+2026-06-03 后端 Deployment / Release hardening MVP 已通过 live E2E：container 部署失败会触发
+evaluation/reflection/repair/redeploy，并最终返回 `published` 的 `deployment_status`。前端后续可选择展示
+repair round、failure issue 和 redeploy 过程，但不影响当前后端验收。
 
 ## 2. 新增可选字段
 
@@ -73,8 +77,8 @@ pnpm build
 ## 5. 后端接口参考
 
 - 原生部署执行计划：
-  [orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)
+  [../../b2/spec/orchestrator/native-deployment.execution.spec.md](../../b2/spec/orchestrator/native-deployment.execution.spec.md)
 - 后端实现：
-  [deployment-release-backend.execution.spec.md](deployment-release-backend.execution.spec.md)
+  [../../b2/spec/deployment-release-backend.execution.spec.md](../../b2/spec/deployment-release-backend.execution.spec.md)
 - OpenAPI：
   [shared/openapi.yaml](../../../shared/openapi.yaml)

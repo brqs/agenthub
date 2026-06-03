@@ -84,7 +84,11 @@ describe('chatStore', () => {
     });
     store.applyStreamEvent(messageId, {
       event: 'tool_call',
-      data: { call_id: 'call-write', tool_name: 'write_file', tool_arguments: { path: 'demo.html' } },
+      data: {
+        call_id: 'call-write',
+        tool_name: 'write_file',
+        tool_arguments: { path: 'demo.html' },
+      },
     });
     store.applyStreamEvent(messageId, {
       event: 'tool_result',
@@ -99,6 +103,82 @@ describe('chatStore', () => {
         { type: 'text', text: 'hello' },
         { type: 'tool_call', call_id: 'call-write', status: 'ok', output_preview: 'wrote file' },
       ],
+    });
+  });
+
+  it('applies workflow stream events as workflow blocks', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'workflow',
+        agent_id: 'codex-helper',
+        metadata: {
+          format: 'yaml',
+          validation_status: 'unknown',
+          runtime_status: 'not_supported',
+          dry_run_status: 'not_supported',
+        },
+      },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'delta',
+      data: {
+        block_index: 0,
+        agent_id: 'codex-helper',
+        text_delta: "version: '1'\nname: Demo Flow\nnodes: []\nedges: []\n",
+      },
+    });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'workflow',
+      agent_id: 'codex-helper',
+      format: 'yaml',
+      raw_definition: "version: '1'\nname: Demo Flow\nnodes: []\nedges: []\n",
+      runtime_status: 'not_supported',
+    });
+  });
+
+  it('applies file stream events as rich file blocks', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'file',
+        agent_id: 'codex-helper',
+        metadata: {
+          path: 'docs/report.md',
+          filename: 'report.md',
+          url: '/api/v1/workspaces/conv-demo-flow/files/docs/report.md',
+          size: 42,
+          mime_type: 'text/markdown',
+          artifact_kind: 'document',
+          preview_text: '# Report',
+          preview_truncated: false,
+          metadata: { section_count: 1 },
+        },
+      },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'delta',
+      data: { block_index: 0, text_delta: 'ignored' },
+    });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'file',
+      agent_id: 'codex-helper',
+      path: 'docs/report.md',
+      artifact_kind: 'document',
+      filename: 'report.md',
+      preview_text: '# Report',
     });
   });
 

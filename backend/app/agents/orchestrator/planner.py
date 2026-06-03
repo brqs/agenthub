@@ -216,6 +216,17 @@ def _task_plan_tool() -> ToolSpec:
                             },
                             "priority": {"type": "integer", "default": 0},
                             "expected_output": {"type": "string"},
+                            "task_type": {
+                                "type": "string",
+                                "enum": ["implementation", "review", "repair"],
+                                "default": "implementation",
+                            },
+                            "review_of": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "default": [],
+                            },
+                            "handoff_reason": {"type": "string"},
                         },
                     },
                 }

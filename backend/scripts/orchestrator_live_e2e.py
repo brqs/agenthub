@@ -6,6 +6,7 @@ It is opt-in and intended for manual/live verification, not default CI.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -22,10 +23,36 @@ BASE_URL = os.getenv("AGENTHUB_E2E_BASE_URL", "http://154.44.25.94:1573")
 USERNAME = os.getenv("AGENTHUB_E2E_USERNAME", "12345678")
 PASSWORD = os.getenv("AGENTHUB_E2E_PASSWORD", "12345678")
 SCENARIO = os.getenv("AGENTHUB_E2E_SCENARIO", "quality").strip().lower()
+P1_ATTRIBUTION_SCENARIO = SCENARIO == "p1_attribution"
+P1_WORKFLOW_SCENARIO = SCENARIO == "p1_workflow"
+P1_WORKFLOW_RUNTIME_SCENARIO = SCENARIO == "p1_workflow_runtime"
+P1_REVIEW_THREAD_SCENARIO = SCENARIO == "p1_review_thread_repair"
+P1_RICH_ARTIFACTS_SCENARIO = SCENARIO == "p1_rich_artifacts"
+P1_EVALUATION_REPAIR_SCENARIO = SCENARIO == "p1_evaluation_repair"
+P1_SCENARIO = (
+    P1_ATTRIBUTION_SCENARIO
+    or P1_WORKFLOW_SCENARIO
+    or P1_WORKFLOW_RUNTIME_SCENARIO
+    or P1_REVIEW_THREAD_SCENARIO
+    or P1_RICH_ARTIFACTS_SCENARIO
+    or P1_EVALUATION_REPAIR_SCENARIO
+)
 FULLSTACK_SCENARIO = SCENARIO == "fullstack"
 DEPLOYMENT_REPAIR_SCENARIO = SCENARIO == "deployment_repair"
 CUSTOM_AGENT_TOOLS_SCENARIO = SCENARIO == "custom_agent_tools"
 DEPLOYMENT_SCENARIO = SCENARIO in {"deployment", "deployment_repair"}
+DEFAULT_P1_ATTRIBUTION_SSE_PATH = "/tmp/agenthub_p1_attribution_sse.jsonl"  # noqa: S108
+DEFAULT_P1_WORKFLOW_SSE_PATH = "/tmp/agenthub_p1_workflow_sse.jsonl"  # noqa: S108
+DEFAULT_P1_WORKFLOW_RUNTIME_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_workflow_runtime_sse.jsonl"  # noqa: S108
+)
+DEFAULT_P1_REVIEW_THREAD_SSE_PATH = "/tmp/agenthub_p1_review_thread_sse.jsonl"  # noqa: S108
+DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_rich_artifacts_sse.jsonl"  # noqa: S108
+)
+DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_evaluation_repair_sse.jsonl"  # noqa: S108
+)
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
@@ -34,6 +61,20 @@ DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = (  # noqa: S108
 )
 DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_custom_agent_tools_sse.jsonl"  # noqa: S108
+)
+DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
+DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
+DEFAULT_P1_WORKFLOW_RUNTIME_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_workflow_runtime_report.json"  # noqa: S108
+)
+DEFAULT_P1_REVIEW_THREAD_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_review_thread_report.json"  # noqa: S108
+)
+DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_rich_artifacts_report.json"  # noqa: S108
+)
+DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_evaluation_repair_report.json"  # noqa: S108
 )
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
@@ -60,7 +101,19 @@ SSE_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_SSE_PATH",
         (
-            DEFAULT_FULLSTACK_SSE_PATH
+            DEFAULT_P1_ATTRIBUTION_SSE_PATH
+            if P1_ATTRIBUTION_SCENARIO
+            else DEFAULT_P1_WORKFLOW_SSE_PATH
+            if P1_WORKFLOW_SCENARIO
+            else DEFAULT_P1_WORKFLOW_RUNTIME_SSE_PATH
+            if P1_WORKFLOW_RUNTIME_SCENARIO
+            else DEFAULT_P1_REVIEW_THREAD_SSE_PATH
+            if P1_REVIEW_THREAD_SCENARIO
+            else DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH
+            if P1_RICH_ARTIFACTS_SCENARIO
+            else DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH
+            if P1_EVALUATION_REPAIR_SCENARIO
+            else DEFAULT_FULLSTACK_SSE_PATH
             if FULLSTACK_SCENARIO
             else DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH
             if CUSTOM_AGENT_TOOLS_SCENARIO
@@ -76,7 +129,19 @@ REPORT_PATH = Path(
     os.getenv(
         "AGENTHUB_E2E_REPORT_PATH",
         (
-            DEFAULT_FULLSTACK_REPORT_PATH
+            DEFAULT_P1_ATTRIBUTION_REPORT_PATH
+            if P1_ATTRIBUTION_SCENARIO
+            else DEFAULT_P1_WORKFLOW_REPORT_PATH
+            if P1_WORKFLOW_SCENARIO
+            else DEFAULT_P1_WORKFLOW_RUNTIME_REPORT_PATH
+            if P1_WORKFLOW_RUNTIME_SCENARIO
+            else DEFAULT_P1_REVIEW_THREAD_REPORT_PATH
+            if P1_REVIEW_THREAD_SCENARIO
+            else DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH
+            if P1_RICH_ARTIFACTS_SCENARIO
+            else DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH
+            if P1_EVALUATION_REPAIR_SCENARIO
+            else DEFAULT_FULLSTACK_REPORT_PATH
             if FULLSTACK_SCENARIO
             else DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH
             if CUSTOM_AGENT_TOOLS_SCENARIO
@@ -149,9 +214,87 @@ CUSTOM_AGENT_TOOLS_PROMPT = (
     "检查 Agent；需要文件内容时必须使用 read_file 工具；不能写文件或运行命令”，"
     "capabilities 设置为 reading、review，工具白名单设置为 read_file，并把它加入当前群聊。"
 )
+P1_ATTRIBUTION_PROMPT = (
+    "@orchestrator 请进行 P1-1 合流消息归属验收。请只做 markdown 协作记录。"
+    "明确拆成两个互不依赖的实现任务：让 claude-code 创建 p1-attribution-claude.md，"
+    "内容包含“CLAUDE_ATTRIBUTION_SENTINEL”；让 opencode-helper 创建 "
+    "p1-attribution-opencode.md，内容包含“OPENCODE_ATTRIBUTION_SENTINEL”。"
+    "两个成员都需要简短说明自己完成的文件。最后由 orchestrator 汇总，说明两个"
+    "不同成员的结果都已完成。不要在可见回复里用 @claude-code 或 @opencode-helper "
+    "这种纯文本标题来表达归属，归属必须依赖 stream/message block 的 agent_id。"
+)
+P1_WORKFLOW_PROMPT = (
+    "@orchestrator 请进行 P1-2 Workflow ContentBlock 验收。只调度 codex-helper 完成："
+    "创建 workspace 文件 p1-workflow.yaml，并在回复中输出同一份合法 workflow-yaml fenced "
+    "block。Workflow 必须包含 version、name、nodes、edges，name 为 P1 Workflow E2E，"
+    "nodes 至少包含 start(trigger)、review(action)、publish(action)。edges 中每条边"
+    "必须使用字段 source 和 target，不要使用 from/to；两条边分别是 source: start / "
+    "target: review，以及 source: review / target: publish。仅生成 YAML 文件和文字说明。"
+    "最终总结确认 "
+    "p1-workflow.yaml 已生成且 workflow_validation 通过。"
+)
+P1_WORKFLOW_RUNTIME_PROMPT = (
+    "@orchestrator 请进行 P1-B2-01 Workflow runtime / dry-run 验收。只调度 "
+    "codex-helper 完成：创建 workspace 文件 p1-runtime-workflow.yaml，并在回复中"
+    "输出同一份合法 workflow-yaml fenced block。Workflow 必须包含 version、name、"
+    "nodes、edges，name 为 P1 Workflow Runtime E2E。nodes 必须依次包含："
+    "start(trigger)、set_context(task，config.action=set_context，config.values.release.status=ready)、"
+    "check(assert，config.equals.release.status=ready)、done(end)。edges 使用 source/target，"
+    "依次连接 start -> set_context -> check -> done。不要使用 shell、HTTP、部署或外部服务。"
+    "最终总结必须确认 p1-runtime-workflow.yaml 已生成、workflow_validation passed、"
+    "workflow dry-run passed。"
+)
+P1_REVIEW_THREAD_PROMPT = (
+    "@orchestrator 请进行 P1-3 Agent-to-Agent Review Thread / repair 验收。只使用当前"
+    "群聊成员。请先让 claude-code 创建 p1-review-thread.md，但首次实现必须故意只写"
+    "标题和 TODO，明确不要写 REQUIRED_E2E_REPAIR_SECTION。随后由 codex-helper 作为"
+    "独立 review agent 审核该产物；如果缺少 REQUIRED_E2E_REPAIR_SECTION，review 回复"
+    "第一行必须是 review_outcome: needs_repair，并说明需要原实现 Agent 修复。"
+    "Orchestrator 收到 needs_repair 后必须追加 repair task，让原实现 Agent 补上 "
+    "REQUIRED_E2E_REPAIR_SECTION 和修复说明。最终总结必须包含 review_of、handoff、"
+    "review outcome: needs_repair，并确认最终消息完成。仅生成 markdown 文件和文字审核。"
+)
+P1_RICH_ARTIFACTS_PROMPT = (
+    "@orchestrator 请进行 P1 Rich Artifact API/SSE 验收。只允许规划下列四个"
+    "workspace 文件任务。任务一：claude-code 创建 "
+    "docs/rich-report.md，内容必须是"
+    "完整 markdown 报告。任务二：claude-code 创建 slides/rich-deck.md，内容是幻灯片"
+    "大纲；该路径用于归类为 ppt artifact。任务三：opencode-helper 创建 "
+    "assets/rich-logo.svg，必须是有效 SVG。任务四：opencode-helper 创建 "
+    "packages/rich-export.tar，必须是有效 tar archive；请用 shell 创建 "
+    "packages/rich-export/README.md，然后执行 "
+    "`tar -cf packages/rich-export.tar -C packages/rich-export README.md`，"
+    "并用 `tar -tf packages/rich-export.tar` 验证 README.md 条目存在。"
+    "四个文件都必须真实存在，并在最终消息中保留 file block。最终总结只列出这四个 "
+    "artifact path、artifact kind 和负责 agent。"
+)
+P1_EVALUATION_REPAIR_PROMPT = (
+    "@orchestrator 请进行 P1 Evaluation Repair 验收。只规划一个 markdown 文档任务："
+    "claude-code 创建 repair-report.md。Agent invocation 协议必须如下：如果本次调用"
+    "没有系统上下文标题 `Previous sub-agent results:` 或 `Previous attempt failure:`，"
+    "只写两行 TODO markdown 并立即结束，让 document_quality failed 和 reflection 发生；"
+    "如果本次调用带有上一轮 evaluation failed / repair instruction，再重写 repair-report.md："
+    "加入 # Repair Report "
+    "标题、Summary、Validation Evidence、Required E2E Repair Section、Final Status 四个"
+    "章节，每个章节都有正文，不留空标题，不写 TODO/placeholder。最终总结必须说明 "
+    "document_quality failed -> fallback/repair -> final passed 或 manual_review_required，"
+    "并明确 manifest 不应把 failed artifact 标成 passed。"
+)
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
-    FULLSTACK_PROMPT
+    P1_ATTRIBUTION_PROMPT
+    if P1_ATTRIBUTION_SCENARIO
+    else P1_WORKFLOW_PROMPT
+    if P1_WORKFLOW_SCENARIO
+    else P1_WORKFLOW_RUNTIME_PROMPT
+    if P1_WORKFLOW_RUNTIME_SCENARIO
+    else P1_REVIEW_THREAD_PROMPT
+    if P1_REVIEW_THREAD_SCENARIO
+    else P1_RICH_ARTIFACTS_PROMPT
+    if P1_RICH_ARTIFACTS_SCENARIO
+    else P1_EVALUATION_REPAIR_PROMPT
+    if P1_EVALUATION_REPAIR_SCENARIO
+    else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
     if CUSTOM_AGENT_TOOLS_SCENARIO
@@ -490,6 +633,82 @@ def read_workspace_file(
     return response.text
 
 
+def list_workflow_runs(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    path: str,
+) -> list[dict[str, Any]]:
+    response = client.get(
+        f"/api/v1/workspaces/{conv_id}/workflow-runs",
+        headers=headers,
+        params={"path": path},
+    )
+    response.raise_for_status()
+    body = response.json()
+    items = body.get("items")
+    return items if isinstance(items, list) else []
+
+
+def get_workflow_run(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    run_id: str,
+) -> dict[str, Any]:
+    response = client.get(
+        f"/api/v1/workspaces/{conv_id}/workflow-runs/{run_id}",
+        headers=headers,
+    )
+    response.raise_for_status()
+    body = response.json()
+    return body if isinstance(body, dict) else {}
+
+
+def create_workflow_dry_run(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    path: str,
+) -> dict[str, Any]:
+    response = client.post(
+        f"/api/v1/workspaces/{conv_id}/workflow-runs",
+        headers=headers,
+        json={"path": path, "inputs": {}, "mode": "dry_run"},
+    )
+    response.raise_for_status()
+    body = response.json()
+    return body if isinstance(body, dict) else {}
+
+
+def get_workflow_health(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    path: str,
+) -> dict[str, Any]:
+    response = client.get(
+        f"/api/v1/workspaces/{conv_id}/workflow-health",
+        headers=headers,
+        params={"path": path},
+    )
+    response.raise_for_status()
+    body = response.json()
+    return body if isinstance(body, dict) else {}
+
+
+def get_workspace_artifacts(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+) -> list[dict[str, Any]]:
+    response = client.get(f"/api/v1/workspaces/{conv_id}/artifacts", headers=headers)
+    response.raise_for_status()
+    body = response.json()
+    items = body.get("items")
+    return items if isinstance(items, list) else []
+
+
 def put_workspace_file(
     client: httpx.Client,
     conv_id: str,
@@ -614,6 +833,799 @@ def fullstack_parallel_report(run_detail: dict[str, Any]) -> dict[str, Any]:
             and review_after_front_backend
         ),
     }
+
+
+def config_summary(config: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(config, dict):
+        return {}
+    keys = (
+        "llm_planning",
+        "orchestrator_parallel_enabled",
+        "orchestrator_parallel_max_concurrency",
+        "orchestrator_agent_review_enabled",
+        "orchestrator_review_agent_ids",
+        "agent_to_agent_review_enabled",
+        "review_agent_ids",
+        "orchestrator_memory_enabled",
+    )
+    return {key: config.get(key) for key in keys if key in config}
+
+
+async def _patch_orchestrator_review_config(
+    review_agent_ids: list[str],
+) -> dict[str, Any]:
+    from app.core.database import SessionFactory, engine
+    from app.models.agent import Agent
+
+    async with SessionFactory() as db:
+        agent = await db.get(Agent, "orchestrator")
+        if agent is None:
+            raise RuntimeError("orchestrator agent not found")
+        original_config = dict(agent.config or {})
+        patched_config = {
+            **original_config,
+            "orchestrator_agent_review_enabled": True,
+            "orchestrator_review_agent_ids": review_agent_ids,
+        }
+        agent.config = patched_config
+        await db.commit()
+    await engine.dispose()
+    return original_config
+
+
+async def _restore_orchestrator_config(config: dict[str, Any]) -> dict[str, Any]:
+    from app.core.database import SessionFactory, engine
+    from app.models.agent import Agent
+
+    async with SessionFactory() as db:
+        agent = await db.get(Agent, "orchestrator")
+        if agent is None:
+            raise RuntimeError("orchestrator agent not found")
+        agent.config = dict(config)
+        await db.commit()
+    await engine.dispose()
+    return {"restored": True, "restored_config_summary": config_summary(config)}
+
+
+def event_data(event: dict[str, Any]) -> dict[str, Any]:
+    data = event.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def final_summary_from_report(report: dict[str, Any]) -> str:
+    run_items = report.get("orchestrator_runs")
+    if isinstance(run_items, list) and run_items:
+        return "\n".join(str(item.get("final_summary") or "") for item in run_items)
+    run_detail = report.get("orchestrator_run_detail")
+    if isinstance(run_detail, dict):
+        run = run_detail.get("run")
+        if isinstance(run, dict):
+            return str(run.get("final_summary") or "")
+    return ""
+
+
+def fetch_orchestrator_run_detail(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conv_id: str,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    runs = client.get(f"/api/v1/conversations/{conv_id}/orchestrator-runs", headers=headers)
+    report["orchestrator_runs_status_code"] = runs.status_code
+    if runs.status_code != 200:
+        report["orchestrator_runs_error"] = runs.text
+        return {}
+    run_items = runs.json().get("items", [])
+    report["orchestrator_runs"] = run_items
+    if not run_items:
+        return {}
+    run_id = run_items[0].get("id")
+    if not isinstance(run_id, str):
+        return {}
+    detail = client.get(
+        f"/api/v1/conversations/{conv_id}/orchestrator-runs/{run_id}",
+        headers=headers,
+    )
+    report["orchestrator_run_detail_status_code"] = detail.status_code
+    if detail.status_code != 200:
+        report["orchestrator_run_detail_error"] = detail.text
+        return {}
+    run_detail = detail.json()
+    report["orchestrator_run_detail"] = run_detail
+    return run_detail
+
+
+def fetch_workspace_evidence(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conv_id: str,
+    report: dict[str, Any],
+) -> list[dict[str, Any]]:
+    tree = client.get(f"/api/v1/workspaces/{conv_id}/tree", headers=headers)
+    report["workspace_tree_status_code"] = tree.status_code
+    if tree.status_code != 200:
+        report["workspace_tree_error"] = tree.text
+        return []
+    report["workspace_tree"] = tree.json()
+    files = flatten_tree(report["workspace_tree"]["tree"])
+    report["workspace_files"] = files
+    return files
+
+
+def p1_content_blocks(report: dict[str, Any]) -> list[dict[str, Any]]:
+    target = report.get("target_agent_message")
+    if not isinstance(target, dict):
+        return []
+    blocks = target.get("content")
+    return blocks if isinstance(blocks, list) else []
+
+
+def p1_common_evidence(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+    *,
+    title: str,
+    agent_ids: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": title,
+            "mode": "group",
+            "agent_ids": agent_ids,
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+
+    sent, events, target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    report["user_message_id"] = sent["user_message"]["id"]
+    report["agent_message_id"] = sent["agent_message"]["id"]
+    report["target_agent_message"] = target
+    report["stream_event_count"] = len(events)
+    report["agent_switch_to_agents"] = [
+        event_data(event).get("to_agent")
+        for event in events
+        if event.get("event") == "agent_switch"
+    ]
+    report["checks"]["message_done"] = bool(target and target.get("status") == "done")
+    fetch_orchestrator_run_detail(client, headers, conv_id, report)
+    files = fetch_workspace_evidence(client, headers, conv_id, report)
+    report["content_block_types"] = [
+        block.get("type") for block in p1_content_blocks(report)
+    ]
+    return events, files
+
+
+def p1_agent_id_report(
+    events: list[dict[str, Any]],
+    blocks: list[dict[str, Any]],
+) -> dict[str, Any]:
+    allowed_agents = set(AGENT_IDS)
+    sub_agents = allowed_agents - {"orchestrator"}
+    chunk_event_types = {"block_start", "delta", "block_end", "tool_call", "tool_result"}
+    chunk_events = [
+        event for event in events if str(event.get("event")) in chunk_event_types
+    ]
+    missing_or_invalid_chunk_events = [
+        {
+            "event": event.get("event"),
+            "elapsed_seconds": event.get("elapsed_seconds"),
+            "data": event_data(event),
+        }
+        for event in chunk_events
+        if event_data(event).get("agent_id") not in allowed_agents
+    ]
+    child_chunk_agent_ids = sorted(
+        {
+            str(event_data(event).get("agent_id"))
+            for event in chunk_events
+            if event_data(event).get("agent_id") in sub_agents
+        }
+    )
+    persisted_agent_blocks = [
+        block
+        for block in blocks
+        if block.get("type") in {"text", "code", "diff", "tool_call", "workflow"}
+    ]
+    invalid_persisted_blocks = [
+        block
+        for block in persisted_agent_blocks
+        if block.get("agent_id") not in allowed_agents
+    ]
+    child_block_agent_ids = sorted(
+        {
+            str(block.get("agent_id"))
+            for block in persisted_agent_blocks
+            if block.get("agent_id") in sub_agents
+        }
+    )
+    visible_text = visible_agent_text(blocks)
+    raw_header_matches = re.findall(
+        r"(?m)^\s*@(claude-code|opencode-helper|codex-helper)\b",
+        visible_text,
+    )
+    orchestration_blocks = [
+        block
+        for block in blocks
+        if block.get("type") == "text"
+        and block.get("agent_id") == "orchestrator"
+        and re.search(
+            r"Planned|Execution summary|执行总结|任务规划|sub-task",
+            str(block.get("text") or ""),
+            re.I,
+        )
+    ]
+    plan_summary_wrong_agent_blocks = [
+        block
+        for block in blocks
+        if block.get("type") == "text"
+        and block.get("agent_id") != "orchestrator"
+        and re.search(
+            r"Planned|Execution summary|执行总结|任务规划|sub-task",
+            str(block.get("text") or ""),
+            re.I,
+        )
+    ]
+    return {
+        "chunk_event_count": len(chunk_events),
+        "missing_or_invalid_chunk_events": missing_or_invalid_chunk_events[:20],
+        "child_chunk_agent_ids": child_chunk_agent_ids,
+        "persisted_agent_block_count": len(persisted_agent_blocks),
+        "invalid_persisted_blocks": invalid_persisted_blocks[:20],
+        "child_block_agent_ids": child_block_agent_ids,
+        "orchestration_block_count": len(orchestration_blocks),
+        "plan_summary_wrong_agent_blocks": plan_summary_wrong_agent_blocks[:10],
+        "raw_agent_header_matches": raw_header_matches,
+    }
+
+
+def evaluate_p1_attribution(
+    report: dict[str, Any],
+    events: list[dict[str, Any]],
+    files: list[dict[str, Any]],
+) -> None:
+    blocks = p1_content_blocks(report)
+    agent_report = p1_agent_id_report(events, blocks)
+    report["p1_agent_id_report"] = agent_report
+    switch_agents = [
+        agent_id
+        for agent_id in report.get("agent_switch_to_agents", [])
+        if agent_id in {"claude-code", "opencode-helper", "codex-helper"}
+    ]
+    file_names = {str(item.get("path", "")).rsplit("/", 1)[-1] for item in files}
+    checks = report["checks"]
+    checks["p1_attribution_two_sub_agent_switches"] = len(set(switch_agents)) >= 2
+    checks["p1_attribution_sse_chunks_have_agent_id"] = (
+        agent_report["chunk_event_count"] > 0
+        and not agent_report["missing_or_invalid_chunk_events"]
+    )
+    checks["p1_attribution_sse_child_chunks_have_real_agent_id"] = (
+        len(agent_report["child_chunk_agent_ids"]) >= 2
+    )
+    checks["p1_attribution_persisted_blocks_have_agent_id"] = (
+        agent_report["persisted_agent_block_count"] > 0
+        and not agent_report["invalid_persisted_blocks"]
+    )
+    checks["p1_attribution_persisted_child_blocks_segmented"] = (
+        len(agent_report["child_block_agent_ids"]) >= 2
+    )
+    checks["p1_attribution_plan_summary_orchestrator"] = (
+        agent_report["orchestration_block_count"] >= 1
+        and not agent_report["plan_summary_wrong_agent_blocks"]
+    )
+    checks["p1_attribution_no_raw_agent_header_semantics"] = (
+        not agent_report["raw_agent_header_matches"]
+    )
+    checks["p1_attribution_workspace_artifacts_created"] = {
+        "p1-attribution-claude.md",
+        "p1-attribution-opencode.md",
+    }.issubset(file_names)
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "p1_attribution_two_sub_agent_switches",
+        "p1_attribution_sse_chunks_have_agent_id",
+        "p1_attribution_sse_child_chunks_have_real_agent_id",
+        "p1_attribution_persisted_blocks_have_agent_id",
+        "p1_attribution_persisted_child_blocks_segmented",
+        "p1_attribution_plan_summary_orchestrator",
+        "p1_attribution_no_raw_agent_header_semantics",
+        "p1_attribution_workspace_artifacts_created",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def evaluate_p1_workflow(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    files: list[dict[str, Any]],
+) -> None:
+    blocks = p1_content_blocks(report)
+    workflow_blocks = [block for block in blocks if block.get("type") == "workflow"]
+    report["workflow_blocks"] = workflow_blocks
+    files_by_name = file_by_basename(files)
+    workflow_item = files_by_name.get("p1-workflow.yaml")
+    workflow_file_text = ""
+    if workflow_item:
+        workflow_file_text = read_workspace_file(
+            client,
+            str(report["conversation_id"]),
+            headers,
+            str(workflow_item["path"]),
+        )
+    report["workflow_file_preview"] = workflow_file_text[:4000]
+    workflow_block = workflow_blocks[0] if workflow_blocks else {}
+    definition = workflow_block.get("definition") if isinstance(workflow_block, dict) else {}
+    nodes = workflow_block.get("nodes") if isinstance(workflow_block, dict) else []
+    edges = workflow_block.get("edges") if isinstance(workflow_block, dict) else []
+    final_summary = final_summary_from_report(report)
+    checks = report["checks"]
+    checks["p1_workflow_block_present"] = bool(workflow_blocks)
+    checks["p1_workflow_block_has_agent_id"] = (
+        workflow_block.get("agent_id") in {"claude-code", "opencode-helper", "codex-helper"}
+    )
+    checks["p1_workflow_block_has_name_path_format"] = (
+        isinstance(workflow_block.get("name"), str)
+        and bool(workflow_block.get("name"))
+        and workflow_block.get("path") == "p1-workflow.yaml"
+        and workflow_block.get("format") == "yaml"
+    )
+    checks["p1_workflow_block_has_definition_nodes_edges"] = (
+        isinstance(definition, dict)
+        and isinstance(nodes, list)
+        and len(nodes) >= 3
+        and isinstance(edges, list)
+        and len(edges) >= 2
+    )
+    checks["p1_workflow_validation_passed"] = (
+        workflow_block.get("validation_status") == "passed"
+    )
+    checks["p1_workflow_runtime_ready"] = (
+        workflow_block.get("runtime_status") == "ready"
+    )
+    checks["p1_workflow_dry_run_not_supported"] = (
+        workflow_block.get("dry_run_status") == "not_supported"
+    )
+    checks["p1_workflow_workspace_file_exists"] = workflow_item is not None
+    checks["p1_workflow_summary_has_no_validation_failure"] = (
+        "workflow_validation" not in final_summary.lower()
+        or "workflow_validation passed" in final_summary.lower()
+    )
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "p1_workflow_block_present",
+        "p1_workflow_block_has_agent_id",
+        "p1_workflow_block_has_name_path_format",
+        "p1_workflow_block_has_definition_nodes_edges",
+        "p1_workflow_validation_passed",
+        "p1_workflow_runtime_ready",
+        "p1_workflow_dry_run_not_supported",
+        "p1_workflow_workspace_file_exists",
+        "p1_workflow_summary_has_no_validation_failure",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def evaluate_p1_workflow_runtime(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    files: list[dict[str, Any]],
+) -> None:
+    conv_id = str(report["conversation_id"])
+    blocks = p1_content_blocks(report)
+    workflow_blocks = [block for block in blocks if block.get("type") == "workflow"]
+    report["workflow_runtime_blocks"] = workflow_blocks
+    files_by_name = file_by_basename(files)
+    workflow_item = files_by_name.get("p1-runtime-workflow.yaml")
+    workflow_file_text = ""
+    if workflow_item:
+        workflow_file_text = read_workspace_file(
+            client,
+            conv_id,
+            headers,
+            str(workflow_item["path"]),
+        )
+    report["workflow_runtime_file_preview"] = workflow_file_text[:4000]
+    workflow_block = workflow_blocks[0] if workflow_blocks else {}
+    initial_runs = list_workflow_runs(
+        client,
+        conv_id,
+        headers,
+        "p1-runtime-workflow.yaml",
+    )
+    report["workflow_runtime_initial_runs"] = initial_runs
+    last_run_id = str(workflow_block.get("last_run_id") or "")
+    run_detail = get_workflow_run(client, conv_id, headers, last_run_id) if last_run_id else {}
+    report["workflow_runtime_last_run_detail"] = run_detail
+    extra_run = create_workflow_dry_run(
+        client,
+        conv_id,
+        headers,
+        "p1-runtime-workflow.yaml",
+    )
+    report["workflow_runtime_extra_run"] = extra_run
+    after_runs = list_workflow_runs(
+        client,
+        conv_id,
+        headers,
+        "p1-runtime-workflow.yaml",
+    )
+    report["workflow_runtime_after_runs"] = after_runs
+    health = get_workflow_health(client, conv_id, headers, "p1-runtime-workflow.yaml")
+    report["workflow_runtime_health"] = health
+    final_summary = final_summary_from_report(report).lower()
+    checks = report["checks"]
+    node_results = run_detail.get("node_results")
+    extra_node_results = extra_run.get("node_results")
+    checks["p1_workflow_runtime_block_present"] = bool(workflow_blocks)
+    checks["p1_workflow_runtime_block_has_last_run_id"] = bool(last_run_id)
+    checks["p1_workflow_runtime_statuses_passed"] = (
+        workflow_block.get("validation_status") == "passed"
+        and workflow_block.get("runtime_status") == "ready"
+        and workflow_block.get("dry_run_status") == "passed"
+        and workflow_block.get("health_status") == "passed"
+    )
+    checks["p1_workflow_runtime_workspace_file_exists"] = workflow_item is not None
+    checks["p1_workflow_runtime_initial_run_present"] = bool(initial_runs)
+    checks["p1_workflow_runtime_last_run_all_nodes_passed"] = (
+        isinstance(node_results, list)
+        and bool(node_results)
+        and all(item.get("status") == "passed" for item in node_results)
+    )
+    checks["p1_workflow_runtime_extra_run_passed"] = (
+        extra_run.get("status") == "passed"
+        and isinstance(extra_node_results, list)
+        and bool(extra_node_results)
+        and all(item.get("status") == "passed" for item in extra_node_results)
+    )
+    checks["p1_workflow_runtime_history_increased"] = len(after_runs) > len(initial_runs)
+    checks["p1_workflow_runtime_health_passed"] = (
+        health.get("dry_run_status") == "passed"
+        and health.get("health_status") == "passed"
+        and isinstance(health.get("latest_run"), dict)
+    )
+    checks["p1_workflow_runtime_summary_mentions_dry_run"] = (
+        "workflow dry-run" in final_summary and "passed" in final_summary
+    )
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "p1_workflow_runtime_block_present",
+        "p1_workflow_runtime_block_has_last_run_id",
+        "p1_workflow_runtime_statuses_passed",
+        "p1_workflow_runtime_workspace_file_exists",
+        "p1_workflow_runtime_initial_run_present",
+        "p1_workflow_runtime_last_run_all_nodes_passed",
+        "p1_workflow_runtime_extra_run_passed",
+        "p1_workflow_runtime_history_increased",
+        "p1_workflow_runtime_health_passed",
+        "p1_workflow_runtime_summary_mentions_dry_run",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def evaluate_p1_review_thread(report: dict[str, Any]) -> None:
+    run_detail = report.get("orchestrator_run_detail")
+    tasks = run_detail.get("tasks") if isinstance(run_detail, dict) else []
+    attempts = run_detail.get("attempts") if isinstance(run_detail, dict) else []
+    events = run_detail.get("events") if isinstance(run_detail, dict) else []
+    tasks = tasks if isinstance(tasks, list) else []
+    attempts = attempts if isinstance(attempts, list) else []
+    events = events if isinstance(events, list) else []
+    task_types = [task.get("task_type") for task in tasks if isinstance(task, dict)]
+    review_tasks = [
+        task for task in tasks if isinstance(task, dict) and task.get("task_type") == "review"
+    ]
+    repair_tasks = [
+        task for task in tasks if isinstance(task, dict) and task.get("task_type") == "repair"
+    ]
+    review_attempts = [
+        attempt
+        for attempt in attempts
+        if isinstance(attempt, dict) and attempt.get("review_outcome")
+    ]
+    final_summary = final_summary_from_report(report)
+    switched_agents = [
+        agent_id
+        for agent_id in report.get("agent_switch_to_agents", [])
+        if isinstance(agent_id, str)
+    ]
+    checks = report["checks"]
+    checks["p1_review_task_present"] = bool(review_tasks)
+    checks["p1_repair_task_present"] = bool(repair_tasks)
+    checks["p1_review_events_present"] = any(
+        event.get("event_type") == "agent_review_completed" for event in events
+    ) and any(
+        event.get("event_type") == "agent_review_repair_scheduled" for event in events
+    )
+    checks["p1_review_outcome_needs_repair"] = any(
+        attempt.get("review_outcome") == "needs_repair" for attempt in review_attempts
+    )
+    checks["p1_repair_uses_group_member"] = all(
+        task.get("agent_id") in {"claude-code", "opencode-helper", "codex-helper"}
+        for task in repair_tasks
+    )
+    checks["p1_dispatch_only_group_members"] = all(
+        agent_id in {"claude-code", "opencode-helper", "codex-helper"}
+        for agent_id in switched_agents
+    )
+    checks["p1_summary_includes_review_metadata"] = all(
+        marker in final_summary
+        for marker in ("review_of:", "handoff:", "review outcome: needs_repair")
+    )
+    report["review_thread"] = {
+        "task_types": task_types,
+        "review_tasks": review_tasks,
+        "repair_tasks": repair_tasks,
+        "review_attempts": review_attempts,
+        "review_events": [
+            event
+            for event in events
+            if event.get("event_type")
+            in {"agent_review_completed", "agent_review_repair_scheduled"}
+        ],
+        "final_summary": final_summary,
+    }
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "p1_review_task_present",
+        "p1_repair_task_present",
+        "p1_review_events_present",
+        "p1_review_outcome_needs_repair",
+        "p1_repair_uses_group_member",
+        "p1_dispatch_only_group_members",
+        "p1_summary_includes_review_metadata",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def evaluate_p1_rich_artifacts(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+) -> None:
+    conv_id = str(report["conversation_id"])
+    blocks = p1_content_blocks(report)
+    file_blocks = [block for block in blocks if block.get("type") == "file"]
+    artifacts = get_workspace_artifacts(client, conv_id, headers)
+    report["rich_artifact_file_blocks"] = file_blocks
+    report["workspace_artifacts_api"] = artifacts
+    required_kinds = {"document", "ppt", "image", "archive"}
+    block_kinds = {str(block.get("artifact_kind")) for block in file_blocks}
+    manifest_kinds = {str(item.get("artifact_kind")) for item in artifacts}
+    manifest_by_path = {
+        str(item.get("path")): item for item in artifacts if isinstance(item.get("path"), str)
+    }
+    aligned_blocks = []
+    for block in file_blocks:
+        path = block.get("path")
+        manifest = manifest_by_path.get(path) if isinstance(path, str) else None
+        aligned_blocks.append(
+            bool(
+                manifest
+                and manifest.get("artifact_kind") == block.get("artifact_kind")
+                and manifest.get("agent_id") == block.get("agent_id")
+            )
+        )
+    checks = report["checks"]
+    checks["p1_rich_artifacts_file_blocks_present"] = required_kinds.issubset(block_kinds)
+    checks["p1_rich_artifacts_manifest_present"] = required_kinds.issubset(
+        manifest_kinds
+    )
+    checks["p1_rich_artifacts_block_manifest_aligned"] = (
+        bool(aligned_blocks) and all(aligned_blocks)
+    )
+    checks["p1_rich_artifacts_manifest_has_task_run_agent"] = all(
+        item.get("agent_id") and item.get("task_id") and item.get("run_id")
+        for item in artifacts
+        if item.get("artifact_kind") in required_kinds
+    )
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "p1_rich_artifacts_file_blocks_present",
+        "p1_rich_artifacts_manifest_present",
+        "p1_rich_artifacts_block_manifest_aligned",
+        "p1_rich_artifacts_manifest_has_task_run_agent",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def evaluate_p1_evaluation_repair(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+) -> None:
+    conv_id = str(report["conversation_id"])
+    run_detail = report.get("orchestrator_run_detail")
+    attempts = run_detail.get("attempts") if isinstance(run_detail, dict) else []
+    events = run_detail.get("events") if isinstance(run_detail, dict) else []
+    attempts = attempts if isinstance(attempts, list) else []
+    events = events if isinstance(events, list) else []
+    event_attempts = _attempts_from_run_events(events)
+    all_attempts = [*attempts, *event_attempts]
+    artifacts = get_workspace_artifacts(client, conv_id, headers)
+    report["workspace_artifacts_api"] = artifacts
+    failed_attempts = [
+        attempt
+        for attempt in all_attempts
+        if isinstance(attempt, dict)
+        and any(
+            isinstance(result, dict)
+            and result.get("status") == "failed"
+            and result.get("passed") is False
+            for result in attempt.get("evaluation_results") or []
+        )
+    ]
+    final_good_attempts = [
+        attempt
+        for attempt in all_attempts
+        if isinstance(attempt, dict)
+        and (attempt.get("final_state") or attempt.get("state"))
+        in {"succeeded", "manual_review_required"}
+    ]
+    good_task_results = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and event.get("event_type") == "task_result"
+        and isinstance(event.get("payload"), dict)
+        and event["payload"].get("final_state") in {"succeeded", "manual_review_required"}
+    ]
+    manifest_false_passed = [
+        item
+        for item in artifacts
+        if item.get("evaluation_status") == "passed"
+        and any(
+            isinstance(result, dict)
+            and (
+                result.get("status") == "failed"
+                or result.get("evaluator") == "manual_review_required"
+            )
+            for result in item.get("evaluation_results") or []
+        )
+    ]
+    checks = report["checks"]
+    checks["p1_evaluation_failed_seen"] = bool(failed_attempts)
+    checks["p1_evaluation_reflection_seen"] = any(
+        event.get("event_type") == "reflection_created" for event in events
+    )
+    checks["p1_evaluation_repair_or_fallback_seen"] = (
+        len(all_attempts) >= 2
+        or any(
+            event.get("event_type") in {"agent_review_repair_scheduled", "repair_dispatched"}
+            for event in events
+        )
+    )
+    checks["p1_evaluation_final_passed_or_manual"] = bool(
+        final_good_attempts or good_task_results
+    )
+    checks["p1_evaluation_manifest_not_false_passed"] = not manifest_false_passed
+    checks["p1_evaluation_manifest_status_present"] = any(
+        item.get("evaluation_status") in {"failed", "passed", "manual_review_required"}
+        for item in artifacts
+    )
+    report["evaluation_repair"] = {
+        "failed_attempts": failed_attempts,
+        "final_good_attempts": final_good_attempts,
+        "good_task_results": good_task_results,
+        "manifest_false_passed": manifest_false_passed,
+    }
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "p1_evaluation_failed_seen",
+        "p1_evaluation_reflection_seen",
+        "p1_evaluation_repair_or_fallback_seen",
+        "p1_evaluation_final_passed_or_manual",
+        "p1_evaluation_manifest_not_false_passed",
+        "p1_evaluation_manifest_status_present",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def _attempts_from_run_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    attempts: list[dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict) or event.get("event_type") != "task_result":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        raw_attempts = payload.get("attempts")
+        if not isinstance(raw_attempts, list):
+            continue
+        for attempt in raw_attempts:
+            if isinstance(attempt, dict):
+                attempts.append(attempt)
+    return attempts
+
+
+def run_p1_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    original_review_config: dict[str, Any] | None = None
+    if P1_REVIEW_THREAD_SCENARIO:
+        original_review_config = asyncio.run(
+            _patch_orchestrator_review_config(["codex-helper"])
+        )
+        report["review_config_patch"] = {
+            "review_config_patched": True,
+            "original_config_summary": config_summary(original_review_config),
+            "patched_config_summary": {
+                **config_summary(original_review_config),
+                "orchestrator_agent_review_enabled": True,
+                "orchestrator_review_agent_ids": ["codex-helper"],
+            },
+        }
+
+    try:
+        events, files = p1_common_evidence(
+            client,
+            headers,
+            report,
+            started_at,
+            title=f"{SCENARIO} Live E2E {int(started_at)}",
+            agent_ids=AGENT_IDS,
+        )
+        if P1_ATTRIBUTION_SCENARIO:
+            evaluate_p1_attribution(report, events, files)
+        elif P1_WORKFLOW_SCENARIO:
+            evaluate_p1_workflow(client, headers, report, files)
+        elif P1_WORKFLOW_RUNTIME_SCENARIO:
+            evaluate_p1_workflow_runtime(client, headers, report, files)
+        elif P1_REVIEW_THREAD_SCENARIO:
+            evaluate_p1_review_thread(report)
+        elif P1_RICH_ARTIFACTS_SCENARIO:
+            evaluate_p1_rich_artifacts(client, headers, report)
+        elif P1_EVALUATION_REPAIR_SCENARIO:
+            evaluate_p1_evaluation_repair(client, headers, report)
+    finally:
+        if original_review_config is not None:
+            try:
+                restore = asyncio.run(_restore_orchestrator_config(original_review_config))
+            except Exception as exc:  # noqa: BLE001
+                restore = {"restored": False, "error": str(exc)}
+            report["review_config_restore"] = restore
 
 
 def run_custom_agent_tools_case(
@@ -815,6 +1827,16 @@ def main() -> None:
         report["checks"]["orchestrator_parallel_concurrency_3"] = (
             orchestrator_config.get("orchestrator_parallel_max_concurrency") == 3
         )
+        if P1_SCENARIO:
+            run_p1_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
 
         conversation = client.post(
             "/api/v1/conversations",

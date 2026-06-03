@@ -23,20 +23,17 @@ type Schemas = components['schemas'];
 type Override<T, R> = Omit<T, keyof R> & R;
 
 // ─── Auth ───
-export type User = Schemas['User'];
+export type User = Schemas['UserOut'];
 export type AuthResponse = Schemas['AuthResponse'];
 export type LoginRequest = Schemas['LoginRequest'];
 export type RegisterRequest = Schemas['RegisterRequest'];
 
 // ─── Conversations ───
 export type Conversation = Override<
-  Schemas['Conversation'],
+  Schemas['ConversationOut'],
   { agent_ids: string[]; is_pinned: boolean; is_archived: boolean }
 >;
-export type ConversationList = Override<
-  Schemas['ConversationList'],
-  { items: Conversation[] }
->;
+export type ConversationList = Override<Schemas['ConversationList'], { items: Conversation[] }>;
 export type CreateConversationRequest = Schemas['CreateConversationRequest'];
 export type UpdateConversationRequest = Schemas['UpdateConversationRequest'];
 
@@ -50,9 +47,22 @@ export type TextBlock = Schemas['TextBlock'];
 export type CodeBlock = Schemas['CodeBlock'];
 export type DiffBlock = Schemas['DiffBlock'];
 export type WebPreviewBlock = Schemas['WebPreviewBlock'];
-export type FileBlock = Schemas['FileBlock'];
+export interface FileBlock {
+  type: 'file';
+  agent_id?: string | null;
+  path?: string | null;
+  artifact_kind?: 'document' | 'ppt' | 'image' | 'archive' | 'code' | 'workflow' | 'other';
+  filename: string;
+  url: string;
+  size: number;
+  mime_type: string;
+  preview_text?: string | null;
+  preview_truncated?: boolean | null;
+  metadata?: Record<string, unknown>;
+}
 export interface DeploymentStatusBlock {
   type: 'deployment_status';
+  agent_id?: string | null;
   deployment_id: string;
   kind: 'static_site' | 'source_zip' | 'container';
   status: Schemas['DeploymentStatusBlock']['status'];
@@ -82,6 +92,7 @@ export interface DeploymentStatusBlock {
 }
 export interface ToolCallBlock {
   type: 'tool_call';
+  agent_id?: string | null;
   call_id: string;
   tool_name: string;
   arguments: Record<string, unknown>;
@@ -89,6 +100,23 @@ export interface ToolCallBlock {
   output_preview?: string;
   output_truncated?: boolean;
   error_code?: string;
+}
+export interface WorkflowBlock {
+  type: 'workflow';
+  agent_id?: string | null;
+  last_run_id?: string | null;
+  name?: string | null;
+  path?: string | null;
+  format?: 'json' | 'yaml';
+  definition?: Record<string, unknown>;
+  raw_definition?: string | null;
+  nodes?: Array<Record<string, unknown>>;
+  edges?: Array<Record<string, unknown>>;
+  validation_status?: 'passed' | 'failed' | 'unknown';
+  runtime_status?: 'ready' | 'invalid' | 'not_supported';
+  dry_run_status?: 'passed' | 'failed' | 'not_supported';
+  health_status?: 'passed' | 'failed' | 'unknown';
+  validation_errors?: string[];
 }
 
 export type ContentBlock =
@@ -98,11 +126,12 @@ export type ContentBlock =
   | WebPreviewBlock
   | FileBlock
   | DeploymentStatusBlock
+  | WorkflowBlock
   | ToolCallBlock;
 
 // ─── Messages ───
 export type Message = Override<
-  Schemas['Message'],
+  Schemas['MessageOut'],
   { content: ContentBlock[]; status: MessageStatus; is_pinned: boolean }
 >;
 export type MessageList = Override<Schemas['MessageList'], { items: Message[] }>;
@@ -118,8 +147,13 @@ export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error';
 
 // ─── Agents ───
 export type Agent = Override<
-  Schemas['Agent'],
-  { capabilities: string[]; config: Record<string, unknown>; is_builtin: boolean; avatar_url: string }
+  Schemas['AgentOut'],
+  {
+    capabilities: string[];
+    config: Record<string, unknown>;
+    is_builtin: boolean;
+    avatar_url: string;
+  }
 >;
 export type AgentList = Override<Schemas['AgentList'], { items: Agent[] }>;
 export type CreateAgentRequest = Schemas['CreateAgentRequest'];
@@ -131,12 +165,20 @@ export type StreamEvent =
   | { event: 'start'; data: { message_id?: string; agent_id?: string } }
   | {
       event: 'block_start';
-      data: { block_index: number; block_type: string; metadata?: Record<string, unknown> };
+      data: {
+        block_index: number;
+        block_type: string;
+        metadata?: Record<string, unknown>;
+        agent_id?: string;
+      };
     }
-  | { event: 'delta'; data: { block_index: number; text_delta?: string; code_delta?: string } }
-  | { event: 'block_end'; data: { block_index: number } }
-  | { event: 'done'; data: { message_id?: string; total_blocks?: number } }
-  | { event: 'error'; data: { error_code?: string; error?: string } }
+  | {
+      event: 'delta';
+      data: { block_index: number; text_delta?: string; code_delta?: string; agent_id?: string };
+    }
+  | { event: 'block_end'; data: { block_index: number; agent_id?: string } }
+  | { event: 'done'; data: { message_id?: string; total_blocks?: number; agent_id?: string } }
+  | { event: 'error'; data: { error_code?: string; error?: string; agent_id?: string } }
   | { event: 'agent_switch'; data: { from_agent: string; to_agent: string; task?: string } }
   | {
       event: 'tool_call';
@@ -144,6 +186,7 @@ export type StreamEvent =
         call_id: string;
         tool_name: string;
         tool_arguments: Record<string, unknown>;
+        agent_id?: string;
       };
     }
   | {
@@ -154,6 +197,7 @@ export type StreamEvent =
         tool_output?: string;
         tool_output_truncated?: boolean;
         error_code?: string;
+        agent_id?: string;
       };
     }
-  | { event: 'heartbeat'; data: Record<string, never> };
+  | { event: 'heartbeat'; data: { agent_id?: string } };

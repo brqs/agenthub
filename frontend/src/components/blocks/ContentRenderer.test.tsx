@@ -11,6 +11,10 @@ vi.mock('./CodeBlock', () => ({
   ),
 }));
 
+vi.mock('./SyntaxHighlightedCode', () => ({
+  SyntaxHighlightedCode: ({ code }: { code: string }) => <pre>{code}</pre>,
+}));
+
 describe('ContentRenderer', () => {
   function renderBlocks(blocks: DemoContentBlock[]) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -34,11 +38,15 @@ describe('ContentRenderer', () => {
       },
       {
         type: 'file',
+        path: 'docs/demo.md',
+        artifact_kind: 'document',
         filename: 'demo.md',
         url: 'https://example.com/demo.md',
         size: 1024,
         mime_type: 'text/markdown',
         preview_text: '# Demo',
+        preview_truncated: false,
+        metadata: {},
       },
       {
         type: 'task_card',
@@ -62,6 +70,29 @@ describe('ContentRenderer', () => {
         url: 'https://example.com/deployed',
       },
       {
+        type: 'workflow',
+        name: 'Demo Workflow',
+        format: 'json',
+        definition: {
+          version: '1',
+          name: 'Demo Workflow',
+          nodes: [
+            { id: 'start', type: 'trigger' },
+            { id: 'publish', type: 'action' },
+          ],
+          edges: [{ source: 'start', target: 'publish' }],
+        },
+        nodes: [
+          { id: 'start', type: 'trigger' },
+          { id: 'publish', type: 'action' },
+        ],
+        edges: [{ source: 'start', target: 'publish' }],
+        validation_status: 'passed',
+        runtime_status: 'ready',
+        dry_run_status: 'not_supported',
+        health_status: 'passed',
+      },
+      {
         type: 'agent_switch',
         from_agent: 'orchestrator',
         to_agent: 'codex-helper',
@@ -76,11 +107,15 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('src/App.tsx')).toBeInTheDocument();
     expect(screen.getByText('Demo Preview')).toBeInTheDocument();
     expect(screen.getByText('demo.md')).toBeInTheDocument();
+    expect(screen.getByText('文档')).toBeInTheDocument();
     expect(screen.getByText('任务卡')).toBeInTheDocument();
     expect(screen.getByText('write_file')).toBeInTheDocument();
     expect(screen.getByText('call-1')).toBeInTheDocument();
     expect(screen.getByText('Static site deployment')).toBeInTheDocument();
     expect(screen.getByText('已发布')).toBeInTheDocument();
+    expect(screen.getByText('Demo Workflow')).toBeInTheDocument();
+    expect(screen.getByText('start · trigger')).toBeInTheDocument();
+    expect(screen.getByText('start -> publish')).toBeInTheDocument();
     expect(screen.getByText('Orchestrator')).toBeInTheDocument();
     expect(screen.getByText('Codex Helper')).toBeInTheDocument();
   });
@@ -90,5 +125,28 @@ describe('ContentRenderer', () => {
 
     expect(screen.getByText('未支持的消息块')).toBeInTheDocument();
     expect(screen.getByText(/chart/)).toBeInTheDocument();
+  });
+
+  it('groups orchestrated blocks by attributed agent', () => {
+    renderBlocks([
+      { type: 'text', agent_id: 'orchestrator', text: 'Plan ready' },
+      { type: 'code', agent_id: 'codex-helper', language: 'ts', code: 'const ok = true;' },
+      {
+        type: 'tool_call',
+        agent_id: 'codex-helper',
+        call_id: 'task-a.c-1',
+        tool_name: 'write_file',
+        arguments: {},
+        status: 'ok',
+      },
+      { type: 'text', agent_id: 'orchestrator', text: 'Summary ready' },
+    ]);
+
+    expect(screen.getAllByText('Orchestrator').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Codex Helper').length).toBeGreaterThan(0);
+    expect(screen.getByText('Plan ready')).toBeInTheDocument();
+    expect(screen.getByText('code:ts:const ok = true;')).toBeInTheDocument();
+    expect(screen.getByText('task-a.c-1')).toBeInTheDocument();
+    expect(screen.getByText('Summary ready')).toBeInTheDocument();
   });
 });

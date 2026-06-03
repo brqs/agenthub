@@ -27,6 +27,45 @@ class WorkspaceTreeResponse(BaseModel):
     tree: WorkspaceTreeNode
 
 
+ArtifactEvaluationStatus = Literal[
+    "passed",
+    "failed",
+    "manual_review_required",
+    "unknown",
+]
+
+
+class WorkspaceArtifactResponse(BaseModel):
+    path: str
+    artifact_kind: Literal[
+        "document",
+        "ppt",
+        "image",
+        "archive",
+        "code",
+        "workflow",
+        "other",
+    ]
+    filename: str
+    size: int
+    mime_type: str
+    url: str
+    agent_id: str | None = None
+    task_id: str | None = None
+    run_id: str | None = None
+    preview_text: str | None = None
+    preview_truncated: bool | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    evaluation_status: ArtifactEvaluationStatus = "unknown"
+    evaluation_results: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkspaceArtifactListResponse(BaseModel):
+    items: list[WorkspaceArtifactResponse]
+
+
 class WorkspacePreviewRequest(BaseModel):
     entry_path: str = Field(min_length=1, max_length=512)
     mode: Literal["static"] = "static"
@@ -130,3 +169,52 @@ class WorkspaceDeploymentResponse(BaseModel):
 
 class WorkspaceDeploymentListResponse(BaseModel):
     items: list[WorkspaceDeploymentResponse]
+
+
+WorkflowRunMode = Literal["dry_run"]
+WorkflowRunStatus = Literal["passed", "failed"]
+WorkflowValidationStatus = Literal["passed", "failed", "unknown"]
+WorkflowRuntimeStatus = Literal["ready", "invalid", "not_supported"]
+WorkflowDryRunStatus = Literal["passed", "failed", "not_supported"]
+WorkflowHealthStatus = Literal["passed", "failed", "unknown"]
+
+
+class WorkspaceWorkflowRunRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=512)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    mode: WorkflowRunMode = "dry_run"
+
+
+class WorkspaceWorkflowRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID
+    workspace_id: UUID
+    path: str
+    mode: WorkflowRunMode
+    status: WorkflowRunStatus
+    validation_status: WorkflowValidationStatus
+    runtime_status: WorkflowRuntimeStatus
+    dry_run_status: WorkflowDryRunStatus
+    health_status: WorkflowHealthStatus
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    definition: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
+    node_results: list[dict[str, Any]] = Field(default_factory=list)
+    error: str | None = None
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class WorkspaceWorkflowRunListResponse(BaseModel):
+    items: list[WorkspaceWorkflowRunResponse]
+
+
+class WorkspaceWorkflowHealthResponse(BaseModel):
+    path: str
+    validation_status: WorkflowValidationStatus
+    runtime_status: WorkflowRuntimeStatus
+    dry_run_status: WorkflowDryRunStatus
+    health_status: WorkflowHealthStatus
+    latest_run: WorkspaceWorkflowRunResponse | None = None

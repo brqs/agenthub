@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Mapping
+from importlib import import_module
 from typing import Any
 
 from app.agents.types import StreamChunk
@@ -73,6 +77,20 @@ class StreamContentAccumulator:
             }
             if agent_id:
                 self.current["agent_id"] = agent_id
+        elif self.current.get("type") == "workflow":
+            self.current = _finalize_workflow_block(self.current)
+        elif self.current.get("type") == "code":
+            upgraded = _maybe_upgrade_code_to_workflow(self.current)
+            if upgraded is not None:
+                self.current = upgraded
+        elif self.current.get("type") == "text":
+            text_block = self.current
+            workflow = _maybe_extract_workflow_from_text(text_block)
+            self.blocks.append(text_block)
+            if workflow is not None:
+                self.blocks.append(workflow)
+            self.current = None
+            return
         self.blocks.append(self.current)
         self.current = None
 
@@ -90,6 +108,20 @@ class StreamContentAccumulator:
             elif chunk.block_type == "diff":
                 self.current["diff"] = ""
                 self.current["filename"] = (chunk.metadata or {}).get("filename", "changes.diff")
+            elif chunk.block_type == "workflow":
+                meta = chunk.metadata or {}
+                self.current["raw_definition"] = ""
+                self.current["format"] = str(meta.get("format", "yaml"))
+                for key in (
+                    "path",
+                    "name",
+                    "validation_status",
+                    "runtime_status",
+                    "dry_run_status",
+                    "health_status",
+                ):
+                    if key in meta:
+                        self.current[key] = meta[key]
             elif chunk.block_type == "web_preview":
                 meta = chunk.metadata or {}
                 self.current["url"] = meta.get("url", "")
@@ -99,6 +131,25 @@ class StreamContentAccumulator:
                     self.current["description"] = meta["description"]
                 if "thumbnail_url" in meta:
                     self.current["thumbnail_url"] = meta["thumbnail_url"]
+            elif chunk.block_type == "file":
+                meta = chunk.metadata or {}
+                self.current.update(
+                    {
+                        "filename": str(meta.get("filename") or meta.get("path") or "artifact"),
+                        "url": str(meta.get("url") or ""),
+                        "size": int(meta.get("size") or 0),
+                        "mime_type": str(meta.get("mime_type") or "application/octet-stream"),
+                        "artifact_kind": str(meta.get("artifact_kind") or "other"),
+                    }
+                )
+                for key in (
+                    "path",
+                    "preview_text",
+                    "preview_truncated",
+                    "metadata",
+                ):
+                    if key in meta:
+                        self.current[key] = meta[key]
             elif chunk.block_type == "deployment_status":
                 meta = chunk.metadata or {}
                 self.current.update(
@@ -127,10 +178,19 @@ class StreamContentAccumulator:
             if chunk.text_delta:
                 if self.current.get("type") == "diff":
                     self.current["diff"] = self.current.get("diff", "") + chunk.text_delta
+                elif self.current.get("type") == "workflow":
+                    self.current["raw_definition"] = (
+                        self.current.get("raw_definition", "") + chunk.text_delta
+                    )
                 else:
                     self.current["text"] = self.current.get("text", "") + chunk.text_delta
             if chunk.code_delta:
-                self.current["code"] = self.current.get("code", "") + chunk.code_delta
+                if self.current.get("type") == "workflow":
+                    self.current["raw_definition"] = (
+                        self.current.get("raw_definition", "") + chunk.code_delta
+                    )
+                else:
+                    self.current["code"] = self.current.get("code", "") + chunk.code_delta
         elif chunk.event_type == "block_end" and self.current is not None:
             self._finalize_current()
         elif chunk.event_type == "tool_call":
@@ -229,6 +289,177 @@ def _preview_jsonish(value: Any) -> Any:
     if isinstance(value, list):
         return [_preview_jsonish(item) for item in value]
     return value
+
+
+def _maybe_upgrade_code_to_workflow(block: dict[str, Any]) -> dict[str, Any] | None:
+    language = str(block.get("language") or "").lower()
+    if language not in {"json", "yaml", "yml", "workflow", "workflow-json", "workflow-yaml"}:
+        return None
+    raw = str(block.get("code") or "")
+    workflow = _finalize_workflow_block(
+        {
+            "type": "workflow",
+            "agent_id": block.get("agent_id"),
+            "format": _workflow_format_from_language(language, raw),
+            "raw_definition": raw,
+        }
+    )
+    if workflow.get("validation_status") == "failed" and not _looks_like_workflow_definition(
+        workflow.get("definition")
+    ):
+        return None
+    return workflow
+
+
+WORKFLOW_FENCE_RE = re.compile(
+    r"```(?P<language>workflow(?:-ya?ml|-json)?|ya?ml|json)(?:[^\n`]*)\n"
+    r"(?P<body>.*?)```",
+    re.IGNORECASE | re.DOTALL,
+)
+WORKFLOW_PATH_RE = re.compile(
+    r"(?<![\w./-])(?P<path>[\w./-]*workflow[\w./-]*\.(?:ya?ml|json))",
+    re.IGNORECASE,
+)
+
+
+def _maybe_extract_workflow_from_text(block: dict[str, Any]) -> dict[str, Any] | None:
+    text = str(block.get("text") or "")
+    if "```" not in text:
+        return None
+    for match in WORKFLOW_FENCE_RE.finditer(text):
+        language = match.group("language")
+        raw = match.group("body").strip()
+        explicit_workflow = language.lower().replace("_", "-").startswith("workflow")
+        workflow = _finalize_workflow_block(
+            {
+                "type": "workflow",
+                "agent_id": block.get("agent_id"),
+                "format": _workflow_format_from_language(language, raw),
+                "path": _workflow_path_from_text(text),
+                "raw_definition": raw,
+            }
+        )
+        if workflow.get("validation_status") == "failed" and not (
+            explicit_workflow or _looks_like_workflow_definition(workflow.get("definition"))
+        ):
+            continue
+        return workflow
+    return None
+
+
+def _workflow_path_from_text(text: str) -> str | None:
+    match = WORKFLOW_PATH_RE.search(text)
+    if match is None:
+        return None
+    return match.group("path")
+
+
+def _finalize_workflow_block(block: dict[str, Any]) -> dict[str, Any]:
+    raw = str(block.get("raw_definition") or "")
+    workflow_format = _workflow_format_from_language(str(block.get("format") or ""), raw)
+    payload = _parse_workflow_definition(raw, workflow_format)
+    validation_status, validation_errors = _validate_workflow_definition(payload)
+
+    output: dict[str, Any] = {
+        "type": "workflow",
+        "format": workflow_format,
+        "definition": payload if isinstance(payload, dict) else {},
+        "nodes": _workflow_list(payload, "nodes"),
+        "edges": _workflow_list(payload, "edges"),
+        "validation_status": validation_status,
+        "runtime_status": "ready" if validation_status == "passed" else "invalid",
+        "dry_run_status": "not_supported",
+        "health_status": "passed" if validation_status == "passed" else "failed",
+    }
+    for key in ("agent_id", "path"):
+        if block.get(key):
+            output[key] = block[key]
+    name = block.get("name")
+    if not isinstance(name, str) or not name:
+        name = payload.get("name") if isinstance(payload, Mapping) else None
+    if isinstance(name, str) and name:
+        output["name"] = name
+    if raw:
+        output["raw_definition"] = raw
+    if validation_errors:
+        output["validation_errors"] = validation_errors
+    return output
+
+
+def _workflow_format_from_language(language: str, raw: str) -> str:
+    normalized = language.lower().replace("_", "-")
+    if normalized in {"json", "workflow-json", "workflow.json"}:
+        return "json"
+    if normalized in {"yaml", "yml", "workflow", "workflow-yaml", "workflow-yml"}:
+        return "yaml"
+    stripped = raw.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        return "json"
+    return "yaml"
+
+
+def _parse_workflow_definition(raw: str, workflow_format: str) -> Any:
+    try:
+        if workflow_format == "json":
+            return json.loads(raw)
+        yaml = import_module("yaml")
+        return yaml.safe_load(raw)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _validate_workflow_definition(payload: Any) -> tuple[str, list[str]]:
+    errors: list[str] = []
+    if not isinstance(payload, Mapping):
+        return "failed", ["workflow_not_object"]
+    for key in ("version", "name", "nodes", "edges"):
+        if key not in payload:
+            errors.append(f"workflow_missing_{key}")
+    nodes = payload.get("nodes")
+    edges = payload.get("edges")
+    node_ids: set[str] = set()
+    if not isinstance(nodes, list) or not nodes:
+        errors.append("workflow_nodes_invalid")
+    else:
+        for index, node in enumerate(nodes):
+            if not isinstance(node, Mapping):
+                errors.append(f"workflow_node_{index}_not_object")
+                continue
+            node_id = node.get("id")
+            if not isinstance(node_id, str) or not node_id.strip():
+                errors.append(f"workflow_node_{index}_missing_id")
+                continue
+            if node_id in node_ids:
+                errors.append(f"workflow_duplicate_node_id:{node_id}")
+            node_ids.add(node_id)
+            if not isinstance(node.get("type"), str) or not str(node.get("type")).strip():
+                errors.append(f"workflow_node_missing_type:{node_id}")
+    if not isinstance(edges, list):
+        errors.append("workflow_edges_invalid")
+    else:
+        for index, edge in enumerate(edges):
+            if not isinstance(edge, Mapping):
+                errors.append(f"workflow_edge_{index}_not_object")
+                continue
+            source = edge.get("source")
+            target = edge.get("target")
+            if not isinstance(source, str) or source not in node_ids:
+                errors.append(f"workflow_dangling_edge_source:{index}")
+            if not isinstance(target, str) or target not in node_ids:
+                errors.append(f"workflow_dangling_edge_target:{index}")
+    return ("failed" if errors else "passed"), errors
+
+
+def _workflow_list(payload: Any, key: str) -> list[dict[str, Any]]:
+    if not isinstance(payload, Mapping) or not isinstance(payload.get(key), list):
+        return []
+    return [dict(item) for item in payload[key] if isinstance(item, Mapping)]
+
+
+def _looks_like_workflow_definition(payload: Any) -> bool:
+    return isinstance(payload, Mapping) and any(
+        key in payload for key in ("version", "name", "nodes", "edges")
+    )
 
 
 def _tool_call_orphan_error(message: str) -> StreamChunk:

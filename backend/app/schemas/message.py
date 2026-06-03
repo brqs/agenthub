@@ -45,14 +45,22 @@ class WebPreviewBlock(BaseModel):
 class FileBlock(BaseModel):
     type: Literal["file"] = "file"
     agent_id: str | None = None
+    path: str | None = None
+    artifact_kind: Literal["document", "ppt", "image", "archive", "code", "workflow", "other"] = (
+        "other"
+    )
     filename: str
     url: str
     size: int
     mime_type: str
+    preview_text: str | None = None
+    preview_truncated: bool | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DeploymentStatusBlock(BaseModel):
     type: Literal["deployment_status"] = "deployment_status"
+    agent_id: str | None = None
     deployment_id: str
     kind: Literal["static_site", "source_zip", "container"]
     status: Literal["queued", "publishing", "published", "failed", "stopped", "not_supported"]
@@ -74,6 +82,24 @@ class DeploymentStatusBlock(BaseModel):
     healthcheck_url: str | None = None
 
 
+class WorkflowBlock(BaseModel):
+    type: Literal["workflow"] = "workflow"
+    agent_id: str | None = None
+    last_run_id: UUID | None = None
+    name: str | None = None
+    path: str | None = None
+    format: Literal["json", "yaml"] = "yaml"
+    definition: dict[str, Any] = Field(default_factory=dict)
+    raw_definition: str | None = None
+    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+    validation_status: Literal["passed", "failed", "unknown"] = "unknown"
+    runtime_status: Literal["ready", "invalid", "not_supported"] = "not_supported"
+    dry_run_status: Literal["passed", "failed", "not_supported"] = "not_supported"
+    health_status: Literal["passed", "failed", "unknown"] = "unknown"
+    validation_errors: list[str] = Field(default_factory=list)
+
+
 class ToolCallBlock(BaseModel):
     type: Literal["tool_call"] = "tool_call"
     agent_id: str | None = None
@@ -93,6 +119,7 @@ ContentBlock = Annotated[
     | WebPreviewBlock
     | FileBlock
     | DeploymentStatusBlock
+    | WorkflowBlock
     | ToolCallBlock,
     Field(discriminator="type"),
 ]

@@ -1,7 +1,7 @@
 # Orchestrator Message Attribution Spec
 
 > Owner: B2
-> Related: [B1 ContentBlock Attribution](../../b1/spec/message-content-block-attribution.spec.md), [F Orchestrated Rendering](../../frontend/spec/orchestrated-message-rendering.spec.md)
+> Related: [B1 ContentBlock Attribution](../../../b1/spec/message-content-block-attribution.spec.md), [F Orchestrated Rendering](../../../frontend/spec/orchestrated-message-rendering.spec.md)
 
 ## 1. 目标
 

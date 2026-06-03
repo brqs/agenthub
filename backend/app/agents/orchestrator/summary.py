@@ -24,7 +24,8 @@ from app.agents.types import ChatMessage
 def planning_text(tasks: list[SubTask]) -> str:
     lines = [f"Planned {len(tasks)} sub-task(s) via {plan_source(tasks)}:"]
     for index, task in enumerate(tasks, 1):
-        lines.append(f"{index}. @{task.agent_id} - {task.title}")
+        label = "" if task.task_type == "implementation" else f" [{task.task_type}]"
+        lines.append(f"{index}. @{task.agent_id}{label} - {task.title}")
     return "\n".join(lines) + "\n"
 
 
@@ -65,6 +66,14 @@ def summary_text(
             for attempt in result.attempts
             for path in attempt.missing_artifact_paths
         )
+        if task.task_type in {"review", "repair"}:
+            reviewed_ids = task.review_of or task.depends_on
+            if reviewed_ids:
+                lines.append(f"  review_of: {', '.join(reviewed_ids)}")
+            if task.handoff_reason:
+                lines.append(f"  handoff: {task.handoff_reason}")
+            if final_attempt.review_outcome:
+                lines.append(f"  review outcome: {final_attempt.review_outcome}")
         if artifacts:
             lines.append(f"  artifacts: {', '.join(artifacts)}")
         if missing and state == TaskState.ARTIFACT_MISSING:
@@ -88,6 +97,10 @@ def summary_text(
                 f"  evaluation: {passed_count} passed"
                 + (f", {failed_count} failed" if failed_count else "")
             )
+        for line in _workflow_dry_run_summary_lines(final_attempt.evaluation_results):
+            lines.append(f"  {line}")
+        for line in _manual_review_summary_lines(final_attempt.evaluation_results):
+            lines.append(f"  {line}")
         if evaluation_lines:
             for line in evaluation_lines[:6]:
                 lines.append(f"  evaluation issue: {line}")
@@ -169,6 +182,8 @@ def format_task_result_context(
         lines.append(f"  Text: {final_attempt.text_preview}")
     if final_attempt.tool_summaries:
         lines.append(f"  Tools: {'; '.join(final_attempt.tool_summaries[:4])}")
+    if final_attempt.review_outcome:
+        lines.append(f"  Review outcome: {final_attempt.review_outcome}")
     if final_attempt.artifact_paths:
         lines.append(f"  Artifacts: {', '.join(final_attempt.artifact_paths)}")
     if final_attempt.error:
@@ -180,6 +195,8 @@ def format_task_result_context(
     evaluation_lines = failed_evaluation_lines(final_attempt.evaluation_results)
     if evaluation_lines:
         lines.append(f"  Evaluation: {'; '.join(evaluation_lines[:4])}")
+    for line in _manual_review_summary_lines(final_attempt.evaluation_results):
+        lines.append(f"  {line}")
     reflection = reflection_payload(final_attempt.reflection)
     if reflection:
         repair_instruction = reflection.get("repair_instruction")
@@ -275,3 +292,28 @@ def _workspace_conflict_summary(
         f"- {path}: {', '.join(labels)}"
         for path, labels in sorted(conflicts.items())
     ]
+
+
+def _workflow_dry_run_summary_lines(results: list[Any]) -> list[str]:
+    lines: list[str] = []
+    for payload in evaluation_results_payload(results):
+        if payload.get("evaluator") != "workflow_dry_run":
+            continue
+        checked = payload.get("checked_artifacts")
+        path = checked[0] if isinstance(checked, list) and checked else "workflow"
+        status = payload.get("dry_run_status") or payload.get("status") or "unknown"
+        run_id = payload.get("run_id")
+        suffix = f" (run {run_id})" if isinstance(run_id, str) and run_id else ""
+        lines.append(f"workflow dry-run: {path} {status}{suffix}")
+    return lines
+
+
+def _manual_review_summary_lines(results: list[Any]) -> list[str]:
+    lines: list[str] = []
+    for payload in evaluation_results_payload(results):
+        if payload.get("evaluator") != "manual_review_required":
+            continue
+        checked = payload.get("checked_artifacts")
+        artifacts = ", ".join(str(item) for item in checked) if isinstance(checked, list) else ""
+        lines.append(f"manual review required: {artifacts or 'artifact'}")
+    return lines

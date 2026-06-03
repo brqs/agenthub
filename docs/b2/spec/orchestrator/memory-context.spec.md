@@ -2,7 +2,7 @@
 
 > 定义 AgentHub 当前上下文/记忆体系、真实 external agent 的消息管理方式，以及 Orchestrator 结构化长期记忆的目标设计。
 >
-> 状态：Implemented（真实执行结果见 [memory-context.execution.spec.md](memory-context.execution.spec.md)）
+> 状态：Current contract
 > 最后更新：2026-05-30
 
 ---
@@ -516,7 +516,4 @@ uv run python -m mypy app/agents app/services app/schemas/agent.py
 
 - [core.spec.md](core.spec.md) 描述当前 Orchestrator 主行为契约，已包含 structured memory 边界。
 - [task-planning.spec.md](task-planning.spec.md) 描述 planner 和 task schema。
-- [react-dynamic-task-graph.proposal.md](react-dynamic-task-graph.proposal.md) 描述动态任务图。
 - 本文档描述 Orchestrator 跨轮结构化记忆和上下文注入。
-
-真实实现与本设计的差异、验证命令和保留项记录在 [memory-context.execution.spec.md](memory-context.execution.spec.md)。
