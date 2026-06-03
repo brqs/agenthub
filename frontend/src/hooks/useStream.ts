@@ -12,6 +12,7 @@ export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error';
 
 interface StreamingBlock {
   type: ContentBlock['type'];
+  agent_id?: string | null;
   call_id?: string;
   tool_name?: string;
   arguments?: Record<string, unknown>;
@@ -22,6 +23,7 @@ interface StreamingBlock {
   output_preview?: string;
   output_truncated?: boolean;
   error_code?: string;
+  raw_definition?: string;
   [k: string]: unknown;
 }
 
@@ -61,12 +63,32 @@ export function useStream(
               const next = [...prev];
               const newBlock: StreamingBlock = {
                 type: d.block_type as ContentBlock['type'],
+                agent_id: d.agent_id ?? null,
               };
               if (d.block_type === 'code') {
                 newBlock.language = (d.metadata?.language as string) || 'text';
                 newBlock.code = '';
               } else if (d.block_type === 'text') {
                 newBlock.text = '';
+              } else if (d.block_type === 'workflow') {
+                newBlock.raw_definition = '';
+                newBlock.last_run_id = (d.metadata?.last_run_id as string) || null;
+                newBlock.format = d.metadata?.format === 'json' ? 'json' : 'yaml';
+                newBlock.validation_status = d.metadata?.validation_status ?? 'unknown';
+                newBlock.runtime_status = d.metadata?.runtime_status ?? 'not_supported';
+                newBlock.dry_run_status = d.metadata?.dry_run_status ?? 'not_supported';
+                newBlock.health_status = d.metadata?.health_status ?? 'unknown';
+              } else if (d.block_type === 'file') {
+                newBlock.path = (d.metadata?.path as string) || null;
+                newBlock.artifact_kind = d.metadata?.artifact_kind ?? 'other';
+                newBlock.filename = (d.metadata?.filename as string) || 'artifact';
+                newBlock.url = (d.metadata?.url as string) || '';
+                newBlock.size = (d.metadata?.size as number) || 0;
+                newBlock.mime_type =
+                  (d.metadata?.mime_type as string) || 'application/octet-stream';
+                newBlock.preview_text = (d.metadata?.preview_text as string) || null;
+                newBlock.preview_truncated = d.metadata?.preview_truncated ?? false;
+                newBlock.metadata = d.metadata?.metadata ?? {};
               }
               next[d.block_index] = newBlock;
               return next;
@@ -79,8 +101,16 @@ export function useStream(
               const next = [...prev];
               const b = next[d.block_index];
               if (!b) return next;
-              if (d.text_delta) b.text = (b.text || '') + d.text_delta;
-              if (d.code_delta) b.code = (b.code || '') + d.code_delta;
+              if (b.type !== 'workflow' && b.type !== 'file' && d.text_delta) {
+                b.text = (b.text || '') + d.text_delta;
+              }
+              if (b.type !== 'workflow' && b.type !== 'file' && d.code_delta) {
+                b.code = (b.code || '') + d.code_delta;
+              }
+              if (b.type === 'workflow' && (d.text_delta || d.code_delta)) {
+                b.raw_definition = (b.raw_definition || '') + (d.text_delta || d.code_delta || '');
+              }
+              if (!b.agent_id && d.agent_id) b.agent_id = d.agent_id;
               next[d.block_index] = { ...b };
               return next;
             });
@@ -94,6 +124,7 @@ export function useStream(
               ...prev,
               {
                 type: 'tool_call',
+                agent_id: ev.data.agent_id ?? null,
                 call_id: ev.data.call_id,
                 tool_name: ev.data.tool_name,
                 arguments: ev.data.tool_arguments,
@@ -107,6 +138,7 @@ export function useStream(
                 block.type === 'tool_call' && block.call_id === ev.data.call_id
                   ? {
                       ...block,
+                      agent_id: block.agent_id ?? ev.data.agent_id ?? null,
                       status: ev.data.tool_status,
                       output_preview: ev.data.tool_output,
                       output_truncated: ev.data.tool_output_truncated,

@@ -158,3 +158,43 @@ class WorkspaceDeployment(Base):
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "last_checked_at": self.last_checked_at.isoformat() if self.last_checked_at else None,
         }
+
+
+class WorkspaceWorkflowRun(Base):
+    """A no-side-effect workflow dry-run record for a workspace artifact."""
+
+    __tablename__ = "workspace_workflow_runs"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    workspace_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    path: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False, default="dry_run")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    validation_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    runtime_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    dry_run_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    health_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    definition: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    context: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    node_results: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

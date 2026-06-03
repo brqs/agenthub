@@ -22,7 +22,7 @@ ARTIFACT_PATH_KEYS = {
 ARTIFACT_PATH_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.\-/\\])"
     r"([A-Za-z0-9_.\-/\\]+"
-    r"\.(?:html|css|json|jsx|js|tsx|ts|py|md|txt|yaml|yml|toml|xml|svg|png|jpg|jpeg|gif|webp))"
+    r"\.(?:tar\.gz|html|css|json|jsx|js|tsx|ts|py|md|txt|csv|yaml|yml|toml|xml|svg|png|jpg|jpeg|gif|webp|pdf|docx|pptx|ppt|zip|tar|tgz))"
 )
 
 

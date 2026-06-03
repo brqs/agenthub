@@ -117,6 +117,16 @@ def blocks_to_text(blocks: list[dict[str, Any]]) -> str:
         elif block_type == "web_preview":
             title = block.get("title")
             parts.append(f"[Web Preview: {title or block.get('url')}]")
+        elif block_type == "workflow":
+            name = block.get("name") or "workflow"
+            status = block.get("validation_status") or "unknown"
+            nodes_value = block.get("nodes")
+            edges_value = block.get("edges")
+            nodes = nodes_value if isinstance(nodes_value, list) else []
+            edges = edges_value if isinstance(edges_value, list) else []
+            parts.append(
+                f"[Workflow: {name}; validation={status}; nodes={len(nodes)}; edges={len(edges)}]"
+            )
         elif block_type == "file":
             parts.append(f"[File: {block.get('filename')}]")
         elif block_type == "tool_call":
@@ -357,6 +367,11 @@ def _summarize_blocks(blocks: list[dict[str, Any]]) -> str:
             parts.append(f"diff for {block.get('filename') or 'unknown file'}")
         elif block_type == "web_preview":
             parts.append(f"web preview {block.get('title') or block.get('url')}")
+        elif block_type == "workflow":
+            parts.append(
+                f"workflow {block.get('name') or 'unnamed'} "
+                f"({block.get('validation_status') or 'unknown'})"
+            )
         elif block_type == "file":
             parts.append(f"file attachment {block.get('filename')}")
     return "; ".join(part for part in parts if part)

@@ -1,7 +1,7 @@
-# Orchestrator Evaluation / Reflection Loop Proposal
+# Orchestrator Evaluation / Reflection Loop Spec
 
-> 状态：Phase 2 MVP implemented / remaining proposal
-> 最后更新：2026-06-02
+> 状态：Current contract / remaining backlog
+> 最后更新：2026-06-03
 > 范围：把现有网页 preview quality gate 抽象为通用“生成 -> 验证 -> 修复 -> 再验证”闭环。
 
 ---
@@ -12,11 +12,11 @@
 
 - 网页 / 前端任务命中 preview、部署、浏览器验收意图时，会调用平台 `start_workspace_preview`。
 - 随后调用 `verify_web_preview` 做浏览器级质量门。
-- 验证失败后最多调度 repair agent 修复 2 轮，并在修复后刷新 preview snapshot 再验证。
+- 验证失败后最多调度 repair agent 修复 2 轮，并在修复后刷新 preview snapshot 或重新调用 deployment tool 再验证。
 - `expected_output` 可以触发 artifact 存在性检查和 per-task fallback。
-- artifact Evaluation / Reflection 已实现 MVP：`artifact_exists`、`document_quality`、`code_static_quality`、`workflow_validation`、`ppt_validation`、受控 `test_report_quality`、网页 `browser_preview_quality`、`deployment_health` 和可注入 `requirements_coverage`。
+- artifact Evaluation / Reflection 已实现 MVP：`artifact_exists`、`document_quality`、`code_static_quality`、`workflow_validation`、workflow allowlist dry-run、`ppt_validation`、受控 `test_report_quality`、网页 `browser_preview_quality`、`deployment_health` 和可注入 `requirements_coverage`。2026-06-03 live E2E 已验证 workflow validation -> dry-run -> health passed、deployment failure -> reflection -> repair agent -> redeploy -> published，以及 document_quality failed -> reflection -> repair/fallback -> final passed。
 
-剩余缺口是：`.pptx` 二进制深度解析、完整 workflow runtime、生产 LLM-as-judge、更多语言/测试框架 runner、部署平台真实探活重试策略仍未覆盖。MVP 之前，部分 artifact 任务可能停在：
+剩余缺口是：`.pptx` 二进制深度解析、workflow 外部 step / 平台 tool step / 队列化长任务 runtime、生产 LLM-as-judge、更多语言/测试框架 runner、部署平台真实探活重试策略仍未覆盖。MVP 之前，部分 artifact 任务可能停在：
 
 ```text
 生成文件 -> 只检查文件存在 -> 输出 summary
@@ -93,13 +93,15 @@ v1 建议从低风险、无需任意 shell 的 evaluator 开始：
 |---|---|---|
 | `artifact_exists` | 所有 workspace artifact | 只读检查路径存在、普通文件/目录状态 |
 | `requirements_coverage` | 所有任务 | LLM-as-judge 或规则检查用户需求是否被覆盖 |
-| `document_quality` | Markdown / text 文档 | 标题、结构、空段落、必要章节、链接格式 |
+| `document_quality` | Markdown / text 文档 | 标题、结构、空段落、placeholder、过短内容 |
 | `code_static_quality` | 代码文件 | AST/解析器、语言已知格式检查；不执行任意命令 |
 | `test_report_quality` | 测试报告 / allowlist runner | 读取报告摘要，或运行受控 `python_compile_artifacts` |
-| `deployment_health` | deployment record | 使用平台 deployment tool / health check 结果 |
+| `deployment_health` | deployment record | 使用平台 deployment tool / health check 结果；失败时生成 reflection 并可触发 repair/redeploy |
 | `browser_preview_quality` | HTML / static web | 复用现有 `verify_web_preview` |
 | `workflow_validation` | JSON/YAML workflow | 校验 version/name/nodes/edges、节点唯一性、edge 引用 |
-| `ppt_validation` | PPT outline / markdown | 校验标题、slides 和每页内容；`.pptx` 暂不深度解析 |
+| `ppt_validation` | PPT outline / markdown / `.pptx` | 校验标题、slides 和每页内容；`.pptx` 做 OpenXML 文本层轻量解析 |
+| `image_validation` | PNG/JPEG/GIF/WebP/SVG | 校验文件非空、文件头/尺寸或 SVG XML 可解析 |
+| `archive_validation` | zip/tar/tgz/tar.gz | 校验 archive 非空、无 path traversal、大小和文件数受限 |
 | `manual_review_required` | 无法自动验证的产物 | 输出待人工确认项，不阻断非关键交付 |
 
 受控 `run_test` evaluator 必须通过平台 allowlist runner，不允许模型自由拼 shell。当前 MVP 仅启用 `python_compile_artifacts` alias，默认关闭。
@@ -137,6 +139,16 @@ v1 建议从低风险、无需任意 shell 的 evaluator 开始：
 - `skipped`
 - `manual_review_required`
 - `blocked`
+
+Evaluation 结果会按 `checked_artifacts` 同步到 workspace artifact manifest：
+
+- 任一相关 evaluator failed -> `evaluation_status="failed"`。
+- 出现 `manual_review_required` evaluator -> `evaluation_status="manual_review_required"`。
+- 相关 required evaluator 均 passed -> `evaluation_status="passed"`。
+- 仅 skipped 或无 evaluator -> `evaluation_status="unknown"`。
+
+manifest 更新失败不改变用户消息状态；平台记录 `artifact_manifest_update_failed` memory event
+或 warning，不能把平台写入问题伪装成 artifact evaluator 失败。
 
 ## 6. Reflection
 
@@ -279,7 +291,7 @@ Evaluation summary:
 - 网页 preview quality gate 行为保持兼容。
 - 所有 evaluator 都遵守 workspace path guard 和敏感路径过滤。
 - 真实 E2E 至少覆盖：
-  - Markdown 文档缺章节 -> repair -> pass。
+  - Markdown 文档缺章节 -> repair -> pass：已由 `p1_evaluation_repair` 公网 E2E 覆盖，report `/tmp/agenthub_p1_evaluation_repair_report.json`，conversation `5186e757-6a7c-4d0f-8643-c9b3defbc181`。
   - 代码产物存在但语法不合法 -> repair -> pass 或 `evaluation_failed`。
   - 网页 preview 原有 Case 1 仍通过。
 

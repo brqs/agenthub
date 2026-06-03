@@ -1,7 +1,8 @@
 # Stream Error Status Spec
 
 > 状态：Implemented historical boundary
-> 最后更新：2026-05-31
+> 最后更新：2026-06-03
+> Owner：B1（B2 Adapter error chunk 协同边界）
 
 > 维护说明：本文档记录 B2-06 时 B1 SSE 层消费 B2 `StreamChunk(error)` 的协同规则。当前代码已将 stream 入口拆薄，相关逻辑分散在 `backend/app/api/v1/stream.py`、`stream_accumulator.py`、`stream_orchestrator_context.py` 和 `stream_preview.py`；本文保留为错误状态持久化规则，不作为 stream 模块结构索引。
 

@@ -1,7 +1,7 @@
 # Orchestrator Native Deployment Execution Spec
 
-> 状态：Implemented backend MVP / API-SSE E2E passed
-> 最后更新：2026-06-02
+> 状态：Implemented hardening MVP / API-SSE E2E passed
+> 最后更新：2026-06-03
 > 依据：课程设计第五点“部署发布”，以聊天中直接发送“部署”指令并返回部署状态卡片为产品目标。
 
 ## 1. 背景与重构目标
@@ -381,13 +381,36 @@ bugs: []
 warnings: []
 ```
 
+2026-06-03 Deployment / Release hardening live E2E：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: deployment_repair
+report: /tmp/agenthub_deployment_repair_flow_report.json
+sse: /tmp/agenthub_deployment_repair_flow_sse.jsonl
+browser_report: /tmp/agenthub_deployment_repair_flow_browser.json
+conversation_id: dcb2dbd6-e256-41a7-bd3f-1b99b0aaf66a
+passed: true
+preview_url: http://111.229.151.159:8082/index.html
+deployment_repair_initial_failure_seen: true
+deployment_repair_reflection_created: true
+deployment_repair_redeploy_called: true
+container_deployment_published: true
+container_health_ok: true
+```
+
+本轮同时确认 container managed resources 中仍运行的 container 均有 DB 中 `published`
+deployment 记录，不是 orphan；失败路径清理和 janitor orphan cleanup 已由单元/集成测试覆盖。
+
 ## 10. 验收标准
 
 - Orchestrator 能原生选择部署 tool，而不是只在 stream 后处理。
 - Static site、source zip、container 三类部署都通过同一 deployment record 管理。
 - Container deployment 在管理员开启后可以真实 build/run。
 - Agent 不直接获得任意 shell，但可以通过平台 tool 完成真实部署。
-- 部署失败能进入自动修复或至少生成明确修复任务。
+- 部署失败能进入自动修复：`deployment_health` 失败生成 reflection，repair agent 修复后再次调用
+  deployment tool。
 - 所有资源都能 stop/cleanup。
 - 真实 E2E report `passed=true`。
 

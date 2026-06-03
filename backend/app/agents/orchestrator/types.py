@@ -34,6 +34,31 @@ def _optional_str(raw: Mapping[str, Any], key: str) -> str | None:
     return value
 
 
+def _task_type(raw: Mapping[str, Any]) -> str:
+    value = raw.get("task_type", "implementation")
+    if not isinstance(value, str):
+        raise ValueError("invalid_task_plan: task.task_type must be a string")
+    normalized = value.strip() or "implementation"
+    if normalized not in {"implementation", "review", "repair"}:
+        raise ValueError(
+            "invalid_task_plan: task.task_type must be implementation, review, or repair"
+        )
+    return normalized
+
+
+def _review_of(raw: Mapping[str, Any]) -> tuple[str, ...]:
+    value = raw.get("review_of", [])
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,) if value.strip() else ()
+    if not isinstance(value, list):
+        raise ValueError("invalid_task_plan: task.review_of must be a string or list")
+    if not all(isinstance(item, str) for item in value):
+        raise ValueError("invalid_task_plan: task.review_of must contain strings")
+    return tuple(item for item in value if item.strip())
+
+
 def _depends_on(raw: Mapping[str, Any]) -> tuple[str, ...]:
     value = raw.get("depends_on", [])
     if value is None:
@@ -78,6 +103,9 @@ class SubTask:
     priority: int = 0
     expected_output: str | None = None
     include_history: bool = True
+    task_type: str = "implementation"
+    review_of: tuple[str, ...] = ()
+    handoff_reason: str | None = None
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> SubTask:
@@ -90,6 +118,9 @@ class SubTask:
             priority=_priority(raw),
             expected_output=_optional_str(raw, "expected_output"),
             include_history=_include_history(raw),
+            task_type=_task_type(raw),
+            review_of=_review_of(raw),
+            handoff_reason=_optional_str(raw, "handoff_reason"),
         )
 
 
@@ -108,6 +139,7 @@ class TaskAttempt:
     conflict_paths: list[str] = field(default_factory=list)
     evaluation_results: list[Any] = field(default_factory=list)
     reflection: Any | None = None
+    review_outcome: str | None = None
     error: str | None = None
 
 

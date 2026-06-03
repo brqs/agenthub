@@ -15,7 +15,7 @@
 
 前端增强需求与联调清单已经收敛到：
 
-[deployment-release-frontend-handoff.spec.md](spec/deployment-release-frontend-handoff.spec.md)
+[deployment-release-handoff.spec.md](spec/deployment-release-handoff.spec.md)
 
 ## 可选增强
 

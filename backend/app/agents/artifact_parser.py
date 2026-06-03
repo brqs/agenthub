@@ -1,5 +1,6 @@
 """
-StreamingArtifactParser — splits LLM text stream into text/code/diff/web_preview ContentBlocks.
+StreamingArtifactParser — splits LLM text stream into text/code/diff/web_preview/workflow
+ContentBlocks.
 
 Uses a small state machine with three states:
   TEXT      → emitting plain text deltas (with standalone URL detection)
@@ -39,6 +40,15 @@ class StreamingArtifactParser:
         """Extract the first whitespace-delimited token as language."""
         parts = raw.strip().split()
         return parts[0] if parts else "text"
+
+    @staticmethod
+    def _workflow_format_from_language(lang: str) -> str | None:
+        normalized = lang.lower().replace("_", "-")
+        if normalized in {"workflow", "workflow-yaml", "workflow-yml"}:
+            return "yaml"
+        if normalized in {"workflow-json", "workflow.json"}:
+            return "json"
+        return None
 
     @staticmethod
     def _is_standalone_url(line: str) -> bool:
@@ -252,9 +262,20 @@ class StreamingArtifactParser:
                     self._buffer = self._buffer[newline + 1 :]
 
                 self._block_open = True
-                if lang in {"diff", "patch", "udiff"}:
+                workflow_format = self._workflow_format_from_language(lang)
+                metadata: dict[str, str]
+                if workflow_format is not None:
+                    block_type = "workflow"
+                    metadata = {
+                        "format": workflow_format,
+                        "validation_status": "unknown",
+                        "runtime_status": "not_supported",
+                        "dry_run_status": "not_supported",
+                    }
+                    self._current_block_type = "workflow"
+                elif lang in {"diff", "patch", "udiff"}:
                     block_type = "diff"
-                    metadata: dict[str, str] = {"filename": "changes.diff"}
+                    metadata = {"filename": "changes.diff"}
                     self._current_block_type = "diff"
                 else:
                     block_type = "code"
@@ -280,7 +301,7 @@ class StreamingArtifactParser:
                     to_output = self._buffer[:-backticks] if backticks else self._buffer
                     self._buffer = self._buffer[-backticks:] if backticks else ""
                     if to_output:
-                        if self._current_block_type == "diff":
+                        if self._current_block_type in {"diff", "workflow"}:
                             chunks.append(
                                 StreamChunk(
                                     event_type="delta",
@@ -300,7 +321,7 @@ class StreamingArtifactParser:
 
                 before = self._buffer[:idx]
                 if before:
-                    if self._current_block_type == "diff":
+                    if self._current_block_type in {"diff", "workflow"}:
                         chunks.append(
                             StreamChunk(
                                 event_type="delta",
@@ -341,7 +362,17 @@ class StreamingArtifactParser:
         if self.state == "CODE_LANG":
             lang = self._parse_language(self._buffer)
             self._block_open = True
-            if lang in {"diff", "patch", "udiff"}:
+            workflow_format = self._workflow_format_from_language(lang)
+            if workflow_format is not None:
+                block_type = "workflow"
+                metadata = {
+                    "format": workflow_format,
+                    "validation_status": "unknown",
+                    "runtime_status": "not_supported",
+                    "dry_run_status": "not_supported",
+                }
+                self._current_block_type = "workflow"
+            elif lang in {"diff", "patch", "udiff"}:
                 block_type = "diff"
                 metadata = {"filename": "changes.diff"}
                 self._current_block_type = "diff"
@@ -362,7 +393,7 @@ class StreamingArtifactParser:
 
         if self.state == "CODE_BODY":
             if self._buffer:
-                if self._current_block_type == "diff":
+                if self._current_block_type in {"diff", "workflow"}:
                     chunks.append(
                         StreamChunk(
                             event_type="delta",

@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.orchestrator.streams import remap_block_index, remap_tool_call_id
+from app.agents.orchestrator.streams import (
+    attach_agent_id,
+    remap_block_index,
+    remap_tool_call_id,
+)
 from app.agents.orchestrator.types import AdapterFactory
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
@@ -65,7 +69,8 @@ async def run_fallback(
     except Exception as exc:
         for chunk, updated_block_index in _text_block_with_next(
             next_block_index,
-            f"@{fallback_agent_id} failed: {exc}",
+            f"failed: {exc}",
+            agent_id=fallback_agent_id,
         ):
             yield chunk, updated_block_index
         return
@@ -99,18 +104,25 @@ async def run_fallback(
             if chunk.event_type == "error":
                 if open_block_index is not None:
                     yield StreamChunk(
-                        event_type="block_end", block_index=open_block_index
+                        event_type="block_end",
+                        block_index=open_block_index,
+                        agent_id=fallback_agent_id,
                     ), next_block_index
                     open_block_index = None
-                failure_text = f"@{fallback_agent_id} failed: {_error_reason(chunk)}"
-                for failure_chunk in _text_block(next_block_index, failure_text):
+                failure_text = f"failed: {_error_reason(chunk)}\n"
+                for failure_chunk in _text_block(
+                    next_block_index,
+                    failure_text,
+                    agent_id=fallback_agent_id,
+                ):
                     yield failure_chunk, next_block_index + 1
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
-                yield remap_tool_call_id(chunk, "fallback"), next_block_index
+                remapped = remap_tool_call_id(chunk, "fallback")
+                yield attach_agent_id(remapped, fallback_agent_id), next_block_index
                 continue
             if chunk.event_type == "heartbeat":
-                yield chunk, next_block_index
+                yield attach_agent_id(chunk, fallback_agent_id), next_block_index
                 continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
@@ -123,16 +135,19 @@ async def run_fallback(
                 open_block_index = remapped.block_index
             elif remapped.event_type == "block_end":
                 open_block_index = None
-            yield remapped, next_block_index
+            yield attach_agent_id(remapped, fallback_agent_id), next_block_index
     except Exception as exc:
         if open_block_index is not None:
             yield StreamChunk(
-                event_type="block_end", block_index=open_block_index
+                event_type="block_end",
+                block_index=open_block_index,
+                agent_id=fallback_agent_id,
             ), next_block_index
             open_block_index = None
         for chunk, updated_block_index in _text_block_with_next(
             next_block_index,
-            f"@{fallback_agent_id} failed: {exc}",
+            f"failed: {exc}\n",
+            agent_id=fallback_agent_id,
         ):
             yield chunk, updated_block_index
 
@@ -163,21 +178,43 @@ def _fallback_agent_id(config: Mapping[str, Any]) -> str:
 
 
 def _text_block(
-    block_index: int, text: str
+    block_index: int,
+    text: str,
+    *,
+    agent_id: str = "orchestrator",
 ) -> tuple[StreamChunk, StreamChunk, StreamChunk]:
     return (
-        StreamChunk(event_type="block_start", block_index=block_index, block_type="text"),
-        StreamChunk(event_type="delta", block_index=block_index, text_delta=text),
-        StreamChunk(event_type="block_end", block_index=block_index),
+        StreamChunk(
+            event_type="block_start",
+            block_index=block_index,
+            block_type="text",
+            agent_id=agent_id,
+        ),
+        StreamChunk(
+            event_type="delta",
+            block_index=block_index,
+            text_delta=text,
+            agent_id=agent_id,
+        ),
+        StreamChunk(
+            event_type="block_end",
+            block_index=block_index,
+            agent_id=agent_id,
+        ),
     )
 
 
 def _text_block_with_next(
     block_index: int,
     text: str,
+    *,
+    agent_id: str = "orchestrator",
 ) -> tuple[tuple[StreamChunk, int], ...]:
     next_block_index = block_index + 1
-    return tuple((chunk, next_block_index) for chunk in _text_block(block_index, text))
+    return tuple(
+        (chunk, next_block_index)
+        for chunk in _text_block(block_index, text, agent_id=agent_id)
+    )
 
 
 def _error_reason(chunk: StreamChunk) -> str:

@@ -30,10 +30,12 @@ from app.models.message import Message
 from app.models.user import User
 from app.services.context_builder import build_context
 from app.services.workspace_service import WorkspaceService
+from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 
 router = APIRouter()
 
 _ContentAccumulator = StreamContentAccumulator
+workflow_runtime_service = WorkspaceWorkflowRuntimeService()
 
 
 async def _event_generator(
@@ -128,7 +130,14 @@ async def _event_generator(
                 yield preview_chunk.to_sse()
             yield final_done.model_copy(update={"total_blocks": next_block_index}).to_sse()
         has_orphaned_tool_call = accumulator.finalize_orphaned_tools()
-        message.content = accumulator.to_list()
+        blocks = accumulator.to_list()
+        if not disconnected and not has_orphaned_tool_call:
+            blocks = await workflow_runtime_service.enrich_workflow_blocks(
+                db,
+                message.conversation_id,
+                blocks,
+            )
+        message.content = blocks
         message.status = "error" if disconnected or has_orphaned_tool_call else "done"
         await db.commit()
     except AgentNotFoundError as e:

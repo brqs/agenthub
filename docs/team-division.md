@@ -436,7 +436,7 @@ backend/
 
 ## 5. B2（Agent 集成）详细任务清单
 
-> B2 历史执行路线图和任务编号已归档到 [docs/archive/b2-task-dispatch/B2-roadmap.md](archive/b2-task-dispatch/B2-roadmap.md)；当前 B2 入口以 [docs/b2/README.md](b2/README.md) 和 [docs/b2/spec/README.md](b2/spec/README.md) 为准。
+> B2 当前入口以 [docs/b2/README.md](b2/README.md) 和 [docs/b2/spec/README.md](b2/spec/README.md) 为准；过时历史任务单已删除。
 
 ### 5.1 职责范围
 
@@ -685,7 +685,7 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
 
 ## 7. Sprint × 角色 任务矩阵
 
-> v1.1 调整：Sprint 0-4 已完成（按 v1.0 计划交付，历史路线图见 [docs/archive/b2-task-dispatch/B2-roadmap.md](archive/b2-task-dispatch/B2-roadmap.md)，B1 记录见 [docs/b1/backend-test-record.md](b1/backend-test-record.md)）。Sprint 5 为 pivot 后剩余 8 天计划。
+> v1.1 调整：Sprint 0-4 已完成（按 v1.0 计划交付，B1 记录见 [docs/b1/backend-test-record.md](b1/backend-test-record.md)）。Sprint 5 为 pivot 后剩余 8 天计划。
 
 ### 7.0 Sprint 0-4（已完成，保留为附录）
 

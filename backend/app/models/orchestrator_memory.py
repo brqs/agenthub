@@ -76,6 +76,11 @@ class OrchestratorTask(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     expected_output: Mapped[str | None] = mapped_column(Text, nullable=True)
     include_history: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    task_type: Mapped[str] = mapped_column(
+        String(32), default="implementation", nullable=False
+    )
+    review_of: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    handoff_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     final_state: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -117,6 +122,7 @@ class OrchestratorTaskAttempt(Base):
     missing_artifact_paths: Mapped[list[str]] = mapped_column(
         JSONB, default=list, nullable=False
     )
+    review_outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
