@@ -9,7 +9,7 @@ from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator.types import SubTask, TaskAttempt, TaskState
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
-TextBlock = Callable[[int, str], Iterable[StreamChunk]]
+TextBlock = Callable[..., Iterable[StreamChunk]]
 FailureText = Callable[[SubTask, str, str | None], str]
 ErrorReason = Callable[[StreamChunk], str]
 AccumulateText = Callable[[TaskAttempt, StreamChunk], None]
@@ -48,21 +48,28 @@ async def remapped_sub_stream(
             if chunk.event_type == "error":
                 if open_block_index is not None:
                     yield StreamChunk(
-                        event_type="block_end", block_index=open_block_index
+                        event_type="block_end",
+                        block_index=open_block_index,
+                        agent_id=agent_id,
                     ), next_block_index, False
                     open_block_index = None
                 attempt.error = error_reason(chunk)
                 attempt.state = TaskState.FAILED
                 text = failure_text(task, attempt.error, agent_id)
-                for failure_chunk in text_block(next_block_index, text):
+                for failure_chunk in text_block(
+                    next_block_index,
+                    text,
+                    agent_id=agent_id,
+                ):
                     yield failure_chunk, next_block_index + 1, True
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
                 accumulate_tool_event(attempt, chunk)
-                yield remap_tool_call_id(chunk, call_id_prefix), next_block_index, False
+                remapped = remap_tool_call_id(chunk, call_id_prefix)
+                yield attach_agent_id(remapped, agent_id), next_block_index, False
                 continue
             if chunk.event_type == "heartbeat":
-                yield chunk, next_block_index, False
+                yield attach_agent_id(chunk, agent_id), next_block_index, False
                 continue
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
@@ -76,17 +83,23 @@ async def remapped_sub_stream(
                 open_block_index = remapped.block_index
             elif remapped.event_type == "block_end":
                 open_block_index = None
-            yield remapped, next_block_index, False
+            yield attach_agent_id(remapped, agent_id), next_block_index, False
     except Exception as exc:
         if open_block_index is not None:
             yield StreamChunk(
-                event_type="block_end", block_index=open_block_index
+                event_type="block_end",
+                block_index=open_block_index,
+                agent_id=agent_id,
             ), next_block_index, False
             open_block_index = None
         attempt.error = str(exc)
         attempt.state = TaskState.FAILED
         text = failure_text(task, str(exc), agent_id)
-        for failure_chunk in text_block(next_block_index, text):
+        for failure_chunk in text_block(
+            next_block_index,
+            text,
+            agent_id=agent_id,
+        ):
             yield failure_chunk, next_block_index + 1, True
         return
 
@@ -111,3 +124,9 @@ def remap_tool_call_id(chunk: StreamChunk, task_id: str) -> StreamChunk:
     if not chunk.call_id:
         return chunk
     return chunk.model_copy(update={"call_id": f"{task_id}.{chunk.call_id}"})
+
+
+def attach_agent_id(chunk: StreamChunk, agent_id: str) -> StreamChunk:
+    if chunk.agent_id == agent_id:
+        return chunk
+    return chunk.model_copy(update={"agent_id": agent_id})

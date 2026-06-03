@@ -187,6 +187,37 @@ class TestStreamingArtifactParser:
         assert blocks[0]["metadata"].get("language") == "python"
         assert "print(1)" in blocks[0]["code"]
 
+    def test_workflow_fence_emits_workflow_block(self) -> None:
+        parser = StreamingArtifactParser()
+        text = (
+            "```workflow-yaml\n"
+            "version: '1'\n"
+            "name: Demo Flow\n"
+            "nodes:\n"
+            "  - id: start\n"
+            "    type: trigger\n"
+            "edges: []\n"
+            "```"
+        )
+        chunks = _all_chunks(parser, text)
+        blocks = _extract_blocks(chunks)
+
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "workflow"
+        assert blocks[0]["metadata"].get("format") == "yaml"
+        assert "Demo Flow" in blocks[0]["text"]
+
+    def test_workflow_json_fence_emits_workflow_block(self) -> None:
+        parser = StreamingArtifactParser()
+        text = '```workflow-json\n{"version":"1","name":"Flow","nodes":[],"edges":[]}\n```'
+        chunks = _all_chunks(parser, text)
+        blocks = _extract_blocks(chunks)
+
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "workflow"
+        assert blocks[0]["metadata"].get("format") == "json"
+        assert '"name":"Flow"' in blocks[0]["text"]
+
     def test_standalone_url_emits_web_preview_block(self) -> None:
         parser = StreamingArtifactParser()
         text = "https://github.com/brqs/agenthub/pull/17"

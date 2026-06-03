@@ -531,6 +531,7 @@ Spec 越具体，AI 生成的代码越精准。
 
 - **Skill**（`docs/ai-skills/<name>/SKILL.md`）：可重用的复杂任务模板
 - **Rules**（本文件或目录级 `AGENTS.md`）：长期稳定的项目协作规则
+- 涉及 Orchestrator live E2E、B2/P1 公网 API/SSE 验收、preview/browser verify，或“失败继续修继续测直到通过”的任务时，必须先阅读并遵循 `docs/ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md`。该 Skill 是项目专属流程，不安装到全局 `~/.codex/skills`。
 
 每发现一个值得复用的 Prompt 模式，就沉淀为 Skill 或 Rules。
 

@@ -23,6 +23,7 @@ from app.services.orchestrator_memory import (
     inject_orchestrator_memory_context,
 )
 from app.services.orchestrator_platform_tools import OrchestratorPlatformToolExecutor
+from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 
 
 def _agent_context(agent: Agent) -> dict[str, Any]:
@@ -116,6 +117,11 @@ async def apply_orchestrator_stream_context(
             user_message_id=message.reply_to_id,
         )
         stream_config["orchestrator_memory_lock"] = asyncio.Lock()
+    stream_config["conversation_id"] = message.conversation_id
+    stream_config["orchestrator_db_session"] = db
+    stream_config["orchestrator_artifact_manifest_lock"] = asyncio.Lock()
+    stream_config["orchestrator_workflow_runtime_lock"] = asyncio.Lock()
+    stream_config["orchestrator_workflow_runtime_service"] = WorkspaceWorkflowRuntimeService()
     stream_config["orchestrator_platform_tool_executor"] = OrchestratorPlatformToolExecutor(
         db=db,
         conversation_id=message.conversation_id,

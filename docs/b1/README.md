@@ -6,6 +6,7 @@
 |---|---|
 | [backend-cloud-setup.md](backend-cloud-setup.md) | 后端云端联调环境记录 |
 | [backend-test-record.md](backend-test-record.md) | B1 后端测试记录 |
+| [spec/stream-error-status.spec.md](spec/stream-error-status.spec.md) | SSE error 状态持久化协同规则 |
 | [spec/workspace-sandbox.spec.md](spec/workspace-sandbox.spec.md) | Workspace 沙箱隔离规范 |
 
 相关全局文档：

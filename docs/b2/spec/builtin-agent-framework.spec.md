@@ -352,6 +352,15 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
 - 已有未配置 `allowed_tools` 的历史/内置 Builtin Agent 保持旧行为：未显式传入 `tool_specs` 时会获得全部 native tools 和 MCP tools。
 - 当前 MVP 覆盖 builtin native/MCP tools；external runtime 的 CLI/SDK 权限映射仍属于后续 hardening。
 
+2026-06-03 live E2E 已验证：
+
+- 真实聊天创建 builtin 自建 Agent 时，显式 `allowed_tools=["read_file"]` 持久化到
+  `Agent.config.allowed_tools`。
+- 该 Agent 后续会话可使用 `read_file` 读取 workspace 文件。
+- 未授权的 `write_file` / `bash` 不会进入模型 tool list，任务不能通过未授权 tool 完成。
+
+证据：`/tmp/agenthub_custom_agent_tools_report.json`，`passed=true`。
+
 ---
 
 ## 8. 验收用例（8 个）

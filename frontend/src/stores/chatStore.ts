@@ -106,11 +106,15 @@ function completeRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
   });
 }
 
-function applyToolCall(blocks: DemoContentBlock[], event: Extract<StreamEvent, { event: 'tool_call' }>): DemoContentBlock[] {
+function applyToolCall(
+  blocks: DemoContentBlock[],
+  event: Extract<StreamEvent, { event: 'tool_call' }>,
+): DemoContentBlock[] {
   return [
     ...blocks,
     {
       type: 'tool_call',
+      agent_id: event.data.agent_id ?? null,
       call_id: event.data.call_id,
       tool_name: event.data.tool_name,
       arguments: event.data.tool_arguments,
@@ -119,11 +123,15 @@ function applyToolCall(blocks: DemoContentBlock[], event: Extract<StreamEvent, {
   ];
 }
 
-function applyToolResult(blocks: DemoContentBlock[], event: Extract<StreamEvent, { event: 'tool_result' }>): DemoContentBlock[] {
+function applyToolResult(
+  blocks: DemoContentBlock[],
+  event: Extract<StreamEvent, { event: 'tool_result' }>,
+): DemoContentBlock[] {
   return blocks.map((block) => {
     if (block.type !== 'tool_call' || block.call_id !== event.data.call_id) return block;
     return {
       ...block,
+      agent_id: block.agent_id ?? event.data.agent_id ?? null,
       status: event.data.tool_status,
       output_preview: event.data.tool_output,
       output_truncated: event.data.tool_output_truncated,
@@ -140,11 +148,72 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
     } else if (event.data.block_type === 'code') {
       next[event.data.block_index] = {
         type: 'code',
+        agent_id: event.data.agent_id ?? null,
         language: (event.data.metadata?.language as string) || 'text',
         code: '',
       };
+    } else if (event.data.block_type === 'workflow') {
+      next[event.data.block_index] = {
+        type: 'workflow',
+        agent_id: event.data.agent_id ?? null,
+        last_run_id: (event.data.metadata?.last_run_id as string) || null,
+        name: (event.data.metadata?.name as string) || null,
+        path: (event.data.metadata?.path as string) || undefined,
+        format: event.data.metadata?.format === 'json' ? 'json' : 'yaml',
+        definition: {},
+        raw_definition: '',
+        nodes: [],
+        edges: [],
+        validation_status:
+          event.data.metadata?.validation_status === 'passed' ||
+          event.data.metadata?.validation_status === 'failed'
+            ? event.data.metadata.validation_status
+            : 'unknown',
+        runtime_status:
+          event.data.metadata?.runtime_status === 'ready' ||
+          event.data.metadata?.runtime_status === 'invalid'
+            ? event.data.metadata.runtime_status
+            : 'not_supported',
+        dry_run_status:
+          event.data.metadata?.dry_run_status === 'passed' ||
+          event.data.metadata?.dry_run_status === 'failed'
+            ? event.data.metadata.dry_run_status
+            : 'not_supported',
+        health_status:
+          event.data.metadata?.health_status === 'passed' ||
+          event.data.metadata?.health_status === 'failed'
+            ? event.data.metadata.health_status
+            : 'unknown',
+        validation_errors: [],
+      };
+    } else if (event.data.block_type === 'file') {
+      next[event.data.block_index] = {
+        type: 'file',
+        agent_id: event.data.agent_id ?? null,
+        path: (event.data.metadata?.path as string) || null,
+        artifact_kind:
+          (event.data.metadata?.artifact_kind as
+            | 'document'
+            | 'ppt'
+            | 'image'
+            | 'archive'
+            | 'code'
+            | 'workflow'
+            | 'other') || 'other',
+        filename: (event.data.metadata?.filename as string) || 'artifact',
+        url: (event.data.metadata?.url as string) || '',
+        size: (event.data.metadata?.size as number) || 0,
+        mime_type: (event.data.metadata?.mime_type as string) || 'application/octet-stream',
+        preview_text: (event.data.metadata?.preview_text as string) || undefined,
+        preview_truncated: (event.data.metadata?.preview_truncated as boolean) || false,
+        metadata: (event.data.metadata?.metadata as Record<string, unknown>) || {},
+      };
     } else {
-      next[event.data.block_index] = { type: 'text', text: '' };
+      next[event.data.block_index] = {
+        type: 'text',
+        agent_id: event.data.agent_id ?? null,
+        text: '',
+      };
     }
     return next;
   }
@@ -170,10 +239,25 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
   if (!block) return next;
 
   if (block.type === 'text' && event.data.text_delta) {
-    next[event.data.block_index] = { ...block, text: `${block.text}${event.data.text_delta}` };
+    next[event.data.block_index] = {
+      ...block,
+      agent_id: block.agent_id ?? event.data.agent_id ?? null,
+      text: `${block.text}${event.data.text_delta}`,
+    };
   }
   if (block.type === 'code' && event.data.code_delta) {
-    next[event.data.block_index] = { ...block, code: `${block.code}${event.data.code_delta}` };
+    next[event.data.block_index] = {
+      ...block,
+      agent_id: block.agent_id ?? event.data.agent_id ?? null,
+      code: `${block.code}${event.data.code_delta}`,
+    };
+  }
+  if (block.type === 'workflow' && (event.data.text_delta || event.data.code_delta)) {
+    next[event.data.block_index] = {
+      ...block,
+      agent_id: block.agent_id ?? event.data.agent_id ?? null,
+      raw_definition: `${block.raw_definition ?? ''}${event.data.text_delta ?? event.data.code_delta ?? ''}`,
+    };
   }
   return next;
 }
@@ -223,7 +307,7 @@ export const useChatStore = create<ChatState>((set) => ({
         ),
         selectedConversationId:
           willArchive && state.selectedConversationId === conversationId
-            ? nextVisible?.id ?? ''
+            ? (nextVisible?.id ?? '')
             : state.selectedConversationId,
       };
     });
@@ -240,7 +324,11 @@ export const useChatStore = create<ChatState>((set) => ({
               return { ...message, status: 'streaming' as const };
             }
             if (event.event === 'done') {
-              return { ...message, status: 'done' as const, content: completeRunningTasks(message.content) };
+              return {
+                ...message,
+                status: 'done' as const,
+                content: completeRunningTasks(message.content),
+              };
             }
             if (event.event === 'error') {
               return {
@@ -312,7 +400,7 @@ export const useChatStore = create<ChatState>((set) => ({
       const remoteIds = new Set(conversations.map((c) => c.id));
       const selected = state.selectedConversationId;
       const nextSelected =
-        selected && remoteIds.has(selected) ? selected : conversations[0]?.id ?? '';
+        selected && remoteIds.has(selected) ? selected : (conversations[0]?.id ?? '');
       return {
         conversations: conversations as DemoConversation[],
         selectedConversationId: nextSelected,
@@ -356,9 +444,7 @@ export const useChatStore = create<ChatState>((set) => ({
       const nextConversation = conversation as DemoConversation;
       const exists = state.conversations.some((item) => item.id === conversation.id);
       const conversations = exists
-        ? state.conversations.map((item) =>
-            item.id === conversation.id ? nextConversation : item,
-          )
+        ? state.conversations.map((item) => (item.id === conversation.id ? nextConversation : item))
         : [nextConversation, ...state.conversations];
       const nextVisible = conversations.find(
         (item) => item.id !== conversation.id && !item.is_archived,
@@ -368,7 +454,7 @@ export const useChatStore = create<ChatState>((set) => ({
         conversations,
         selectedConversationId:
           conversation.is_archived && state.selectedConversationId === conversation.id
-            ? nextVisible?.id ?? ''
+            ? (nextVisible?.id ?? '')
             : state.selectedConversationId,
       };
     });
@@ -377,9 +463,9 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByConversation: {
         ...state.messagesByConversation,
-        [message.conversation_id]: (state.messagesByConversation[message.conversation_id] ?? []).map(
-          (item) => (item.id === message.id ? (message as DemoMessage) : item),
-        ),
+        [message.conversation_id]: (
+          state.messagesByConversation[message.conversation_id] ?? []
+        ).map((item) => (item.id === message.id ? (message as DemoMessage) : item)),
       },
     }));
   },

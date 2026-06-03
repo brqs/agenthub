@@ -35,7 +35,7 @@ export function DeploymentStatusBlock({
   const url = deployment?.url ?? block.url;
   const downloadUrl = deployment?.download_url ?? block.download_url;
   const error = deployment?.error ?? block.error;
-  const logsPreview = deployment?.logs_tail ?? deployment?.logs.join('\n') ?? block.logs_preview;
+  const logsPreview = deployment?.logs_tail ?? (deployment?.logs ?? []).join('\n') ?? block.logs_preview;
   const meta = DEPLOYMENT_STATUS_META[status];
   const StatusIcon = meta.icon;
   const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'error'>('idle');

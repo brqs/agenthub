@@ -1,7 +1,7 @@
 # Deployment / Release Backend Execution Spec
 
-> 状态：Implemented
-> 最后更新：2026-06-02
+> 状态：Implemented hardening MVP / API-SSE E2E passed
+> 最后更新：2026-06-03
 > 范围：第五点部署发布的后端基础能力实现
 
 ## 1. 架构
@@ -109,8 +109,17 @@ runtime 限额的请求。当前课程演示环境默认开启 trusted Docker Wo
 workspace snapshot 执行受控 Docker build/run、分配 `8081-8085` host port、执行 health check，并在 stop /
 cleanup 时删除容器和快照。
 
+2026-06-03 hardening MVP 已补齐：
+
+- container build / run / health check 失败路径清理 build context、container、image。
+- `deployment_health` evaluation 失败时生成 structured issue 与 reflection repair instruction。
+- Orchestrator quality repair agent 修复 workspace 后会重新调用同一个 deployment tool。
+- `not_supported` 只记录平台限制，不触发自动修复。
+- janitor 纳入 `DEPLOYMENT_CONTAINER_BUILD_ROOT` orphan cleanup；runtime 可用时按 managed label
+  清理 orphan container / image。
+
 详细行为见
-[orchestrator-native-deployment.execution.spec.md](orchestrator-native-deployment.execution.spec.md)。
+[orchestrator/native-deployment.execution.spec.md](orchestrator/native-deployment.execution.spec.md)。
 
 ## 7. 数据库与 API
 
@@ -155,7 +164,13 @@ uv run python scripts/deployment_release_api_e2e.py
 
 ```text
 /tmp/agenthub_deployment_release_api_e2e_report.json
+/tmp/agenthub_deployment_flow_report.json
+/tmp/agenthub_deployment_repair_flow_report.json
 ```
+
+2026-06-03 live E2E 已验证 container 部署失败后触发
+`deployment_health failed -> reflection_created -> repair agent attempt -> second create_deployment -> published=true`，
+并确认公网 URL 可访问、browser verifier report 通过。
 
 ## 9. 部署规则
 

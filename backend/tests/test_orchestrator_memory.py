@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
@@ -17,8 +18,14 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 from app.core.database import Base, SessionFactory, engine
 from app.models.conversation import Conversation
 from app.models.message import Message
-from app.models.orchestrator_memory import OrchestratorRun
+from app.models.orchestrator_memory import (
+    OrchestratorRun,
+    OrchestratorRunEvent,
+    OrchestratorTask,
+    OrchestratorTaskAttempt,
+)
 from app.models.user import User
+from app.schemas.conversation import OrchestratorTaskAttemptOut, OrchestratorTaskOut
 from app.services.orchestrator_memory import (
     OrchestratorMemoryStore,
     build_orchestrator_memory_context,
@@ -327,3 +334,101 @@ async def test_memory_store_formats_recent_runs_before_latest_user_request() -> 
 
     assert injected[-1].content == "continue this task"
     assert injected[-2].content.startswith("Previous Orchestrator structured memory")
+
+
+async def test_memory_store_persists_review_thread_metadata() -> None:
+    conversation_id, agent_message_id = await _create_conversation()
+    async with SessionFactory() as db:
+        store = OrchestratorMemoryStore(
+            db,
+            conversation_id=conversation_id,
+            agent_message_id=agent_message_id,
+            user_message_id=None,
+        )
+        task = SubTask(
+            task_id="review-report",
+            agent_id="codex-helper",
+            title="Review report",
+            instruction="Review report.md",
+            depends_on=("write-report",),
+            task_type="review",
+            review_of=("write-report",),
+            handoff_reason="Independent review before final summary",
+        )
+        run_id = await store.start_run(
+            user_request="Review the report",
+            plan_source="LLM planner/config",
+            tasks=[task],
+        )
+        result = TaskResult(
+            task_id=task.task_id,
+            title=task.title,
+            final_state=TaskState.SUCCEEDED,
+        )
+        result.attempts.append(
+            TaskAttempt(
+                attempt_index=1,
+                agent_id="codex-helper",
+                state=TaskState.SUCCEEDED,
+                text_preview="review_outcome: needs_repair",
+                review_outcome="needs_repair",
+            )
+        )
+        await store.record_task_result(run_id=run_id, task=task, result=result)
+        await store.finish_run(
+            run_id=run_id,
+            status="done",
+            final_summary=(
+                "Execution summary\n"
+                "- succeeded: @codex-helper - Review report\n"
+                "  review outcome: needs_repair\n"
+            ),
+        )
+        await db.commit()
+
+    async with SessionFactory() as db:
+        task_row = (
+            await db.execute(
+                select(OrchestratorTask).where(OrchestratorTask.run_id == run_id)
+            )
+        ).scalar_one()
+        attempt_row = (
+            await db.execute(
+                select(OrchestratorTaskAttempt).where(
+                    OrchestratorTaskAttempt.run_id == run_id
+                )
+            )
+        ).scalar_one()
+        planned_event = (
+            await db.execute(
+                select(OrchestratorRunEvent)
+                .where(OrchestratorRunEvent.run_id == run_id)
+                .where(OrchestratorRunEvent.event_type == "planned")
+            )
+        ).scalar_one()
+        result_event = (
+            await db.execute(
+                select(OrchestratorRunEvent)
+                .where(OrchestratorRunEvent.run_id == run_id)
+                .where(OrchestratorRunEvent.event_type == "task_result")
+            )
+        ).scalar_one()
+
+    assert task_row.task_type == "review"
+    assert task_row.review_of == ["write-report"]
+    assert task_row.handoff_reason == "Independent review before final summary"
+    assert attempt_row.review_outcome == "needs_repair"
+
+    task_out = OrchestratorTaskOut.model_validate(task_row)
+    attempt_out = OrchestratorTaskAttemptOut.model_validate(attempt_row)
+    assert task_out.task_type == "review"
+    assert task_out.review_of == ["write-report"]
+    assert task_out.handoff_reason == "Independent review before final summary"
+    assert attempt_out.review_outcome == "needs_repair"
+
+    planned_task = planned_event.payload["tasks"][0]
+    assert planned_task["task_type"] == "review"
+    assert planned_task["review_of"] == ["write-report"]
+    assert planned_task["handoff_reason"] == "Independent review before final summary"
+    result_attempt = result_event.payload["attempts"][0]
+    assert result_attempt["review_outcome"] == "needs_repair"

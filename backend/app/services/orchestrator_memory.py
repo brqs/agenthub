@@ -125,6 +125,9 @@ class OrchestratorMemoryStore:
         task_row.priority = task.priority
         task_row.expected_output = task.expected_output
         task_row.include_history = task.include_history
+        task_row.task_type = task.task_type
+        task_row.review_of = list(task.review_of)
+        task_row.handoff_reason = task.handoff_reason
         task_row.final_state = result.final_state.value
         task_row.updated_at = datetime.now(UTC)
 
@@ -154,6 +157,7 @@ class OrchestratorMemoryStore:
             row.tool_summaries = _truncate_list(attempt.tool_summaries)
             row.artifact_paths = _truncate_list(attempt.artifact_paths)
             row.missing_artifact_paths = _truncate_list(attempt.missing_artifact_paths)
+            row.review_outcome = _truncate_text(attempt.review_outcome, 32)
             row.error = _truncate_text(attempt.error, MAX_TEXT_PREVIEW_CHARS)
             row.completed_at = datetime.now(UTC)
 
@@ -177,6 +181,7 @@ class OrchestratorMemoryStore:
                             attempt.evaluation_results
                         ),
                         "reflection": reflection_payload(attempt.reflection),
+                        "review_outcome": attempt.review_outcome,
                         "error": attempt.error,
                     }
                     for attempt in result.attempts
@@ -252,6 +257,9 @@ class OrchestratorMemoryStore:
             priority=task.priority,
             expected_output=task.expected_output,
             include_history=task.include_history,
+            task_type=task.task_type,
+            review_of=list(task.review_of),
+            handoff_reason=task.handoff_reason,
             final_state="pending",
         )
         self._db.add(row)
@@ -458,6 +466,9 @@ def _task_payload(task: SubTask) -> dict[str, Any]:
         "priority": task.priority,
         "expected_output": task.expected_output,
         "include_history": task.include_history,
+        "task_type": task.task_type,
+        "review_of": list(task.review_of),
+        "handoff_reason": task.handoff_reason,
     }
 
 

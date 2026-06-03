@@ -56,6 +56,182 @@ async def test_stream_accumulator_persists_deployment_status_block() -> None:
     ]
 
 
+async def test_stream_accumulator_persists_file_block() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="file",
+            agent_id="agent-a",
+            metadata={
+                "path": "docs/report.md",
+                "filename": "report.md",
+                "url": "/api/v1/workspaces/conversation-1/files/docs/report.md",
+                "size": 42,
+                "mime_type": "text/markdown",
+                "artifact_kind": "document",
+                "preview_text": "# Report",
+                "preview_truncated": False,
+                "metadata": {"section_count": 1},
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    assert accumulator.to_list() == [
+        {
+            "type": "file",
+            "agent_id": "agent-a",
+            "path": "docs/report.md",
+            "filename": "report.md",
+            "url": "/api/v1/workspaces/conversation-1/files/docs/report.md",
+            "size": 42,
+            "mime_type": "text/markdown",
+            "artifact_kind": "document",
+            "preview_text": "# Report",
+            "preview_truncated": False,
+            "metadata": {"section_count": 1},
+        }
+    ]
+
+
+async def test_stream_accumulator_persists_workflow_block() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="workflow",
+            agent_id="codex-helper",
+            metadata={"format": "yaml", "path": "workflow.yaml"},
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="delta",
+            block_index=0,
+            text_delta=(
+                "version: '1'\n"
+                "name: Launch Flow\n"
+                "nodes:\n"
+                "  - id: start\n"
+                "    type: trigger\n"
+                "  - id: publish\n"
+                "    type: action\n"
+                "edges:\n"
+                "  - source: start\n"
+                "    target: publish\n"
+            ),
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    blocks = accumulator.to_list()
+
+    assert blocks[0]["type"] == "workflow"
+    assert blocks[0]["agent_id"] == "codex-helper"
+    assert blocks[0]["path"] == "workflow.yaml"
+    assert blocks[0]["name"] == "Launch Flow"
+    assert blocks[0]["validation_status"] == "passed"
+    assert blocks[0]["runtime_status"] == "ready"
+    assert blocks[0]["dry_run_status"] == "not_supported"
+    assert [node["id"] for node in blocks[0]["nodes"]] == ["start", "publish"]
+    assert blocks[0]["edges"] == [{"source": "start", "target": "publish"}]
+
+
+async def test_stream_accumulator_upgrades_json_code_to_workflow_block() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="code",
+            metadata={"language": "json"},
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="delta",
+            block_index=0,
+            code_delta=(
+                '{"version":"1","name":"JSON Flow",'
+                '"nodes":[{"id":"n1","type":"trigger"}],"edges":[]}'
+            ),
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    blocks = accumulator.to_list()
+
+    assert blocks[0]["type"] == "workflow"
+    assert blocks[0]["format"] == "json"
+    assert blocks[0]["name"] == "JSON Flow"
+    assert blocks[0]["validation_status"] == "passed"
+
+
+async def test_stream_accumulator_extracts_workflow_from_text_fence() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="text",
+            agent_id="claude-code",
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="delta",
+            block_index=0,
+            text_delta=(
+                "Created p1-workflow.yaml\n\n"
+                "```yaml\n"
+                "version: '1'\n"
+                "name: P1 Workflow E2E\n"
+                "nodes:\n"
+                "  - id: start\n"
+                "    type: trigger\n"
+                "  - id: review\n"
+                "    type: action\n"
+                "edges:\n"
+                "  - source: start\n"
+                "    target: review\n"
+                "```\n"
+            ),
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    blocks = accumulator.to_list()
+
+    assert blocks[0]["type"] == "text"
+    assert blocks[1]["type"] == "workflow"
+    assert blocks[1]["agent_id"] == "claude-code"
+    assert blocks[1]["path"] == "p1-workflow.yaml"
+    assert blocks[1]["name"] == "P1 Workflow E2E"
+    assert blocks[1]["validation_status"] == "passed"
+    assert blocks[1]["runtime_status"] == "ready"
+
+
+async def test_stream_accumulator_keeps_regular_json_code_block() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="code",
+            metadata={"language": "json"},
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="delta", block_index=0, code_delta='{"ok":true}'))
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    assert accumulator.to_list() == [
+        {"type": "code", "language": "json", "code": '{"ok":true}'}
+    ]
+
+
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def ensure_tables() -> None:
     async with engine.begin() as conn:
@@ -260,6 +436,22 @@ async def test_message_out_serializes_block_agent_id_and_legacy_blocks() -> None
                 "arguments": {},
                 "status": "ok",
             },
+            {
+                "type": "workflow",
+                "name": "Flow",
+                "definition": {
+                    "version": "1",
+                    "name": "Flow",
+                    "nodes": [{"id": "start", "type": "trigger"}],
+                    "edges": [],
+                },
+                "nodes": [{"id": "start", "type": "trigger"}],
+                "edges": [],
+                "validation_status": "passed",
+                "runtime_status": "ready",
+                "dry_run_status": "not_supported",
+                "health_status": "passed",
+            },
         ],
         status="done",
         created_at=datetime.now(UTC),
@@ -269,6 +461,8 @@ async def test_message_out_serializes_block_agent_id_and_legacy_blocks() -> None
 
     assert body["content"][0]["agent_id"] is None
     assert body["content"][1]["agent_id"] == "claude-code"
+    assert body["content"][2]["type"] == "workflow"
+    assert body["content"][2]["name"] == "Flow"
 
 
 async def test_stream_persists_diff_block(

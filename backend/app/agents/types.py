@@ -32,8 +32,10 @@ BlockType = Literal[
     "code",
     "diff",
     "web_preview",
+    "file",
     "tool_call",
     "deployment_status",
+    "workflow",
 ]
 
 

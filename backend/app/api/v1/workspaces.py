@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
@@ -16,6 +17,8 @@ from app.core.deps import DbSession, get_current_user
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.schemas.workspace import (
+    WorkspaceArtifactListResponse,
+    WorkspaceArtifactResponse,
     WorkspaceDeploymentListResponse,
     WorkspaceDeploymentRequest,
     WorkspaceDeploymentResponse,
@@ -24,7 +27,12 @@ from app.schemas.workspace import (
     WorkspacePreviewVerifyRequest,
     WorkspacePreviewVerifyResponse,
     WorkspaceTreeResponse,
+    WorkspaceWorkflowHealthResponse,
+    WorkspaceWorkflowRunListResponse,
+    WorkspaceWorkflowRunRequest,
+    WorkspaceWorkflowRunResponse,
 )
+from app.services.artifact_manifest import ArtifactManifestService
 from app.services.browser_preview_verifier import (
     BrowserPreviewVerifier,
     BrowserPreviewVerifyDisabledError,
@@ -47,12 +55,19 @@ from app.services.workspace_service import (
     WorkspaceService,
     WorkspaceViolation,
 )
+from app.services.workspace_workflow_runtime import (
+    WorkflowRunNotFoundError,
+    WorkflowRuntimeError,
+    WorkspaceWorkflowRuntimeService,
+)
 
 router = APIRouter()
 workspace_service = WorkspaceService()
+artifact_manifest_service = ArtifactManifestService()
 preview_service = WorkspacePreviewService(workspace_service)
 browser_verifier = BrowserPreviewVerifier()
 deployment_service = WorkspaceDeploymentService(workspace_service)
+workflow_runtime_service = WorkspaceWorkflowRuntimeService(workspace_service)
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -157,6 +172,22 @@ def _map_deployment_error(exc: Exception) -> HTTPException:
     return _map_preview_error(exc)
 
 
+def _map_workflow_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, WorkflowRunNotFoundError):
+        return _error(
+            status.HTTP_404_NOT_FOUND,
+            "workflow_run_not_found",
+            str(exc),
+        )
+    if isinstance(exc, WorkflowRuntimeError):
+        return _error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "workflow_runtime_failed",
+            str(exc),
+        )
+    return _map_workspace_error(exc)
+
+
 def _file_headers(mime_type: str) -> dict[str, str]:
     headers = {"X-Content-Type-Options": "nosniff"}
     if mime_type == "text/html":
@@ -180,6 +211,23 @@ async def get_workspace_tree(
     workspace = await workspace_service.get_or_create(db, conversation_id)
     tree = workspace_service.list_tree(workspace, max_depth=max_depth)
     return WorkspaceTreeResponse(root=workspace.root_path, tree=tree)
+
+
+@router.get(
+    "/{conversation_id}/artifacts",
+    response_model=WorkspaceArtifactListResponse,
+)
+async def list_workspace_artifacts(
+    conversation_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceArtifactListResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    workspace = await workspace_service.get_or_create(db, conversation_id)
+    entries = artifact_manifest_service.list_entries(Path(workspace.root_path))
+    return WorkspaceArtifactListResponse(
+        items=[WorkspaceArtifactResponse.model_validate(entry) for entry in entries]
+    )
 
 
 @router.get("/{conversation_id}/files/{path:path}")
@@ -427,6 +475,104 @@ async def download_workspace_deployment(
         path,
         media_type="application/zip",
         filename=f"agenthub-workspace-{conversation_id}.zip",
+    )
+
+
+@router.post(
+    "/{conversation_id}/workflow-runs",
+    response_model=WorkspaceWorkflowRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_workspace_workflow_run(
+    conversation_id: UUID,
+    payload: WorkspaceWorkflowRunRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceWorkflowRunResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    try:
+        run = await workflow_runtime_service.dry_run(
+            db,
+            conversation_id,
+            path=payload.path,
+            inputs=payload.inputs,
+        )
+    except (
+        WorkflowRuntimeError,
+        WorkspaceViolation,
+        WorkspaceFileNotFound,
+        WorkspaceFileTooLarge,
+    ) as exc:
+        raise _map_workflow_error(exc) from exc
+    return WorkspaceWorkflowRunResponse.model_validate(run)
+
+
+@router.get(
+    "/{conversation_id}/workflow-runs",
+    response_model=WorkspaceWorkflowRunListResponse,
+)
+async def list_workspace_workflow_runs(
+    conversation_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    path: str | None = Query(default=None, min_length=1, max_length=512),
+    limit: int = Query(default=20, ge=1, le=100),
+) -> WorkspaceWorkflowRunListResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    runs = await workflow_runtime_service.list_runs(
+        db,
+        conversation_id,
+        path=path,
+        limit=limit,
+    )
+    return WorkspaceWorkflowRunListResponse(
+        items=[WorkspaceWorkflowRunResponse.model_validate(run) for run in runs]
+    )
+
+
+@router.get(
+    "/{conversation_id}/workflow-runs/{run_id}",
+    response_model=WorkspaceWorkflowRunResponse,
+)
+async def get_workspace_workflow_run(
+    conversation_id: UUID,
+    run_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceWorkflowRunResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    try:
+        run = await workflow_runtime_service.get_run(db, conversation_id, run_id)
+    except WorkflowRunNotFoundError as exc:
+        raise _map_workflow_error(exc) from exc
+    return WorkspaceWorkflowRunResponse.model_validate(run)
+
+
+@router.get(
+    "/{conversation_id}/workflow-health",
+    response_model=WorkspaceWorkflowHealthResponse,
+)
+async def get_workspace_workflow_health(
+    conversation_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    path: str = Query(min_length=1, max_length=512),
+) -> WorkspaceWorkflowHealthResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    validation_status, runtime_status, dry_run_status, health_status, latest = (
+        await workflow_runtime_service.health(db, conversation_id, path=path)
+    )
+    return WorkspaceWorkflowHealthResponse(
+        path=path,
+        validation_status=validation_status,
+        runtime_status=runtime_status,
+        dry_run_status=dry_run_status,
+        health_status=health_status,
+        latest_run=(
+            WorkspaceWorkflowRunResponse.model_validate(latest)
+            if latest is not None
+            else None
+        ),
     )
 
 
