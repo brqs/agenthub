@@ -9,6 +9,36 @@ import { handleExternalLink } from '@/lib/nativeShell';
 const FENCED_CODE_PATTERN = /(```[\s\S]*?```|~~~[\s\S]*?~~~)/g;
 const INLINE_CODE_PATTERN = /(`+[^`\n]*?`+)/g;
 const AGENT_MENTION_HASH_PREFIX = '#agent-mention-';
+const FLATTENED_MARKDOWN_MARKER_PATTERN =
+  / (?:#{1,6}\s|\*\*[^*\n]{1,48}\*\*(?=\s+-)|[-*]\s+(?:`|\uE000|\*\*|[\u4e00-\u9fa5A-Za-z0-9])|\d+\.\s+(?:\*\*|[\u4e00-\u9fa5A-Za-z]))/;
+
+function withProtectedInlineCode(text: string, transform: (protectedText: string) => string): string {
+  const placeholders: string[] = [];
+  const protectedText = text.replace(INLINE_CODE_PATTERN, (match) => {
+    const index = placeholders.push(match) - 1;
+    return `\uE000${index}\uE001`;
+  });
+
+  return transform(protectedText).replace(/\uE000(\d+)\uE001/g, (_match, index: string) => {
+    return placeholders[Number(index)] ?? '';
+  });
+}
+
+function repairFlattenedMarkdownLine(line: string): string {
+  if (line.length < 180 || !FLATTENED_MARKDOWN_MARKER_PATTERN.test(line)) return line;
+
+  return line
+    .replace(/ +(?=#{1,6}\s)/g, '\n\n')
+    .replace(/ +(?=\*\*[^*\n]{1,48}\*\*(?=\s+-))/g, '\n\n')
+    .replace(/ +(?=[-*]\s+(?:`|\uE000|\*\*|[\u4e00-\u9fa5A-Za-z0-9]))/g, '\n')
+    .replace(/ +(?=\d+\.\s+(?:\*\*|[\u4e00-\u9fa5A-Za-z]))/g, '\n');
+}
+
+function repairFlattenedMarkdown(text: string): string {
+  return withProtectedInlineCode(text, (protectedText) =>
+    protectedText.split('\n').map(repairFlattenedMarkdownLine).join('\n'),
+  );
+}
 
 function normalizeMathOutsideCode(text: string, streaming: boolean): string {
   return stabilizeStreamingMath(text, streaming)
@@ -35,7 +65,7 @@ function normalizeInlineSegments(
   streaming: boolean,
   mentionableAgentIds: Set<string>,
 ): string {
-  return text
+  return repairFlattenedMarkdown(text)
     .split(INLINE_CODE_PATTERN)
     .map((segment, index) => {
       if (index % 2 === 1) return segment;

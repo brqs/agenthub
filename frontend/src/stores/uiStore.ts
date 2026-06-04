@@ -8,7 +8,7 @@ export type MobileSheet = 'none' | 'conversation-list' | 'workspace';
 
 export const RIGHT_PANEL_MIN_WIDTH = 320;
 export const RIGHT_PANEL_DEFAULT_WIDTH = 380;
-export const RIGHT_PANEL_MAX_WIDTH = 560;
+export const RIGHT_PANEL_MAX_WIDTH = 880;
 
 interface UiState {
   theme: ThemeMode;

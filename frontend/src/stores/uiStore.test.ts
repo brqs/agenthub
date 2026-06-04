@@ -86,8 +86,8 @@ describe('uiStore', () => {
   });
 
   it('clamps right panel width', () => {
-    useUiStore.getState().setRightPanelWidth(900);
-    expect(useUiStore.getState().rightPanelWidth).toBe(560);
+    useUiStore.getState().setRightPanelWidth(1200);
+    expect(useUiStore.getState().rightPanelWidth).toBe(880);
 
     useUiStore.getState().setRightPanelWidth(100);
     expect(useUiStore.getState().rightPanelWidth).toBe(320);

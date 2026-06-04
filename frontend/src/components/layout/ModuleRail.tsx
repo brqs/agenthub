@@ -15,12 +15,14 @@ export function ModuleRail({
   onCycleTheme,
   onOpenSettings,
   onToggleUserMenu,
+  onChatClick,
 }: {
   themePreference: ThemePreference;
   resolvedTheme: ThemeMode;
   onCycleTheme: () => void;
   onOpenSettings: () => void;
   onToggleUserMenu: () => void;
+  onChatClick?: () => void;
 }) {
   const ThemeIcon = themePreference === 'system' ? Monitor : resolvedTheme === 'dark' ? Moon : Sun;
   const themeTitle =
@@ -48,6 +50,7 @@ export function ModuleRail({
               )
             }
             title={item.label}
+            onClick={item.to === '/chat' ? onChatClick : undefined}
           >
             <item.icon className="h-5 w-5" />
           </NavLink>
