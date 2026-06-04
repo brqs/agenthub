@@ -93,66 +93,27 @@ export function DeploymentStatusBlock({
 
   return (
     <section className="overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
-      <div className="flex min-w-0 flex-wrap items-start gap-3 px-3 py-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-50 text-brand dark:border-slate-800 dark:bg-slate-900 dark:text-brand-light">
-          <Package className="h-5 w-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h3 className="truncate text-sm font-semibold text-slate-950 dark:text-white">
-              {deploymentTitle(deploymentLike)}
-            </h3>
-            <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs', meta.className)}>
-              <StatusIcon className={cn('h-3.5 w-3.5', status === 'publishing' && 'animate-spin')} />
-              {meta.label}
-            </span>
+      <div className="p-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-50 text-brand dark:border-slate-800 dark:bg-slate-900 dark:text-brand-light">
+            <Package className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-semibold text-slate-950 dark:text-white">
+                {deploymentTitle(deploymentLike)}
+              </h3>
+              <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', meta.className)}>
+                <StatusIcon className={cn('h-3.5 w-3.5', status === 'publishing' && 'animate-spin')} />
+                {meta.label}
+              </span>
+            </div>
+            <div className="mt-1 truncate text-xs text-slate-500">
+              {DEPLOYMENT_KIND_LABELS[kind]} · {block.deployment_id}
+              {sizeLabel ? ` · ${sizeLabel}` : ''}
+            </div>
           </div>
-          <div className="mt-1 truncate text-xs text-slate-500">
-            {DEPLOYMENT_KIND_LABELS[kind]} · {block.deployment_id}
-            {sizeLabel ? ` · ${sizeLabel}` : ''}
-          </div>
-          {(status === 'queued' || status === 'publishing') && (
-            <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-200">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {status === 'queued' ? '已进入发布队列，等待平台 worker 处理...' : '正在刷新发布状态...'}
-            </p>
-          )}
-          <DeploymentSummary deployment={deploymentLike} />
-          <DeploymentTimeline deployment={deploymentLike} />
-          {kind === 'source_zip' && status === 'published' && (
-            <p className="mt-2 text-xs text-slate-500">源码包为临时产物，请及时下载并妥善保存。</p>
-          )}
-          {status === 'not_supported' && (
-            <p className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800 dark:border-sky-400/25 dark:bg-sky-950/25 dark:text-sky-100">
-              当前环境暂未开启容器部署 worker。前端会保留记录，你可以继续使用静态发布或源码打包。
-            </p>
-          )}
-          {error && (
-            <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100">
-              {error}
-            </p>
-          )}
-          {logsPreview && (
-            <details className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-              <summary className="cursor-pointer font-medium text-slate-700 dark:text-slate-300">
-                {kind === 'container' ? '查看容器日志' : '查看发布日志'}
-              </summary>
-              <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap leading-5 scrollbar-thin">
-                {logsPreview}
-              </pre>
-            </details>
-          )}
-          {downloadState === 'error' && (
-            <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">源码下载失败，请稍后重试。</p>
-          )}
-          {copyState === 'error' && (
-            <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">复制失败，请手动复制部署地址。</p>
-          )}
-          {stopDeployment.isError && (
-            <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">停止发布失败，请稍后重试。</p>
-          )}
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <div className="ml-auto flex shrink-0 items-center gap-1">
           {url && (
             <a
               href={url}
@@ -200,7 +161,49 @@ export function DeploymentStatusBlock({
               {stopDeployment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : kind === 'source_zip' ? <Trash2 className="h-4 w-4" /> : <Square className="h-4 w-4" />}
             </button>
           )}
+          </div>
         </div>
+
+        {(status === 'queued' || status === 'publishing') && (
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:bg-amber-400/10 dark:text-amber-200">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {status === 'queued' ? '已进入发布队列，等待平台 worker 处理' : '正在刷新发布状态'}
+          </p>
+        )}
+        <DeploymentSummary deployment={deploymentLike} />
+        <DeploymentTimeline deployment={deploymentLike} />
+        {kind === 'source_zip' && status === 'published' && (
+          <p className="mt-3 text-xs text-slate-500">源码包为临时产物，请及时下载并妥善保存。</p>
+        )}
+        {status === 'not_supported' && (
+          <p className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800 dark:border-sky-400/25 dark:bg-sky-950/25 dark:text-sky-100">
+            当前环境暂未开启容器部署 worker。前端会保留记录，你可以继续使用静态发布或源码打包。
+          </p>
+        )}
+        {error && (
+          <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100">
+            {error}
+          </p>
+        )}
+        {logsPreview && (
+          <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+            <summary className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-300">
+              {kind === 'container' ? '查看容器日志' : '查看发布日志'}
+            </summary>
+            <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap leading-5 scrollbar-thin">
+              {logsPreview}
+            </pre>
+          </details>
+        )}
+        {downloadState === 'error' && (
+          <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">源码下载失败，请稍后重试。</p>
+        )}
+        {copyState === 'error' && (
+          <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">复制失败，请手动复制部署地址。</p>
+        )}
+        {stopDeployment.isError && (
+          <p className="mt-2 text-xs text-rose-600 dark:text-rose-300">停止发布失败，请稍后重试。</p>
+        )}
       </div>
     </section>
   );
@@ -226,35 +229,38 @@ function DeploymentSummary({ deployment }: { deployment: DeploymentLike }) {
   }
 
   return (
-    <dl className="mt-3 grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-800 dark:bg-slate-950/70 sm:grid-cols-2">
+    <dl className="mt-3 flex flex-wrap gap-2 text-xs">
       {fields.map(([label, value]) => (
-        <div key={label} className="min-w-0">
-          <dt className="text-slate-500">{label}</dt>
-          <dd className="mt-0.5 truncate font-medium text-slate-800 dark:text-slate-200" title={value}>
+        <div
+          key={label}
+          className="min-w-28 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70"
+        >
+          <dt className="text-[11px] text-slate-500">{label}</dt>
+          <dd className="mt-0.5 max-w-44 truncate font-medium text-slate-800 dark:text-slate-200" title={value}>
             {value}
           </dd>
         </div>
       ))}
       {deployment.healthcheck_url && (
-        <div className="min-w-0 sm:col-span-2">
-          <dt className="text-slate-500">健康检查</dt>
+        <div className="min-w-40 flex-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+          <dt className="text-[11px] text-slate-500">健康检查</dt>
           <dd className="mt-0.5 truncate font-medium text-slate-800 dark:text-slate-200" title={deployment.healthcheck_url}>
             {deployment.healthcheck_url}
           </dd>
         </div>
       )}
       {deployment.image_id && (
-        <div className="min-w-0">
-          <dt className="text-slate-500">镜像 ID</dt>
-          <dd className="mt-0.5 truncate font-mono text-slate-800 dark:text-slate-200" title={deployment.image_id}>
+        <div className="min-w-40 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+          <dt className="text-[11px] text-slate-500">镜像 ID</dt>
+          <dd className="mt-0.5 max-w-48 truncate font-mono text-slate-800 dark:text-slate-200" title={deployment.image_id}>
             {deployment.image_id}
           </dd>
         </div>
       )}
       {deployment.container_id && (
-        <div className="min-w-0">
-          <dt className="text-slate-500">容器 ID</dt>
-          <dd className="mt-0.5 truncate font-mono text-slate-800 dark:text-slate-200" title={deployment.container_id}>
+        <div className="min-w-40 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+          <dt className="text-[11px] text-slate-500">容器 ID</dt>
+          <dd className="mt-0.5 max-w-48 truncate font-mono text-slate-800 dark:text-slate-200" title={deployment.container_id}>
             {deployment.container_id}
           </dd>
         </div>
@@ -268,14 +274,17 @@ function DeploymentTimeline({ deployment }: { deployment: DeploymentLike }) {
   if (timeline.length <= 1) return null;
 
   return (
-    <ol className="mt-3 space-y-2 rounded-md border border-slate-200 bg-white p-3 text-xs dark:border-slate-800 dark:bg-slate-950/50">
+    <ol className="mt-3 flex flex-wrap items-center gap-2 text-xs">
       {timeline.map((step) => (
-        <li key={step.key} className="flex gap-2">
-          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand dark:bg-brand-light" />
-          <span className="min-w-0">
-            <span className="block text-slate-800 dark:text-slate-200">{step.label}</span>
+        <li
+          key={step.key}
+          className="inline-flex min-w-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-950/60"
+        >
+          <span className="h-2 w-2 shrink-0 rounded-full bg-brand dark:bg-brand-light" />
+          <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
+            {step.label}
             {formatDateTime(step.time) && (
-              <span className="mt-0.5 block text-slate-500">{formatDateTime(step.time)}</span>
+              <span className="ml-1 text-slate-500">{formatDateTime(step.time)}</span>
             )}
           </span>
         </li>
