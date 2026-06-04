@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -30,6 +31,7 @@ from app.schemas.conversation import OrchestratorTaskAttemptOut, OrchestratorTas
 from app.services.orchestrator_memory import (
     OrchestratorMemoryStore,
     build_agent_capability_profile,
+    build_agent_capability_profile_v2,
     build_orchestrator_memory_context,
     inject_orchestrator_memory_context,
 )
@@ -167,6 +169,53 @@ class FakeMemoryWriter:
 
     async def cancel_active_run(self) -> None:
         pass
+
+
+async def _create_user_conversation() -> tuple[UUID, UUID, UUID]:
+    async with SessionFactory() as db:
+        user = User(username=f"orch_mem_user_{uuid4().hex[:16]}", password_hash="hash")
+        db.add(user)
+        await db.flush()
+        conversation = Conversation(
+            user_id=user.id,
+            title="Orchestrator memory v2",
+            mode="group",
+            agent_ids=["orchestrator", "codex-helper"],
+        )
+        db.add(conversation)
+        await db.flush()
+        message = Message(
+            conversation_id=conversation.id,
+            role="agent",
+            agent_id="orchestrator",
+            content=[],
+            status="streaming",
+        )
+        db.add(message)
+        await db.commit()
+        return user.id, conversation.id, message.id
+
+
+async def _create_conversation_for_user(user_id: UUID) -> tuple[UUID, UUID]:
+    async with SessionFactory() as db:
+        conversation = Conversation(
+            user_id=user_id,
+            title="Orchestrator memory v2 sibling",
+            mode="group",
+            agent_ids=["orchestrator", "codex-helper"],
+        )
+        db.add(conversation)
+        await db.flush()
+        message = Message(
+            conversation_id=conversation.id,
+            role="agent",
+            agent_id="orchestrator",
+            content=[],
+            status="streaming",
+        )
+        db.add(message)
+        await db.commit()
+        return conversation.id, message.id
 
 
 async def _create_conversation() -> tuple[UUID, UUID]:
@@ -336,8 +385,9 @@ async def test_memory_store_formats_recent_runs_before_latest_user_request() -> 
 
     assert injected[-1].content == "continue this task"
     assert injected[-2].content.startswith(
-        "Agent capability profile from recent Orchestrator runs"
+        "Agent capability profile v2 from recent user Orchestrator runs"
     )
+    assert "Agent capability profile from recent Orchestrator runs" in injected[-2].content
     assert "Previous Orchestrator structured memory" in injected[-2].content
 
 
@@ -793,6 +843,247 @@ async def test_agent_capability_profile_supports_legacy_task_without_attempt() -
     assert profile[0].avg_attempts == 0.0
 
 
+async def test_agent_capability_profile_v2_aggregates_user_conversations_only() -> None:
+    user_id, conversation_a, message_a = await _create_user_conversation()
+    conversation_b, message_b = await _create_conversation_for_user(user_id)
+    other_user_id, other_conversation, other_message = await _create_user_conversation()
+    assert other_user_id != user_id
+
+    async with SessionFactory() as db:
+        store_a = OrchestratorMemoryStore(
+            db,
+            conversation_id=conversation_a,
+            agent_message_id=message_a,
+            user_message_id=None,
+        )
+        await _record_memory_task(
+            store_a,
+            user_request="请用中文写一个部署说明文档",
+            agent_id="agent-user",
+            task_id="doc-a",
+            title="Write deployment doc",
+            final_state=TaskState.SUCCEEDED,
+            artifact_paths=["deploy.md"],
+        )
+        store_b = OrchestratorMemoryStore(
+            db,
+            conversation_id=conversation_b,
+            agent_message_id=message_b,
+            user_message_id=None,
+        )
+        await _record_memory_task(
+            store_b,
+            user_request="Build frontend preview on port 8082",
+            agent_id="agent-user",
+            task_id="frontend-b",
+            title="Build frontend",
+            final_state=TaskState.SUCCEEDED,
+            artifact_paths=["index.html"],
+        )
+        other_store = OrchestratorMemoryStore(
+            db,
+            conversation_id=other_conversation,
+            agent_message_id=other_message,
+            user_message_id=None,
+        )
+        await _record_memory_task(
+            other_store,
+            user_request="Other user task",
+            agent_id="agent-other-user",
+            task_id="other-task",
+            title="Other user task",
+            final_state=TaskState.SUCCEEDED,
+            artifact_paths=["other.md"],
+        )
+        await db.commit()
+
+    async with SessionFactory() as db:
+        profile = await build_agent_capability_profile_v2(
+            db,
+            user_id,
+            conversation_id=conversation_a,
+        )
+
+    by_agent = {item.agent_id: item for item in profile.items}
+    assert profile.scope == "user"
+    assert profile.source_conversation_count == 2
+    assert profile.runs_considered == 2
+    assert set(by_agent) == {"agent-user"}
+    assert by_agent["agent-user"].conversation_count == 2
+    assert by_agent["agent-user"].success_count == 2
+    assert by_agent["agent-user"].artifact_kinds == {"document": 1, "other": 1}
+    assert profile.preferences.source_conversation_count == 2
+    assert profile.preferences.language_style_hints["chinese"] == 1
+    assert profile.preferences.deployment_preferences["port_8082"] == 1
+
+
+async def test_agent_capability_profile_v2_decay_failures_and_low_sample() -> None:
+    user_id, conversation_id, agent_message_id = await _create_user_conversation()
+    old_at = datetime.now(UTC) - timedelta(days=20)
+    recent_at = datetime.now(UTC) - timedelta(days=1)
+    async with SessionFactory() as db:
+        store = OrchestratorMemoryStore(
+            db,
+            conversation_id=conversation_id,
+            agent_message_id=agent_message_id,
+            user_message_id=None,
+        )
+        old_run = await _record_memory_task(
+            store,
+            user_request="Write old backend API notes",
+            agent_id="old-agent",
+            task_id="old-doc",
+            title="Old doc",
+            final_state=TaskState.SUCCEEDED,
+            artifact_paths=["old.md"],
+        )
+        recent_run = await _record_memory_task(
+            store,
+            user_request="Write recent backend API notes",
+            agent_id="recent-agent",
+            task_id="recent-doc",
+            title="Recent doc",
+            final_state=TaskState.SUCCEEDED,
+            artifact_paths=["recent.md"],
+        )
+        bad_run = await _record_memory_task(
+            store,
+            user_request="Create broken frontend preview",
+            agent_id="bad-agent",
+            task_id="bad-doc",
+            title="Bad doc",
+            final_state=TaskState.ARTIFACT_MISSING,
+            artifact_paths=["bad.md"],
+            missing_artifact_paths=["index.html"],
+            error="request timeout while creating artifact",
+        )
+        eval_run = await _record_memory_task(
+            store,
+            user_request="Evaluate broken document",
+            agent_id="bad-agent",
+            task_id="eval-doc",
+            title="Eval doc",
+            final_state=TaskState.EVALUATION_FAILED,
+            artifact_paths=["eval.md"],
+            evaluation_results=[_failed_document_evaluation("eval.md")],
+        )
+        await db.flush()
+        for run_id, created_at in (
+            (old_run, old_at),
+            (recent_run, recent_at),
+            (bad_run, recent_at),
+            (eval_run, recent_at),
+        ):
+            run = await db.get(OrchestratorRun, run_id)
+            assert run is not None
+            run.created_at = created_at
+            run.completed_at = created_at
+        await db.commit()
+
+    async with SessionFactory() as db:
+        profile = await build_agent_capability_profile_v2(
+            db,
+            user_id,
+            conversation_id=conversation_id,
+            half_life_days=5.0,
+        )
+
+    by_agent = {item.agent_id: item for item in profile.items}
+    assert by_agent["recent-agent"].weighted_success_score > by_agent[
+        "old-agent"
+    ].weighted_success_score
+    assert by_agent["recent-agent"].confidence == "low"
+    assert "low_sample_confidence" in by_agent["recent-agent"].score_reasons
+    bad = by_agent["bad-agent"]
+    assert bad.timeout_count == 1
+    assert bad.artifact_missing_count == 1
+    assert bad.evaluation_failed_count == 1
+    assert any("timeout" in reason for reason in bad.score_reasons)
+    assert any("evaluation_failed" in reason for reason in bad.score_reasons)
+    assert any("artifact_missing" in reason for reason in bad.score_reasons)
+
+
+async def test_memory_context_includes_v2_profile_and_user_preferences() -> None:
+    user_id, conversation_id, agent_message_id = await _create_user_conversation()
+    async with SessionFactory() as db:
+        store = OrchestratorMemoryStore(
+            db,
+            conversation_id=conversation_id,
+            agent_message_id=agent_message_id,
+            user_message_id=None,
+        )
+        await _record_memory_task(
+            store,
+            user_request="请用中文创建 frontend preview，部署到端口8082",
+            agent_id="codex-helper",
+            task_id="create-seed-v2",
+            title="Create seed v2",
+            final_state=TaskState.SUCCEEDED,
+            artifact_paths=["index.html"],
+        )
+        await db.commit()
+
+    async with SessionFactory() as db:
+        memory = await build_orchestrator_memory_context(
+            db,
+            conversation_id,
+            user_id=user_id,
+            max_chars=2000,
+        )
+
+    assert memory is not None
+    assert "Agent capability profile v2 from recent user Orchestrator runs" in memory.content
+    assert "User preference memory from recent Orchestrator runs" in memory.content
+    assert "Agent capability profile from recent Orchestrator runs" in memory.content
+    assert memory.content.index(
+        "Agent capability profile v2 from recent user Orchestrator runs"
+    ) < memory.content.index("User preference memory from recent Orchestrator runs")
+    assert memory.content.index(
+        "User preference memory from recent Orchestrator runs"
+    ) < memory.content.index("Agent capability profile from recent Orchestrator runs")
+
+
+async def test_memory_context_uses_user_v2_profile_without_current_runs() -> None:
+    user_id, seed_conversation_id, seed_agent_message_id = (
+        await _create_user_conversation()
+    )
+    empty_conversation_id, _ = await _create_conversation_for_user(user_id)
+    async with SessionFactory() as db:
+        store = OrchestratorMemoryStore(
+            db,
+            conversation_id=seed_conversation_id,
+            agent_message_id=seed_agent_message_id,
+            user_message_id=None,
+        )
+        await _record_memory_task(
+            store,
+            user_request="请用中文创建一份长期偏好画像文档",
+            agent_id="opencode-helper",
+            task_id="seed-user-v2-profile",
+            title="Seed user v2 profile",
+            final_state=TaskState.SUCCEEDED,
+            artifact_paths=["user-profile.md"],
+        )
+        await db.commit()
+
+    async with SessionFactory() as db:
+        memory = await build_orchestrator_memory_context(
+            db,
+            empty_conversation_id,
+            user_id=user_id,
+            max_chars=2000,
+        )
+
+    assert memory is not None
+    assert "Agent capability profile v2 from recent user Orchestrator runs" in (
+        memory.content
+    )
+    assert "User preference memory from recent Orchestrator runs" in memory.content
+    assert "@opencode-helper" in memory.content
+    assert "Previous Orchestrator structured memory" not in memory.content
+    assert "Agent capability profile from recent Orchestrator runs:" not in memory.content
+
+
 async def test_memory_context_includes_capability_profile_and_respects_budget() -> None:
     conversation_id, agent_message_id = await _create_conversation()
     async with SessionFactory() as db:
@@ -817,11 +1108,11 @@ async def test_memory_context_includes_capability_profile_and_respects_budget() 
         memory = await build_orchestrator_memory_context(
             db,
             conversation_id,
-            max_chars=1000,
+            max_chars=2000,
         )
 
     assert memory is not None
-    assert len(memory.content) <= 1000
+    assert len(memory.content) <= 2000
     assert "Agent capability profile from recent Orchestrator runs" in memory.content
     assert memory.content.index(
         "Agent capability profile from recent Orchestrator runs"

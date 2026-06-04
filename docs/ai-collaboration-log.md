@@ -1313,3 +1313,99 @@ Demo override 通过 `systemctl set-environment` 临时注入
 生产默认和 demo override 必须分开验收并分别写报告，避免 trusted Docker 被误认为长期默认。
 Queued worker E2E 要检查初始状态、终态、state events 和 stop cleanup；报告中保留足够排障信息，
 同时对 release token 做脱敏。
+
+## 2026-06-04 — Codex 实现 Capability Profile v2 / User Preference Memory MVP
+
+### 任务
+实现 B2-TODO-08：在 v1 当前 conversation 画像基础上，新增 user-scope 长期画像、时间衰减、timeout/failure 统计、粗粒度 task taxonomy 和 deterministic user preference memory。本轮只做本地验证，不执行公网 E2E。
+
+### 关键 Prompt
+> # B2-TODO-08 Capability Profile v2 / User Preference Memory 执行计划
+
+### AI 输出摘要
+1. 新增 `build_agent_capability_profile_v2()`，从当前用户拥有的多个 conversation 的 terminal Orchestrator runs 实时聚合，不新增表或 migration。
+2. v2 保留 v1 的实际参与 Agent 统计语义，并增加 weighted task/success/failure、success rate、timeout、task taxonomy、score 和 score reasons。
+3. 新增 deterministic user preference memory，从历史 request、summary 和 artifact kinds 中提取 domains、artifact、deployment、language/style hints，不调用 LLM。
+4. Memory context 注入 v2 profile、preference、v1 profile 和 structured memory；planner 只白名单读取前三段，仍不读取完整 structured memory。
+5. 新增只读 API `/api/v1/conversations/{conversation_id}/agent-capability-profile-v2`，复用 conversation ownership check，并同步 OpenAPI。
+
+### 证据
+- 本地 pytest：`tests/test_orchestrator_memory.py tests/test_conversation_api.py tests/test_orchestrator_planning.py tests/test_orchestrator.py`
+- 本地 Ruff：`app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py tests/test_orchestrator_memory.py tests/test_conversation_api.py tests/test_orchestrator_planning.py`
+- 本地 Mypy：`app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py`
+
+### 人工调整
+本轮未部署后端、未执行 migration、未执行 seed、未跑公网 E2E、未修改前端 UI。
+
+### 经验
+长期画像要保守：实时聚合和 deterministic preference extraction 足以支撑 planner 软选择；不要把少量历史样本包装成硬推荐，也不要让历史偏好覆盖用户本轮明确要求。
+
+## 2026-06-04 — Codex 完成 Capability Profile v2 公网 E2E
+
+### 任务
+按 `orchestrator-live-e2e-repair-loop` 与 `backend-deploy` Skill，对 B2-TODO-08 Capability Profile v2 / User Preference Memory 执行公网后端 API/SSE E2E 验收。
+
+### 关键 Prompt
+> 请你阅读skills，进行E2E测试
+
+### AI 输出摘要
+1. 阅读并按 Skill 执行门禁：检查 diff、运行实例、Alembic、OpenAPI、Orchestrator config 与本机/公网 health。
+2. 补齐 `p2_agent_capability_profile_v2` live E2E 场景：默认注册临时用户，先在 seed conversation 产生 Claude evaluation failure 与 Opencode fallback success，再在新的空 conversation 验证 user-scope v2 profile 注入 planner。
+3. 修复 v2 memory context 缺口：当前 conversation 无历史 run 时，仍可基于 owner user 历史 terminal runs 注入 v2 profile 和 user preference memory；structured memory 仍仅展示当前 conversation 历史。
+4. 公网 E2E 通过：follow-up 请求未点名具体子 Agent，follow-up 前新 conversation `orchestrator_runs=0`，v2 API 返回 seed conversation 的 user-scope profile，最终唯一 task Agent 与全部实际 attempt Agent 均为 `opencode-helper`。
+
+### 证据
+- Report：`/tmp/agenthub_p2_agent_capability_profile_v2_report.json`
+- SSE：`/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl`
+- Temporary account：`cap_v2_e2e_1780571438_4042116`
+- Seed conversation：`d9c96baf-2e4e-4b3a-a4a0-39ee68bf2f27`
+- Follow-up conversation：`0d7ed6d6-dcbf-4212-9150-55d410af622c`
+- Backend PID：`4026860 -> 4041153`
+- Alembic：`7e8f9012abcd (head)`
+- Public OpenAPI：`/api/v1/conversations/{conversation_id}/agent-capability-profile-v2` present
+- Local/public health：`{"status":"ok"}`
+- Local pytest：`114 passed`
+- Ruff / Mypy / `git diff --check`：passed
+
+### 人工调整
+本轮只部署/重启后端，不部署前端；无 migration 或 seed/default config 变更，因此未执行 migration upgrade 或 seed。
+
+### 经验
+跨 conversation memory 的关键验收点不是“API 能返回 v2”，而是新 conversation 没有当前 run 时 planner 仍能看到 user-scope v2 profile。临时用户隔离能避免默认账号旧历史污染 profile score，让 E2E 的强弱证据更可信。
+
+## 2026-06-04 — Codex 完成 B2-TODO-05 Orchestrator queued worker 公网回归
+
+### 任务
+在 direct API E2E 已通过的基础上，补齐 Orchestrator API/SSE 对 B2-TODO-05 queued container worker 的公网回归：production-default `not_supported` 和 trusted Docker demo override `queued/publishing -> published`。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: B2-TODO-05 Orchestrator API/SSE Queued Worker 回归执行计划
+
+### AI 输出摘要
+1. 增强 `scripts/orchestrator_live_e2e.py`：支持 `AGENTHUB_E2E_EXPECT_CONTAINER_STATUS`、queued/publishing 轮询、container worker metadata/state_events 报告、published/not_supported 动态验收、container health/stop cleanup 校验。
+2. 修复 live E2E 主 HTTP client 使用环境代理导致公网 REST follow-up 偶发 reset 的问题，改为 `trust_env=False`。
+3. 修复 preview janitor 启动容错：历史 pytest preview snapshot 不在当前 allowed root 时，不再导致后端启动失败，而是记录 stopped/error。
+4. Production-default Orchestrator E2E 通过：container final `not_supported`，`deployment_status` block 和 runtime metadata 可见，`not_supported` 未触发 repair/reflection。
+5. Demo override Orchestrator E2E 通过：container 初始 `publishing`，轮询到 `published`，worker/state_events/health/stop cleanup 均通过。
+6. 可选 repair/redeploy confirmation 未通过：观察到 `build_failed/container_build_failed`，但未触发 `reflection_created` 和 redeploy；记录为后续 repair loop 稳定性补项，不阻断主验收。
+
+### 证据
+- Production-default report：`/tmp/agenthub_b2_todo_05_orch_prod_default_report.json`
+- Production-default SSE：`/tmp/agenthub_b2_todo_05_orch_prod_default_sse.jsonl`
+- Production-default conversation：`963afa42-0549-4fa0-81b0-8fad6b013a4b`
+- Demo report：`/tmp/agenthub_b2_todo_05_orch_demo_report.json`
+- Demo SSE：`/tmp/agenthub_b2_todo_05_orch_demo_sse.jsonl`
+- Demo conversation：`ce767e6f-b03c-41fb-af85-fe637983c356`
+- Demo worker：`inproc-container-71038d04c528`
+- Optional repair report：`/tmp/agenthub_b2_todo_05_orch_repair_report.json`
+- Optional repair conversation：`8e9c8505-40bc-4753-8734-317744e98d9d`
+- Backend PID sequence：production `4041153` -> demo `4051610` -> restored production `4064754`
+- Alembic：`7e8f9012abcd (head)`
+- Local/public health after restore：`{"status":"ok"}`
+- Final systemd environment：no `DEPLOYMENT_CONTAINER_*`
+
+### 人工调整
+Demo override 期间临时设置 `DEPLOYMENT_CONTAINER_ENABLED=true`、`DEPLOYMENT_CONTAINER_RUNTIME=docker`、`DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=true`、`DEPLOYMENT_CONTAINER_PUBLIC_BASE_URL=http://111.229.151.159`、`DEPLOYMENT_CONTAINER_PORT_START=8081`、`DEPLOYMENT_CONTAINER_PORT_END=8085`；验收后已 unset 并重启恢复 production-default。公网前端 UI 不在本轮范围内。
+
+### 经验
+Direct API E2E 覆盖后端发布语义，Orchestrator API/SSE E2E 覆盖聊天编排层是否会正确发起 tool loop、展示 `deployment_status`，并把 queued/publishing 视为 pending 而非错误。两者互补；主验收应分清 production-default 和 demo override，避免 trusted Docker 成为隐性默认。

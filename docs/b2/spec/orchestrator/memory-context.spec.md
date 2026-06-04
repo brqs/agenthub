@@ -3,7 +3,7 @@
 > 定义 AgentHub 当前上下文/记忆体系、真实 external agent 的消息管理方式，以及 Orchestrator 结构化长期记忆的目标设计。
 >
 > 状态：Current contract
-> 最后更新：2026-05-30
+> 最后更新：2026-06-04
 
 ---
 
@@ -412,6 +412,74 @@ opencode-helper: task_count=1, success_count=1, failure_count=0, evaluation_fail
 
 follow-up 用户请求没有点名执行 Agent；planner 看到 profile 后，最新 run detail 中唯一 task Agent 和全部实际 attempt Agent 均为 `opencode-helper`，并成功创建 `capability-followup.md`。该证据同时验证 memory context 出现 capability profile、选择依据可见、profile API 返回至少两个 Agent。
 
+#### 4.3.3 Agent Capability Profile v2 / User Preference Memory
+
+B2-TODO-08 v2 MVP 已实现为实时只读聚合，不新增表或 migration。
+
+统计语义：
+
+- v2 输入为当前 `user_id` 拥有的多个 conversation 的 terminal Orchestrator runs；可传 `conversation_id` 作为当前 conversation 加权 boost，但不把查询限制为单 conversation。
+- v2 继承 v1 的实际参与 Agent 归属语义：fallback success 归属实际成功 Agent，原 Agent 失败仍计失败，`skipped/pending` 不进入画像，legacy task 无 attempt 时按 task row 降级。
+- `weighted_task_count/success/failure` 使用 run 时间衰减，默认 half-life `30` 天；当前 conversation 证据加权，避免远古跨 conversation 样本压过近期本轮上下文。
+- `timeout_count` 从 attempt state/error 中的 timeout markers 计数；`evaluation_failed/artifact_missing/timeout` 都会进入 `score_reasons`。
+- `task_types` 来自 task row 的 `task_type`；`task_taxonomy` 使用 allowlist 关键词粗分 `document/frontend/backend/deployment/workflow/presentation/data/review/repair/general`。
+- `score` 是 deterministic soft score：近期成功、repair success、success rate 加分；weighted failure、evaluation failed、artifact missing、timeout 扣分；低样本会降低 score 并标记 `low_sample_confidence`。
+- `confidence` 仍按样本数和 run 数分为 `low/medium/high`；低样本不应在 UI 或 planner 中呈现为强推荐。
+
+User Preference Memory 语义：
+
+- 从当前用户历史 `OrchestratorRun.user_request`、`final_summary` 和实际 artifact kinds 中确定性提取，不调用 LLM。
+- 只使用 allowlist 关键词，输出 `domains`、`artifact_preferences`、`deployment_preferences`、`language_style_hints` 和短 `summary`。
+- 偏好是只读 soft signal，不是用户手动配置，也不允许覆盖本轮显式指令。
+
+Planner 使用规则：
+
+- planner 白名单提取 `Agent capability profile v2 from recent user Orchestrator runs`、`User preference memory from recent Orchestrator runs` 和 v1 profile 三段。
+- planner 不接收完整 `Previous Orchestrator structured memory` 历史详情。
+- user-scope v2 profile 优先作为长期软信号；当前 conversation v1 高置信近期证据可作为冲突时 tie-breaker。
+- 当前用户请求中的显式 Agent、技术、风格选择优先于历史画像和偏好；available/managed agent 校验仍是硬边界。
+
+新增 memory sections：
+
+```text
+Agent capability profile v2 from recent user Orchestrator runs:
+User preference memory from recent Orchestrator runs:
+Agent capability profile from recent Orchestrator runs:
+Previous Orchestrator structured memory:
+```
+
+实现注意：
+
+- v2/user preference 不依赖当前 conversation 已有 run；只要 owner user 有历史 terminal Orchestrator runs，新 conversation 的 memory context 也可以注入 user-scope v2 signals。
+- `Previous Orchestrator structured memory` 仍只展示当前 conversation 的历史 run；当前 conversation 无 run 时不注入该 section。
+
+#### 4.3.4 Agent Capability Profile v2 公网 E2E
+
+2026-06-04 公网后端 API/SSE 验收已通过：
+
+```text
+scenario: p2_agent_capability_profile_v2
+report: /tmp/agenthub_p2_agent_capability_profile_v2_report.json
+sse: /tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl
+temporary_account: cap_v2_e2e_1780571438_4042116
+seed_conversation_id: d9c96baf-2e4e-4b3a-a4a0-39ee68bf2f27
+followup_conversation_id: 0d7ed6d6-dcbf-4212-9150-55d410af622c
+passed: true
+```
+
+follow-up conversation 在发送用户请求前 `orchestrator_runs=0`，但 v2 API 已返回同一用户 seed conversation 的 user-scope profile：
+
+```text
+scope: user
+runs_considered: 1
+source_conversation_count: 1
+claude-code: task_count=1, success_count=0, failure_count=1, evaluation_failed_count=1, score=-0.945
+opencode-helper: task_count=1, success_count=1, failure_count=0, evaluation_failed_count=0, score=1.35
+preferences: artifact_preferences document=2, other=1
+```
+
+follow-up 用户请求未点名具体执行 Agent；planner 通过 v2 profile 和 user preference memory 选择 `opencode-helper`。最新 run detail 中唯一 task Agent 和全部实际 attempt Agent 均为 `opencode-helper`，并成功创建 `p2-capability-v2-followup.md`。该证据验证 v2 user-scope API、空新 conversation 的 memory 注入、planner 白名单读取 v2/preference sections，以及“不用历史偏好覆盖本轮明确指令”的软选择边界。
+
 ### 4.4 配置字段
 
 新增 builtin/orchestrator config：
@@ -442,6 +510,14 @@ GET /api/v1/conversations/{conversation_id}/agent-capability-profile
 ```
 
 返回当前用户拥有的当前 conversation 内画像 items。聚合字段包括 `runs_considered`、`task_count`、`success_count`、`failure_count`、`artifact_missing_count`、`evaluation_failed_count`、`avg_attempts`、`artifact_kinds`、`review_outcomes`、`repair_success_count`、`recent_failure_reasons` 和 `confidence`。该 API 不新增 mutation，必须复用 conversation ownership check。
+
+新增只读 v2 API：
+
+```text
+GET /api/v1/conversations/{conversation_id}/agent-capability-profile-v2
+```
+
+返回 `scope=user`、`items`、`preferences`、`source_conversation_count`、`runs_considered`、`generated_at` 和 `total`。查询参数包括 `recent_runs=60`、`half_life_days=30.0` 和 `limit=10`，均有上限。该 API 复用 conversation ownership check，并基于 owner user 聚合跨 conversation 画像。
 
 ```text
 GET /api/v1/conversations/{conv_id}/orchestrator-runs?limit=20

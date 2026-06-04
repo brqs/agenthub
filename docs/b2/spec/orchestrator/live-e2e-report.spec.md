@@ -31,10 +31,14 @@
 - `/tmp/agenthub_deployment_release_api_e2e_report.json`
 - `/tmp/agenthub_b2_todo_05_prod_default_e2e_report.json`
 - `/tmp/agenthub_b2_todo_05_demo_container_e2e_report.json`
+- `/tmp/agenthub_b2_todo_05_orch_prod_default_report.json`
+- `/tmp/agenthub_b2_todo_05_orch_demo_report.json`
+- `/tmp/agenthub_b2_todo_05_orch_repair_report.json`
 - `/tmp/agenthub_deployment_flow_report.json`
 - `/tmp/agenthub_deployment_repair_flow_report.json`
 - `/tmp/agenthub_custom_agent_tools_report.json`
 - `/tmp/agenthub_p1_agent_capability_profile_report.json`
+- `/tmp/agenthub_p2_agent_capability_profile_v2_report.json`
 - `/tmp/agenthub_p1_attribution_report.json`
 - `/tmp/agenthub_p1_evaluation_repair_report.json`
 - `/tmp/agenthub_p1_review_thread_report.json`
@@ -58,6 +62,7 @@ API/SSE 数据、运行时权限和公网 URL，不验收远端前端 UI 卡片�
 | Case 4 - Create Custom Agent | `LiveCopywriter-{timestamp}` 创建成功、加入群聊，tool result 返回 id/name/provider/capabilities | passed |
 | Case 5 - Deployment / Release API-SSE | Orchestrator 直连后端 API/SSE，正式调用 preview、browser verify、static release、source zip、container deployment，并返回 3 个 `deployment_status` block | passed |
 | Case 6 - Deployment Repair / Redeploy | 预置坏 Dockerfile，首次 container deployment 失败后产生 `deployment_health` failure、`reflection_created`、repair agent attempt、第二次 `create_deployment`，最终 container `published=true` | passed |
+| Case 7 - Agent Capability Profile v2 | 临时用户隔离；seed conversation 产生 Claude evaluation failure 与 Opencode fallback success；新 conversation follow-up 前无当前 run，但 user-scope v2 profile / preference memory 注入 planner，最终 task/attempt 均为 Opencode | passed |
 | Case 7 - Custom Agent Tool Allowlist | 真实聊天创建 builtin 自建 Agent，`allowed_tools=["read_file"]` 持久化；后续运行可读文件，未授权 `write_file` / `bash` 不进入模型 tool list | passed |
 | Case 8 - Agent Capability Profile v1 | 当前 conversation 内形成 Claude failure / Opencode success 画像；planner 看到画像后将未点名的 follow-up 唯一 task/attempt 直接分配给 Opencode | passed |
 
@@ -122,6 +127,58 @@ container_state_event_count: 13
 container_healthcheck_url: http://111.229.151.159:8081/health
 container_stop_cleanup: true
 production_default_restored_after_demo: true
+```
+
+2026-06-04 B2-TODO-05 Orchestrator API/SSE queued worker 公网回归证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: deployment
+report: /tmp/agenthub_b2_todo_05_orch_prod_default_report.json
+sse: /tmp/agenthub_b2_todo_05_orch_prod_default_sse.jsonl
+conversation_id: 963afa42-0549-4fa0-81b0-8fad6b013a4b
+passed: true
+expected_container_status: not_supported
+container_initial_status: not_supported
+container_status: not_supported
+container_runtime_kind: podman
+deployment_status_block_has_runtime_metadata: true
+deployment_not_supported_no_repair: true
+```
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: deployment
+report: /tmp/agenthub_b2_todo_05_orch_demo_report.json
+sse: /tmp/agenthub_b2_todo_05_orch_demo_sse.jsonl
+conversation_id: ce767e6f-b03c-41fb-af85-fe637983c356
+passed: true
+expected_container_status: published
+container_status_flow: publishing -> published
+container_runtime_kind: docker
+container_worker_id: inproc-container-71038d04c528
+container_attempt_count: 1
+container_state_event_count: 12
+container_healthcheck_url: http://111.229.151.159:8081/
+container_stop_cleanup: true
+```
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: deployment_repair
+report: /tmp/agenthub_b2_todo_05_orch_repair_report.json
+sse: /tmp/agenthub_b2_todo_05_orch_repair_sse.jsonl
+conversation_id: 8e9c8505-40bc-4753-8734-317744e98d9d
+passed: false
+observed_failure_category: build_failed
+observed_last_error_code: container_build_failed
+deployment_repair_initial_failure_seen: true
+deployment_repair_reflection_created: false
+deployment_repair_redeploy_called: false
+note: optional repair/redeploy confirmation did not block the B2-TODO-05 queued worker acceptance.
 ```
 
 ```text
@@ -366,6 +423,58 @@ followup_attempt_agents: [opencode-helper]
 memory_context_mentioned: true
 selection_basis_visible: true
 capability-followup.md: created
+```
+
+2026-06-04 Agent Capability Profile v2 / User Preference Memory 公网 API/SSE live E2E 证据：
+
+```text
+preflight:
+  backend pytest: tests/test_orchestrator_memory.py tests/test_conversation_api.py tests/test_orchestrator_planning.py tests/test_orchestrator.py tests/test_orchestrator_live_e2e_script.py - 114 passed
+  backend ruff: app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py scripts/orchestrator_live_e2e.py tests/test_orchestrator_memory.py tests/test_conversation_api.py tests/test_orchestrator_planning.py tests/test_orchestrator_live_e2e_script.py - passed
+  backend mypy: app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py - passed
+deployment:
+  initial_pid: 4026860
+  final_pid: 4041153
+  final_started_at: 2026-06-04 19:09:46 CST
+  alembic_current: 7e8f9012abcd (head)
+  seed: not executed; no seed/default config changes
+  local_health: {"status":"ok"}
+  public_health: {"status":"ok"}
+  public_openapi_agent_capability_profile_v2_route: true
+  public_openapi_agent_capability_profile_v2_schema: true
+  orchestrator_config: llm_planning=true, memory=true, evaluation=true, task_fallback_has_opencode=true
+  frontend_deployed: false
+```
+
+```text
+scenario: p2_agent_capability_profile_v2
+report: /tmp/agenthub_p2_agent_capability_profile_v2_report.json
+sse: /tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl
+temporary_account: cap_v2_e2e_1780571438_4042116
+register_status_code: 201
+seed_conversation_id: d9c96baf-2e4e-4b3a-a4a0-39ee68bf2f27
+followup_conversation_id: 0d7ed6d6-dcbf-4212-9150-55d410af622c
+seed_user_message_id: 090dee01-24b7-44e4-a5e5-8263ffdb5860
+seed_agent_message_id: b37861b5-8e80-4cf0-826d-77bbd5d22786
+followup_user_message_id: 488ea6a5-c1b8-436f-9025-634f0a644245
+followup_agent_message_id: 2c84472c-e958-41d6-acc5-aec12093645a
+duration_seconds: 152.897
+passed: true
+followup_runs_before_count: 0
+profile_v2_before_followup:
+  scope: user
+  runs_considered: 1
+  source_conversation_count: 1
+  claude-code: task_count=1, success_count=0, failure_count=1, evaluation_failed_count=1, score=-0.945
+  opencode-helper: task_count=1, success_count=1, failure_count=0, evaluation_failed_count=0, score=1.35
+preferences_before_followup:
+  artifact_preferences: document=2, other=1
+  domains: document=2, deployment=2, evaluation=1, frontend=1, data=1
+followup_task_agents: [opencode-helper]
+followup_attempt_agents: [opencode-helper]
+memory_context_v2_mentioned: true
+preference_memory_mentioned: true
+p2-capability-v2-followup.md: created
 ```
 
 统一回归场景：

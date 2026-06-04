@@ -351,6 +351,19 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
   - demo override report：`/tmp/agenthub_b2_todo_05_demo_container_e2e_report.json`，
     conversation `8b5088bd-161b-4f68-aa74-4ab1e8547546`，container `queued -> published`，
     worker `inproc-container-aacc169897e0`，`attempt_count=1`，`state_event_count=13`。
+- 2026-06-04 Orchestrator API/SSE queued worker E2E 证据：
+  - production default report：`/tmp/agenthub_b2_todo_05_orch_prod_default_report.json`，
+    SSE `/tmp/agenthub_b2_todo_05_orch_prod_default_sse.jsonl`，conversation
+    `963afa42-0549-4fa0-81b0-8fad6b013a4b`，container final `not_supported`，
+    `deployment_status` block 可见，`not_supported` 未触发 repair/reflection。
+  - trusted Docker demo report：`/tmp/agenthub_b2_todo_05_orch_demo_report.json`，
+    SSE `/tmp/agenthub_b2_todo_05_orch_demo_sse.jsonl`，conversation
+    `ce767e6f-b03c-41fb-af85-fe637983c356`，container `publishing -> published`，
+    worker `inproc-container-71038d04c528`，`attempt_count=1`，`state_event_count=12`，
+    healthcheck OK，stop cleanup OK。
+  - optional repair report：`/tmp/agenthub_b2_todo_05_orch_repair_report.json` 未通过；
+    已观察到 `failure_category=build_failed`、`last_error_code=container_build_failed`，
+    但未观察到 `reflection_created` 和第二次 redeploy；作为后续 repair loop 稳定性补项。
 - Orchestrator live E2E 增加 deployment repair 专用场景：首次容器部署失败后必须观察到
   `deployment_health` failure、`reflection_created`、repair agent attempt、第二次 `create_deployment` 和最终
   `published=true`。
@@ -370,14 +383,16 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - Dockerfile 尝试 privileged / host mount 不应被平台 run 参数允许。
 - 构建超时、运行超时、健康检查失败均写入 error/logs/state_events。
 
-公网 E2E 本轮暂缓，以下命令/场景等待用户后续明确指令再执行：
+Orchestrator API/SSE queued worker 复验已覆盖 production-default `not_supported` 和 trusted Docker demo
+override `queued/publishing -> published` 两条聊天编排链路；剩余补测集中在 repair/redeploy loop 对 queued
+worker 新状态语义的稳定复验。
 
 ```text
 @orchestrator 请生成一个最小 FastAPI 服务，包含 Dockerfile，
 容器化部署后返回 URL，并验证 /health 返回 ok。
 ```
 
-验收：
+可选补测验收：
 
 - SSE 出现 `create_deployment(kind="container")`。
 - `deployment_status.status="published"`。
