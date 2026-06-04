@@ -1,5 +1,9 @@
 import { ContentRenderer } from '@/components/blocks/ContentRenderer';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { indexArtifactsByPath } from '@/components/artifact/richArtifactModel';
+import { ReviewThreadTimeline } from '@/components/chat/ReviewThreadTimeline';
+import { useOrchestratorRunForMessage } from '@/hooks/useOrchestratorRuns';
+import { useWorkspaceArtifacts } from '@/hooks/useWorkspace';
 import type { DemoMessage } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
@@ -119,12 +123,10 @@ export function MessageBubble({
                 : 'border border-slate-300 bg-white text-slate-950 shadow-black/5 dark:border-slate-800 dark:bg-slate-900/75 dark:text-slate-100 dark:shadow-black/10',
           )}
         >
-          <ContentRenderer
-            blocks={message.content}
-            agents={agents}
-            streaming={message.status === 'streaming'}
-            conversationId={message.conversation_id}
-          />
+          <MessageContent message={message} agents={agents} />
+          {!isUser && message.agent_id === 'orchestrator' && (
+            <ReviewThreadForMessage message={message} agents={agents} />
+          )}
           {message.status === 'error' && onRetry && (
             <button
               type="button"
@@ -156,4 +158,44 @@ export function MessageBubble({
       )}
     </article>
   );
+}
+
+function MessageContent({ message, agents }: { message: DemoMessage; agents: Agent[] }) {
+  const hasFileBlock = message.content.some((block) => block.type === 'file');
+  if (!hasFileBlock) {
+    return (
+      <ContentRenderer
+        blocks={message.content}
+        agents={agents}
+        streaming={message.status === 'streaming'}
+        conversationId={message.conversation_id}
+      />
+    );
+  }
+  return <ManifestAwareMessageContent message={message} agents={agents} />;
+}
+
+function ManifestAwareMessageContent({ message, agents }: { message: DemoMessage; agents: Agent[] }) {
+  const artifactsQuery = useWorkspaceArtifacts(message.conversation_id, true);
+  const artifactManifestByPath = indexArtifactsByPath(artifactsQuery.data);
+
+  return (
+    <ContentRenderer
+      blocks={message.content}
+      agents={agents}
+      streaming={message.status === 'streaming'}
+      conversationId={message.conversation_id}
+      artifactManifestByPath={artifactManifestByPath}
+    />
+  );
+}
+
+function ReviewThreadForMessage({ message, agents }: { message: DemoMessage; agents: Agent[] }) {
+  const runDetailQuery = useOrchestratorRunForMessage(
+    message.conversation_id,
+    message.id,
+    message.status === 'done',
+  );
+
+  return <ReviewThreadTimeline detail={runDetailQuery.data} agents={agents} />;
 }
