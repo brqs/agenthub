@@ -67,6 +67,21 @@ const formula = "\\\\(x+y\\\\)";
     expect(container.querySelectorAll('.katex')).toHaveLength(1);
   });
 
+  it('repairs backend-flattened markdown block markers outside code spans', () => {
+    render(
+      <TextBlock
+        text={
+          'ReAct step 1 Observation: frontend-build @opencode-helper succeeded Text: 已创建完整的静态前端演示站点。 ### 已创建文件 - `index.html` — 页面结构与全部 6 个中文区块 - `styles.css` — 多主题样式、卡片布局 - `app.js` — 主题切换、代码 Tab。 ### 页面包含的板块 1. 任务拆解 — 4 条任务列表 2. 代码产物 — 可切换代码片段'
+        }
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '已创建文件' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '页面包含的板块' })).toBeInTheDocument();
+    expect(screen.getByText(/页面结构与全部 6 个中文区块/)).toBeInTheDocument();
+    expect(screen.getByText(/任务拆解/)).toBeInTheDocument();
+  });
+
   it('keeps long display formulas in a scrollable KaTeX display container', () => {
     const { container } = render(
       <TextBlock

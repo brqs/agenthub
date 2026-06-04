@@ -17,12 +17,15 @@ describe('WebPreviewBlock', () => {
     expect(screen.getByText('example.com')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('预览网页'));
-    expect(screen.getByRole('heading', { name: 'Built Demo' })).toBeInTheDocument();
-    expect(screen.getByText('This is the built preview body.')).toBeInTheDocument();
-    expect(screen.getByText('Chat Shell')).toBeInTheDocument();
+    const iframe = screen.getByTitle('Demo Website');
+    expect(iframe).toHaveAttribute('src', 'https://example.com/demo');
+    expect(iframe).toHaveAttribute('sandbox', expect.stringContaining('allow-scripts'));
+    expect(screen.queryByText('Chat Shell')).not.toBeInTheDocument();
+    expect(screen.queryByText('Agent Flow')).not.toBeInTheDocument();
+    expect(screen.queryByText('Rich Blocks')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('关闭预览'));
-    expect(screen.queryByRole('heading', { name: 'Built Demo' })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Demo Website')).not.toBeInTheDocument();
   });
 
   it('keeps a safe external link', () => {
@@ -30,5 +33,15 @@ describe('WebPreviewBlock', () => {
 
     expect(screen.getByTitle('打开外链')).toHaveAttribute('target', '_blank');
     expect(screen.getByTitle('打开外链')).toHaveAttribute('rel', 'noreferrer');
+  });
+
+  it('does not iframe unsafe preview urls', () => {
+    render(<WebPreviewBlock url="javascript:alert(1)" title="Bad Preview" />);
+
+    expect(screen.queryByTitle('打开外链')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('预览网页'));
+    expect(screen.getByText(/预览 URL 不合法/)).toBeInTheDocument();
+    expect(screen.queryByTitle('Bad Preview')).not.toBeInTheDocument();
   });
 });
