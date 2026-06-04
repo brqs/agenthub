@@ -17,13 +17,18 @@ from tests.orchestrator_fakes import (
 
 def test_planner_prompt_references_agent_capability_profile_rule() -> None:
     assert "capability profile" in PLANNER_SYSTEM_PROMPT
+    assert "user-scope v2 capability profile" in PLANNER_SYSTEM_PROMPT
     assert "stronger recent" in PLANNER_SYSTEM_PROMPT
-    assert "clearly stronger agent" in PLANNER_SYSTEM_PROMPT
+    assert "clearly" in PLANNER_SYSTEM_PROMPT
+    assert "stronger agent" in PLANNER_SYSTEM_PROMPT
+    assert "current" in PLANNER_SYSTEM_PROMPT
+    assert "request" in PLANNER_SYSTEM_PROMPT
+    assert "override historical" in PLANNER_SYSTEM_PROMPT
     assert "Do not probe a" in PLANNER_SYSTEM_PROMPT
     assert "outside the available agents list" in PLANNER_SYSTEM_PROMPT
 
 
-async def test_orchestrator_planner_receives_only_capability_profile_memory() -> None:
+async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -> None:
     opencode = FakeSubAdapter("opencode-helper", _text_chunks("created document"))
     planner = FakePlannerGateway(
         [
@@ -47,6 +52,12 @@ async def test_orchestrator_planner_receives_only_capability_profile_memory() ->
         ]
     )
     memory = (
+        "Agent capability profile v2 from recent user Orchestrator runs:\n"
+        "- @claude-code: success_rate=0.0; score=-1.2; confidence=low\n"
+        "- @opencode-helper: success_rate=1.0; score=2.1; confidence=medium\n\n"
+        "User preference memory from recent Orchestrator runs:\n"
+        "domains: document=3\n"
+        "language_style_hints: chinese=2\n\n"
         "Agent capability profile from recent Orchestrator runs:\n"
         "- @claude-code: success_count=0; failure_count=1\n"
         "- @opencode-helper: success_count=1; failure_count=0\n\n"
@@ -70,8 +81,12 @@ async def test_orchestrator_planner_receives_only_capability_profile_memory() ->
 
     assert chunks[-1].event_type == "done"
     planner_message = planner.calls[0]["messages"][0].content
-    assert "Agent capability profile available to planner:" in planner_message
+    assert "Orchestrator memory signals available to planner:" in planner_message
+    assert "Agent capability profile v2 from recent user Orchestrator runs" in planner_message
+    assert "User preference memory from recent Orchestrator runs" in planner_message
+    assert "@opencode-helper: success_rate=1.0; score=2.1" in planner_message
     assert "@opencode-helper: success_count=1; failure_count=0" in planner_message
+    assert "language_style_hints: chinese=2" in planner_message
     assert "private historical details" not in planner_message
 
 

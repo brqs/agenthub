@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.workspace import WorkspacePreviewSession
-from app.services.workspace_service import WorkspaceService
+from app.services.workspace_service import WorkspaceService, WorkspaceViolation
 from app.services.workspace_static_snapshot import WorkspaceStaticSnapshotService
 
 
@@ -343,9 +343,15 @@ class WorkspacePreviewService:
         for session in sessions:
             if session.snapshot_path is None or session.last_accessed_at < cutoff:
                 await self._stop_process(session)
-                self._remove_snapshot(session)
+                remove_error: str | None = None
+                try:
+                    self._remove_snapshot(session)
+                except WorkspaceViolation as exc:
+                    session.snapshot_path = None
+                    session.artifact_digest = None
+                    remove_error = str(exc)
                 session.status = "stopped"
-                session.error = None
+                session.error = remove_error
                 self._touch(session)
                 cleaned += 1
         if cleaned:

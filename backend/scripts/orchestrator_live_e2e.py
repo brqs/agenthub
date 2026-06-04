@@ -30,6 +30,9 @@ P1_REVIEW_THREAD_SCENARIO = SCENARIO == "p1_review_thread_repair"
 P1_RICH_ARTIFACTS_SCENARIO = SCENARIO == "p1_rich_artifacts"
 P1_EVALUATION_REPAIR_SCENARIO = SCENARIO == "p1_evaluation_repair"
 P1_AGENT_CAPABILITY_PROFILE_SCENARIO = SCENARIO == "p1_agent_capability_profile"
+P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO = (
+    SCENARIO == "p2_agent_capability_profile_v2"
+)
 P1_SCENARIO = (
     P1_ATTRIBUTION_SCENARIO
     or P1_WORKFLOW_SCENARIO
@@ -39,10 +42,26 @@ P1_SCENARIO = (
     or P1_EVALUATION_REPAIR_SCENARIO
     or P1_AGENT_CAPABILITY_PROFILE_SCENARIO
 )
+P2_SCENARIO = P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
 FULLSTACK_SCENARIO = SCENARIO == "fullstack"
 DEPLOYMENT_REPAIR_SCENARIO = SCENARIO == "deployment_repair"
 CUSTOM_AGENT_TOOLS_SCENARIO = SCENARIO == "custom_agent_tools"
 DEPLOYMENT_SCENARIO = SCENARIO in {"deployment", "deployment_repair"}
+EXPECT_CONTAINER_STATUS = os.getenv(
+    "AGENTHUB_E2E_EXPECT_CONTAINER_STATUS",
+    "published",
+).strip().lower()
+if EXPECT_CONTAINER_STATUS not in {"not_supported", "published", "any"}:
+    raise ValueError(
+        "AGENTHUB_E2E_EXPECT_CONTAINER_STATUS must be not_supported, published, or any"
+    )
+CONTAINER_TERMINAL_STATUSES = {"published", "failed", "stopped", "not_supported"}
+CONTAINER_POLL_TIMEOUT_SECONDS = float(
+    os.getenv("AGENTHUB_E2E_CONTAINER_POLL_TIMEOUT_SECONDS", "180")
+)
+CONTAINER_POLL_INTERVAL_SECONDS = float(
+    os.getenv("AGENTHUB_E2E_CONTAINER_POLL_INTERVAL_SECONDS", "2")
+)
 DEFAULT_P1_ATTRIBUTION_SSE_PATH = "/tmp/agenthub_p1_attribution_sse.jsonl"  # noqa: S108
 DEFAULT_P1_WORKFLOW_SSE_PATH = "/tmp/agenthub_p1_workflow_sse.jsonl"  # noqa: S108
 DEFAULT_P1_WORKFLOW_RUNTIME_SSE_PATH = (  # noqa: S108
@@ -57,6 +76,9 @@ DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH = (  # noqa: S108
 )
 DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_p1_agent_capability_profile_sse.jsonl"  # noqa: S108
+)
+DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl"  # noqa: S108
 )
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
@@ -83,6 +105,9 @@ DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_p1_agent_capability_profile_report.json"  # noqa: S108
+)
+DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p2_agent_capability_profile_v2_report.json"  # noqa: S108
 )
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
@@ -123,6 +148,8 @@ SSE_PATH = Path(
             if P1_EVALUATION_REPAIR_SCENARIO
             else DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH
             if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
+            else DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH
+            if P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
             else DEFAULT_FULLSTACK_SSE_PATH
             if FULLSTACK_SCENARIO
             else DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH
@@ -153,6 +180,8 @@ REPORT_PATH = Path(
             if P1_EVALUATION_REPAIR_SCENARIO
             else DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH
             if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
+            else DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH
+            if P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
             else DEFAULT_FULLSTACK_REPORT_PATH
             if FULLSTACK_SCENARIO
             else DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH
@@ -317,6 +346,19 @@ P1_AGENT_CAPABILITY_PROFILE_PROMPT = (
     "或 verification task；不要先让画像较弱的 Agent 尝试再 fallback，唯一 task 及其"
     "所有实际 attempt 都应由画像显示近期成功的 Agent 执行。不要预览、不要部署。"
 )
+P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT = (
+    "@orchestrator 请进行 Agent Capability Profile v2 跨 conversation 规划验收。"
+    "当前请求不点名任何执行 Agent；请根据 user-scope v2 capability profile 和 "
+    "user preference memory，自主选择近期成功的文档 Agent，创建 "
+    "p2-capability-v2-followup.md，内容必须包含 "
+    "CAPABILITY_PROFILE_V2_FOLLOWUP_SENTINEL。最终总结必须明确出现 "
+    "Agent capability profile v2 from recent user Orchestrator runs、"
+    "User preference memory from recent Orchestrator runs、user-scope、"
+    "recent success、选择依据、被选择 agent id。只规划一个逻辑文档任务，"
+    "禁止新增 review 或 verification task；不要先让画像较弱的 Agent 尝试再 fallback，"
+    "唯一 task 及其所有实际 attempt 都应由 v2 画像显示近期成功的 Agent 执行。"
+    "不要预览、不要部署。"
+)
 
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
@@ -334,6 +376,8 @@ PROMPT = os.getenv(
     if P1_EVALUATION_REPAIR_SCENARIO
     else P1_AGENT_CAPABILITY_PROFILE_PROMPT
     if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
+    else P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+    if P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -678,6 +722,51 @@ def read_workspace_file(
     return response.text
 
 
+def get_deployment_detail(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    deployment_id: str,
+) -> dict[str, Any]:
+    response = client.get(
+        f"/api/v1/workspaces/{conv_id}/deployments/{deployment_id}",
+        headers=headers,
+    )
+    response.raise_for_status()
+    body = response.json()
+    return body if isinstance(body, dict) else {}
+
+
+def wait_for_deployment_terminal(
+    client: httpx.Client,
+    conv_id: str,
+    headers: dict[str, str],
+    deployment: dict[str, Any],
+) -> tuple[dict[str, Any], float]:
+    deployment_id = deployment.get("id")
+    if not isinstance(deployment_id, str) or not deployment_id:
+        return deployment, 0.0
+    started = time.monotonic()
+    current = deployment
+    while current.get("status") not in CONTAINER_TERMINAL_STATUSES:
+        elapsed = time.monotonic() - started
+        if elapsed >= CONTAINER_POLL_TIMEOUT_SECONDS:
+            return current, elapsed
+        time.sleep(CONTAINER_POLL_INTERVAL_SECONDS)
+        current = get_deployment_detail(client, conv_id, headers, deployment_id)
+    return current, time.monotonic() - started
+
+
+def is_url_unavailable(url: Any) -> bool:
+    if not isinstance(url, str) or not url.startswith("http"):
+        return False
+    try:
+        response = httpx.get(url, timeout=10, trust_env=False)
+    except httpx.HTTPError:
+        return True
+    return response.status_code in {404, 410}
+
+
 def list_workflow_runs(
     client: httpx.Client,
     conv_id: str,
@@ -976,6 +1065,8 @@ def fetch_orchestrator_run_detail(
         report["orchestrator_run_detail_error"] = detail.text
         return {}
     run_detail = detail.json()
+    if not isinstance(run_detail, dict):
+        return {}
     report["orchestrator_run_detail"] = run_detail
     return run_detail
 
@@ -995,7 +1086,30 @@ def fetch_agent_capability_profile(
         report["agent_capability_profile_error"] = response.text
         return {}
     profile = response.json()
+    if not isinstance(profile, dict):
+        return {}
     report["agent_capability_profile"] = profile
+    return profile
+
+
+def fetch_agent_capability_profile_v2(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conv_id: str,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    response = client.get(
+        f"/api/v1/conversations/{conv_id}/agent-capability-profile-v2",
+        headers=headers,
+    )
+    report["agent_capability_profile_v2_status_code"] = response.status_code
+    if response.status_code != 200:
+        report["agent_capability_profile_v2_error"] = response.text
+        return {}
+    profile = response.json()
+    if not isinstance(profile, dict):
+        return {}
+    report["agent_capability_profile_v2"] = profile
     return profile
 
 
@@ -1748,6 +1862,141 @@ def _is_capability_followup_task(task: dict[str, Any]) -> bool:
     return "capability-followup.md" in text
 
 
+def evaluate_p2_agent_capability_profile_v2(report: dict[str, Any]) -> None:
+    profile_before = report.get("agent_capability_profile_v2_before_followup")
+    profile_before_items = (
+        profile_before.get("items", []) if isinstance(profile_before, dict) else []
+    )
+    before_by_agent = {
+        str(item.get("agent_id")): item
+        for item in profile_before_items
+        if isinstance(item, dict) and item.get("agent_id")
+    }
+    preferences = (
+        profile_before.get("preferences", {})
+        if isinstance(profile_before, dict)
+        else {}
+    )
+    final_summary = final_summary_from_report(report).lower()
+    target_text = visible_agent_text(p1_content_blocks(report)).lower()
+    combined_text = f"{final_summary}\n{target_text}"
+    run_detail = report.get("orchestrator_run_detail")
+    tasks = run_detail.get("tasks", []) if isinstance(run_detail, dict) else []
+    attempts = run_detail.get("attempts", []) if isinstance(run_detail, dict) else []
+    followup_tasks = [
+        task
+        for task in tasks
+        if isinstance(task, dict) and _is_capability_v2_followup_task(task)
+    ]
+    followup_task_ids = {
+        str(task.get("task_id"))
+        for task in followup_tasks
+        if task.get("task_id")
+    }
+    followup_attempts = [
+        attempt
+        for attempt in attempts
+        if isinstance(attempt, dict)
+        and str(attempt.get("task_id")) in followup_task_ids
+        and attempt.get("state") not in {"pending", "skipped"}
+    ]
+    followup_task_agents = {
+        str(task.get("agent_id")) for task in followup_tasks if task.get("agent_id")
+    }
+    followup_attempt_agents = {
+        str(attempt.get("agent_id"))
+        for attempt in followup_attempts
+        if attempt.get("agent_id")
+    }
+    claude = before_by_agent.get("claude-code", {})
+    opencode = before_by_agent.get("opencode-helper", {})
+    artifact_preferences = (
+        preferences.get("artifact_preferences", {})
+        if isinstance(preferences, dict)
+        else {}
+    )
+    checks: dict[str, bool] = {}
+    checks["p2_agent_capability_v2_api_user_scope"] = (
+        isinstance(profile_before, dict)
+        and profile_before.get("scope") == "user"
+        and int(profile_before.get("runs_considered") or 0) >= 1
+        and int(profile_before.get("source_conversation_count") or 0) >= 1
+    )
+    followup_runs_before_count = report.get("followup_runs_before_count")
+    checks["p2_agent_capability_v2_new_conversation_empty_before_followup"] = (
+        isinstance(followup_runs_before_count, int)
+        and followup_runs_before_count == 0
+    )
+    checks["p2_agent_capability_v2_seed_claude_failed"] = (
+        int(claude.get("failure_count") or 0) >= 1
+        and int(claude.get("evaluation_failed_count") or 0) >= 1
+        and int(claude.get("success_count") or 0) == 0
+    )
+    checks["p2_agent_capability_v2_seed_opencode_succeeded"] = (
+        int(opencode.get("success_count") or 0) >= 1
+        and float(opencode.get("score") or 0.0) > float(claude.get("score") or 0.0)
+    )
+    checks["p2_agent_capability_v2_preferences_present"] = (
+        isinstance(artifact_preferences, dict)
+        and int(artifact_preferences.get("document") or 0) >= 1
+    )
+    checks["p2_agent_capability_v2_request_no_explicit_agent"] = not any(
+        marker in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+        for marker in ("claude-code", "opencode-helper", "codex-helper")
+    )
+    checks["p2_agent_capability_v2_memory_context_mentioned"] = (
+        "agent capability profile v2 from recent user orchestrator runs"
+        in combined_text
+        or "user-scope" in combined_text
+        or "capability profile v2" in combined_text
+    )
+    checks["p2_agent_capability_v2_preference_memory_mentioned"] = (
+        "user preference memory from recent orchestrator runs" in combined_text
+        or "user preference" in combined_text
+        or "用户偏好" in combined_text
+    )
+    checks["p2_agent_capability_v2_followup_task_agent_opencode"] = (
+        bool(followup_tasks) and followup_task_agents == {"opencode-helper"}
+    )
+    checks["p2_agent_capability_v2_followup_attempt_agent_opencode"] = (
+        bool(followup_attempts) and followup_attempt_agents == {"opencode-helper"}
+    )
+    checks["p2_agent_capability_v2_followup_artifact_created"] = any(
+        item.get("path") == "p2-capability-v2-followup.md"
+        for item in report.get("workspace_files", [])
+        if isinstance(item, dict)
+    )
+    report["agent_capability_profile_v2_before_agents"] = sorted(before_by_agent)
+    report["agent_capability_v2_followup_task_agents"] = sorted(followup_task_agents)
+    report["agent_capability_v2_followup_attempt_agents"] = sorted(
+        followup_attempt_agents
+    )
+    report["acceptance"] = {
+        key: checks[key]
+        for key in (
+            "p2_agent_capability_v2_api_user_scope",
+            "p2_agent_capability_v2_new_conversation_empty_before_followup",
+            "p2_agent_capability_v2_seed_claude_failed",
+            "p2_agent_capability_v2_seed_opencode_succeeded",
+            "p2_agent_capability_v2_preferences_present",
+            "p2_agent_capability_v2_request_no_explicit_agent",
+            "p2_agent_capability_v2_memory_context_mentioned",
+            "p2_agent_capability_v2_preference_memory_mentioned",
+            "p2_agent_capability_v2_followup_task_agent_opencode",
+            "p2_agent_capability_v2_followup_attempt_agent_opencode",
+            "p2_agent_capability_v2_followup_artifact_created",
+        )
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def _is_capability_v2_followup_task(task: dict[str, Any]) -> bool:
+    text = "\n".join(
+        str(task.get(key) or "") for key in ("title", "instruction", "expected_output")
+    )
+    return "p2-capability-v2-followup.md" in text
+
+
 def run_p1_agent_capability_profile_case(
     client: httpx.Client,
     headers: dict[str, str],
@@ -1817,6 +2066,107 @@ def run_p1_agent_capability_profile_case(
         block.get("type") for block in p1_content_blocks(report)
     ]
     evaluate_p1_agent_capability_profile(report)
+
+
+def run_p2_agent_capability_profile_v2_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    seed_conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"{SCENARIO} Seed Live E2E {int(started_at)}",
+            "mode": "group",
+            "agent_ids": P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
+        },
+    )
+    seed_conversation.raise_for_status()
+    seed_conv = seed_conversation.json()
+    seed_conv_id = seed_conv["id"]
+    report["seed_conversation"] = seed_conv
+    report["seed_conversation_id"] = seed_conv_id
+
+    seed_sent, seed_events, seed_target = send_message_and_stream(
+        client,
+        headers,
+        seed_conv_id,
+        content=P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    report["seed_user_message_id"] = seed_sent["user_message"]["id"]
+    report["seed_agent_message_id"] = seed_sent["agent_message"]["id"]
+    report["seed_target_agent_message"] = seed_target
+    report["seed_stream_event_count"] = len(seed_events)
+    report["seed_agent_switch_to_agents"] = [
+        event_data(event).get("to_agent")
+        for event in seed_events
+        if event.get("event") == "agent_switch"
+    ]
+    fetch_agent_capability_profile_v2(client, headers, seed_conv_id, report)
+    report["agent_capability_profile_v2_after_seed"] = report.get(
+        "agent_capability_profile_v2",
+        {},
+    )
+
+    followup_conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"{SCENARIO} Followup Live E2E {int(started_at)}",
+            "mode": "group",
+            "agent_ids": P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
+        },
+    )
+    followup_conversation.raise_for_status()
+    followup_conv = followup_conversation.json()
+    followup_conv_id = followup_conv["id"]
+    report["conversation"] = followup_conv
+    report["conversation_id"] = followup_conv_id
+
+    runs_before = client.get(
+        f"/api/v1/conversations/{followup_conv_id}/orchestrator-runs",
+        headers=headers,
+    )
+    report["followup_runs_before_status_code"] = runs_before.status_code
+    if runs_before.status_code == 200:
+        runs_before_items = runs_before.json().get("items", [])
+        report["followup_runs_before_count"] = len(runs_before_items)
+
+    fetch_agent_capability_profile_v2(client, headers, followup_conv_id, report)
+    report["agent_capability_profile_v2_before_followup"] = report.get(
+        "agent_capability_profile_v2",
+        {},
+    )
+
+    sent, events, target = send_message_and_stream(
+        client,
+        headers,
+        followup_conv_id,
+        content=PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    report["user_message_id"] = sent["user_message"]["id"]
+    report["agent_message_id"] = sent["agent_message"]["id"]
+    report["target_agent_message"] = target
+    report["stream_event_count"] = len(events)
+    report["agent_switch_to_agents"] = [
+        event_data(event).get("to_agent")
+        for event in events
+        if event.get("event") == "agent_switch"
+    ]
+    report["checks"]["message_done"] = bool(target and target.get("status") == "done")
+    fetch_orchestrator_run_detail(client, headers, followup_conv_id, report)
+    fetch_agent_capability_profile_v2(client, headers, followup_conv_id, report)
+    fetch_workspace_evidence(client, headers, followup_conv_id, report)
+    report["content_block_types"] = [
+        block.get("type") for block in p1_content_blocks(report)
+    ]
+    evaluate_p2_agent_capability_profile_v2(report)
 
 
 def run_p1_case(
@@ -2008,6 +2358,35 @@ def run_custom_agent_tools_case(
     report["acceptance"] = {**acceptance, "passed": all(acceptance.values())}
 
 
+def auth_headers(
+    client: httpx.Client,
+    report: dict[str, Any],
+    started_at: float,
+) -> dict[str, str]:
+    if P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO and "AGENTHUB_E2E_USERNAME" not in os.environ:
+        username = f"cap_v2_e2e_{int(started_at)}_{os.getpid()}"
+        password = "P@ssw0rd!12345678"
+        register = client.post(
+            "/api/v1/auth/register",
+            json={"username": username, "password": password},
+        )
+        report["register_status_code"] = register.status_code
+        if register.status_code == 201:
+            report["account"] = username
+            token = register.json()["access_token"]
+            return {"Authorization": f"Bearer {token}"}
+        report["register_error"] = register.text
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": USERNAME, "password": PASSWORD},
+    )
+    report["login_status_code"] = login.status_code
+    login.raise_for_status()
+    token = login.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def main() -> None:
     started_at = time.time()
     SSE_PATH.write_text("", encoding="utf-8")
@@ -2029,15 +2408,13 @@ def main() -> None:
     }
 
     timeout = httpx.Timeout(connect=20, read=None, write=20, pool=20)
-    with httpx.Client(base_url=BASE_URL, timeout=timeout, follow_redirects=True) as client:
-        login = client.post(
-            "/api/v1/auth/login",
-            json={"username": USERNAME, "password": PASSWORD},
-        )
-        report["login_status_code"] = login.status_code
-        login.raise_for_status()
-        token = login.json()["access_token"]
-        headers = {"Authorization": f"Bearer {token}"}
+    with httpx.Client(
+        base_url=BASE_URL,
+        timeout=timeout,
+        follow_redirects=True,
+        trust_env=False,
+    ) as client:
+        headers = auth_headers(client, report, started_at)
         cleanup_previous_preview(client, headers, report)
 
         agents = client.get("/api/v1/agents", headers=headers)
@@ -2075,6 +2452,16 @@ def main() -> None:
         )
         if P1_SCENARIO:
             run_p1_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if P2_SCENARIO:
+            run_p2_agent_capability_profile_v2_case(client, headers, report, started_at)
             report["finished_at"] = utc_now()
             report["duration_seconds"] = round(time.time() - started_at, 3)
             report["passed"] = bool(report.get("acceptance", {}).get("passed"))
@@ -2554,11 +2941,24 @@ def main() -> None:
                 for block in content_blocks
                 if block.get("type") == "deployment_status"
             ]
+            container_status_blocks = [
+                block
+                for block in deployment_status_blocks
+                if block.get("kind") == "container"
+            ]
             report["deployment_status_blocks"] = deployment_status_blocks
+            report["container_deployment_status_blocks"] = container_status_blocks
             report["checks"]["deployment_tool_called"] = bool(deployment_tool_blocks)
             report["checks"]["source_package_tool_called"] = bool(source_tool_blocks)
             report["checks"]["deployment_status_block_present"] = bool(
                 deployment_status_blocks
+            )
+            report["checks"]["deployment_status_block_has_runtime_metadata"] = any(
+                "runtime_kind" in block
+                and "runtime_status" in block
+                and "failure_category" in block
+                and "last_error_code" in block
+                for block in container_status_blocks
             )
             deployments = client.get(
                 f"/api/v1/workspaces/{conv_id}/deployments",
@@ -2567,6 +2967,42 @@ def main() -> None:
             report["deployment_list_status_code"] = deployments.status_code
             deployments.raise_for_status()
             deployment_items = deployments.json().get("items", [])
+            deployment_items = deployment_items if isinstance(deployment_items, list) else []
+            initial_container_items = [
+                item for item in deployment_items if item.get("kind") == "container"
+            ]
+            report["expected_container_status"] = EXPECT_CONTAINER_STATUS
+            report["container_initial_status"] = (
+                initial_container_items[0].get("status")
+                if initial_container_items
+                else None
+            )
+            deployment_poll_results: list[dict[str, Any]] = []
+            refreshed_deployment_items: list[dict[str, Any]] = []
+            for item in deployment_items:
+                if item.get("kind") != "container" or item.get("status") not in {
+                    "queued",
+                    "publishing",
+                }:
+                    refreshed_deployment_items.append(item)
+                    continue
+                final_item, poll_elapsed = wait_for_deployment_terminal(
+                    client,
+                    conv_id,
+                    headers,
+                    item,
+                )
+                refreshed_deployment_items.append(final_item)
+                deployment_poll_results.append(
+                    {
+                        "deployment_id": item.get("id"),
+                        "initial_status": item.get("status"),
+                        "final_status": final_item.get("status"),
+                        "elapsed_seconds": round(poll_elapsed, 3),
+                    }
+                )
+            deployment_items = refreshed_deployment_items
+            report["deployment_poll_results"] = deployment_poll_results
             report["deployments"] = deployment_items
             static_items = [
                 item
@@ -2580,19 +3016,78 @@ def main() -> None:
                 if item.get("kind") == "source_zip"
                 and item.get("status") == "published"
             ]
-            container_items = [
+            all_container_items = [
+                item for item in deployment_items if item.get("kind") == "container"
+            ]
+            published_container_items = [
+                item for item in all_container_items if item.get("status") == "published"
+            ]
+            not_supported_container_items = [
                 item
-                for item in deployment_items
-                if item.get("kind") == "container"
-                and item.get("status") == "published"
+                for item in all_container_items
+                if item.get("status") == "not_supported"
             ]
             failed_container_items = [
                 item
-                for item in deployment_items
-                if item.get("kind") == "container" and item.get("status") == "failed"
+                for item in all_container_items
+                if item.get("status") == "failed"
             ]
+            stopped_container_items = [
+                item
+                for item in all_container_items
+                if item.get("status") == "stopped"
+            ]
+            container_final_item = (
+                published_container_items[0]
+                if published_container_items
+                else not_supported_container_items[0]
+                if not_supported_container_items
+                else failed_container_items[0]
+                if failed_container_items
+                else stopped_container_items[0]
+                if stopped_container_items
+                else all_container_items[0]
+                if all_container_items
+                else None
+            )
+            report["container_status"] = (
+                container_final_item.get("status") if container_final_item else None
+            )
+            report["container_deployment"] = container_final_item
+            report["container_state_event_count"] = (
+                len(container_final_item.get("state_events") or [])
+                if container_final_item
+                else 0
+            )
+            report["checks"]["deployment_status_block_has_runtime_metadata"] = bool(
+                report["checks"].get("deployment_status_block_has_runtime_metadata")
+                or (
+                    container_final_item
+                    and "runtime_kind" in container_final_item
+                    and "runtime_status" in container_final_item
+                    and "failure_category" in container_final_item
+                    and "last_error_code" in container_final_item
+                    and "state_events" in container_final_item
+                )
+            )
             report["checks"]["static_site_deployment_published"] = bool(static_items)
-            report["checks"]["container_deployment_published"] = bool(container_items)
+            report["checks"]["container_deployment_terminal"] = bool(
+                container_final_item
+                and container_final_item.get("status") in CONTAINER_TERMINAL_STATUSES
+            )
+            report["checks"]["container_status_expected"] = bool(
+                container_final_item
+                and (
+                    EXPECT_CONTAINER_STATUS == "any"
+                    or container_final_item.get("status") == EXPECT_CONTAINER_STATUS
+                )
+            )
+            report["checks"]["container_deployment_published"] = bool(
+                published_container_items
+            )
+            report["checks"]["container_deployment_not_supported"] = bool(
+                not_supported_container_items
+            )
             report["checks"]["source_zip_deployment_published"] = bool(source_items)
             report["failed_container_deployments"] = failed_container_items
             if static_items:
@@ -2613,11 +3108,22 @@ def main() -> None:
                 report["checks"]["static_site_url_200"] = False
             report["checks"]["container_url_200"] = False
             report["checks"]["container_health_ok"] = False
-            if container_items:
-                container_url = container_items[0].get("url")
-                healthcheck_url = container_items[0].get("healthcheck_url")
+            report["checks"]["container_worker_metadata_present"] = False
+            report["checks"]["container_state_events_present"] = False
+            report["checks"]["container_stop_cleanup_ok"] = False
+            if published_container_items:
+                published_container = published_container_items[0]
+                container_url = published_container.get("url")
+                healthcheck_url = published_container.get("healthcheck_url")
                 report["container_deployment_url"] = container_url
                 report["container_healthcheck_url"] = healthcheck_url
+                report["checks"]["container_worker_metadata_present"] = bool(
+                    published_container.get("worker_id")
+                    and (published_container.get("attempt_count") or 0) >= 1
+                )
+                report["checks"]["container_state_events_present"] = bool(
+                    published_container.get("state_events")
+                )
                 if isinstance(container_url, str) and container_url.startswith("http"):
                     container_response = httpx.get(
                         container_url,
@@ -2635,6 +3141,17 @@ def main() -> None:
                     )
                     report["checks"]["container_health_ok"] = (
                         health_response.status_code == 200
+                    )
+                deployment_id = published_container.get("id")
+                if isinstance(deployment_id, str):
+                    stopped_container = client.delete(
+                        f"/api/v1/workspaces/{conv_id}/deployments/{deployment_id}",
+                        headers=headers,
+                    )
+                    report["container_stop_status_code"] = stopped_container.status_code
+                    report["checks"]["container_stop_cleanup_ok"] = (
+                        stopped_container.status_code == 200
+                        and is_url_unavailable(container_url)
                     )
             report["checks"]["source_zip_downloaded"] = False
             report["checks"]["source_zip_excludes_sensitive_paths"] = False
@@ -2655,23 +3172,27 @@ def main() -> None:
                             )
                             for name in archive_names
                         )
-            if DEPLOYMENT_REPAIR_SCENARIO:
-                run_events = (
-                    report.get("orchestrator_run_detail", {}).get("events", [])
-                    if isinstance(report.get("orchestrator_run_detail"), dict)
-                    else []
-                )
-                deployment_reflections = [
-                    event
-                    for event in run_events
-                    if event.get("event_type") == "reflection_created"
-                    and (
-                        ((event.get("payload") or {}).get("reflection") or {}).get(
-                            "failure_category"
-                        )
-                        == "deployment_health_failed"
+            run_events = (
+                report.get("orchestrator_run_detail", {}).get("events", [])
+                if isinstance(report.get("orchestrator_run_detail"), dict)
+                else []
+            )
+            deployment_reflections = [
+                event
+                for event in run_events
+                if event.get("event_type") == "reflection_created"
+                and (
+                    ((event.get("payload") or {}).get("reflection") or {}).get(
+                        "failure_category"
                     )
-                ]
+                    == "deployment_health_failed"
+                )
+            ]
+            report["deployment_reflections"] = deployment_reflections
+            report["checks"]["deployment_not_supported_no_repair"] = not (
+                EXPECT_CONTAINER_STATUS == "not_supported" and deployment_reflections
+            )
+            if DEPLOYMENT_REPAIR_SCENARIO:
                 container_tool_blocks = [
                     block
                     for block in deployment_tool_blocks
@@ -2687,25 +3208,44 @@ def main() -> None:
                 report["checks"]["deployment_repair_redeploy_called"] = (
                     len(container_tool_blocks) >= 2
                 )
-            deployment_checks = (
+            deployment_checks = [
                 "deployment_tool_called",
                 "source_package_tool_called",
                 "deployment_status_block_present",
+                "deployment_status_block_has_runtime_metadata",
                 "static_site_deployment_published",
                 "static_site_url_200",
                 "source_zip_deployment_published",
                 "source_zip_downloaded",
                 "source_zip_excludes_sensitive_paths",
-                "container_deployment_published",
-                "container_url_200",
-                "container_health_ok",
-            )
+                "container_deployment_terminal",
+                "container_status_expected",
+            ]
+            if EXPECT_CONTAINER_STATUS == "published":
+                deployment_checks.extend(
+                    [
+                    "container_deployment_published",
+                    "container_url_200",
+                    "container_health_ok",
+                    "container_worker_metadata_present",
+                    "container_state_events_present",
+                    "container_stop_cleanup_ok",
+                    ]
+                )
+            elif EXPECT_CONTAINER_STATUS == "not_supported":
+                deployment_checks.extend(
+                    [
+                        "container_deployment_not_supported",
+                        "deployment_not_supported_no_repair",
+                    ]
+                )
             if DEPLOYMENT_REPAIR_SCENARIO:
-                deployment_checks = (
-                    *deployment_checks,
-                    "deployment_repair_initial_failure_seen",
-                    "deployment_repair_reflection_created",
-                    "deployment_repair_redeploy_called",
+                deployment_checks.extend(
+                    [
+                        "deployment_repair_initial_failure_seen",
+                        "deployment_repair_reflection_created",
+                        "deployment_repair_redeploy_called",
+                    ]
                 )
             if not all(report["checks"].get(key, False) for key in deployment_checks):
                 report["bugs"].append(
@@ -3005,6 +3545,10 @@ def main() -> None:
                         "deployment_status_block_present",
                         False,
                     ),
+                    "deployment_status_block_has_runtime_metadata": report["checks"].get(
+                        "deployment_status_block_has_runtime_metadata",
+                        False,
+                    ),
                     "static_site_deployment_published": report["checks"].get(
                         "static_site_deployment_published",
                         False,
@@ -3025,20 +3569,58 @@ def main() -> None:
                         "source_zip_excludes_sensitive_paths",
                         False,
                     ),
-                    "container_deployment_published": report["checks"].get(
-                        "container_deployment_published",
+                    "container_deployment_terminal": report["checks"].get(
+                        "container_deployment_terminal",
                         False,
                     ),
-                    "container_url_200": report["checks"].get(
-                        "container_url_200",
-                        False,
-                    ),
-                    "container_health_ok": report["checks"].get(
-                        "container_health_ok",
+                    "container_status_expected": report["checks"].get(
+                        "container_status_expected",
                         False,
                     ),
                 }
             )
+            if EXPECT_CONTAINER_STATUS == "published":
+                hard_checks.update(
+                    {
+                        "container_deployment_published": report["checks"].get(
+                            "container_deployment_published",
+                            False,
+                        ),
+                        "container_url_200": report["checks"].get(
+                            "container_url_200",
+                            False,
+                        ),
+                        "container_health_ok": report["checks"].get(
+                            "container_health_ok",
+                            False,
+                        ),
+                        "container_worker_metadata_present": report["checks"].get(
+                            "container_worker_metadata_present",
+                            False,
+                        ),
+                        "container_state_events_present": report["checks"].get(
+                            "container_state_events_present",
+                            False,
+                        ),
+                        "container_stop_cleanup_ok": report["checks"].get(
+                            "container_stop_cleanup_ok",
+                            False,
+                        ),
+                    }
+                )
+            elif EXPECT_CONTAINER_STATUS == "not_supported":
+                hard_checks.update(
+                    {
+                        "container_deployment_not_supported": report["checks"].get(
+                            "container_deployment_not_supported",
+                            False,
+                        ),
+                        "deployment_not_supported_no_repair": report["checks"].get(
+                            "deployment_not_supported_no_repair",
+                            False,
+                        ),
+                    }
+                )
             if DEPLOYMENT_REPAIR_SCENARIO:
                 hard_checks.update(
                     {

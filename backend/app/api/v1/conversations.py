@@ -21,6 +21,8 @@ from app.models.user import User
 from app.schemas.conversation import (
     AgentCapabilityProfileItemOut,
     AgentCapabilityProfileOut,
+    AgentCapabilityProfileV2ItemOut,
+    AgentCapabilityProfileV2Out,
     ConversationList,
     ConversationMemoryOut,
     ConversationOut,
@@ -32,9 +34,11 @@ from app.schemas.conversation import (
     OrchestratorTaskAttemptOut,
     OrchestratorTaskOut,
     UpdateConversationRequest,
+    UserPreferenceMemoryOut,
 )
 from app.services.orchestrator_memory import (
     build_agent_capability_profile,
+    build_agent_capability_profile_v2,
     get_orchestrator_run_detail,
     list_orchestrator_runs,
 )
@@ -217,6 +221,41 @@ async def get_conversation_agent_capability_profile(
     return AgentCapabilityProfileOut(
         items=[AgentCapabilityProfileItemOut.model_validate(item) for item in items],
         total=len(items),
+    )
+
+
+@router.get(
+    "/{conversation_id}/agent-capability-profile-v2",
+    response_model=AgentCapabilityProfileV2Out,
+)
+async def get_conversation_agent_capability_profile_v2(
+    conversation_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    recent_runs: int = Query(default=60, ge=1, le=100),
+    half_life_days: float = Query(default=30.0, ge=1.0, le=365.0),
+    limit: int = Query(default=10, ge=1, le=100),
+) -> AgentCapabilityProfileV2Out:
+    await _get_owned_conversation(db, user.id, conversation_id)
+    profile = await build_agent_capability_profile_v2(
+        db,
+        user.id,
+        conversation_id=conversation_id,
+        recent_runs=recent_runs,
+        half_life_days=half_life_days,
+        limit=limit,
+    )
+    return AgentCapabilityProfileV2Out(
+        items=[
+            AgentCapabilityProfileV2ItemOut.model_validate(item)
+            for item in profile.items
+        ],
+        preferences=UserPreferenceMemoryOut.model_validate(profile.preferences),
+        scope=profile.scope,
+        source_conversation_count=profile.source_conversation_count,
+        runs_considered=profile.runs_considered,
+        generated_at=profile.generated_at,
+        total=len(profile.items),
     )
 
 
