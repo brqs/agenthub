@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ArtifactPreview, type PreviewArtifactFile } from './ArtifactPreview';
 
+vi.mock('@/components/blocks/SyntaxHighlightedCode', () => ({
+  SyntaxHighlightedCode: ({ code }: { code: string }) => <pre className="shiki">{code}</pre>,
+}));
+
 const textArtifact: PreviewArtifactFile = {
   path: 'src/demo.ts',
   name: 'demo.ts',
@@ -18,6 +22,14 @@ const htmlArtifact: PreviewArtifactFile = {
 };
 
 describe('ArtifactPreview', () => {
+  it('renders text artifacts with workspace code preview', async () => {
+    const { container } = render(<ArtifactPreview artifact={textArtifact} onSave={vi.fn()} />);
+
+    expect(screen.getByRole('region', { name: 'demo.ts code preview' })).toBeInTheDocument();
+    expect(screen.getByText('typescript')).toBeInTheDocument();
+    await waitFor(() => expect(container.querySelector('.shiki')).toBeInTheDocument());
+  });
+
   it('edits and saves text artifacts', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<ArtifactPreview artifact={textArtifact} onSave={onSave} />);
@@ -47,7 +59,7 @@ describe('ArtifactPreview', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<ArtifactPreview artifact={htmlArtifact} onSave={onSave} />);
 
-    expect(screen.getByTitle('index.html')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'index.html code preview' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '修改模式' }));
     fireEvent.change(screen.getByLabelText('index.html source'), {
       target: { value: '<h1>Saved</h1>' },
@@ -59,11 +71,14 @@ describe('ArtifactPreview', () => {
     );
   });
 
-  it('opens a fullscreen preview and closes it again', () => {
-    render(<ArtifactPreview artifact={textArtifact} onSave={vi.fn()} />);
+  it('opens a fullscreen preview and closes it again', async () => {
+    const { container } = render(<ArtifactPreview artifact={textArtifact} onSave={vi.fn()} />);
+
+    await waitFor(() => expect(container.querySelector('.shiki')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: '全屏预览' }));
     expect(screen.getByRole('button', { name: '退出全屏预览' })).toBeInTheDocument();
+    await waitFor(() => expect(container.querySelector('.shiki')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: '退出全屏预览' }));
     expect(screen.queryByRole('button', { name: '退出全屏预览' })).not.toBeInTheDocument();
