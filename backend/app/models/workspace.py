@@ -113,6 +113,15 @@ class WorkspaceDeployment(Base):
     runtime_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
     healthcheck_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     logs_tail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    state_events: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -153,6 +162,11 @@ class WorkspaceDeployment(Base):
             "runtime_status": self.runtime_status,
             "healthcheck_url": self.healthcheck_url,
             "logs_tail": self.logs_tail,
+            "worker_id": self.worker_id,
+            "attempt_count": self.attempt_count,
+            "failure_category": self.failure_category,
+            "last_error_code": self.last_error_code,
+            "state_events": self.state_events[-20:],
             "queued_at": self.queued_at.isoformat() if self.queued_at else None,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,

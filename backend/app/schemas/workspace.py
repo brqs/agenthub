@@ -159,6 +159,11 @@ class WorkspaceDeploymentResponse(BaseModel):
     runtime_status: str | None = None
     healthcheck_url: str | None = None
     logs_tail: str | None = None
+    worker_id: str | None = None
+    attempt_count: int = 0
+    failure_category: str | None = None
+    last_error_code: str | None = None
+    state_events: list[dict[str, Any]] = Field(default_factory=list)
     queued_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None

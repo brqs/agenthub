@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
 import zipfile
@@ -123,6 +124,26 @@ async def _create_conversation(
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+async def _deployment_until_status(
+    client: AsyncClient,
+    headers: dict[str, str],
+    conversation_id: str,
+    deployment_id: str,
+    statuses: set[str],
+) -> dict[str, Any]:
+    for _ in range(50):
+        response = await client.get(
+            f"/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}",
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        if body["status"] in statuses:
+            return body
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"deployment did not reach {statuses}")
 
 
 async def test_workspace_tree_requires_auth(client: AsyncClient) -> None:
@@ -876,7 +897,9 @@ async def test_workspace_container_deployment_fails_without_dockerfile(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "deployment_container_enabled", True)
     monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
+    monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", True)
     _, headers = await _register(client)
     conversation = await _create_conversation(client, headers)
 
@@ -889,7 +912,18 @@ async def test_workspace_container_deployment_fails_without_dockerfile(
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["kind"] == "container"
+    assert body["status"] == "queued"
+    assert body["worker_id"]
+    body = await _deployment_until_status(
+        client,
+        headers,
+        conversation["id"],
+        body["id"],
+        {"failed"},
+    )
     assert body["status"] == "failed"
+    assert body["failure_category"] == "build_failed"
+    assert body["last_error_code"] == "container_build_failed"
     assert "Dockerfile" in body["error"]
 
 
@@ -940,7 +974,9 @@ async def test_workspace_container_deployment_uses_worker_and_stops(
             self.removed.append((container_id, image_id))
 
     fake_worker = FakeContainerWorker()
+    monkeypatch.setattr(settings, "deployment_container_enabled", True)
     monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
+    monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", True)
     monkeypatch.setattr(
         workspace_api,
         "deployment_service",
@@ -963,6 +999,16 @@ async def test_workspace_container_deployment_uses_worker_and_stops(
 
     assert response.status_code == 201, response.text
     body = response.json()
+    assert body["status"] == "queued"
+    assert body["worker_id"]
+    assert body["attempt_count"] == 0
+    body = await _deployment_until_status(
+        client,
+        headers,
+        conversation_id,
+        body["id"],
+        {"published"},
+    )
     assert body["status"] == "published"
     assert body["url"] == "http://127.0.0.1:8200"
     assert body["healthcheck_url"] == "http://127.0.0.1:8200/health"
@@ -977,6 +1023,79 @@ async def test_workspace_container_deployment_uses_worker_and_stops(
     assert stopped.status_code == 200, stopped.text
     assert stopped.json()["status"] == "stopped"
     assert fake_worker.removed == [("container-123", "image-123")]
+
+    stopped_again = await client.delete(
+        f"/api/v1/workspaces/{conversation_id}/deployments/{body['id']}",
+        headers=headers,
+    )
+    assert stopped_again.status_code == 200, stopped_again.text
+    assert stopped_again.json()["status"] == "stopped"
+    assert fake_worker.removed == [("container-123", "image-123")]
+
+
+async def test_workspace_container_worker_unhandled_exception_marks_failed(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.v1 import workspaces as workspace_api
+
+    class CrashingContainerWorker:
+        async def publish(
+            self,
+            workspace_root: Path,
+            deployment_id: UUID,
+            *,
+            container_port: int | None,
+            health_path: str,
+        ) -> ContainerDeploymentResult:
+            _ = (workspace_root, deployment_id, container_port, health_path)
+            raise RuntimeError("runtime crashed before classification")
+
+        async def remove(
+            self,
+            *,
+            container_id: str | None,
+            image_id: str | None,
+            snapshot_path: Path | str | None,
+        ) -> None:
+            _ = (container_id, image_id, snapshot_path)
+
+    monkeypatch.setattr(settings, "deployment_container_enabled", True)
+    monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
+    monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", True)
+    monkeypatch.setattr(
+        workspace_api,
+        "deployment_service",
+        WorkspaceDeploymentService(container_worker=CrashingContainerWorker()),  # type: ignore[arg-type]
+    )
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/Dockerfile",
+        headers=headers,
+        content=b"FROM python:3.12-slim\nEXPOSE 8000\n",
+    )
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments",
+        headers=headers,
+        json={"kind": "container", "container_port": 8000, "health_path": "/health"},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["status"] == "queued"
+    body = await _deployment_until_status(
+        client,
+        headers,
+        conversation_id,
+        body["id"],
+        {"failed"},
+    )
+    assert body["failure_category"] == "runtime_unavailable"
+    assert body["last_error_code"] == "worker_unhandled_exception"
+    assert any(event["type"] == "worker_unhandled_exception" for event in body["state_events"])
 
 
 async def test_workspace_deployment_rejects_invalid_entries(

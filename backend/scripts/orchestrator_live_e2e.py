@@ -29,6 +29,7 @@ P1_WORKFLOW_RUNTIME_SCENARIO = SCENARIO == "p1_workflow_runtime"
 P1_REVIEW_THREAD_SCENARIO = SCENARIO == "p1_review_thread_repair"
 P1_RICH_ARTIFACTS_SCENARIO = SCENARIO == "p1_rich_artifacts"
 P1_EVALUATION_REPAIR_SCENARIO = SCENARIO == "p1_evaluation_repair"
+P1_AGENT_CAPABILITY_PROFILE_SCENARIO = SCENARIO == "p1_agent_capability_profile"
 P1_SCENARIO = (
     P1_ATTRIBUTION_SCENARIO
     or P1_WORKFLOW_SCENARIO
@@ -36,6 +37,7 @@ P1_SCENARIO = (
     or P1_REVIEW_THREAD_SCENARIO
     or P1_RICH_ARTIFACTS_SCENARIO
     or P1_EVALUATION_REPAIR_SCENARIO
+    or P1_AGENT_CAPABILITY_PROFILE_SCENARIO
 )
 FULLSTACK_SCENARIO = SCENARIO == "fullstack"
 DEPLOYMENT_REPAIR_SCENARIO = SCENARIO == "deployment_repair"
@@ -52,6 +54,9 @@ DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH = (  # noqa: S108
 )
 DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_p1_evaluation_repair_sse.jsonl"  # noqa: S108
+)
+DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_agent_capability_profile_sse.jsonl"  # noqa: S108
 )
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
@@ -75,6 +80,9 @@ DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_p1_evaluation_repair_report.json"  # noqa: S108
+)
+DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_agent_capability_profile_report.json"  # noqa: S108
 )
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
@@ -113,6 +121,8 @@ SSE_PATH = Path(
             if P1_RICH_ARTIFACTS_SCENARIO
             else DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH
             if P1_EVALUATION_REPAIR_SCENARIO
+            else DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH
+            if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
             else DEFAULT_FULLSTACK_SSE_PATH
             if FULLSTACK_SCENARIO
             else DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH
@@ -141,6 +151,8 @@ REPORT_PATH = Path(
             if P1_RICH_ARTIFACTS_SCENARIO
             else DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH
             if P1_EVALUATION_REPAIR_SCENARIO
+            else DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH
+            if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
             else DEFAULT_FULLSTACK_REPORT_PATH
             if FULLSTACK_SCENARIO
             else DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH
@@ -280,6 +292,32 @@ P1_EVALUATION_REPAIR_PROMPT = (
     "document_quality failed -> fallback/repair -> final passed 或 manual_review_required，"
     "并明确 manifest 不应把 failed artifact 标成 passed。"
 )
+P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT = (
+    "@orchestrator 请进行 Agent Capability Profile 种子轮。只规划一个 markdown 文档任务："
+    "claude-code 创建 capability-seed.md。Agent invocation 协议必须如下：如果本次调用"
+    "没有系统上下文标题 `Previous sub-agent results:` 或 `Previous attempt failure:`，"
+    "只允许一次 Write，写入标题和 `TODO: CAPABILITY_PROFILE_SEED_INCOMPLETE` 后立即结束；"
+    "不得继续解释、再次 Write、自行评估、自行修复或模拟 fallback，让 runtime 的 "
+    "document_quality 产生 evaluation_failed。"
+    "如果本次调用带有上一轮 evaluation failed / repair instruction，则完整重写 "
+    "capability-seed.md，加入背景、修复步骤、验证结果三节和 "
+    "CAPABILITY_PROFILE_SEED_REPAIRED_SENTINEL，不留 TODO/placeholder。"
+    "初始任务必须分配给 claude-code。evaluation 和 fallback 只能由 Orchestrator runtime "
+    "在当前 Agent 调用结束后处理；repair 必须作为同一个逻辑任务的 retry/fallback attempt，"
+    "禁止为 repair 另建任务，禁止新增 review task，整个 seed run 必须只有一个 task。"
+    "不要预览、不要部署。"
+)
+P1_AGENT_CAPABILITY_PROFILE_PROMPT = (
+    "@orchestrator 请进行 Agent Capability Profile 后续规划验收。基于当前 conversation "
+    "已有历史 run 的 Agent capability profile，自主选择一个近期成功的文档 Agent 创建 "
+    "capability-followup.md，内容必须包含 CAPABILITY_PROFILE_FOLLOWUP_SENTINEL。"
+    "最终总结必须明确出现 Agent capability profile from recent Orchestrator runs、"
+    "capability profile、recent success、选择依据、被选择 agent id。请求中没有指定"
+    "具体执行 Agent，必须根据画像完成软选择。只规划一个逻辑文档任务，禁止新增 review "
+    "或 verification task；不要先让画像较弱的 Agent 尝试再 fallback，唯一 task 及其"
+    "所有实际 attempt 都应由画像显示近期成功的 Agent 执行。不要预览、不要部署。"
+)
+
 PROMPT = os.getenv(
     "AGENTHUB_E2E_PROMPT",
     P1_ATTRIBUTION_PROMPT
@@ -294,6 +332,8 @@ PROMPT = os.getenv(
     if P1_RICH_ARTIFACTS_SCENARIO
     else P1_EVALUATION_REPAIR_PROMPT
     if P1_EVALUATION_REPAIR_SCENARIO
+    else P1_AGENT_CAPABILITY_PROFILE_PROMPT
+    if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -309,6 +349,11 @@ PROMPT = os.getenv(
     ),
 )
 AGENT_IDS = ["orchestrator", "claude-code", "opencode-helper", "codex-helper"]
+P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS = [
+    "orchestrator",
+    "claude-code",
+    "opencode-helper",
+]
 REQUIRED_FRONTEND_FILES = {"index.html", "styles.css", "app.js"}
 REQUIRED_FULLSTACK_FILES = {
     "planning.md",
@@ -933,6 +978,25 @@ def fetch_orchestrator_run_detail(
     run_detail = detail.json()
     report["orchestrator_run_detail"] = run_detail
     return run_detail
+
+
+def fetch_agent_capability_profile(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conv_id: str,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    response = client.get(
+        f"/api/v1/conversations/{conv_id}/agent-capability-profile",
+        headers=headers,
+    )
+    report["agent_capability_profile_status_code"] = response.status_code
+    if response.status_code != 200:
+        report["agent_capability_profile_error"] = response.text
+        return {}
+    profile = response.json()
+    report["agent_capability_profile"] = profile
+    return profile
 
 
 def fetch_workspace_evidence(
@@ -1577,12 +1641,194 @@ def _attempts_from_run_events(events: list[dict[str, Any]]) -> list[dict[str, An
     return attempts
 
 
+def evaluate_p1_agent_capability_profile(report: dict[str, Any]) -> None:
+    profile = report.get("agent_capability_profile")
+    profile_items = profile.get("items", []) if isinstance(profile, dict) else []
+    profile_before = report.get("agent_capability_profile_before_followup")
+    profile_before_items = (
+        profile_before.get("items", []) if isinstance(profile_before, dict) else []
+    )
+    before_by_agent = {
+        str(item.get("agent_id")): item
+        for item in profile_before_items
+        if isinstance(item, dict) and item.get("agent_id")
+    }
+    final_summary = final_summary_from_report(report).lower()
+    target_text = visible_agent_text(p1_content_blocks(report)).lower()
+    combined_text = f"{final_summary}\n{target_text}"
+    agent_ids = {
+        str(item.get("agent_id"))
+        for item in profile_items
+        if isinstance(item, dict) and item.get("agent_id")
+    }
+    run_detail = report.get("orchestrator_run_detail")
+    tasks = run_detail.get("tasks", []) if isinstance(run_detail, dict) else []
+    attempts = run_detail.get("attempts", []) if isinstance(run_detail, dict) else []
+    followup_tasks = [
+        task
+        for task in tasks
+        if isinstance(task, dict) and _is_capability_followup_task(task)
+    ]
+    followup_task_ids = {
+        str(task.get("task_id"))
+        for task in followup_tasks
+        if task.get("task_id")
+    }
+    followup_attempts = [
+        attempt
+        for attempt in attempts
+        if isinstance(attempt, dict)
+        and str(attempt.get("task_id")) in followup_task_ids
+        and attempt.get("state") not in {"pending", "skipped"}
+    ]
+    followup_task_agents = {
+        str(task.get("agent_id")) for task in followup_tasks if task.get("agent_id")
+    }
+    followup_attempt_agents = {
+        str(attempt.get("agent_id"))
+        for attempt in followup_attempts
+        if attempt.get("agent_id")
+    }
+    claude = before_by_agent.get("claude-code", {})
+    opencode = before_by_agent.get("opencode-helper", {})
+    checks: dict[str, bool] = {}
+    checks["p1_agent_capability_profile_api_two_agents"] = len(agent_ids) >= 2
+    checks["p1_agent_capability_seed_claude_failed"] = (
+        int(claude.get("failure_count") or 0) >= 1
+        and int(claude.get("evaluation_failed_count") or 0) >= 1
+        and int(claude.get("success_count") or 0) == 0
+    )
+    checks["p1_agent_capability_seed_opencode_succeeded"] = (
+        int(opencode.get("success_count") or 0) >= 1
+    )
+    checks["p1_agent_capability_memory_context_mentioned"] = (
+        "agent capability profile from recent orchestrator runs" in combined_text
+        or "capability profile" in combined_text
+        or "能力画像" in combined_text
+    )
+    checks["p1_agent_capability_selection_basis_visible"] = (
+        "recent success" in combined_text
+        or "近期成功" in combined_text
+        or "选择依据" in combined_text
+    )
+    checks["p1_agent_capability_followup_task_agent_opencode"] = (
+        bool(followup_tasks) and followup_task_agents == {"opencode-helper"}
+    )
+    checks["p1_agent_capability_followup_attempt_agent_opencode"] = (
+        bool(followup_attempts) and followup_attempt_agents == {"opencode-helper"}
+    )
+    checks["p1_agent_capability_followup_artifact_created"] = any(
+        item.get("path") == "capability-followup.md"
+        for item in report.get("workspace_files", [])
+        if isinstance(item, dict)
+    )
+    report["agent_capability_profile_agent_ids"] = sorted(agent_ids)
+    report["agent_capability_followup_task_agents"] = sorted(followup_task_agents)
+    report["agent_capability_followup_attempt_agents"] = sorted(followup_attempt_agents)
+    report["acceptance"] = {
+        key: checks[key]
+        for key in (
+            "p1_agent_capability_profile_api_two_agents",
+            "p1_agent_capability_seed_claude_failed",
+            "p1_agent_capability_seed_opencode_succeeded",
+            "p1_agent_capability_memory_context_mentioned",
+            "p1_agent_capability_selection_basis_visible",
+            "p1_agent_capability_followup_task_agent_opencode",
+            "p1_agent_capability_followup_attempt_agent_opencode",
+            "p1_agent_capability_followup_artifact_created",
+        )
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def _is_capability_followup_task(task: dict[str, Any]) -> bool:
+    text = "\n".join(
+        str(task.get(key) or "") for key in ("title", "instruction", "expected_output")
+    )
+    return "capability-followup.md" in text
+
+
+def run_p1_agent_capability_profile_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"{SCENARIO} Live E2E {int(started_at)}",
+            "mode": "group",
+            "agent_ids": P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+
+    seed_sent, seed_events, seed_target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    report["seed_user_message_id"] = seed_sent["user_message"]["id"]
+    report["seed_agent_message_id"] = seed_sent["agent_message"]["id"]
+    report["seed_target_agent_message"] = seed_target
+    report["seed_stream_event_count"] = len(seed_events)
+    report["seed_agent_switch_to_agents"] = [
+        event_data(event).get("to_agent")
+        for event in seed_events
+        if event.get("event") == "agent_switch"
+    ]
+    fetch_agent_capability_profile(client, headers, conv_id, report)
+    report["agent_capability_profile_before_followup"] = report.get(
+        "agent_capability_profile",
+        {},
+    )
+
+    sent, events, target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    report["user_message_id"] = sent["user_message"]["id"]
+    report["agent_message_id"] = sent["agent_message"]["id"]
+    report["target_agent_message"] = target
+    report["stream_event_count"] = len(events)
+    report["agent_switch_to_agents"] = [
+        event_data(event).get("to_agent")
+        for event in events
+        if event.get("event") == "agent_switch"
+    ]
+    report["checks"]["message_done"] = bool(target and target.get("status") == "done")
+    fetch_orchestrator_run_detail(client, headers, conv_id, report)
+    fetch_agent_capability_profile(client, headers, conv_id, report)
+    fetch_workspace_evidence(client, headers, conv_id, report)
+    report["content_block_types"] = [
+        block.get("type") for block in p1_content_blocks(report)
+    ]
+    evaluate_p1_agent_capability_profile(report)
+
+
 def run_p1_case(
     client: httpx.Client,
     headers: dict[str, str],
     report: dict[str, Any],
     started_at: float,
 ) -> None:
+    if P1_AGENT_CAPABILITY_PROFILE_SCENARIO:
+        run_p1_agent_capability_profile_case(client, headers, report, started_at)
+        return
+
     original_review_config: dict[str, Any] | None = None
     if P1_REVIEW_THREAD_SCENARIO:
         original_review_config = asyncio.run(

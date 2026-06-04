@@ -85,9 +85,9 @@ class Settings(BaseSettings):
         default="/tmp/agenthub_static_releases"  # noqa: S108 - generated releases.
     )
     deployment_release_token_bytes: int = Field(default=24)
-    deployment_container_enabled: bool = Field(default=True)
-    deployment_container_runtime: str = Field(default="docker")
-    deployment_container_trusted_host_mode: bool = Field(default=True)
+    deployment_container_enabled: bool = Field(default=False)
+    deployment_container_runtime: str = Field(default="podman")
+    deployment_container_trusted_host_mode: bool = Field(default=False)
     deployment_container_public_base_url: str = Field(default="http://111.229.151.159")
     deployment_container_healthcheck_base_url: str = Field(default="")
     deployment_container_build_root: str = Field(
@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     deployment_container_max_memory_mb: int = Field(default=512)
     deployment_container_max_runtime_seconds: int = Field(default=3600)
     deployment_container_health_timeout_seconds: int = Field(default=30)
+    deployment_container_health_retry_interval_seconds: float = Field(default=1)
+    deployment_container_health_max_attempts: int = Field(default=30)
+    deployment_container_health_backoff_multiplier: float = Field(default=1.5)
     deployment_container_log_tail_bytes: int = Field(default=20_000)
 
     # Shared static snapshot limits

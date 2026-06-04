@@ -19,6 +19,8 @@ from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
 from app.models.user import User
 from app.schemas.conversation import (
+    AgentCapabilityProfileItemOut,
+    AgentCapabilityProfileOut,
     ConversationList,
     ConversationMemoryOut,
     ConversationOut,
@@ -32,6 +34,7 @@ from app.schemas.conversation import (
     UpdateConversationRequest,
 )
 from app.services.orchestrator_memory import (
+    build_agent_capability_profile,
     get_orchestrator_run_detail,
     list_orchestrator_runs,
 )
@@ -193,6 +196,28 @@ async def get_conversation_memory(
             detail={"error": {"code": "MEMORY_NOT_FOUND", "message": "Not found"}},
         )
     return ConversationMemoryOut.model_validate(memory)
+
+
+@router.get(
+    "/{conversation_id}/agent-capability-profile",
+    response_model=AgentCapabilityProfileOut,
+)
+async def get_conversation_agent_capability_profile(
+    conversation_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    recent_runs: int = Query(default=20, ge=1, le=100),
+) -> AgentCapabilityProfileOut:
+    await _get_owned_conversation(db, user.id, conversation_id)
+    items = await build_agent_capability_profile(
+        db,
+        conversation_id,
+        recent_runs=recent_runs,
+    )
+    return AgentCapabilityProfileOut(
+        items=[AgentCapabilityProfileItemOut.model_validate(item) for item in items],
+        total=len(items),
+    )
 
 
 @router.get("/{conv_id}/orchestrator-runs", response_model=OrchestratorRunList)
