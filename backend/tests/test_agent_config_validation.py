@@ -739,8 +739,8 @@ class TestOpenAPIContract:
             assert field in openapi_properties
 
         for schema in (
-            "OrchestratorRun",
-            "OrchestratorRunDetail",
+            "OrchestratorRunOut",
+            "OrchestratorRunDetailOut",
         ):
             assert schema in document["components"]["schemas"]
 

@@ -1,3 +1,7 @@
+import pytest
+
+from scripts.orchestrator_e2e.config import SCENARIO_DEFAULTS, load_settings
+from scripts.orchestrator_e2e.scenarios import SCENARIOS
 from scripts.orchestrator_live_e2e import (
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
@@ -28,27 +32,6 @@ def test_server_command_scan_rejects_executable_server_js_command() -> None:
     assert SERVER_COMMAND_RE.search("Run node server.js to serve the app.") is not None
 
 
-class FakeClient:
-    def __init__(self, artifacts: list[dict[str, object]]) -> None:
-        self.artifacts = artifacts
-
-    def get(self, path: str, headers: dict[str, str]):
-        assert path.endswith("/artifacts")
-        assert headers == {"Authorization": "Bearer token"}
-        return FakeResponse({"items": self.artifacts})
-
-
-class FakeResponse:
-    def __init__(self, body: dict[str, object]) -> None:
-        self.body = body
-
-    def raise_for_status(self) -> None:
-        pass
-
-    def json(self) -> dict[str, object]:
-        return self.body
-
-
 def test_p1_rich_artifacts_defaults_are_registered() -> None:
     assert DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH == (
         "/tmp/agenthub_p1_rich_artifacts_report.json"
@@ -74,6 +57,123 @@ def test_p1_rich_artifacts_defaults_are_registered() -> None:
     assert DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH == (
         "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl"
     )
+
+
+def test_scenario_registry_covers_all_existing_names_and_defaults() -> None:
+    assert set(SCENARIOS) == set(SCENARIO_DEFAULTS)
+    for name, spec in SCENARIOS.items():
+        defaults = SCENARIO_DEFAULTS[name]
+        assert str(spec.default_report_path) == defaults.report_path
+        assert str(spec.default_sse_path) == defaults.sse_path
+        assert str(spec.default_browser_report_path) == defaults.browser_report_path
+
+
+def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
+    expected = {
+        "quality": (
+            "/tmp/agenthub_orchestrator_quality_report.json",
+            "/tmp/agenthub_orchestrator_quality_sse.jsonl",
+        ),
+        "fullstack": (
+            "/tmp/agenthub_fullstack_flow_report.json",
+            "/tmp/agenthub_fullstack_flow_sse.jsonl",
+        ),
+        "deployment": (
+            "/tmp/agenthub_deployment_flow_report.json",
+            "/tmp/agenthub_deployment_flow_sse.jsonl",
+        ),
+        "deployment_repair": (
+            "/tmp/agenthub_deployment_repair_flow_report.json",
+            "/tmp/agenthub_deployment_repair_flow_sse.jsonl",
+        ),
+        "custom_agent_tools": (
+            "/tmp/agenthub_custom_agent_tools_report.json",
+            "/tmp/agenthub_custom_agent_tools_sse.jsonl",
+        ),
+        "p1_attribution": (
+            "/tmp/agenthub_p1_attribution_report.json",
+            "/tmp/agenthub_p1_attribution_sse.jsonl",
+        ),
+        "p1_workflow": (
+            "/tmp/agenthub_p1_workflow_report.json",
+            "/tmp/agenthub_p1_workflow_sse.jsonl",
+        ),
+        "p1_workflow_runtime": (
+            "/tmp/agenthub_p1_workflow_runtime_report.json",
+            "/tmp/agenthub_p1_workflow_runtime_sse.jsonl",
+        ),
+        "p1_review_thread_repair": (
+            "/tmp/agenthub_p1_review_thread_report.json",
+            "/tmp/agenthub_p1_review_thread_sse.jsonl",
+        ),
+        "p1_rich_artifacts": (
+            "/tmp/agenthub_p1_rich_artifacts_report.json",
+            "/tmp/agenthub_p1_rich_artifacts_sse.jsonl",
+        ),
+        "p1_evaluation_repair": (
+            "/tmp/agenthub_p1_evaluation_repair_report.json",
+            "/tmp/agenthub_p1_evaluation_repair_sse.jsonl",
+        ),
+        "p1_agent_capability_profile": (
+            "/tmp/agenthub_p1_agent_capability_profile_report.json",
+            "/tmp/agenthub_p1_agent_capability_profile_sse.jsonl",
+        ),
+        "p2_agent_capability_profile_v2": (
+            "/tmp/agenthub_p2_agent_capability_profile_v2_report.json",
+            "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl",
+        ),
+    }
+
+    assert {
+        name: (defaults.report_path, defaults.sse_path)
+        for name, defaults in SCENARIO_DEFAULTS.items()
+    } == expected
+
+
+def test_load_settings_honors_artifact_path_overrides() -> None:
+    settings = load_settings(
+        {
+            "AGENTHUB_E2E_REPORT_PATH": "/tmp/custom-report.json",
+            "AGENTHUB_E2E_SSE_PATH": "/tmp/custom-sse.jsonl",
+            "AGENTHUB_E2E_BROWSER_REPORT_PATH": "/tmp/custom-browser.json",
+        }
+    )
+
+    assert str(settings.report_path) == "/tmp/custom-report.json"
+    assert str(settings.sse_path) == "/tmp/custom-sse.jsonl"
+    assert str(settings.browser_report_path) == "/tmp/custom-browser.json"
+
+
+def test_load_settings_uses_temporary_user_for_capability_v2_by_default() -> None:
+    settings = load_settings(
+        {"AGENTHUB_E2E_SCENARIO": "p2_agent_capability_profile_v2"}
+    )
+
+    assert settings.use_temporary_user is True
+
+
+def test_load_settings_respects_explicit_capability_v2_username() -> None:
+    settings = load_settings(
+        {
+            "AGENTHUB_E2E_SCENARIO": "p2_agent_capability_profile_v2",
+            "AGENTHUB_E2E_USERNAME": "existing-user",
+        }
+    )
+
+    assert settings.use_temporary_user is False
+
+
+@pytest.mark.parametrize("status", ["not_supported", "published", "any"])
+def test_load_settings_accepts_container_status_expectations(status: str) -> None:
+    assert (
+        load_settings({"AGENTHUB_E2E_EXPECT_CONTAINER_STATUS": status}).expect_container_status
+        == status
+    )
+
+
+def test_load_settings_rejects_unknown_container_status_expectation() -> None:
+    with pytest.raises(ValueError, match="must be not_supported, published, or any"):
+        load_settings({"AGENTHUB_E2E_EXPECT_CONTAINER_STATUS": "queued"})
 
 
 def test_p1_rich_artifacts_archive_task_uses_shell_capable_agent() -> None:
@@ -360,6 +460,7 @@ def test_evaluate_p1_rich_artifacts_acceptance_uses_artifacts_api() -> None:
     report = {
         "conversation_id": "conversation-1",
         "checks": {"target_agents_present": True, "message_done": True},
+        "workspace_artifacts_api": artifacts,
         "target_agent_message": {
             "content": [
                 {"type": "file", **artifact}
@@ -368,11 +469,7 @@ def test_evaluate_p1_rich_artifacts_acceptance_uses_artifacts_api() -> None:
         },
     }
 
-    evaluate_p1_rich_artifacts(
-        FakeClient(artifacts),
-        {"Authorization": "Bearer token"},
-        report,
-    )
+    evaluate_p1_rich_artifacts(report)
 
     assert report["acceptance"]["passed"] is True
     assert report["acceptance"]["p1_rich_artifacts_block_manifest_aligned"] is True
@@ -399,7 +496,7 @@ def test_evaluate_p1_evaluation_repair_rejects_false_passed_manifest() -> None:
             "events": [{"event_type": "reflection_created"}],
         },
     }
-    artifacts = [
+    report["workspace_artifacts_api"] = [
         {
             "path": "report.md",
             "evaluation_status": "passed",
@@ -414,11 +511,7 @@ def test_evaluate_p1_evaluation_repair_rejects_false_passed_manifest() -> None:
         }
     ]
 
-    evaluate_p1_evaluation_repair(
-        FakeClient(artifacts),
-        {"Authorization": "Bearer token"},
-        report,
-    )
+    evaluate_p1_evaluation_repair(report)
 
     assert report["acceptance"]["p1_evaluation_manifest_not_false_passed"] is False
     assert report["acceptance"]["passed"] is False
@@ -468,7 +561,7 @@ def test_evaluate_p1_evaluation_repair_reads_event_attempts() -> None:
             ],
         },
     }
-    artifacts = [
+    report["workspace_artifacts_api"] = [
         {
             "path": "report.md",
             "evaluation_status": "passed",
@@ -483,11 +576,7 @@ def test_evaluate_p1_evaluation_repair_reads_event_attempts() -> None:
         }
     ]
 
-    evaluate_p1_evaluation_repair(
-        FakeClient(artifacts),
-        {"Authorization": "Bearer token"},
-        report,
-    )
+    evaluate_p1_evaluation_repair(report)
 
     assert report["acceptance"]["p1_evaluation_failed_seen"] is True
     assert report["acceptance"]["p1_evaluation_final_passed_or_manual"] is True

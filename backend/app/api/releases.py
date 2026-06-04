@@ -10,7 +10,7 @@ from sqlalchemy import select
 
 from app.core.deps import DbSession
 from app.models.workspace import WorkspaceDeployment
-from app.services.workspace_static_server import HTML_CSP
+from app.services.workspace.static_server import HTML_CSP
 
 router = APIRouter(prefix="/releases", tags=["Releases"])
 

@@ -11,8 +11,8 @@ import pytest
 
 from app.agents.orchestrator.evaluation import evaluate_attempt
 from app.agents.orchestrator.types import SubTask, TaskAttempt
-from app.services.artifact_manifest import evaluation_status_for_artifact
-from app.services.artifact_metadata import build_artifact_metadata
+from app.services.artifacts.manifest import evaluation_status_for_artifact
+from app.services.artifacts.metadata import build_artifact_metadata
 
 pytestmark = pytest.mark.asyncio
 

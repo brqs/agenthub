@@ -14,11 +14,11 @@ from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
 from app.models.message import Message
 from app.models.user import User
-from app.services.context_builder import build_context
-from app.services.context_compression import (
+from app.services.context.compression import (
     CompressionUnavailableError,
     estimate_tokens,
 )
+from app.services.context_builder import build_context
 from app.services.model_gateway import CompressionModelGateway
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
