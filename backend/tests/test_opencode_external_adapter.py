@@ -184,6 +184,40 @@ class TestOpenCodeAdapterStream:
         ]
         assert chunks[2].text_delta == "direct"
 
+    async def test_simple_greeting_returns_direct_text_without_subprocess_or_classifier(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fail_direct_chat(**_kwargs: Any) -> DirectChatDecision:
+            pytest.fail("simple greetings should not start the direct-chat classifier")
+
+        async def fail_create_subprocess_exec(*_args: Any, **_kwargs: Any) -> Any:
+            pytest.fail("OpenCode subprocess should not start for simple greetings")
+
+        monkeypatch.setattr(opencode_module, "maybe_stream_direct_chat", fail_direct_chat)
+        monkeypatch.setattr(
+            opencode_module.asyncio,
+            "create_subprocess_exec",
+            fail_create_subprocess_exec,
+        )
+
+        chunks = await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            config={"qa_short_circuit_enabled": True},
+            messages=[ChatMessage(role="user", content="你好")],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert "OpenCode Helper" in (chunks[2].text_delta or "")
+
     async def test_jsonl_text_stream_completes(
         self,
         monkeypatch: pytest.MonkeyPatch,

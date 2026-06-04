@@ -1,10 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as messagesAdapter from '@/lib/adapters/messages';
+import { queryKeys } from '@/lib/queryKeys';
 import type { Message, UpdateMessageRequest } from '@/lib/types';
+import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 
 export function useUpdateMessage() {
   const queryClient = useQueryClient();
+  const userId = useAuthStore((state) => state.user?.id);
   const updateMessageLocal = useChatStore((state) => state.updateMessageLocal);
 
   const mutation = useMutation({
@@ -12,7 +15,9 @@ export function useUpdateMessage() {
       messagesAdapter.updateMessage(messageId, input),
     onSuccess: (message) => {
       updateMessageLocal(message);
-      void queryClient.invalidateQueries({ queryKey: ['messages', message.conversation_id] });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.messages(userId, message.conversation_id),
+      });
     },
   });
 

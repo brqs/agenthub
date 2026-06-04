@@ -16,6 +16,10 @@ from app.agents.external.runtime_budget import (
     RuntimeTimeoutError,
     runtime_budget_config,
 )
+from app.agents.external.runtime_isolation import (
+    isolated_runtime_env,
+    isolated_session_id,
+)
 from app.agents.external.runtime_prelude import (
     external_runtime_prelude,
     text_result_chunks,
@@ -156,6 +160,11 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
                 budget_config=budget_config,
                 agent_id=self.agent_id,
                 provider=self.provider,
+                env=isolated_runtime_env(
+                    config,
+                    workspace_path=workspace_path,
+                    agent_id=self.agent_id,
+                ),
             ):
                 if isinstance(event, StreamChunk):
                     yield event
@@ -216,6 +225,14 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         merged = self.merged_config(config)
         option_kwargs = self._sdk_options(merged)
         option_kwargs["cwd"] = workspace_path
+        option_kwargs["continue_conversation"] = False
+        option_kwargs["resume"] = None
+        option_kwargs["session_id"] = isolated_session_id(merged, self.agent_id)
+        option_kwargs["env"] = isolated_runtime_env(
+            merged,
+            workspace_path=workspace_path,
+            agent_id=self.agent_id,
+        )
 
         option_cls = getattr(sdk, "ClaudeAgentOptions", None) or getattr(
             sdk,

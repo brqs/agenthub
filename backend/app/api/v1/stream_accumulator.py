@@ -174,6 +174,22 @@ class StreamContentAccumulator:
                 ):
                     if key in meta:
                         self.current[key] = meta[key]
+            elif chunk.block_type == "task_card":
+                meta = chunk.metadata or {}
+                self.current["title"] = str(meta.get("title") or "Orchestrator 调度计划")
+                tasks: list[dict[str, Any]] = []
+                for raw_task in meta.get("tasks", []):
+                    if not isinstance(raw_task, dict):
+                        continue
+                    tasks.append(
+                        {
+                            "id": str(raw_task.get("id") or ""),
+                            "agent_id": str(raw_task.get("agent_id") or ""),
+                            "title": str(raw_task.get("title") or ""),
+                            "status": _task_status(raw_task.get("status")),
+                        }
+                    )
+                self.current["tasks"] = tasks
         elif chunk.event_type == "delta" and self.current is not None:
             if chunk.text_delta:
                 if self.current.get("type") == "diff":
@@ -197,6 +213,8 @@ class StreamContentAccumulator:
             return self._feed_tool_call(chunk)
         elif chunk.event_type == "tool_result":
             return self._feed_tool_result(chunk)
+        elif chunk.event_type == "agent_switch":
+            self._feed_agent_switch(chunk)
         return None
 
     def _feed_tool_call(self, chunk: StreamChunk) -> StreamChunk | None:
@@ -243,6 +261,26 @@ class StreamContentAccumulator:
             block["error_code"] = _tool_result_error_code(chunk)
         return None
 
+    def _feed_agent_switch(self, chunk: StreamChunk) -> None:
+        self._finalize_current()
+        for block in self.blocks:
+            if block.get("type") != "task_card":
+                continue
+            tasks = block.get("tasks")
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                if task.get("status") == "running":
+                    task["status"] = "done"
+                if (
+                    task.get("status") == "pending"
+                    and task.get("agent_id") == chunk.to_agent
+                    and (not chunk.task or task.get("title") == chunk.task)
+                ):
+                    task["status"] = "running"
+
     def finalize_orphaned_tools(self) -> bool:
         self._finalize_current()
         if not self.pending_tool_calls:
@@ -253,6 +291,19 @@ class StreamContentAccumulator:
         self.pending_tool_calls.clear()
         self.has_orphaned_tool_call = True
         return True
+
+    def finalize_task_cards(self, *, success: bool) -> None:
+        self._finalize_current()
+        terminal_status = "done" if success else "error"
+        for block in self.blocks:
+            if block.get("type") != "task_card":
+                continue
+            tasks = block.get("tasks")
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                if isinstance(task, dict) and task.get("status") == "running":
+                    task["status"] = terminal_status
 
     def to_list(self) -> list[dict[str, Any]]:
         self._finalize_current()
@@ -460,6 +511,12 @@ def _looks_like_workflow_definition(payload: Any) -> bool:
     return isinstance(payload, Mapping) and any(
         key in payload for key in ("version", "name", "nodes", "edges")
     )
+
+
+def _task_status(value: object) -> str:
+    if value in {"pending", "running", "done", "error"}:
+        return str(value)
+    return "pending"
 
 
 def _tool_call_orphan_error(message: str) -> StreamChunk:

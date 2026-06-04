@@ -18,13 +18,14 @@ export function MessageInput({
   mentionInsertRequest = null,
 }: {
   conversation: DemoConversation;
-  onSend: (text: string) => void;
+  onSend: (text: string) => void | Promise<void>;
   isSending?: boolean;
   isOffline?: boolean;
   agents?: Agent[];
   mentionInsertRequest?: MentionInsertRequest | null;
 }) {
   const [text, setText] = useState('');
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const handledMentionRequestId = useRef<number | null>(null);
   const mentionQuery = useMemo(() => {
@@ -35,11 +36,16 @@ export function MessageInput({
   const availableAgents = agents.filter((agent) => conversation.agent_ids.includes(agent.id));
   const isUnavailable = isSending || isOffline;
 
-  function submit() {
+  async function submit() {
     const value = text.trim();
     if (!value || isUnavailable) return;
-    onSend(value);
-    setText('');
+    setSubmitError(null);
+    try {
+      await onSend(value);
+      setText('');
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   useEffect(() => {
@@ -68,7 +74,7 @@ export function MessageInput({
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      submit();
+      void submit();
     }
   }
 
@@ -92,6 +98,11 @@ export function MessageInput({
           当前离线，恢复网络后可继续发送
         </p>
       )}
+      {submitError && (
+        <p className="mb-2 text-xs font-medium text-red-600 dark:text-red-400">
+          {submitError}
+        </p>
+      )}
       <div className="flex items-end gap-3 rounded-md border border-slate-300 bg-white p-2.5 focus-within:border-brand dark:border-slate-800 dark:bg-slate-900 [@media(max-height:800px)]:p-2">
         <button
           type="button"
@@ -104,7 +115,10 @@ export function MessageInput({
         <textarea
           ref={textareaRef}
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value);
+            if (submitError) setSubmitError(null);
+          }}
           onKeyDown={handleKeyDown}
           rows={1}
           disabled={isUnavailable}
@@ -113,7 +127,7 @@ export function MessageInput({
         />
         <button
           type="button"
-          onClick={submit}
+          onClick={() => void submit()}
           disabled={!text.trim() || isUnavailable}
           className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
           title="发送"

@@ -229,6 +229,7 @@ async def test_fake_real_agent_demo_smoke_writes_hello_html(
     assert tool_blocks == [
         {
             "type": "tool_call",
+            "agent_id": "claude-code",
             "call_id": "demo.c-1",
             "tool_name": "write_file",
             "arguments": {

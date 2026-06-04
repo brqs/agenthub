@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MessageInput } from './MessageInput';
 import { mockAgents, type DemoConversation } from '@/lib/mockData';
 
@@ -22,16 +22,20 @@ const groupConversation: DemoConversation = {
 };
 
 describe('MessageInput', () => {
-  it('sends trimmed text by click', () => {
-    const onSend = vi.fn();
+  it('sends trimmed text by click', async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
     render(<MessageInput conversation={singleConversation} onSend={onSend} />);
 
-    fireEvent.change(screen.getByPlaceholderText('发消息到 单聊测试'), {
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+    fireEvent.change(input, {
       target: { value: '  hello  ' },
     });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
 
-    expect(onSend).toHaveBeenCalledWith('hello');
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('hello');
+      expect(input).toHaveValue('');
+    });
   });
 
   it('does not send blank text', () => {
@@ -48,8 +52,22 @@ describe('MessageInput', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('sends with Enter and keeps Shift+Enter for newline', () => {
-    const onSend = vi.fn();
+  it('keeps text and shows an error when sending fails', async () => {
+    const onSend = vi.fn().mockRejectedValue(new Error('上一条回复仍未结束，请稍后再发。'));
+    render(<MessageInput conversation={singleConversation} onSend={onSend} />);
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+
+    fireEvent.change(input, { target: { value: '你好' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('上一条回复仍未结束，请稍后再发。')).toBeInTheDocument();
+    });
+    expect(input).toHaveValue('你好');
+  });
+
+  it('sends with Enter and keeps Shift+Enter for newline', async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
     render(<MessageInput conversation={singleConversation} onSend={onSend} />);
     const input = screen.getByPlaceholderText('发消息到 单聊测试');
 
@@ -58,7 +76,10 @@ describe('MessageInput', () => {
     expect(onSend).not.toHaveBeenCalled();
 
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('hello');
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('hello');
+      expect(input).toHaveValue('');
+    });
   });
 
   it('disables input while sending', () => {

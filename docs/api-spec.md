@@ -7,7 +7,7 @@
 
 > ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：本文档（人类可读版）已同步当前已落地的 pivot 契约；机器可读 [openapi.yaml](../shared/openapi.yaml) 仍是唯一真相源。完整决策见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
 >
-> v1.1 已落地章节：§5.6（SSE 新增 tool_call / tool_result 事件）/ §6（Agent provider 与 config schema 切换为真实 runtime / builtin）/ §7.4（ToolCallBlock 加入 ContentBlock 联合）/ §11（Workspace & Artifact API，新增 3 端点）/ §8 错误码追加 / 附录 E 变更日志。
+> v1.1 已落地章节：§5.6（SSE 新增 tool_call / tool_result 事件）/ §6（Agent provider 与 config schema 切换为真实 runtime / builtin）/ §7.4（ToolCallBlock、DeploymentStatusBlock 与 block-level `agent_id` 加入 ContentBlock 联合）/ §11（Workspace、Preview、Deployment API）/ §8 错误码追加 / 附录 E 变更日志。
 >
 > v1.0 已有的认证、会话、消息、Agent CRUD、SSE 基础事件（start/block_*/delta/done/error/agent_switch）章节**全部保留并继续生效**，pivot 不破坏向后兼容。
 
@@ -1254,21 +1254,25 @@ type ContentBlock =
   | DiffBlock
   | WebPreviewBlock
   | FileBlock
+  | DeploymentStatusBlock
   | ToolCallBlock;        // ✨ v1.1 新增（pivot）
 
 interface TextBlock {
   type: "text";
+  agent_id?: string | null; // block-level 真实来源；为空时继承 Message.agent_id
   text: string;
 }
 
 interface CodeBlock {
   type: "code";
+  agent_id?: string | null;
   language: string;       // "python" | "tsx" | ...
   code: string;
 }
 
 interface DiffBlock {
   type: "diff";
+  agent_id?: string | null;
   filename: string;
   before: string;
   after: string;
@@ -1276,6 +1280,7 @@ interface DiffBlock {
 
 interface WebPreviewBlock {
   type: "web_preview";
+  agent_id?: string | null;
   url: string;
   title?: string;
   description?: string;
@@ -1284,16 +1289,29 @@ interface WebPreviewBlock {
 
 interface FileBlock {
   type: "file";
+  agent_id?: string | null;
   filename: string;
   url: string;
   size: number;           // bytes
   mime_type: string;
 }
 
+interface DeploymentStatusBlock {
+  type: "deployment_status";
+  deployment_id: string;
+  kind: "static_site" | "source_zip" | "container";
+  status: "queued" | "publishing" | "published" | "failed" | "stopped" | "not_supported";
+  url?: string | null;
+  download_url?: string | null;
+  error?: string | null;
+  logs_preview?: string | null;
+}
+
 // ✨ v1.1 新增（pivot）— 由 SSE tool_call + tool_result 配对持久化而来
 // 完整规范：docs/b2/spec/agent-runtime-adapter.spec.md §3 / §7.2
 interface ToolCallBlock {
   type: "tool_call";
+  agent_id?: string | null;
   call_id: string;                                // 唯一 id，如 "c-001" 或 "t1.c-001"（orchestrator 子任务重映射后）
   tool_name: string;                              // 如 "write_file" / "bash" / "mcp_fs__list_directory"
   arguments: Record<string, unknown>;             // tool 参数（write_file 的 content 可能 preview 截断）
@@ -1656,7 +1674,7 @@ curl -X POST http://localhost:8000/api/v1/conversations/c2/messages \
 
 > Sprint 5 Day 2 由 B1 落地。完整安全边界与路径校验规则见 [docs/b1/spec/workspace-sandbox.spec.md](b1/spec/workspace-sandbox.spec.md)，机器可读契约见 [shared/openapi.yaml](../shared/openapi.yaml)。
 >
-> 设计目标：每个 conversation 对应一个隔离 sandbox 目录，所有 Agent（External / Builtin）在其中读写文件；前端通过 3 个端点浏览、预览、二次编辑产物。
+> 设计目标：每个 conversation 对应一个隔离 sandbox 目录，所有 Agent（External / Builtin）在其中读写文件；前端通过 Workspace API 浏览、预览、二次编辑、发布和下载产物。
 
 ### 11.1 资源关系
 
@@ -1664,10 +1682,13 @@ curl -X POST http://localhost:8000/api/v1/conversations/c2/messages \
 Conversation (1) ─── (1) Workspace ─── (n) Files
                           │
                           └── root_path = /workspaces/<conversation_id>/
+                          │
+                          ├── (0..1) Preview Session
+                          └── (n) Deployment / Source Export
 ```
 
 - **懒创建**：Conversation 创建时**不**立即建 workspace；Agent 第一次需要 `workspace_path` 时由 WorkspaceService 创建
-- **生命周期**：Conversation 删除 → workspace 行 cascade + 物理目录 rmtree
+- **生命周期**：Conversation 删除 → workspace 行 cascade + 物理目录 rmtree，并清理 preview、release snapshot、source zip、deployment 资源
 
 ### 11.2 GET `/api/v1/workspaces/{conv_id}/tree` — 文件树
 
@@ -1730,7 +1751,109 @@ Conversation (1) ─── (1) Workspace ─── (n) Files
 
 **典型用例**：用户在 Monaco 编辑器改了 `App.tsx` → PUT 回写 → 前端自动在对话中发送一条系统消息 "我把 App.tsx 改成了这样，请基于此继续" → Agent 接续
 
-### 11.5 安全边界（强制）
+### 11.5 Preview API — 平台静态预览
+
+Preview 是临时开发预览，由平台服务启动和管理，不由 Agent runtime 输出 `python -m http.server` 或 `npm run dev`。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/api/v1/workspaces/{conv_id}/preview` | 启动或复用 preview |
+| GET | `/api/v1/workspaces/{conv_id}/preview` | 查询 preview 状态 |
+| DELETE | `/api/v1/workspaces/{conv_id}/preview` | 停止 preview |
+| POST | `/api/v1/workspaces/{conv_id}/preview/verify` | 浏览器级验证 preview |
+
+**POST 请求**：
+
+```json
+{
+  "entry_path": "index.html",
+  "requested_port": 8082
+}
+```
+
+**响应 200**：
+
+```json
+{
+  "id": "preview-session-id",
+  "conversation_id": "conversation-id",
+  "workspace_id": "workspace-id",
+  "entry_path": "index.html",
+  "mode": "static",
+  "port": 8082,
+  "url": "http://localhost:8082",
+  "status": "running",
+  "error": null,
+  "created_at": "2026-06-03T00:00:00Z",
+  "updated_at": "2026-06-03T00:00:00Z",
+  "last_accessed_at": "2026-06-03T00:00:00Z"
+}
+```
+
+**规则**：
+
+- Preview 服务隔离快照目录，不直接暴露原始 workspace。
+- `entry_path` 必须是 workspace 内 HTML 入口。
+- `requested_port` 被占用时明确失败，不静默 fallback。
+- HTML 响应带 CSP、`X-Content-Type-Options: nosniff`，并禁止目录列表。
+
+### 11.6 Deployment API — 发布、源码包与容器部署
+
+Deployment 是一次可追踪发布记录。Preview 是临时开发预览，Deployment 是可查看状态、URL、日志、失败原因和历史的发布动作。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| POST | `/api/v1/workspaces/{conv_id}/deployments` | 创建 static site、source zip 或 container deployment |
+| GET | `/api/v1/workspaces/{conv_id}/deployments` | 列出部署历史 |
+| GET | `/api/v1/workspaces/{conv_id}/deployments/{deployment_id}` | 查询部署状态 |
+| DELETE | `/api/v1/workspaces/{conv_id}/deployments/{deployment_id}` | 停止部署或删除源码包 |
+| GET | `/api/v1/workspaces/{conv_id}/deployments/{deployment_id}/download` | 下载 source zip |
+
+**POST 请求**：
+
+```json
+{
+  "kind": "static_site",
+  "entry_path": "index.html"
+}
+```
+
+`kind` 可选：
+
+| kind | 说明 |
+|---|---|
+| `static_site` | 生成不可变静态站点 release URL |
+| `source_zip` | 安全打包 workspace 源码，返回带过期时间的下载 URL |
+| `container` | 由平台受控 worker 构建并运行容器；关闭 worker 时返回受控失败状态 |
+
+**响应 200/201**：
+
+```json
+{
+  "id": "deployment-id",
+  "conversation_id": "conversation-id",
+  "workspace_id": "workspace-id",
+  "kind": "static_site",
+  "status": "published",
+  "entry_path": "index.html",
+  "url": "http://localhost:8000/releases/<token>",
+  "download_url": null,
+  "error": null,
+  "logs": ["Published static release."],
+  "logs_tail": "Published static release.",
+  "created_at": "2026-06-03T00:00:00Z",
+  "updated_at": "2026-06-03T00:00:00Z"
+}
+```
+
+**规则**：
+
+- API 响应不暴露内部 `snapshot_path` 或原始 release token。
+- Static release 不受后续 workspace 修改影响；stop 后 URL 失效。
+- Source zip 排除 `.agenthub`、`.git`、`.env*`、`.ssh`、`secrets`、`node_modules`、虚拟环境和缓存。
+- Container deployment 必须经过平台 worker 和 policy 校验，禁止 privileged、host network、host path mount、Docker socket 等危险配置。
+
+### 11.7 安全边界（强制）
 
 | 操作 | 校验 | 拒绝时返回 |
 |---|---|---|
@@ -1741,7 +1864,7 @@ Conversation (1) ─── (1) Workspace ─── (n) Files
 | 读操作 | 最大 1 MB | 413 |
 | 写操作 | 最大 1 MB | 413 |
 
-❌ **不做**（MVP）：Docker per-conversation 隔离、网络/CPU 限制、Workspace 字节配额。
+❌ **不做**（B1 边界）：让 Agent runtime 直接管理端口、PID、公网 URL 或任意 Docker 命令。Preview / Deployment 生命周期只能由平台 API 和受控 worker 管理。
 
 ---
 
@@ -1782,3 +1905,4 @@ Conversation (1) ─── (1) Workspace ─── (n) Files
 | 2026-05-26 | v1.1（B1-PIVOT-3） | Workspace & Artifact API 已落地：`GET /workspaces/{conv_id}/tree`、`GET /workspaces/{conv_id}/files/{path}`、`PUT /workspaces/{conv_id}/files/{path}`；同步 `WorkspaceTreeNode` / `WorkspaceTreeResponse` 到 `shared/openapi.yaml`。|
 | 2026-05-26 | v1.1（B1-PIVOT-4/5） | SSE `tool_call` / `tool_result` 已落地：B1 stream 网关注入 `workspace_path`，配对持久化为 `ToolCallBlock`，并同步 `shared/openapi.yaml`。|
 | 2026-05-27 | v1.1（B2-20） | Agent provider / config schema 已切换为真实 runtime / builtin：顶层 creatable provider 为 `claude_code` / `codex` / `opencode` / `builtin`，legacy raw provider 仅作为历史数据或 BuiltinAgent ModelGateway backend；同步 `shared/openapi.yaml` 与本文 §6。|
+| 2026-06-03 | v1.2（B1 收口） | 同步 ContentBlock block-level `agent_id`、`DeploymentStatusBlock`、Workspace preview、deployment、source zip、container deployment API；明确 Preview/Deployment 由平台管理，不由 Agent runtime 管理端口、PID 或部署命令。|

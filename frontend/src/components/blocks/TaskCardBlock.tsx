@@ -24,9 +24,28 @@ export function TaskCardBlock({
   block: TaskCardBlockData;
   agents?: Agent[];
 }) {
+  const doneCount = block.tasks.filter((task) => task.status === 'done').length;
+  const runningTask = block.tasks.find((task) => task.status === 'running');
+  const hasError = block.tasks.some((task) => task.status === 'error');
+  const stage = hasError
+    ? '有任务失败'
+    : runningTask
+      ? `正在调度 @${agents.find((item) => item.id === runningTask.agent_id)?.name ?? runningTask.agent_id}`
+      : doneCount === block.tasks.length && block.tasks.length > 0
+        ? '调度完成'
+        : '等待调度';
+
   return (
-    <div className="my-3 min-w-0 rounded-md border border-slate-700 bg-slate-900/80 p-4">
-      <div className="mb-3 text-sm font-semibold text-white">{block.title}</div>
+    <div className="my-3 min-w-0 rounded-md border border-brand/30 bg-brand/10 p-4 shadow-[0_0_0_1px_rgba(99,102,241,0.08)]">
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-white">{block.title}</div>
+          <div className="mt-1 truncate text-xs text-slate-400">{stage}</div>
+        </div>
+        <span className="shrink-0 rounded bg-slate-950/70 px-2 py-1 text-xs text-slate-300">
+          {doneCount}/{block.tasks.length}
+        </span>
+      </div>
       <div className="space-y-2">
         {block.tasks.map((task, index) => {
           const Icon = STATUS_ICON[task.status];

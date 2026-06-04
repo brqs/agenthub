@@ -36,6 +36,7 @@ BlockType = Literal[
     "tool_call",
     "deployment_status",
     "workflow",
+    "task_card",
 ]
 
 

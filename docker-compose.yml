@@ -46,6 +46,8 @@ services:
       # 容器内连库用服务名而非 localhost
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-agenthub}:${POSTGRES_PASSWORD:-agenthub_dev_pw}@postgres:5432/${POSTGRES_DB:-agenthub}
       REDIS_URL: redis://redis:6379/0
+      DEPLOYMENT_CONTAINER_PUBLIC_BASE_URL: ${DEPLOYMENT_CONTAINER_PUBLIC_BASE_URL:-http://localhost}
+      DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL: ${DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL:-http://host.docker.internal}
     ports:
       - "8000:8000"
     volumes:
@@ -56,6 +58,8 @@ services:
       - ./backend/alembic.ini:/app/alembic.ini
       - ./shared:/shared:ro
       - ./workspaces:/workspaces
+      # Trusted local deployment mode: let backend run Docker containers via host Docker.
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
         condition: service_healthy

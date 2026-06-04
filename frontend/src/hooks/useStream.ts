@@ -33,6 +33,7 @@ export function useStream(
     onEvent?: (event: StreamEvent) => void;
     onDone?: () => void;
     onError?: (error: string) => void;
+    onTransportError?: (error: string) => void;
   },
 ) {
   const [blocks, setBlocks] = useState<StreamingBlock[]>([]);
@@ -166,10 +167,11 @@ export function useStream(
         }
       },
       onError: (err) => {
+        if (completedRef.current) return;
         completedRef.current = true;
         setStatus('error');
         setError(String(err));
-        optionsRef.current?.onError?.(String(err));
+        optionsRef.current?.onTransportError?.(String(err));
       },
       onClose: () => {
         if (completedRef.current) return;
@@ -177,7 +179,7 @@ export function useStream(
         completedRef.current = true;
         setStatus('error');
         setError(message);
-        optionsRef.current?.onError?.(message);
+        optionsRef.current?.onTransportError?.(message);
       },
     });
     ctrlRef.current = ctrl;

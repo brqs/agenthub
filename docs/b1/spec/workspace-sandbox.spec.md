@@ -77,8 +77,9 @@ class Workspace(Base):
 |---|---|
 | Conversation 创建 | **不**立即创建 workspace（懒创建） |
 | Agent 第一次需要 workspace_path | WorkspaceService 创建目录 + DB 行 + README |
-| Conversation 删除 | 删除 workspaces 行 + `shutil.rmtree(root_path)`（在 service 层显式调用） |
-| Workspace 闲置 > 30 天 | 不自动清理（MVP，后续可加 cron） |
+| Conversation 删除 | 删除 workspaces 行 + `shutil.rmtree(root_path)`，并清理 preview / release / source zip / deployment 资源 |
+| Preview 闲置超过 TTL | Janitor 停止 preview session 并清理隔离快照 |
+| Source zip 过期 | Janitor 删除过期 zip 和孤儿目录 |
 
 ---
 
@@ -158,6 +159,15 @@ class WorkspaceService:
 | GET | `/api/v1/workspaces/{conv_id}/tree` | 返回目录树 JSON |
 | GET | `/api/v1/workspaces/{conv_id}/files/{path:path}` | 返回文件内容（含 mime sniff） |
 | PUT | `/api/v1/workspaces/{conv_id}/files/{path:path}` | 前端二次编辑回写 |
+| POST | `/api/v1/workspaces/{conv_id}/preview` | 启动或复用平台静态预览 |
+| GET | `/api/v1/workspaces/{conv_id}/preview` | 查询 preview 状态 |
+| DELETE | `/api/v1/workspaces/{conv_id}/preview` | 停止 preview |
+| POST | `/api/v1/workspaces/{conv_id}/preview/verify` | 浏览器级验证 preview |
+| POST | `/api/v1/workspaces/{conv_id}/deployments` | 创建 static site / source zip / container deployment |
+| GET | `/api/v1/workspaces/{conv_id}/deployments` | 列出部署历史 |
+| GET | `/api/v1/workspaces/{conv_id}/deployments/{deployment_id}` | 查询部署状态 |
+| DELETE | `/api/v1/workspaces/{conv_id}/deployments/{deployment_id}` | 停止部署或删除源码包 |
+| GET | `/api/v1/workspaces/{conv_id}/deployments/{deployment_id}/download` | 下载 source zip |
 
 ### 鉴权
 
@@ -177,16 +187,25 @@ class WorkspaceService:
 - 设置 `X-Frame-Options: SAMEORIGIN`
 - 不允许跨域跳转
 
+### Preview / Deployment 注意
+
+- Preview 和 deployment URL 必须由平台服务生成，Agent runtime 不得编造 URL。
+- Agent runtime 不直接启动 `python -m http.server`、`npm run dev`、`vite` 或 `node server.js`。
+- Preview 服务隔离快照目录，不直接公开原始 workspace。
+- Static release 是不可变快照，停止后 release token 立即失效。
+- Source zip 必须排除 `.agenthub`、`.git`、`.env*`、`.ssh`、`secrets`、`node_modules`、虚拟环境和缓存目录。
+- Container deployment 必须经过平台 worker 和 policy 校验；worker 关闭时只能返回受控失败或 `not_supported`，不能降级为 Agent 直接执行 Docker。
+
 ---
 
 ## 7. OpenAPI 同步
 
-由 B1 在 Sprint 5 Day 2 把上述 3 个端点加入 [shared/openapi.yaml](../../../shared/openapi.yaml)。
-本 Spec 不直接修改契约文件。
+Workspace、Preview、Deployment 端点均已同步到 [shared/openapi.yaml](../../../shared/openapi.yaml)。
+本 Spec 说明 B1 安全边界；机器可读契约以 `shared/openapi.yaml` 为准。
 
 ---
 
-## 8. 验收用例（5 个）
+## 8. 验收用例
 
 | # | 用例 | 验证 |
 |---|---|---|
@@ -194,7 +213,10 @@ class WorkspaceService:
 | 2 | Agent 调 `write_file("../etc/passwd", ...)` | 抛 WorkspaceViolation；返回 `tool_result(error, workspace_violation)` |
 | 3 | Agent 调 `bash("curl http://evil.com")` | 拒绝（curl 不在白名单）；`tool_result(error)` |
 | 4 | 前端 GET `/api/v1/workspaces/.../files/App.tsx` | 200 + text/plain 内容 |
-| 5 | 删除 conversation | workspace 行删除；物理目录被 rmtree |
+| 5 | 前端 POST `/preview` | 返回平台生成 URL；预览服务读取隔离快照 |
+| 6 | 前端 POST `/deployments` `kind=static_site` | 返回 deployment record 和不可变 release URL |
+| 7 | 前端 POST `/deployments` `kind=source_zip` | 返回 download URL；源码包排除敏感路径 |
+| 8 | 删除 conversation | workspace 行删除；物理目录、preview、release、zip 和 deployment 资源被清理 |
 
 ---
 
@@ -204,4 +226,4 @@ class WorkspaceService:
 - 网络/CPU/内存资源限制（P2）
 - 多副本/多机部署时的 workspace 路径协议（MVP 假设单机）
 - Workspace 配额（每用户/每会话最大字节数）（P2，默认无限）
-- 前端文件树 UI（由 F 在 Sprint 5 Day 3 决定）
+- 前端文件树、preview、deployment UI（由 F 负责）
