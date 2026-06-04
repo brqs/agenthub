@@ -3,8 +3,10 @@ import { ModuleRail } from './ModuleRail';
 import { SettingsDialog } from './SettingsDialog';
 import { UserMenu } from './UserMenu';
 import { OfflineBanner } from './OfflineBanner';
+import { StreamSupervisor } from '@/components/chat/StreamSupervisor';
 import { MobileBottomNav } from '@/components/mobile/MobileBottomNav';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useStreamRecovery } from '@/hooks/useStreamRecovery';
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight';
 import { usePwaUpdate } from '@/lib/pwa';
 import { resetClientSession } from '@/lib/session';
@@ -13,6 +15,7 @@ import { useUiStore } from '@/stores/uiStore';
 
 export function AppLayout() {
   useVisualViewportHeight();
+  useStreamRecovery();
   const isOnline = useNetworkStatus();
   const { updateAvailable, applyUpdate } = usePwaUpdate();
   const user = useAuthStore((s) => s.user);
@@ -55,6 +58,7 @@ export function AppLayout() {
         />
       )}
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <StreamSupervisor />
     </div>
   );
 }

@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -54,10 +55,16 @@ class WorkspaceService:
         workspace = (await db.execute(stmt)).scalar_one_or_none()
         root = self._workspace_root(conversation_id)
         if workspace is None:
-            workspace = Workspace(conversation_id=conversation_id, root_path=str(root))
-            db.add(workspace)
-        else:
-            workspace.root_path = str(root)
+            try:
+                async with db.begin_nested():
+                    workspace = Workspace(conversation_id=conversation_id, root_path=str(root))
+                    db.add(workspace)
+                    await db.flush()
+            except IntegrityError:
+                workspace = (await db.execute(stmt)).scalar_one_or_none()
+                if workspace is None:
+                    raise
+        workspace.root_path = str(root)
         self._initialize_directory(root, conversation_id)
         workspace.last_accessed_at = datetime.now(UTC)
         await db.flush()

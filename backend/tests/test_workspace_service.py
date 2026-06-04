@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -92,6 +93,30 @@ async def test_get_or_create_workspace_is_idempotent() -> None:
         ).scalar_one()
 
     assert second.id == first_id
+    assert count == 1
+
+
+async def test_get_or_create_workspace_is_concurrency_safe() -> None:
+    conversation_id = await _create_conversation()
+
+    async def create_once() -> UUID:
+        async with SessionFactory() as db:
+            workspace = await WorkspaceService().get_or_create(db, conversation_id)
+            await db.commit()
+            return workspace.id
+
+    ids = await asyncio.gather(*(create_once() for _ in range(8)))
+
+    async with SessionFactory() as db:
+        count = (
+            await db.execute(
+                select(func.count(Workspace.id)).where(
+                    Workspace.conversation_id == conversation_id
+                )
+            )
+        ).scalar_one()
+
+    assert len(set(ids)) == 1
     assert count == 1
 
 

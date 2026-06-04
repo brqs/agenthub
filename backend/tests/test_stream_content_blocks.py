@@ -96,6 +96,58 @@ async def test_stream_accumulator_persists_file_block() -> None:
     ]
 
 
+async def test_stream_accumulator_persists_task_card_block() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="task_card",
+            agent_id="orchestrator",
+            metadata={
+                "title": "Orchestrator plan",
+                "tasks": [
+                    {
+                        "id": "task-a",
+                        "agent_id": "claude-code",
+                        "title": "Generate page",
+                        "status": "running",
+                    },
+                    {
+                        "id": "task-b",
+                        "agent_id": "codex-helper",
+                        "title": "Review code",
+                        "status": "pending",
+                    },
+                ],
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    assert accumulator.to_list() == [
+        {
+            "type": "task_card",
+            "agent_id": "orchestrator",
+            "title": "Orchestrator plan",
+            "tasks": [
+                {
+                    "id": "task-a",
+                    "agent_id": "claude-code",
+                    "title": "Generate page",
+                    "status": "running",
+                },
+                {
+                    "id": "task-b",
+                    "agent_id": "codex-helper",
+                    "title": "Review code",
+                    "status": "pending",
+                },
+            ],
+        }
+    ]
+
+
 async def test_stream_accumulator_persists_workflow_block() -> None:
     accumulator = StreamContentAccumulator()
     accumulator.feed(
@@ -231,6 +283,142 @@ async def test_stream_accumulator_keeps_regular_json_code_block() -> None:
         {"type": "code", "language": "json", "code": '{"ok":true}'}
     ]
 
+
+async def test_stream_accumulator_updates_task_card_from_agent_switch() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="task_card",
+            metadata={
+                "title": "Orchestrator plan",
+                "tasks": [
+                    {
+                        "id": "task-a",
+                        "agent_id": "claude-code",
+                        "title": "Build HTML",
+                        "status": "pending",
+                    },
+                    {
+                        "id": "task-b",
+                        "agent_id": "claude-code",
+                        "title": "Review HTML",
+                        "status": "pending",
+                    },
+                ],
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    accumulator.feed(
+        StreamChunk(
+            event_type="agent_switch",
+            from_agent="orchestrator",
+            to_agent="claude-code",
+            task="Build HTML",
+        )
+    )
+    assert accumulator.to_list()[0]["tasks"] == [
+        {
+            "id": "task-a",
+            "agent_id": "claude-code",
+            "title": "Build HTML",
+            "status": "running",
+        },
+        {
+            "id": "task-b",
+            "agent_id": "claude-code",
+            "title": "Review HTML",
+            "status": "pending",
+        },
+    ]
+
+    accumulator.feed(
+        StreamChunk(
+            event_type="agent_switch",
+            from_agent="orchestrator",
+            to_agent="claude-code",
+            task="Review HTML",
+        )
+    )
+    assert accumulator.to_list()[0]["tasks"] == [
+        {
+            "id": "task-a",
+            "agent_id": "claude-code",
+            "title": "Build HTML",
+            "status": "done",
+        },
+        {
+            "id": "task-b",
+            "agent_id": "claude-code",
+            "title": "Review HTML",
+            "status": "running",
+        },
+    ]
+
+
+async def test_stream_accumulator_finalizes_running_task_cards() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="task_card",
+            metadata={
+                "title": "Orchestrator plan",
+                "tasks": [
+                    {
+                        "id": "task-a",
+                        "agent_id": "claude-code",
+                        "title": "Build HTML",
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+    accumulator.feed(
+        StreamChunk(
+            event_type="agent_switch",
+            from_agent="orchestrator",
+            to_agent="claude-code",
+            task="Build HTML",
+        )
+    )
+
+    accumulator.finalize_task_cards(success=True)
+
+    assert accumulator.to_list()[0]["tasks"][0]["status"] == "done"
+
+
+async def test_stream_accumulator_marks_running_task_cards_error_on_failure() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="task_card",
+            metadata={
+                "title": "Orchestrator plan",
+                "tasks": [
+                    {
+                        "id": "task-a",
+                        "agent_id": "claude-code",
+                        "title": "Build HTML",
+                        "status": "running",
+                    }
+                ],
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    accumulator.finalize_task_cards(success=False)
+
+    assert accumulator.to_list()[0]["tasks"][0]["status"] == "error"
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def ensure_tables() -> None:

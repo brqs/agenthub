@@ -26,6 +26,7 @@ from app.schemas.message import (
     SendMessageResponse,
     UpdateMessageRequest,
 )
+from app.services.message_lifecycle import cleanup_stale_streaming_messages
 
 router = APIRouter()
 
@@ -52,23 +53,67 @@ async def list_messages(
     db: DbSession,
     user: Annotated[User, Depends(get_current_user)],
     cursor: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=100),
+    limit: int = Query(default=30, ge=1, le=100),
     direction: str = Query(default="before", pattern="^(before|after)$"),
 ) -> MessageList:
     await _get_owned_conversation(db, user.id, conv_id)
 
-    # TODO(B1): proper cursor pagination
-    stmt = (
-        select(Message)
-        .where(Message.conversation_id == conv_id)
-        .order_by(Message.created_at.asc())
-        .limit(limit)
-    )
-    items = (await db.execute(stmt)).scalars().all()
+    cursor_message: Message | None = None
+    if cursor:
+        try:
+            cursor_id = UUID(cursor)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "code": "INVALID_CURSOR",
+                        "message": "Message cursor must be a message id",
+                    }
+                },
+            ) from exc
+        cursor_message = await db.get(Message, cursor_id)
+        if cursor_message is None or cursor_message.conversation_id != conv_id:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "code": "INVALID_CURSOR",
+                        "message": "Message cursor does not belong to this conversation",
+                    }
+                },
+            )
+
+    stmt = select(Message).where(Message.conversation_id == conv_id)
+    if cursor_message is not None:
+        if direction == "before":
+            stmt = stmt.where(Message.created_at < cursor_message.created_at)
+        else:
+            stmt = stmt.where(Message.created_at > cursor_message.created_at)
+
+    if direction == "after" and cursor_message is not None:
+        page = (
+            (await db.execute(stmt.order_by(Message.created_at.asc()).limit(limit + 1)))
+            .scalars()
+            .all()
+        )
+        has_more = len(page) > limit
+        items = page[:limit]
+        next_cursor = str(items[-1].id) if has_more and items else None
+    else:
+        page = (
+            (await db.execute(stmt.order_by(Message.created_at.desc()).limit(limit + 1)))
+            .scalars()
+            .all()
+        )
+        has_more = len(page) > limit
+        items = list(reversed(page[:limit]))
+        next_cursor = str(items[0].id) if has_more and items else None
+
     return MessageList(
         items=[MessageOut.model_validate(m) for m in items],
-        next_cursor=None,
-        has_more=False,
+        next_cursor=next_cursor,
+        has_more=has_more,
     )
 
 
@@ -113,6 +158,7 @@ async def send_message(
         )
     await _validate_visible_agent_ids(db, user.id, [target_agent_id])
 
+    await cleanup_stale_streaming_messages(db)
     active_message = await _get_active_agent_message(db, conv_id)
     if active_message is not None:
         raise HTTPException(
@@ -240,6 +286,23 @@ async def regenerate_message(
             detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Agent not found"}},
         )
     await _validate_visible_agent_ids(db, user.id, [msg.agent_id])
+    await cleanup_stale_streaming_messages(db)
+    active_message = await _get_active_agent_message(db, msg.conversation_id)
+    if active_message is not None and active_message.id != msg.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "CONVERSATION_BUSY",
+                    "message": "Conversation already has an agent response in progress",
+                    "details": {
+                        "message_id": str(active_message.id),
+                        "agent_id": active_message.agent_id,
+                        "status": active_message.status,
+                    },
+                }
+            },
+        )
 
     new_msg = Message(
         conversation_id=msg.conversation_id,

@@ -13,6 +13,23 @@ from app.agents.orchestrator.types import SubTask
 from app.agents.types import ChatMessage
 
 TASK_INTENT_MARKERS = (
+    "\u751f\u6210",
+    "\u521b\u5efa",
+    "\u5199\u4e00\u4e2a",
+    "\u5199\u5165",
+    "\u5b9e\u73b0",
+    "\u6784\u5efa",
+    "\u4fee\u6539",
+    "\u4fee\u590d",
+    "\u90e8\u7f72",
+    "\u53d1\u5e03",
+    "\u9884\u89c8",
+    "\u8fd0\u884c",
+    "\u5206\u6790\u4ed3\u5e93",
+    "\u8bfb\u6587\u4ef6",
+    "\u5199\u6587\u4ef6",
+    "\u8c03\u7528",
+    "\u534f\u8c03",
     "生成",
     "创建",
     "写一个",

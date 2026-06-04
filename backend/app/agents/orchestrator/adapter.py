@@ -30,6 +30,7 @@ from app.agents.orchestrator.execution import (
     _positive_int_config,
     _run_static_tasks,
     _run_task,
+    _task_card_block,
     _text_block,
     _text_block_with_next,
 )
@@ -340,6 +341,9 @@ class OrchestratorAdapter(BaseAgentAdapter):
             plan_source=_plan_source(tasks),
             tasks=tasks,
         )
+        for chunk, updated_block_index in _task_card_block(next_block_index, tasks):
+            next_block_index = updated_block_index
+            yield chunk
         for chunk in _text_block(next_block_index, _planning_text(tasks)):
             yield chunk
         next_block_index += 1

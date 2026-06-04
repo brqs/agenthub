@@ -31,7 +31,6 @@ api.interceptors.response.use(
   (err: AxiosError<{ error?: { code?: string; message?: string } }>) => {
     if (err.response?.status === 401) {
       resetClientSession();
-      // Soft redirect — let router pick up
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
@@ -42,8 +41,17 @@ api.interceptors.response.use(
 
 export function extractApiError(err: unknown): string {
   if (axios.isAxiosError(err)) {
-    const data = err.response?.data as { error?: { message?: string } } | undefined;
-    return data?.error?.message || err.message;
+    const data = err.response?.data as
+      | {
+          error?: { code?: string; message?: string };
+          detail?: { error?: { code?: string; message?: string } };
+        }
+      | undefined;
+    const error = data?.detail?.error ?? data?.error;
+    if (error?.code === 'CONVERSATION_BUSY') {
+      return '上一条回复仍未结束，请稍后再发，或重试/刷新该回复。';
+    }
+    return error?.message || err.message;
   }
   if (err instanceof Error) return err.message;
   return String(err);

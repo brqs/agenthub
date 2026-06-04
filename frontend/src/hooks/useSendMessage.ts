@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { extractApiError } from '@/lib/api';
 import * as messagesAdapter from '@/lib/adapters/messages';
 import { useChatStore } from '@/stores/chatStore';
 
@@ -27,7 +28,9 @@ export function resolveTargetAgentId(
 
 export function useSendMessage() {
   const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const appendRemoteExchange = useChatStore((state) => state.appendRemoteExchange);
+  const startActiveStream = useChatStore((state) => state.startActiveStream);
   const conversations = useChatStore((state) => state.conversations);
 
   async function sendMessage(
@@ -35,6 +38,7 @@ export function useSendMessage() {
     text: string,
   ): Promise<{ agentMessageId: string } | null> {
     setIsPending(true);
+    setError(null);
     try {
       const conversation = conversations.find((c) => c.id === conversationId);
       const targetAgentId = conversation
@@ -46,11 +50,16 @@ export function useSendMessage() {
         target_agent_id: targetAgentId,
       });
       appendRemoteExchange(conversationId, response.user_message, response.agent_message);
+      startActiveStream(response.agent_message);
       return { agentMessageId: response.agent_message.id };
+    } catch (err) {
+      const message = extractApiError(err);
+      setError(message);
+      throw new Error(message);
     } finally {
       setIsPending(false);
     }
   }
 
-  return { sendMessage, isPending };
+  return { sendMessage, isPending, error };
 }

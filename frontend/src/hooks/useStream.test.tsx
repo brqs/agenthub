@@ -49,6 +49,7 @@ describe('useStream', () => {
     expect(result.current.blocks).toEqual([
       {
         type: 'tool_call',
+        agent_id: null,
         call_id: 'call-write',
         tool_name: 'write_file',
         arguments: { path: 'demo.html' },
@@ -61,17 +62,17 @@ describe('useStream', () => {
   });
 
   it('reports a recoverable error when a stream closes before done', async () => {
-    const onError = vi.fn();
+    const onTransportError = vi.fn();
     mockStream((subscriber) => {
       subscriber.onEvent({ event: 'start', data: {} });
       subscriber.onClose?.();
     });
 
-    const { result } = renderHook(() => useStream('message-2', { onError }));
+    const { result } = renderHook(() => useStream('message-2', { onTransportError }));
 
     await waitFor(() => expect(result.current.status).toBe('error'));
     expect(result.current.error).toBe('stream closed before done');
-    expect(onError).toHaveBeenCalledWith('stream closed before done');
+    expect(onTransportError).toHaveBeenCalledWith('stream closed before done');
   });
 
   it('does not report close errors after done', async () => {
@@ -86,5 +87,19 @@ describe('useStream', () => {
 
     await waitFor(() => expect(result.current.status).toBe('done'));
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('does not report transport errors after done', async () => {
+    const onTransportError = vi.fn();
+    mockStream((subscriber) => {
+      subscriber.onEvent({ event: 'start', data: {} });
+      subscriber.onEvent({ event: 'done', data: {} });
+      subscriber.onError?.(new Error('abort after done'));
+    });
+
+    const { result } = renderHook(() => useStream('message-4', { onTransportError }));
+
+    await waitFor(() => expect(result.current.status).toBe('done'));
+    expect(onTransportError).not.toHaveBeenCalled();
   });
 });
