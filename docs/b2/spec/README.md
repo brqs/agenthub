@@ -3,7 +3,7 @@
 > 目的：作为 B2 Agent Runtime Layer 的当前 spec 总入口。
 >
 > 状态：Current index
-> 最后更新：2026-06-03
+> 最后更新：2026-06-04
 
 ---
 
@@ -32,6 +32,11 @@ B2 当前只保留必要契约和当前验证报告：
 4. [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md)
 5. [workflow-artifact.spec.md](workflow-artifact.spec.md)
 6. [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)
+
+下一阶段工作：
+
+1. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) 的 `B2-TODO-08 Capability Profile v2 / User Preference Memory` 完成状态和后续前端消费边界
+2. [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md)
 
 修改 Orchestrator：
 
@@ -103,7 +108,7 @@ B2 当前只保留必要契约和当前验证报告：
 | [orchestrator/task-planning.spec.md](orchestrator/task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、fallback 的规划顺序 |
 | [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent 与 deployment platform tools |
 | [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md) | Current contract | 通用 Evaluation / Reflection 闭环 |
-| [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md) | Current contract | Orchestrator structured memory 与上下文注入 |
+| [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md) | Current contract | Orchestrator structured memory、Capability Profile v1、Capability Profile v2 / User Preference Memory 当前契约与 E2E 证据 |
 | [orchestrator/message-attribution.spec.md](orchestrator/message-attribution.spec.md) | Current contract | Orchestrator 合流消息按真实输出 Agent 标记 `agent_id` |
 | [orchestrator/agent-review-thread.spec.md](orchestrator/agent-review-thread.spec.md) | Implemented MVP | Agent-to-Agent review / handoff / repair thread |
 | [orchestrator/workspace-conflict.spec.md](orchestrator/workspace-conflict.spec.md) | Current contract | Workspace snapshot、file changes、冲突检测与 summary/memory 暴露 |

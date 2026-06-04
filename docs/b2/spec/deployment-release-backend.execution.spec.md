@@ -205,6 +205,9 @@ uv run python scripts/deployment_release_api_e2e.py
 /tmp/agenthub_deployment_release_api_e2e_report.json
 /tmp/agenthub_b2_todo_05_prod_default_e2e_report.json
 /tmp/agenthub_b2_todo_05_demo_container_e2e_report.json
+/tmp/agenthub_b2_todo_05_orch_prod_default_report.json
+/tmp/agenthub_b2_todo_05_orch_demo_report.json
+/tmp/agenthub_b2_todo_05_orch_repair_report.json
 /tmp/agenthub_deployment_flow_report.json
 /tmp/agenthub_deployment_repair_flow_report.json
 ```
@@ -239,9 +242,44 @@ demo_override:
 `deployment_health failed -> reflection_created -> repair agent attempt -> second create_deployment -> published=true`，
 并确认公网 URL 可访问、browser verifier report 通过。
 
-## 9. 部署规则
+2026-06-04 B2-TODO-05 Orchestrator API/SSE queued worker 公网回归：
 
-本轮包含 migration 和后端代码变更：
+```text
+production_default:
+  report: /tmp/agenthub_b2_todo_05_orch_prod_default_report.json
+  sse: /tmp/agenthub_b2_todo_05_orch_prod_default_sse.jsonl
+  conversation_id: 963afa42-0549-4fa0-81b0-8fad6b013a4b
+  passed: true
+  container_initial_status: not_supported
+  container_status: not_supported
+  runtime_kind: podman
+  deployment_status_block_has_runtime_metadata: true
+  deployment_not_supported_no_repair: true
+demo_override:
+  report: /tmp/agenthub_b2_todo_05_orch_demo_report.json
+  sse: /tmp/agenthub_b2_todo_05_orch_demo_sse.jsonl
+  conversation_id: ce767e6f-b03c-41fb-af85-fe637983c356
+  passed: true
+  container_initial_status: publishing
+  container_status: published
+  container_poll_elapsed_seconds: 2.013
+  runtime_kind: docker
+  worker_id: inproc-container-71038d04c528
+  attempt_count: 1
+  state_event_count: 12
+  healthcheck_url: http://111.229.151.159:8081/
+  stop_cleanup: true
+optional_repair_confirmation:
+  report: /tmp/agenthub_b2_todo_05_orch_repair_report.json
+  passed: false
+  observed_failure_category: build_failed
+  observed_last_error_code: container_build_failed
+  reason: no reflection_created/redeploy loop observed in this optional run
+```
+
+## 9. 2026-06-04 执行记录
+
+2026-06-04 B2-TODO-05 production hardening 执行时包含 migration 和后端代码变更，实际部署同步命令为：
 
 ```bash
 cd /home/ubuntu/agenthub/backend
