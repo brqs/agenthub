@@ -1409,3 +1409,103 @@ Demo override 期间临时设置 `DEPLOYMENT_CONTAINER_ENABLED=true`、`DEPLOYME
 
 ### 经验
 Direct API E2E 覆盖后端发布语义，Orchestrator API/SSE E2E 覆盖聊天编排层是否会正确发起 tool loop、展示 `deployment_status`，并把 queued/publishing 视为 pending 而非错误。两者互补；主验收应分清 production-default 和 demo override，避免 trusted Docker 成为隐性默认。
+
+## 2026-06-04 — Codex 完成 Orchestrator 模块瘦身重构
+
+### 任务
+按“低风险、行为不变”的维护性目标，瘦身 `backend/app/agents/orchestrator` 内部核心文件，提升后续维护可读性。
+
+### 关键 Prompt
+> 本轮目标是做低风险、行为不变的 Orchestrator package 内部瘦身，提升可读性和后续维护性，不新增功能、不改 API、不改数据库、不改 OpenAPI、不跑公网 E2E。
+
+### AI 输出摘要
+1. 拆分 `execution.py`：attempt 配置/message、review repair、artifact file block/manifest、evaluation/workflow dry-run、workspace conflict、stream event accumulation helper 移入内部模块，主执行循环保留原调度顺序。
+2. 拆分 `task_planning.py`：保留 `resolve_tasks()` 与 planner validation，direct routing、legacy template derivation、agent review expansion 移入内部模块，未修改 task JSON schema、task id/title/instruction 文案。
+3. 拆分 `evaluation.py`：保留 `evaluate_attempt()`、`evaluation_results_payload()`、`reflection_payload()`、`failed_evaluation_lines()` 与 public dataclass 导入路径，artifact/test-runner evaluator 移入内部模块。
+4. 拆分 `quality.py`：保留 browser quality gate 主流程，preview/deployment tool chunk、repair instruction/entry discovery、deployment health/release helper 移入内部模块。
+5. 更新 `docs/b2/spec/orchestrator/README.md`，记录本轮为 behavior-preserving refactor。
+
+### 人工调整
+本轮未改 public API、数据库 migration、seed/default config、OpenAPI 或前端代码；未执行公网 E2E。
+
+### 经验
+维护性重构应先用现有 targeted tests 守住 stream、planner、evaluation、quality gate 语义，再做机械模块抽取。保持旧 facade/import path 可以让内部拆分不外溢到调用方。
+
+## 2026-06-05 — Codex 整理 Orchestrator 内部目录
+
+### 任务
+在 behavior-preserving 瘦身完成后，整理 `backend/app/agents/orchestrator` 根目录中过多的平铺 helper，并合并过细模块。
+
+### 关键 Prompt
+> 现在这个目录看上去太乱了，请你进行整理和合并，这些可以整理在文件夹下
+
+### AI 输出摘要
+1. 根目录只保留 package 入口、稳定导入契约与主要 orchestration facade；无仓库调用方的 routing、stream、memory、summary、tool loop、ReAct 等旧根模块完整迁入 `_internal`。
+2. 将 planning templates 按 delivery、workspace conflict、legacy fallback 分组，将 evaluation evaluator 按 document/static、workflow、media/archive、runner/judge 与安全文件访问分组。
+3. `tools.py` 保留稳定 facade，内部拆为 catalog、workspace executor、dispatch、stream/result construction 与 loop；ReAct 拆为 runtime、decision/parser 与 task graph mutation。
+4. 抽出 custom-agent routing，并将 platform facts 分类与渲染分离；`OrchestratorAdapter.stream()` 的路由顺序仍显式保留。
+5. 新增稳定 facade import 回归，不改变 stream 顺序、task 文案、evaluator payload、tool schema、tool call id 或 ReAct prompt。
+6. Orchestrator targeted pytest `176 passed`；Ruff、Mypy、`git diff --check` passed。
+
+### 人工调整
+本轮未新增功能，未改 API、数据库、OpenAPI、seed 或前端代码；未执行公网 E2E。
+
+### 经验
+大文件拆分后还需要第二步目录治理：稳定入口应留在浅层，纯实现细节收进 private package；小到无法表达独立职责的 helper 应合并，避免从“大文件难读”滑向“目录碎片化”。
+
+## 2026-06-05 — Codex 整理 Orchestrator Live E2E 脚本
+
+### 任务
+保持现有公网 E2E 命令、scenario 名称、默认 report/SSE/browser 路径和 acceptance key 不变，整理 `backend/scripts/orchestrator_live_e2e.py` 与对应脚本单测。
+
+### AI 输出摘要
+1. 将 `orchestrator_live_e2e.py` 收敛为兼容入口，live 执行流程移入 `scripts/orchestrator_e2e/runner.py`。
+2. 新增 `config.py`、`scenarios.py`、`evaluators.py`、`client.py`、`workspace.py`、`deployment.py`、`io.py`，集中管理 settings、scenario registry、纯 evaluator 和领域 helper。
+3. 保留测试直接 import 的默认路径、prompt、正则和 evaluator 名称；P1 rich artifact 与 evaluation repair evaluator 改为只消费 report 中的 API 证据。
+4. 补充全部现有 scenario registry/default、临时用户、container status expectation、prompt guard 和核心 evaluator 单测。
+5. 更新 live E2E repair loop Skill，明确新增 scenario 的正确模块入口。
+
+### 人工调整
+本轮仅重构 E2E 脚本、脚本单测和文档；未修改产品 API、数据库、OpenAPI、Orchestrator runtime 或公网部署配置，未执行公网 E2E。
+
+### 经验
+live E2E 脚本也需要稳定 facade：环境与路径契约集中管理，runner 负责取证，evaluator 只判断 report，才能在不访问公网的前提下可靠回归历史验收语义。
+
+## 2026-06-05 — Codex 拆分 Orchestrator Memory / Capability Profile service
+
+### 任务
+将 `backend/app/services/orchestrator_memory.py` 从约 1667 行单文件拆为职责明确的内部 package，同时保持全部公共导入和行为不变。
+
+### AI 输出摘要
+1. 新增 `backend/app/services/_orchestrator_memory/`，按 types、store、queries、capability v1/v2、preferences、context、run reader 和 serialization 分离职责。
+2. `backend/app/services/orchestrator_memory.py` 收敛为 100 行以内的稳定兼容门面。
+3. v1/v2 共用实际参与 Agent、artifact、failure insight 和 confidence 聚合规则；数据库查询与聚合计算分离。
+4. 新增公共门面 re-export 锁定测试；保留原有 v1/v2、fallback/retry/repair/legacy、preference、context 顺序/预算与 run persistence 测试语义。
+5. 本轮不是 Capability Profile v3，不修改算法、关键词、输出文本、API、OpenAPI、数据库模型、planner 或公网 E2E acceptance。
+6. Targeted pytest `102 passed`；Ruff、Mypy、`git diff --check` passed。
+
+### 人工调整
+本轮避开正在进行的 `backend/app/agents/orchestrator` 目录整理改动；未执行公网 E2E。
+
+### 经验
+大型 service 拆分应先固定公共门面和行为测试，再按 query、pure aggregation、formatting、persistence 边界迁移。共享规则集中后，v1/v2 的归属语义更容易审计，同时不会迫使调用方迁移。
+
+## 2026-06-05 — Codex 整理 Backend Services 目录
+
+### 任务
+整理 `backend/app/services` 根目录，将辅助 service 按领域归档，同时保留跨领域主要入口。
+
+### AI 输出摘要
+1. 新增 `artifacts/`，归档 artifact manifest 与 metadata。
+2. 新增 `context/`，归档 context compression。
+3. 新增 `workspace/`，归档 preview verifier、container release、deployment workers、janitor、static release/server/snapshot。
+4. 根目录只保留 model gateway、context builder、Orchestrator facade 与 workspace 主生命周期入口。
+5. 更新全部仓库内 Python import、静态 preview 子进程 module path、文档和 Skill 检查命令；新增 `backend/app/services/README.md` 说明目录边界。
+6. 领域相关 targeted pytest `172 passed`；Ruff、Mypy、`git diff --check` passed。
+7. 全量后端 pytest 为 `603 passed, 7 skipped, 3 failed`；3 个失败单独复跑仍失败，分别是现有 OpenAPI 缺少 `AgentConfig` schema 的 2 个断言，以及当前 Orchestrator tool block 新增 `agent_id` 后 demo smoke 的旧期望，均不属于本轮 services 路径迁移。
+
+### 人工调整
+本轮只做路径和目录治理，不修改 service 行为、API、数据库、OpenAPI 或前端代码；未执行公网 E2E。
+
+### 经验
+service 根目录适合保留跨领域主要入口，领域内部协作模块应进入 package。路径迁移时除 Python imports 外，还必须检查 `python -m` 字符串、文档命令和部署 Skill。

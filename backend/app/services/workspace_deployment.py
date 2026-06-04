@@ -14,24 +14,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.workspace import WorkspaceDeployment
-from app.services.workspace_container_release import (
+from app.services.workspace.container_release import (
     ContainerDeployWorker,
     ContainerPolicyValidator,
     current_container_policy,
 )
-from app.services.workspace_deployment_workers import (
+from app.services.workspace.deployment_workers import (
     ContainerDeploymentDispatcher,
     ContainerDeploymentOptions,
     InProcessContainerDeploymentDispatcher,
     mark_stale_container_deployments,
 )
+from app.services.workspace.static_release import WorkspaceStaticReleaseService
 from app.services.workspace_service import (
     WorkspaceFileNotFound,
     WorkspaceFileTooLarge,
     WorkspaceService,
     WorkspaceViolation,
 )
-from app.services.workspace_static_release import WorkspaceStaticReleaseService
 
 DEPLOYMENT_KINDS = {"static_site", "source_zip", "container"}
 DEPLOYMENT_STATUSES = {

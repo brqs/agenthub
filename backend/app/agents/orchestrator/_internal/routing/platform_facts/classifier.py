@@ -8,6 +8,9 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator._internal.routing.platform_facts.common import (
+    conversation_agents,
+)
 from app.agents.types import ChatMessage, StreamChunk
 
 PLATFORM_FACT_TYPES = {
@@ -128,20 +131,6 @@ async def platform_fact_intent(
     return []
 
 
-def platform_fact_text(config: Mapping[str, Any], fact_types: list[str]) -> str:
-    sections: list[str] = []
-    for fact_type in fact_types:
-        if fact_type == "group_agents":
-            sections.append(_group_agents_text(config).strip())
-        elif fact_type == "group_models":
-            sections.append(_group_models_text(config).strip())
-        elif fact_type == "group_capabilities":
-            sections.append(_group_capabilities_text(config).strip())
-        elif fact_type == "self_model":
-            sections.append(_self_model_text(config).strip())
-    return "\n\n".join(section for section in sections if section) + "\n"
-
-
 def _rule_platform_fact_intent(
     config: Mapping[str, Any],
     messages: list[ChatMessage],
@@ -154,7 +143,7 @@ def _rule_platform_fact_intent(
     user_request = latest_user_request(messages)
     normalized = _strip_orchestrator_mention(user_request).lower()
     compact = _compact_text(normalized)
-    has_conversation_agents = bool(_conversation_agents(config))
+    has_conversation_agents = bool(conversation_agents(config))
     agent_ids = agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))
     explicit_mentions = explicit_agent_mentions(agent_ids, user_request)
 
@@ -281,24 +270,6 @@ def _matches_any(normalized: str, compact: str, markers: tuple[str, ...]) -> boo
     return any(marker in normalized or marker in compact for marker in markers)
 
 
-def _conversation_agents(config: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    value = config.get("conversation_agents")
-    if not isinstance(value, list):
-        return []
-    agents: list[Mapping[str, Any]] = []
-    for item in value:
-        if not isinstance(item, Mapping):
-            continue
-        agent_id = item.get("id")
-        name = item.get("name")
-        if not isinstance(agent_id, str) or not agent_id.strip():
-            continue
-        if not isinstance(name, str) or not name.strip():
-            continue
-        agents.append(item)
-    return agents
-
-
 async def _classify_platform_fact_intent(
     config: Mapping[str, Any],
     messages: list[ChatMessage],
@@ -330,7 +301,7 @@ async def _classify_platform_fact_intent(
         return []
     if confidence < 0.65:
         return []
-    if fact_type != "self_model" and not _conversation_agents(config):
+    if fact_type != "self_model" and not conversation_agents(config):
         return []
     return [str(fact_type)]
 
@@ -405,125 +376,6 @@ def _platform_fact_classifier_messages(messages: list[ChatMessage]) -> list[Chat
             content="Recent messages:\n" + "\n".join(recent),
         )
     ]
-
-
-def _group_agents_text(config: Mapping[str, Any]) -> str:
-    agents = _conversation_agents(config)
-    lines = [f"当前群聊包含 {len(agents)} 个 agent：", ""]
-    for agent in agents:
-        agent_id = str(agent["id"])
-        name = str(agent["name"])
-        provider = agent.get("provider")
-        capabilities = agent.get("capabilities")
-        detail_parts = [f"id: {agent_id}"]
-        if isinstance(provider, str) and provider:
-            detail_parts.append(f"provider: {provider}")
-        line = f"- {name} ({', '.join(detail_parts)})"
-        if isinstance(capabilities, list):
-            capability_names = [
-                item for item in capabilities if isinstance(item, str) and item.strip()
-            ]
-            if capability_names:
-                line += f" - capabilities: {', '.join(capability_names)}"
-        lines.append(line)
-    return "\n".join(lines) + "\n"
-
-
-def _group_models_text(config: Mapping[str, Any]) -> str:
-    agents = _conversation_agents(config)
-    lines = [f"当前群聊包含 {len(agents)} 个 agent；可见的模型/运行时配置如下：", ""]
-    for agent in agents:
-        name = str(agent["name"])
-        agent_id = str(agent["id"])
-        details = _agent_model_details(agent)
-        lines.append(f"- {name} (id: {agent_id}): {details}")
-    return "\n".join(lines) + "\n"
-
-
-def _agent_model_details(agent: Mapping[str, Any]) -> str:
-    provider = _safe_str(agent.get("provider"))
-    parts: list[str] = []
-    if provider:
-        parts.append(f"provider: {provider}")
-    for label, key in (
-        ("runtime", "runtime"),
-        ("model_backend", "model_backend"),
-        ("answer_model_backend", "answer_model_backend"),
-        ("planner_model_backend", "planner_model_backend"),
-        ("qa_model_backend", "qa_model_backend"),
-        ("qa_model", "qa_model"),
-    ):
-        value = _safe_str(agent.get(key))
-        if value:
-            parts.append(f"{label}: {value}")
-    if _safe_str(agent.get("id")) == "orchestrator":
-        if not _safe_str(agent.get("answer_model_backend")) and not _safe_str(
-            agent.get("model_backend")
-        ):
-            parts.append("direct answer backend: 未在 AgentHub 配置中暴露")
-        if not _safe_str(agent.get("planner_model_backend")) and not _safe_str(
-            agent.get("model_backend")
-        ):
-            parts.append("planner backend: 未在 AgentHub 配置中暴露")
-    elif not any(_safe_str(agent.get(key)) for key in _model_detail_keys()):
-        parts.append("执行模型: 未在 AgentHub 配置中暴露")
-    return "; ".join(parts) if parts else "未在 AgentHub 配置中暴露"
-
-
-def _group_capabilities_text(config: Mapping[str, Any]) -> str:
-    agents = _conversation_agents(config)
-    lines = [f"当前群聊包含 {len(agents)} 个 agent；能力配置如下：", ""]
-    for agent in agents:
-        capabilities = agent.get("capabilities")
-        caps = []
-        if isinstance(capabilities, list):
-            caps = [item for item in capabilities if isinstance(item, str) and item.strip()]
-        summary = ", ".join(caps) if caps else "未在 AgentHub 配置中暴露"
-        lines.append(f"- {agent['name']} (id: {agent['id']}): {summary}")
-    return "\n".join(lines) + "\n"
-
-
-def _self_model_text(config: Mapping[str, Any]) -> str:
-    answer_backend = _config_backend(config, "answer_model_backend")
-    planner_backend = _config_backend(config, "planner_model_backend")
-    lines = [
-        "我是 AgentHub Orchestrator。",
-        f"- direct answer backend: {answer_backend}",
-        f"- planner backend: {planner_backend}",
-    ]
-    exact_model = _safe_str(config.get("model"))
-    if exact_model:
-        lines.append(f"- model: {exact_model}")
-    else:
-        lines.append("- model: 未在 AgentHub 配置中暴露")
-    return "\n".join(lines) + "\n"
-
-
-def _config_backend(config: Mapping[str, Any], key: str) -> str:
-    value = _safe_str(config.get(key))
-    if value:
-        return value
-    fallback = _safe_str(config.get("model_backend"))
-    if fallback:
-        return fallback
-    return "未在 AgentHub 配置中暴露"
-
-
-def _model_detail_keys() -> tuple[str, ...]:
-    return (
-        "runtime",
-        "model_backend",
-        "answer_model_backend",
-        "planner_model_backend",
-        "qa_model_backend",
-        "qa_model",
-    )
-
-
-def _safe_str(value: object) -> str:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return ""
 
 
 def _compact_text(text: str) -> str:

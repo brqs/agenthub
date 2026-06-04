@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.orchestrator.streams import (
+from app.agents.orchestrator._internal.streams import (
     attach_agent_id,
     remap_block_index,
     remap_tool_call_id,

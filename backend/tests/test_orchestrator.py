@@ -23,7 +23,7 @@ from app.agents.orchestrator.workspace_changes import (
 from app.agents.registry import get_adapter
 from app.agents.types import ChatMessage, StreamChunk
 from app.models.agent import Agent
-from app.services.artifact_manifest import ArtifactManifestService
+from app.services.artifacts.manifest import ArtifactManifestService
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 from tests.orchestrator_fakes import (
     FakeAnswerGateway,

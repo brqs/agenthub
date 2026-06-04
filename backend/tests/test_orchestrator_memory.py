@@ -12,6 +12,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
+import app.services.orchestrator_memory as public_memory
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.orchestrator.evaluation import EvaluationIssue, EvaluationResult
@@ -28,6 +29,18 @@ from app.models.orchestrator_memory import (
 )
 from app.models.user import User
 from app.schemas.conversation import OrchestratorTaskAttemptOut, OrchestratorTaskOut
+from app.services._orchestrator_memory.capability_v1 import (
+    build_agent_capability_profile as internal_build_agent_capability_profile,
+)
+from app.services._orchestrator_memory.capability_v2 import (
+    build_agent_capability_profile_v2 as internal_build_agent_capability_profile_v2,
+)
+from app.services._orchestrator_memory.context import (
+    build_orchestrator_memory_context as internal_build_orchestrator_memory_context,
+)
+from app.services._orchestrator_memory.store import (
+    OrchestratorMemoryStore as InternalOrchestratorMemoryStore,
+)
 from app.services.orchestrator_memory import (
     OrchestratorMemoryStore,
     build_agent_capability_profile,
@@ -37,6 +50,31 @@ from app.services.orchestrator_memory import (
 )
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
+
+
+async def test_orchestrator_memory_public_facade_reexports_stable_interfaces() -> None:
+    assert public_memory.OrchestratorMemoryStore is InternalOrchestratorMemoryStore
+    assert build_agent_capability_profile is internal_build_agent_capability_profile
+    assert build_agent_capability_profile_v2 is internal_build_agent_capability_profile_v2
+    assert (
+        build_orchestrator_memory_context
+        is internal_build_orchestrator_memory_context
+    )
+    assert set(public_memory.__all__) == {
+        "AgentCapabilityProfileItem",
+        "AgentCapabilityProfileV2",
+        "AgentCapabilityProfileV2Item",
+        "DEFAULT_ORCHESTRATOR_MEMORY_CONTEXT_MAX_CHARS",
+        "DEFAULT_ORCHESTRATOR_MEMORY_RECENT_RUNS",
+        "OrchestratorMemoryStore",
+        "UserPreferenceMemory",
+        "build_agent_capability_profile",
+        "build_agent_capability_profile_v2",
+        "build_orchestrator_memory_context",
+        "get_orchestrator_run_detail",
+        "inject_orchestrator_memory_context",
+        "list_orchestrator_runs",
+    }
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True)

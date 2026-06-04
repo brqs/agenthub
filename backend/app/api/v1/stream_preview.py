@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.types import ChatMessage, StreamChunk
 from app.models.message import Message
-from app.services.context_compression import blocks_to_text
+from app.services.context.compression import blocks_to_text
 from app.services.workspace_preview import (
     WorkspacePreviewDisabledError,
     WorkspacePreviewService,

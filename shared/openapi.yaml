@@ -1556,6 +1556,312 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    AgentConfig:
+      additionalProperties: true
+      properties:
+        model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          default: null
+          description: ModelGateway backend for builtin agents.
+          title: Model Backend
+        answer_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          default: null
+          description: ModelGateway backend for orchestrator direct answers.
+          title: Answer Model Backend
+        planner_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          default: null
+          description: ModelGateway backend for orchestrator LLM planning.
+          title: Planner Model Backend
+        llm_planning:
+          type: boolean
+          nullable: true
+          default: null
+          title: Llm Planning
+        planner_fallback_to_template:
+          type: boolean
+          nullable: true
+          default: null
+          title: Planner Fallback To Template
+        orchestrator_llm_config:
+          type: object
+          nullable: true
+          additionalProperties: true
+          default: null
+          title: Orchestrator Llm Config
+        max_iterations:
+          type: integer
+          minimum: 1
+          maximum: 50
+          nullable: true
+          default: null
+          title: Max Iterations
+        react_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: React Enabled
+        react_trace_visible:
+          type: boolean
+          nullable: true
+          default: null
+          title: React Trace Visible
+        react_decision_max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 4096
+          nullable: true
+          default: null
+          title: React Decision Max Tokens
+        mcp_servers:
+          type: array
+          nullable: true
+          items:
+            type: object
+            additionalProperties: true
+          default: null
+          title: Mcp Servers
+        allowed_tools:
+          type: array
+          nullable: true
+          items:
+            type: string
+          default: null
+          description: 'Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools.'
+          title: Allowed Tools
+        command:
+          anyOf:
+          - type: string
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          default: null
+          title: Command
+        args:
+          type: array
+          nullable: true
+          items:
+            type: string
+          default: null
+          title: Args
+        timeout_seconds:
+          type: number
+          minimum: 1
+          maximum: 3600
+          nullable: true
+          default: null
+          title: Timeout Seconds
+        max_runtime_seconds:
+          type: number
+          minimum: 1
+          maximum: 3600
+          nullable: true
+          default: null
+          title: Max Runtime Seconds
+        idle_timeout_seconds:
+          type: number
+          minimum: 1
+          maximum: 3600
+          nullable: true
+          default: null
+          title: Idle Timeout Seconds
+        heartbeat_interval_seconds:
+          type: number
+          minimum: 1
+          maximum: 3600
+          nullable: true
+          default: null
+          title: Heartbeat Interval Seconds
+        qa_short_circuit_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: Qa Short Circuit Enabled
+        qa_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          default: null
+          description: ModelGateway backend for external direct chat.
+          title: Qa Model Backend
+        qa_model:
+          type: string
+          nullable: true
+          default: null
+          title: Qa Model
+        qa_classifier_model:
+          type: string
+          nullable: true
+          default: null
+          title: Qa Classifier Model
+        qa_max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 32000
+          nullable: true
+          default: null
+          title: Qa Max Tokens
+        qa_classifier_max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 1024
+          nullable: true
+          default: null
+          title: Qa Classifier Max Tokens
+        qa_temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+          nullable: true
+          default: null
+          title: Qa Temperature
+        qa_request_timeout_seconds:
+          type: number
+          minimum: 1
+          maximum: 120
+          nullable: true
+          default: null
+          title: Qa Request Timeout Seconds
+        task_fallback_agent_ids:
+          type: array
+          nullable: true
+          items:
+            type: string
+          default: null
+          title: Task Fallback Agent Ids
+        max_task_attempts:
+          type: integer
+          minimum: 1
+          maximum: 3
+          nullable: true
+          default: null
+          title: Max Task Attempts
+        task_result_context_max_chars:
+          type: integer
+          minimum: 1
+          maximum: 32000
+          nullable: true
+          default: null
+          title: Task Result Context Max Chars
+        task_result_item_max_chars:
+          type: integer
+          minimum: 1
+          maximum: 8000
+          nullable: true
+          default: null
+          title: Task Result Item Max Chars
+        orchestrator_memory_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: Orchestrator Memory Enabled
+        orchestrator_memory_recent_runs:
+          type: integer
+          minimum: 1
+          maximum: 10
+          nullable: true
+          default: null
+          title: Orchestrator Memory Recent Runs
+        orchestrator_memory_context_max_chars:
+          type: integer
+          minimum: 1
+          maximum: 32000
+          nullable: true
+          default: null
+          title: Orchestrator Memory Context Max Chars
+        orchestrator_tool_calling_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: Orchestrator Tool Calling Enabled
+        orchestrator_tool_trace_visible:
+          type: boolean
+          nullable: true
+          default: null
+          title: Orchestrator Tool Trace Visible
+        orchestrator_tool_max_iterations:
+          type: integer
+          minimum: 1
+          maximum: 50
+          nullable: true
+          default: null
+          title: Orchestrator Tool Max Iterations
+        orchestrator_tool_result_max_chars:
+          type: integer
+          minimum: 1
+          maximum: 32000
+          nullable: true
+          default: null
+          title: Orchestrator Tool Result Max Chars
+        orchestrator_tool_read_max_bytes:
+          type: integer
+          minimum: 1
+          maximum: 1048576
+          nullable: true
+          default: null
+          title: Orchestrator Tool Read Max Bytes
+        orchestrator_parallel_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: Orchestrator Parallel Enabled
+        orchestrator_parallel_max_concurrency:
+          type: integer
+          minimum: 1
+          maximum: 10
+          nullable: true
+          default: null
+          title: Orchestrator Parallel Max Concurrency
+        orchestrator_evaluation_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: Orchestrator Evaluation Enabled
+        orchestrator_evaluation_read_max_bytes:
+          type: integer
+          minimum: 1
+          maximum: 1048576
+          nullable: true
+          default: null
+          title: Orchestrator Evaluation Read Max Bytes
+        orchestrator_test_runner_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: Orchestrator Test Runner Enabled
+        orchestrator_test_command_allowlist:
+          type: array
+          nullable: true
+          items:
+            type: string
+          default: null
+          title: Orchestrator Test Command Allowlist
+      type: object
+      title: AgentConfig
     AgentCapabilityProfileItemOut:
       properties:
         agent_id:

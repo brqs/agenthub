@@ -265,13 +265,7 @@ class ContainerDeployWorker:
         base_url = settings.deployment_container_public_base_url.rstrip("/")
         url = f"{base_url}:{host_port}"
         healthcheck_url = f"{url}{normalized_health_path}"
-        local_base_url = (
-            settings.deployment_container_healthcheck_base_url.rstrip("/")
-            or "http://127.0.0.1"
-        )
-        local_healthcheck_url = (
-            f"{local_base_url}:{host_port}{normalized_health_path}"
-        )
+        local_healthcheck_url = f"http://127.0.0.1:{host_port}{normalized_health_path}"
         try:
             await _raise_if_cancelled(cancellation_checker)
             await self._check_health(local_healthcheck_url, event_sink=event_sink)

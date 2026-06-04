@@ -2,44 +2,41 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
 
 from app.agents.model_gateway import ModelGateway
-from app.agents.orchestrator.streams import attach_agent_id
-from app.agents.orchestrator.tools import (
-    DEFAULT_TOOL_READ_MAX_BYTES,
-    DEFAULT_TOOL_RESULT_MAX_CHARS,
-    OrchestratorToolResult,
+from app.agents.orchestrator._internal.streams import attach_agent_id
+from app.agents.orchestrator._internal.tools.catalog import (
     available_agent_ids,
-    execute_workspace_tool,
     orchestrator_tool_specs,
 )
+from app.agents.orchestrator._internal.tools.dispatch import (
+    _dispatch_observation_result,
+    _dispatch_task_from_call,
+)
+from app.agents.orchestrator._internal.tools.streaming import (
+    _deployment_status_card,
+    _normalize_tool_call,
+    _remap_block_index,
+    _tool_call_chunk,
+    _tool_result_chunk,
+    _tool_result_message,
+    truncate,
+)
+from app.agents.orchestrator._internal.tools.types import (
+    DEFAULT_TOOL_READ_MAX_BYTES,
+    DEFAULT_TOOL_RESULT_MAX_CHARS,
+    OrchestratorToolCall,
+    OrchestratorToolResult,
+)
+from app.agents.orchestrator._internal.tools.workspace import execute_workspace_tool
 from app.agents.orchestrator.types import OrchestratorRunContext, SubTask, TaskResult
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_TOOL_MAX_ITERATIONS = 12
 MAX_TOOL_MAX_ITERATIONS = 50
-
-RunTask = Callable[
-    [
-        Mapping[str, Any],
-        SubTask,
-        list[ChatMessage],
-        int,
-        OrchestratorRunContext,
-        Path | None,
-        list[ToolSpec] | None,
-    ],
-    AsyncIterator[tuple[StreamChunk, int]],
-]
-TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
-LatestUserRequest = Callable[[list[ChatMessage]], str]
-PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
-FormatTaskResultContext = Callable[[str, TaskResult, int], str]
 PLATFORM_TOOL_NAMES = {
     "start_workspace_preview",
     "verify_web_preview",
@@ -56,6 +53,11 @@ DEPLOYMENT_TOOL_NAMES = {
     "package_workspace_source",
 }
 
+TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
+LatestUserRequest = Callable[[list[ChatMessage]], str]
+PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
+FormatTaskResultContext = Callable[[str, TaskResult, int], str]
+
 
 class RunTaskWithPrefix(Protocol):
     def __call__(
@@ -70,13 +72,6 @@ class RunTaskWithPrefix(Protocol):
         *,
         call_id_prefix: str | None = None,
     ) -> AsyncIterator[tuple[StreamChunk, int]]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class OrchestratorToolCall:
-    call_id: str
-    name: str
-    arguments: dict[str, Any]
 
 
 async def run_orchestrator_tool_loop(
@@ -250,71 +245,11 @@ async def run_orchestrator_tool_loop(
         error=message,
     ), next_block_index
 
-
 def tool_calling_enabled(config: Mapping[str, Any]) -> bool:
     return config.get("orchestrator_tool_calling_enabled") is True
 
-
 def tool_trace_visible(config: Mapping[str, Any]) -> bool:
     return config.get("orchestrator_tool_trace_visible", True) is not False
-
-
-def _dispatch_task_from_call(
-    call: OrchestratorToolCall,
-    config: Mapping[str, Any],
-) -> SubTask | OrchestratorToolResult:
-    agent_id = _required_str(call.arguments.get("agent_id"))
-    title = _required_str(call.arguments.get("title"))
-    instruction = _required_str(call.arguments.get("instruction"))
-    if agent_id is None or title is None or instruction is None:
-        return OrchestratorToolResult(
-            status="error",
-            output="dispatch_agent requires agent_id, title, and instruction",
-            error_code="invalid_arguments",
-        )
-    allowed_agents = set(available_agent_ids(config))
-    if agent_id == "orchestrator" or agent_id not in allowed_agents:
-        return OrchestratorToolResult(
-            status="error",
-            output=f"agent is not available for this conversation: {agent_id}",
-            error_code="agent_not_allowed",
-        )
-    task_id = _task_id(call.arguments.get("task_id"), call.call_id)
-    return SubTask(
-        task_id=task_id,
-        agent_id=agent_id,
-        title=title,
-        instruction=instruction,
-        expected_output=_optional_str(call.arguments.get("expected_output")),
-        include_history=_optional_bool(call.arguments.get("include_history"), True),
-    )
-
-
-def _dispatch_observation_result(
-    task_id: str,
-    run_context: OrchestratorRunContext,
-    *,
-    result_max_chars: int,
-    format_task_result_context: FormatTaskResultContext,
-) -> OrchestratorToolResult:
-    result = run_context.results.get(task_id)
-    if result is None:
-        return OrchestratorToolResult(
-            status="error",
-            output="dispatch_agent did not produce a task result",
-            error_code="dispatch_failed",
-        )
-    output = _truncate(
-        _format_dispatch_observation(task_id, result, format_task_result_context),
-        result_max_chars,
-    )
-    return OrchestratorToolResult(
-        status="ok" if result.final_state.value == "succeeded" else "error",
-        output=output[0],
-        error_code=None if result.final_state.value == "succeeded" else result.final_state.value,
-        output_truncated=output[1],
-    )
-
 
 def _tool_gateway(config: Mapping[str, Any]) -> Any:
     gateway = config.get("orchestrator_tool_gateway")
@@ -329,7 +264,6 @@ def _tool_gateway(config: Mapping[str, Any]) -> Any:
         agent_id="orchestrator-tool-loop",
         system_prompt=_tool_system_prompt(config),
     )
-
 
 def _tool_model_config(config: Mapping[str, Any]) -> dict[str, Any]:
     raw_config = config.get("orchestrator_tool_config", config.get("orchestrator_llm_config", {}))
@@ -347,7 +281,6 @@ def _tool_model_config(config: Mapping[str, Any]) -> dict[str, Any]:
         if key in config and key not in model_config:
             model_config[key] = config[key]
     return model_config
-
 
 def _tool_system_prompt(config: Mapping[str, Any]) -> str:
     agents = ", ".join(available_agent_ids(config)) or "(none)"
@@ -370,7 +303,6 @@ def _tool_system_prompt(config: Mapping[str, Any]) -> str:
         "and do not reveal hidden reasoning."
     )
 
-
 async def _execute_non_dispatch_tool(
     config: Mapping[str, Any],
     call: OrchestratorToolCall,
@@ -390,7 +322,7 @@ async def _execute_non_dispatch_tool(
         result = cast(OrchestratorToolResult, await executor(call.name, call.arguments))
         if result.output_truncated:
             return result
-        output, truncated = _truncate(result.output, result_max_chars)
+        output, truncated = truncate(result.output, result_max_chars)
         return OrchestratorToolResult(
             status=result.status,
             output=output,
@@ -406,102 +338,12 @@ async def _execute_non_dispatch_tool(
         read_max_bytes=read_max_bytes,
     )
 
-
 def _tool_messages(
     config: Mapping[str, Any],
     messages: list[ChatMessage],
 ) -> list[ChatMessage]:
     _ = config
     return messages
-
-
-def _deployment_status_card(result: OrchestratorToolResult) -> dict[str, Any] | None:
-    try:
-        payload = json.loads(result.output)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    card = payload.get("status_card")
-    if not isinstance(card, dict):
-        return None
-    if not isinstance(card.get("deployment_id"), str) or not card["deployment_id"]:
-        return None
-    return card
-
-
-def _normalize_tool_call(
-    chunk: StreamChunk,
-    iteration: int,
-    call_number: int,
-) -> OrchestratorToolCall:
-    raw_call_id = chunk.call_id or f"{iteration}.{call_number}"
-    call_id = raw_call_id if raw_call_id.startswith("orch.") else f"orch.{iteration}.{call_number}"
-    return OrchestratorToolCall(
-        call_id=call_id,
-        name=chunk.tool_name or "",
-        arguments=chunk.tool_arguments or {},
-    )
-
-
-def _tool_call_chunk(call: OrchestratorToolCall) -> StreamChunk:
-    return StreamChunk(
-        event_type="tool_call",
-        agent_id="orchestrator",
-        call_id=call.call_id,
-        tool_name=call.name,
-        tool_arguments=call.arguments,
-    )
-
-
-def _tool_result_chunk(
-    call: OrchestratorToolCall,
-    result: OrchestratorToolResult,
-) -> StreamChunk:
-    metadata: dict[str, Any] = {}
-    if result.error_code:
-        metadata["error_code"] = result.error_code
-    if result.needs_user_input:
-        metadata["needs_user_input"] = True
-    return StreamChunk(
-        event_type="tool_result",
-        agent_id="orchestrator",
-        call_id=call.call_id,
-        tool_status="ok" if result.status == "ok" else "error",
-        tool_output=result.output,
-        tool_output_truncated=result.output_truncated,
-        metadata=metadata or None,
-    )
-
-
-def _tool_result_message(
-    call: OrchestratorToolCall,
-    result: OrchestratorToolResult,
-) -> str:
-    return f"Tool {call.name} ({call.call_id}) {result.status}: {result.output}"
-
-
-def _format_dispatch_observation(
-    task_id: str,
-    result: TaskResult,
-    format_task_result_context: FormatTaskResultContext,
-) -> str:
-    return format_task_result_context(task_id, result, DEFAULT_TOOL_RESULT_MAX_CHARS)
-
-
-def _remap_block_index(
-    chunk: StreamChunk,
-    index_map: dict[int, int],
-    next_block_index: int,
-) -> tuple[StreamChunk, int]:
-    if chunk.block_index is None:
-        return chunk, next_block_index
-    source_index = chunk.block_index
-    if source_index not in index_map:
-        index_map[source_index] = next_block_index
-        next_block_index += 1
-    return chunk.model_copy(update={"block_index": index_map[source_index]}), next_block_index
-
 
 async def _start_memory_run(
     config: Mapping[str, Any],
@@ -522,7 +364,6 @@ async def _start_memory_run(
         )
     except Exception:  # noqa: BLE001
         run_context.memory_run_id = None
-
 
 async def _record_tool_event(
     config: Mapping[str, Any],
@@ -553,7 +394,6 @@ async def _record_tool_event(
     except Exception:  # noqa: BLE001
         return
 
-
 async def _finish_memory_run(
     config: Mapping[str, Any],
     run_context: OrchestratorRunContext,
@@ -575,7 +415,6 @@ async def _finish_memory_run(
     except Exception:  # noqa: BLE001
         return
 
-
 def _max_iterations(
     config: Mapping[str, Any],
     positive_int_config: PositiveIntConfig,
@@ -589,7 +428,6 @@ def _max_iterations(
         MAX_TOOL_MAX_ITERATIONS,
     )
 
-
 def _result_max_chars(
     config: Mapping[str, Any],
     positive_int_config: PositiveIntConfig,
@@ -600,7 +438,6 @@ def _result_max_chars(
         DEFAULT_TOOL_RESULT_MAX_CHARS,
     )
 
-
 def _read_max_bytes(
     config: Mapping[str, Any],
     positive_int_config: PositiveIntConfig,
@@ -610,41 +447,3 @@ def _read_max_bytes(
         "orchestrator_tool_read_max_bytes",
         DEFAULT_TOOL_READ_MAX_BYTES,
     )
-
-
-def _task_id(value: object, call_id: str) -> str:
-    if isinstance(value, str) and value.strip():
-        return _safe_task_id(value.strip())
-    return _safe_task_id(call_id)
-
-
-def _safe_task_id(value: str) -> str:
-    safe = "".join(char if char.isalnum() or char in "._-" else "-" for char in value)
-    return safe.strip(".-") or "tool-task"
-
-
-def _required_str(value: object) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    return value.strip()
-
-
-def _optional_str(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        return None
-    value = value.strip()
-    return value or None
-
-
-def _optional_bool(value: object, default: bool) -> bool:
-    if isinstance(value, bool):
-        return value
-    return default
-
-
-def _truncate(text: str, max_chars: int) -> tuple[str, bool]:
-    if len(text) <= max_chars:
-        return text, False
-    return text[:max_chars], True
