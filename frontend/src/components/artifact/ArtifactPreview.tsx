@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { WorkspaceCodePreview } from './WorkspaceCodePreview';
 
 export interface PreviewArtifactFile {
   path: string;
@@ -90,14 +91,15 @@ export function ArtifactPreview({
   }
 
   const content = (
-    <ArtifactContent
-      artifact={artifact}
-      blobUrl={blobUrl}
-      draft={draft}
-      isEditing={isEditing}
-      onDraftChange={setDraft}
-      onReplacementChange={setReplacement}
-    />
+      <ArtifactContent
+        artifact={artifact}
+        blobUrl={blobUrl}
+        draft={draft}
+        isEditing={isEditing}
+        isFullscreen={isFullscreen}
+        onDraftChange={setDraft}
+        onReplacementChange={setReplacement}
+      />
   );
 
   return (
@@ -212,6 +214,7 @@ function ArtifactContent({
   blobUrl,
   draft,
   isEditing,
+  isFullscreen,
   onDraftChange,
   onReplacementChange,
 }: {
@@ -219,6 +222,7 @@ function ArtifactContent({
   blobUrl: string | null;
   draft: string;
   isEditing: boolean;
+  isFullscreen: boolean;
   onDraftChange: (value: string) => void;
   onReplacementChange: (file: File | null) => void;
 }) {
@@ -248,11 +252,15 @@ function ArtifactContent({
     );
   }
 
-  if (artifact.mime_type === 'text/html' && typeof artifact.content === 'string') {
-    return <iframe title={artifact.name} srcDoc={draft} sandbox="" className="h-[32rem] w-full border-0 bg-white" />;
-  }
   if (typeof artifact.content === 'string' && isTextMime(artifact.mime_type)) {
-    return <pre className="max-h-[36rem] overflow-auto whitespace-pre-wrap p-3 font-mono text-xs leading-5 text-slate-900 scrollbar-thin dark:text-slate-300">{draft}</pre>;
+    return (
+      <WorkspaceCodePreview
+        filename={artifact.name}
+        mimeType={artifact.mime_type}
+        code={draft}
+        isFullscreen={isFullscreen}
+      />
+    );
   }
   if (blobUrl && artifact.mime_type.startsWith('image/')) {
     return <div className="flex min-h-56 items-center justify-center bg-slate-100 p-3 dark:bg-slate-950"><img src={blobUrl} alt={artifact.name} className="max-h-[70vh] max-w-full object-contain" /></div>;
