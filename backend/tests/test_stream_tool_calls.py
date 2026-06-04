@@ -989,6 +989,91 @@ async def test_stream_passes_workspace_path_to_adapter(
     assert seen_workspace_path.exists()
 
 
+async def test_stream_rejects_non_pending_agent_message(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+        assert message is not None
+        message.status = "done"
+        await db.commit()
+
+    status_code, body = await _stream_message(client, headers, agent_message_id)
+
+    assert status_code == 409
+    assert "MESSAGE_NOT_STREAMABLE" in body
+
+
+async def test_streaming_message_without_runtime_session_terminalizes_error(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+        assert message is not None
+        message.status = "streaming"
+        await db.commit()
+
+    status_code, body = await _stream_message(client, headers, agent_message_id)
+
+    assert status_code == 200
+    assert "stream_session_lost" in body
+    message = await _stored_message(agent_message_id)
+    assert message.status == "error"
+    assert "interrupted" in message.content[0]["text"]
+
+
+async def test_stream_passes_runtime_context_to_adapter(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+    seen_config: dict[str, Any] | None = None
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            nonlocal seen_config
+            _ = messages, system_prompt, workspace_path, tool_specs
+            seen_config = config
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(event_type="done")
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        return FakeAdapter()
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    status_code, _ = await _stream_message(client, headers, agent_message_id)
+
+    assert status_code == 200
+    assert seen_config is not None
+    assert seen_config["runtime_context"] == {
+        "conversation_id": conversation["id"],
+        "agent_message_id": agent_message_id,
+        "agent_id": messages["agent_message"]["agent_id"],
+    }
+
+
 async def test_openapi_includes_tool_call_block(client: AsyncClient) -> None:
     response = await client.get("/openapi.json")
 

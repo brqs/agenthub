@@ -13,6 +13,15 @@ type SortableMessage = Pick<Message, 'id' | 'role' | 'reply_to_id' | 'created_at
 interface ChatState {
   conversations: DemoConversation[];
   messagesByConversation: Record<string, DemoMessage[]>;
+  activeStreams: Record<
+    string,
+    {
+      messageId: string;
+      conversationId: string;
+      agentId: string | null;
+      startedAt: string;
+    }
+  >;
   selectedConversationId: string;
   search: string;
   highlightedMessageId: string | null;
@@ -23,6 +32,8 @@ interface ChatState {
   toggleConversationPin: (conversationId: string) => void;
   toggleConversationArchive: (conversationId: string) => void;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
+  startActiveStream: (message: Pick<Message, 'id' | 'conversation_id' | 'agent_id'>) => void;
+  finishActiveStream: (messageId: string) => void;
   resetMessageForRetry: (messageId: string) => void;
   /** Prepend a freshly created conversation (returned by POST /conversations). */
   addConversation: (conversation: Conversation) => void;
@@ -118,7 +129,7 @@ function isTaskCardMetadata(value: unknown): value is Omit<TaskCardBlock, 'type'
 
 function createTaskCard(metadata: Record<string, unknown> | undefined): TaskCardBlock {
   const fallback: Omit<TaskCardBlock, 'type'> = {
-    title: '群聊协作任务流',
+    title: 'Orchestrator 调度计划',
     tasks: [],
   };
   const value = isTaskCardMetadata(metadata) ? metadata : fallback;
@@ -143,10 +154,14 @@ function updateTaskStatuses(
     return {
       ...block,
       tasks: block.tasks.map((task) => {
-        if (task.agent_id === event.data.from_agent && task.status === 'running') {
+        if (task.status === 'running') {
           return { ...task, status: 'done' as const };
         }
-        if (task.agent_id === event.data.to_agent) {
+        if (
+          task.status === 'pending' &&
+          task.agent_id === event.data.to_agent &&
+          (!event.data.task || task.title === event.data.task)
+        ) {
           return { ...task, status: 'running' as const };
         }
         return task;
@@ -326,6 +341,7 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
 export const useChatStore = create<ChatState>((set) => ({
   conversations: [],
   messagesByConversation: {},
+  activeStreams: {},
   selectedConversationId: '',
   search: '',
   highlightedMessageId: null,
@@ -381,7 +397,11 @@ export const useChatStore = create<ChatState>((set) => ({
           const nextMessages = messages.map((message) => {
             if (message.id !== messageId) return message;
             touchedConversationId = conversationId;
+            if (message.status === 'done' && event.event === 'error') {
+              return message;
+            }
             if (event.event === 'start') {
+              if (message.status === 'done') return message;
               return { ...message, status: 'streaming' as const };
             }
             if (event.event === 'done') {
@@ -392,13 +412,11 @@ export const useChatStore = create<ChatState>((set) => ({
               };
             }
             if (event.event === 'error') {
+              const errorMessage = event.data.error ?? event.data.error_code ?? 'unknown error';
               return {
                 ...message,
                 status: 'error' as const,
-                content: appendText(
-                  message.content,
-                  `\n\n调用失败：${event.data.error ?? event.data.error_code ?? 'unknown error'}`,
-                ),
+                content: appendText(message.content, `\n\n调用失败：${errorMessage}`),
               };
             }
             return {
@@ -426,6 +444,26 @@ export const useChatStore = create<ChatState>((set) => ({
         messagesByConversation: nextMessagesByConversation,
         conversations: nextConversations,
       };
+    });
+  },
+  startActiveStream: (message) => {
+    set((state) => ({
+      activeStreams: {
+        ...state.activeStreams,
+        [message.id]: {
+          messageId: message.id,
+          conversationId: message.conversation_id,
+          agentId: message.agent_id ?? null,
+          startedAt: new Date().toISOString(),
+        },
+      },
+    }));
+  },
+  finishActiveStream: (messageId) => {
+    set((state) => {
+      const activeStreams = { ...state.activeStreams };
+      delete activeStreams[messageId];
+      return { activeStreams };
     });
   },
   resetMessageForRetry: (messageId) => {
@@ -469,12 +507,24 @@ export const useChatStore = create<ChatState>((set) => ({
     });
   },
   hydrateMessages: (conversationId, messages) => {
-    set((state) => ({
-      messagesByConversation: {
-        ...state.messagesByConversation,
-        [conversationId]: sortMessagesForDisplay(messages) as DemoMessage[],
-      },
-    }));
+    set((state) => {
+      const incoming = messages as DemoMessage[];
+      const activeStreams = mergeHydratedActiveStreams(state.activeStreams, incoming);
+      return {
+        activeStreams,
+        messagesByConversation: {
+          ...state.messagesByConversation,
+          [conversationId]: sortMessagesForDisplay(
+            mergeHydratedMessages(
+              state.messagesByConversation[conversationId] ?? [],
+              incoming,
+              activeStreams,
+              conversationId,
+            ),
+          ),
+        },
+      };
+    });
   },
   appendRemoteExchange: (conversationId, userMessage, agentMessage) => {
     set((state) => ({
@@ -554,5 +604,88 @@ export const useChatStore = create<ChatState>((set) => ({
       selectedConversationId: '',
       search: '',
       highlightedMessageId: null,
+      activeStreams: {},
     }),
 }));
+
+function mergeHydratedMessages(
+  current: DemoMessage[],
+  incoming: DemoMessage[],
+  activeStreams: ChatState['activeStreams'],
+  conversationId: string,
+): DemoMessage[] {
+  const currentById = new Map(current.map((message) => [message.id, message]));
+  const mergedById = new Map<string, DemoMessage>();
+
+  for (const message of incoming) {
+    const currentMessage = currentById.get(message.id);
+    const activeStream = activeStreams[message.id];
+    if (
+      activeStream?.conversationId === conversationId &&
+      currentMessage?.status === 'streaming'
+    ) {
+      mergedById.set(message.id, currentMessage);
+      continue;
+    }
+    if (
+      activeStream?.conversationId === conversationId &&
+      message.role === 'agent' &&
+      (message.status === 'pending' || message.status === 'streaming')
+    ) {
+      mergedById.set(message.id, message);
+      continue;
+    }
+    if (message.status === 'streaming') {
+      mergedById.set(message.id, {
+        ...message,
+        status: 'error' as const,
+        content:
+          currentMessage?.content.length
+            ? currentMessage.content
+            : message.content.length > 0
+            ? message.content
+            : [{ type: 'text', text: '回复已中断，请重试这条消息。' }],
+      });
+      continue;
+    }
+    mergedById.set(message.id, message);
+  }
+
+  for (const message of current) {
+    const activeStream = activeStreams[message.id];
+    if (activeStream?.conversationId !== conversationId) continue;
+    if (message.status !== 'streaming') continue;
+    mergedById.set(message.id, message);
+  }
+
+  return [...mergedById.values()].sort((a, b) => {
+    const byTime = a.created_at.localeCompare(b.created_at);
+    return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
+  });
+}
+
+function mergeHydratedActiveStreams(
+  current: ChatState['activeStreams'],
+  messages: DemoMessage[],
+): ChatState['activeStreams'] {
+  const next = { ...current };
+  for (const message of messages) {
+    if (message.role !== 'agent') continue;
+    if (message.status === 'done' || message.status === 'error') {
+      delete next[message.id];
+      continue;
+    }
+    if (
+      (message.status === 'pending' || message.status === 'streaming') &&
+      message.agent_id
+    ) {
+      next[message.id] = next[message.id] ?? {
+        messageId: message.id,
+        conversationId: message.conversation_id,
+        agentId: message.agent_id,
+        startedAt: new Date().toISOString(),
+      };
+    }
+  }
+  return next;
+}

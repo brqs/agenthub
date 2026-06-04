@@ -15,6 +15,7 @@ export function MessageBubble({
   highlighted = false,
   onTogglePin,
   onRetry,
+  isRetrying = false,
   onMentionAgent,
   agents = [],
 }: {
@@ -22,6 +23,7 @@ export function MessageBubble({
   highlighted?: boolean;
   onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
+  isRetrying?: boolean;
   onMentionAgent?: (agent: Agent) => void;
   agents?: Agent[];
 }) {
@@ -130,11 +132,12 @@ export function MessageBubble({
           {message.status === 'error' && onRetry && (
             <button
               type="button"
+              disabled={isRetrying}
               onClick={() => onRetry(message.id)}
-              className="mt-3 inline-flex items-center gap-2 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-500/30 dark:text-red-100 dark:hover:bg-red-500/10"
+              className="mt-3 inline-flex items-center gap-2 rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-500/30 dark:text-red-100 dark:hover:bg-red-500/10"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              重试
+              {isRetrying ? '重试中' : '重试'}
             </button>
           )}
         </div>

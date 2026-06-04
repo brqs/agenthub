@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from app.agents.external.runtime_budget import (
+    RuntimeBudget,
+    RuntimeBudgetConfig,
+    RuntimeTimeoutError,
+    iter_with_runtime_budget,
+)
 from app.agents.model_gateway import ModelGateway
 from app.agents.types import ChatMessage, StreamChunk
 
@@ -17,6 +24,9 @@ DEFAULT_QA_MAX_TOKENS = 2048
 DEFAULT_CLASSIFIER_MAX_TOKENS = 128
 DEFAULT_QA_TEMPERATURE = 0.2
 DEFAULT_QA_REQUEST_TIMEOUT_SECONDS = 20.0
+DEFAULT_QA_STREAM_IDLE_TIMEOUT_SECONDS = 10.0
+DEFAULT_QA_STREAM_MAX_RUNTIME_SECONDS = 45.0
+DEFAULT_QA_STREAM_HEARTBEAT_SECONDS = 5.0
 DIRECT_CHAT_CONFIDENCE_THRESHOLD = 0.65
 
 CLASSIFIER_PROMPT = """Classify the latest user request for an external coding agent.
@@ -111,7 +121,13 @@ async def _collect_model_text(
         system_prompt=system_prompt,
     )
     parts: list[str] = []
-    async for chunk in gateway.stream(messages, system_prompt=system_prompt, config=config):
+    budget = RuntimeBudget(_qa_stream_budget_config(config))
+    async for chunk in iter_with_runtime_budget(
+        gateway.stream(messages, system_prompt=system_prompt, config=config),
+        budget,
+        agent_id=agent_id,
+        provider=backend,
+    ):
         if chunk.event_type == "error":
             raise RuntimeError(chunk.error or chunk.error_code or "classifier error")
         if chunk.text_delta:
@@ -135,14 +151,40 @@ async def _stream_direct_answer(
         agent_id=agent_id,
         system_prompt=_direct_answer_system_prompt(system_prompt),
     )
-    async for chunk in gateway.stream(
-        messages,
-        system_prompt=_direct_answer_system_prompt(system_prompt),
-        config=_answer_config(config),
-    ):
-        if chunk.event_type == "start":
-            continue
-        yield _external_chunk(chunk, agent_id=agent_id, provider=provider)
+    open_block_index: int | None = None
+    stream = iter_with_runtime_budget(
+        gateway.stream(
+            messages,
+            system_prompt=_direct_answer_system_prompt(system_prompt),
+            config=_answer_config(config),
+        ),
+        RuntimeBudget(_qa_stream_budget_config(config)),
+        agent_id=agent_id,
+        provider=provider,
+    )
+    try:
+        async for chunk in stream:
+            if chunk.event_type == "start":
+                continue
+            if chunk.event_type == "block_start":
+                open_block_index = chunk.block_index
+            elif chunk.event_type == "block_end":
+                open_block_index = None
+            elif chunk.event_type in {"done", "error"}:
+                open_block_index = None
+            yield _external_chunk(chunk, agent_id=agent_id, provider=provider)
+    except RuntimeTimeoutError as exc:
+        if open_block_index is not None:
+            yield StreamChunk(event_type="block_end", block_index=open_block_index)
+        yield StreamChunk(
+            event_type="error",
+            agent_id=agent_id,
+            error_code="direct_chat_timeout",
+            error=str(exc),
+            metadata={"provider": provider, "retryable": False},
+        )
+    except asyncio.CancelledError:
+        raise
 
 
 def _external_chunk(
@@ -256,6 +298,30 @@ def _gateway_config(
     if isinstance(model, str) and model:
         gateway_config["model"] = model
     return gateway_config
+
+
+def _qa_stream_budget_config(config: dict[str, Any]) -> RuntimeBudgetConfig:
+    return RuntimeBudgetConfig(
+        max_runtime_seconds=_positive_float_config(
+            config.get("qa_stream_max_runtime_seconds"),
+            DEFAULT_QA_STREAM_MAX_RUNTIME_SECONDS,
+        ),
+        idle_timeout_seconds=_positive_float_config(
+            config.get("qa_stream_idle_timeout_seconds"),
+            DEFAULT_QA_STREAM_IDLE_TIMEOUT_SECONDS,
+        ),
+        heartbeat_interval_seconds=_positive_float_config(
+            config.get("qa_stream_heartbeat_seconds"),
+            DEFAULT_QA_STREAM_HEARTBEAT_SECONDS,
+        ),
+    )
+
+
+def _positive_float_config(value: object, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return default
+    parsed = float(value)
+    return parsed if parsed > 0 else default
 
 
 def _bool_config(config: dict[str, Any], key: str, default: bool) -> bool:

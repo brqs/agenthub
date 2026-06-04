@@ -26,6 +26,7 @@ from app.models.agent import Agent
 from app.services.artifact_manifest import ArtifactManifestService
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 from tests.orchestrator_fakes import (
+    FakeAnswerGateway,
     FakePartialThenExceptionAdapter,
     FakePlannerGateway,
     FakeSubAdapter,
@@ -296,6 +297,29 @@ async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -
         chunk.event_type == "delta" and "Planned 2 sub-task(s)" in (chunk.text_delta or "")
         for chunk in chunks
     )
+    task_cards = [
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "task_card"
+    ]
+    assert len(task_cards) == 1
+    assert task_cards[0].metadata == {
+        "title": "Orchestrator 调度计划",
+        "tasks": [
+            {
+                "id": "task-a",
+                "agent_id": "agent-a",
+                "title": "Backend API",
+                "status": "pending",
+            },
+            {
+                "id": "task-b",
+                "agent_id": "agent-b",
+                "title": "Frontend UI",
+                "status": "pending",
+            },
+        ],
+    }
     assert [
         (chunk.from_agent, chunk.to_agent, chunk.task)
         for chunk in chunks
@@ -620,6 +644,27 @@ async def test_review_thread_parses_fenced_outcome_without_artifact_evaluation(
     assert "evaluation_failed: @agent-b - Review Write report" not in summary
 
 
+async def test_orchestrator_hides_subagent_text_by_default() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("large sub-agent output"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = [
+        chunk
+        async for chunk in orchestrator.stream(
+            messages=[ChatMessage(role="user", content="Build a todo app")],
+            config={
+                "tasks": [_task("task-a", "agent-a", "Backend API", "Build API")],
+                "sub_adapters": {"agent-a": adapter_a},
+            },
+        )
+    ]
+
+    assert chunks[-1].event_type == "done"
+    assert any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert not any(chunk.text_delta == "large sub-agent output" for chunk in chunks)
+    assert any("Execution summary" in (chunk.text_delta or "") for chunk in chunks)
+
+
 async def test_orchestrator_parallel_executes_independent_tasks_concurrently() -> None:
     started: set[str] = set()
     all_started = asyncio.Event()
@@ -905,7 +950,9 @@ async def test_orchestrator_does_not_require_database() -> None:
         ChatMessage(role="user", content="Injected task"),
     ]
     assert adapter_a.received_system_prompt is None
-    assert adapter_a.received_config is None
+    assert adapter_a.received_config is not None
+    assert adapter_a.received_config["runtime_context"]["agent_id"] == "agent-a"
+    assert adapter_a.received_config["runtime_context"]["orchestrator_task_id"] == "task-a"
 
 
 async def test_orchestrator_passes_group_memory_to_sub_agent() -> None:
@@ -1023,6 +1070,90 @@ async def test_orchestrator_derives_direct_tasks_for_named_agents() -> None:
         assert "Message:\nhello, what model are you?" in instruction
         assert "@orchestrator" not in instruction
         assert "Do not contact, invoke, or simulate other agents" in instruction
+
+
+async def test_orchestrator_answers_simple_greeting_without_planning() -> None:
+    planner = FakePlannerGateway([])
+    answer = FakeAnswerGateway(_text_chunks("你好，我是 AgentHub Orchestrator。"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="@orchestrator 你好")],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "sub_adapters": {
+                "claude-code": FakeSubAdapter("claude-code", _text_chunks("unused")),
+                "opencode-helper": FakeSubAdapter(
+                    "opencode-helper", _text_chunks("unused")
+                ),
+            },
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "AgentHub Orchestrator" in text
+    assert "Planned" not in text
+    assert [chunk for chunk in chunks if chunk.event_type == "agent_switch"] == []
+    assert planner.calls == []
+    assert len(answer.calls) == 1
+
+
+async def test_orchestrator_uses_planner_for_chinese_generation_request() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("created html"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "create-web-page",
+                            "claude-code",
+                            "Create campus page",
+                            "Create a USTC campus web page.",
+                            expected_output="index.html",
+                        )
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    answer = FakeAnswerGateway(_text_chunks("should not answer directly"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator "
+                    "\u8bf7\u4f60\u5e2e\u6211\u751f\u6210\u4e00\u4e2a\u7f51\u9875"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "managed_agent_ids": ["claude-code"],
+            "sub_adapters": {"claude-code": claude},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(planner.calls) == 1
+    assert answer.calls == []
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code"]
 
 
 async def test_orchestrator_uses_planner_for_named_agent_file_tasks() -> None:

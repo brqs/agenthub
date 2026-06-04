@@ -10,6 +10,8 @@ from typing import Any
 import pytest
 
 import app.agents.external.claude_code as claude_code_module
+import app.agents.external.direct_chat as direct_chat_module
+import app.agents.external.runtime_isolation as runtime_isolation_module
 from app.agents.external.claude_code import ClaudeCodeAdapter
 from app.agents.external.cli_runtime import CliCompleted, CliResult
 from app.agents.external.direct_chat import DirectChatDecision
@@ -54,6 +56,55 @@ class HangingEventStream:
     async def __aiter__(self) -> AsyncIterator[Any]:
         await asyncio.Event().wait()
         yield {"type": "text_delta", "text": "unreachable"}
+
+
+class HangingModelGateway:
+    def __init__(
+        self,
+        backend: str,
+        default_config: dict[str, Any] | None = None,
+        *,
+        agent_id: str | None = None,
+        system_prompt: str | None = None,
+    ) -> None:
+        _ = backend, default_config, system_prompt
+        self.agent_id = agent_id
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        tools: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        _ = messages, system_prompt, config, tools
+        if self.agent_id == "external-direct-chat-classifier":
+            yield StreamChunk(
+                event_type="delta",
+                text_delta='{"route":"direct_chat","confidence":0.99,"reason":"qa"}',
+            )
+            yield StreamChunk(event_type="done", agent_id=self.agent_id)
+            return
+        yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+        yield StreamChunk(event_type="delta", block_index=0, text_delta="partial answer")
+        await asyncio.Event().wait()
+
+
+class HangingClassifierGateway(HangingModelGateway):
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        tools: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        _ = messages, system_prompt, config, tools
+        if self.agent_id == "external-direct-chat-classifier":
+            await asyncio.Event().wait()
+        yield StreamChunk(event_type="delta", text_delta="runtime answer")
+        yield StreamChunk(event_type="done", agent_id=self.agent_id)
 
 
 class FakeSdk:
@@ -120,6 +171,98 @@ class TestClaudeCodeAdapterStream:
             "done",
         ]
         assert chunks[2].text_delta == "direct"
+
+    async def test_direct_chat_timeout_closes_partial_block_and_errors(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(direct_chat_module, "ModelGateway", HangingModelGateway)
+        monkeypatch.setattr(
+            adapter,
+            "_load_sdk",
+            lambda: pytest.fail("direct chat timeout must not start Claude Code"),
+        )
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={
+                "qa_short_circuit_enabled": True,
+                "qa_stream_idle_timeout_seconds": 0.01,
+                "qa_stream_max_runtime_seconds": 0.05,
+            },
+            messages=[ChatMessage(role="user", content="Explain timeouts")],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "error",
+        ]
+        assert chunks[2].text_delta == "partial answer"
+        assert chunks[-1].error_code == "direct_chat_timeout"
+
+    async def test_direct_chat_classifier_timeout_falls_back_to_runtime(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(direct_chat_module, "ModelGateway", HangingClassifierGateway)
+        fake_sdk = FakeSdk(events=[{"type": "text_delta", "text": "runtime path"}])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={
+                "qa_short_circuit_enabled": True,
+                "qa_stream_idle_timeout_seconds": 0.01,
+                "qa_stream_max_runtime_seconds": 0.05,
+            },
+            messages=[ChatMessage(role="user", content="Explain timeouts")],
+        )
+
+        text = "".join(chunk.text_delta or "" for chunk in chunks)
+        assert chunks[-1].event_type == "done"
+        assert "runtime path" in text
+        assert fake_sdk.last_prompt
+
+    async def test_simple_greeting_returns_direct_text_without_sdk_or_classifier(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fail_direct_chat(**_kwargs: Any) -> DirectChatDecision:
+            pytest.fail("simple greetings should not start the direct-chat classifier")
+
+        monkeypatch.setattr(claude_code_module, "maybe_stream_direct_chat", fail_direct_chat)
+        monkeypatch.setattr(
+            adapter,
+            "_load_sdk",
+            lambda: pytest.fail("simple greetings should not load Claude Code"),
+        )
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={"qa_short_circuit_enabled": True},
+            messages=[ChatMessage(role="user", content="你好")],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert "Claude Code" in (chunks[2].text_delta or "")
 
     async def test_text_stream_maps_to_text_block(
         self,
@@ -346,6 +489,44 @@ class TestClaudeCodeAdapterStream:
         assert fake_sdk.last_options is not None
         assert fake_sdk.last_options.kwargs["permission_mode"] == "acceptEdits"
 
+    async def test_sdk_uses_message_scoped_runtime_isolation(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+        state_dir = tmp_path / "runtime-state"
+        monkeypatch.setattr(
+            runtime_isolation_module.settings,
+            "external_runtime_state_dir",
+            str(state_dir),
+        )
+
+        await _collect(
+            adapter,
+            workspace_path=tmp_path / "workspaces" / "conv-a",
+            config={
+                "runtime_context": {
+                    "conversation_id": "conv-a",
+                    "agent_message_id": "msg-a",
+                    "agent_id": "agent-claude-code",
+                }
+            },
+        )
+
+        assert fake_sdk.last_options is not None
+        options = fake_sdk.last_options.kwargs
+        assert options["continue_conversation"] is False
+        assert options["resume"] is None
+        assert options["session_id"] == "agenthub-msg-a"
+        assert options["env"]["HOME"].endswith("conv-a/agent-claude-code/msg-a")
+        assert options["env"]["XDG_CONFIG_HOME"].endswith(
+            "conv-a/agent-claude-code/msg-a/.config"
+        )
+        assert (Path(options["env"]["HOME"]) / ".claude.json").exists()
+
     async def test_sdk_exception_maps_to_external_runtime_error(
         self,
         adapter: ClaudeCodeAdapter,
@@ -410,8 +591,9 @@ class TestClaudeCodeAdapterStream:
             agent_id: str,
             provider: str,
             activity_paths: list[Path] | None = None,
+            env: dict[str, str] | None = None,
         ) -> AsyncIterator[StreamChunk | CliCompleted]:
-            _ = command, cwd, budget_config, agent_id, provider, activity_paths
+            _ = command, cwd, budget_config, agent_id, provider, activity_paths, env
             yield CliCompleted(CliResult(return_code=0, stdout="cli ok\n", stderr=""))
 
         monkeypatch.setattr(adapter, "_load_sdk", missing_sdk)
@@ -466,8 +648,9 @@ class TestClaudeCodeAdapterStream:
             agent_id: str,
             provider: str,
             activity_paths: list[Path] | None = None,
+            env: dict[str, str] | None = None,
         ) -> AsyncIterator[StreamChunk | CliCompleted]:
-            _ = cwd, budget_config, agent_id, provider, activity_paths
+            _ = cwd, budget_config, agent_id, provider, activity_paths, env
             seen_command.extend(command)
             yield CliCompleted(CliResult(return_code=0, stdout="cli ok\n", stderr=""))
 

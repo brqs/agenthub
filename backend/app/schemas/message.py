@@ -81,7 +81,6 @@ class DeploymentStatusBlock(BaseModel):
     container_port: int | None = None
     healthcheck_url: str | None = None
 
-
 class WorkflowBlock(BaseModel):
     type: Literal["workflow"] = "workflow"
     agent_id: str | None = None
@@ -98,6 +97,20 @@ class WorkflowBlock(BaseModel):
     dry_run_status: Literal["passed", "failed", "not_supported"] = "not_supported"
     health_status: Literal["passed", "failed", "unknown"] = "unknown"
     validation_errors: list[str] = Field(default_factory=list)
+
+
+class TaskCardTask(BaseModel):
+    id: str
+    agent_id: str
+    title: str
+    status: Literal["pending", "running", "done", "error"]
+
+
+class TaskCardBlock(BaseModel):
+    type: Literal["task_card"] = "task_card"
+    agent_id: str | None = None
+    title: str
+    tasks: list[TaskCardTask] = Field(default_factory=list)
 
 
 class ToolCallBlock(BaseModel):
@@ -120,6 +133,7 @@ ContentBlock = Annotated[
     | FileBlock
     | DeploymentStatusBlock
     | WorkflowBlock
+    | TaskCardBlock
     | ToolCallBlock,
     Field(discriminator="type"),
 ]

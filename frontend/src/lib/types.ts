@@ -125,6 +125,18 @@ export interface WorkflowBlock {
   validation_errors?: string[];
 }
 
+export interface TaskCardBlock {
+  type: 'task_card';
+  agent_id?: string | null;
+  title: string;
+  tasks: Array<{
+    id: string;
+    agent_id: string;
+    title: string;
+    status: 'pending' | 'running' | 'done' | 'error';
+  }>;
+}
+
 export type ContentBlock =
   | TextBlock
   | CodeBlock
@@ -133,6 +145,7 @@ export type ContentBlock =
   | FileBlock
   | DeploymentStatusBlock
   | WorkflowBlock
+  | TaskCardBlock
   | ToolCallBlock;
 
 // ─── Messages ───

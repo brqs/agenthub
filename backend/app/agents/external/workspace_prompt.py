@@ -121,6 +121,21 @@ def direct_identity_response(
     )
 
 
+def direct_small_talk_response(
+    messages: list[ChatMessage],
+    *,
+    agent_id: str,
+) -> str | None:
+    """Return a deterministic greeting response that should not start runtime."""
+    latest = _latest_user_content(messages)
+    if not latest or not _is_simple_greeting(latest):
+        return None
+    name = _agent_display_name(agent_id)
+    if _looks_chinese(latest):
+        return f"你好！我是 {name}，有什么我可以帮你的吗？"
+    return f"Hello! I am {name}. How can I help?"
+
+
 def _latest_user_index(messages: list[ChatMessage]) -> int | None:
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
@@ -147,6 +162,19 @@ def _is_identity_question(text: str) -> bool:
         and "模型" in text
         and ("什么" in text or "什麼" in text or "哪" in text)
     )
+
+
+def _is_simple_greeting(text: str) -> bool:
+    compact = text.strip().strip("!！?？。,.， ")
+    return compact.lower() in {
+        "你好",
+        "您好",
+        "嗨",
+        "哈喽",
+        "hello",
+        "hi",
+        "hey",
+    }
 
 
 def _agent_display_name(agent_id: str) -> str:
