@@ -15,10 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.workspace import WorkspaceDeployment
 from app.services.workspace_container_release import (
-    ContainerDeploymentError,
     ContainerDeployWorker,
     ContainerPolicyValidator,
     current_container_policy,
+)
+from app.services.workspace_deployment_workers import (
+    ContainerDeploymentDispatcher,
+    ContainerDeploymentOptions,
+    InProcessContainerDeploymentDispatcher,
+    mark_stale_container_deployments,
 )
 from app.services.workspace_service import (
     WorkspaceFileNotFound,
@@ -69,10 +74,15 @@ class WorkspaceDeploymentService:
         workspace_service: WorkspaceService | None = None,
         static_release_service: WorkspaceStaticReleaseService | None = None,
         container_worker: ContainerDeployWorker | None = None,
+        container_dispatcher: ContainerDeploymentDispatcher | None = None,
     ) -> None:
         self._workspace_service = workspace_service or WorkspaceService()
         self._static_release_service = static_release_service or WorkspaceStaticReleaseService()
         self._container_worker = container_worker or ContainerDeployWorker()
+        self._container_dispatcher = (
+            container_dispatcher
+            or InProcessContainerDeploymentDispatcher(container_worker=self._container_worker)
+        )
         self._container_policy_validator = ContainerPolicyValidator()
 
     async def create(
@@ -254,60 +264,43 @@ class WorkspaceDeploymentService:
             conversation_id=conversation_id,
             workspace_id=workspace.id,
             kind="container",
-            status="publishing",
+            status="queued",
             container_port=container_port,
             runtime_kind=settings.deployment_container_runtime,
             queued_at=now,
-            started_at=now,
             logs=[
                 "Container deployment request accepted.",
-                "Building container from a managed workspace snapshot.",
+                "Container deployment queued for platform worker.",
+            ],
+            state_events=[
+                {
+                    "type": "status_changed",
+                    "timestamp": now.isoformat(),
+                    "to": "queued",
+                    "runtime_kind": settings.deployment_container_runtime,
+                }
             ],
         )
         db.add(deployment)
         await db.flush()
-        try:
-            result = await self._container_worker.publish(
-                Path(workspace.root_path),
-                deployment.id,
+        worker_id = await self._container_dispatcher.submit_container_deployment(
+            deployment.id,
+            conversation_id,
+            workspace.id,
+            ContainerDeploymentOptions(
                 container_port=container_port,
                 health_path=health_path or "/",
-            )
-        except (
-            ContainerDeploymentError,
-            WorkspaceViolation,
-            WorkspaceFileTooLarge,
-            OSError,
-        ) as exc:
-            deployment.status = "failed"
-            deployment.error = str(exc)
-            deployment.runtime_status = "failed"
-            deployment.completed_at = datetime.now(UTC)
-            deployment.last_checked_at = deployment.completed_at
-            deployment.logs = [*deployment.logs, f"Container deployment failed: {exc}"]
-            deployment.logs_tail = str(exc)
-            self._touch(deployment)
-            await db.flush()
-            return deployment
-        deployment.status = "published"
-        deployment.url = result.url
-        deployment.healthcheck_url = result.healthcheck_url
-        deployment.runtime_id = result.runtime_id
-        deployment.image_id = result.image_id
-        deployment.container_id = result.container_id
-        deployment.host_port = result.host_port
-        deployment.container_port = result.container_port
-        deployment.runtime_kind = result.runtime_kind
-        deployment.runtime_status = result.runtime_status
-        deployment.logs_tail = result.logs_tail
-        deployment.snapshot_path = str(result.snapshot_path)
-        deployment.published_at = datetime.now(UTC)
-        deployment.completed_at = deployment.published_at
-        deployment.last_checked_at = deployment.published_at
-        deployment.logs = [
-            *deployment.logs,
-            f"Container published at {result.url}.",
-            f"Health check passed at {result.healthcheck_url}.",
+            ),
+        )
+        deployment.worker_id = worker_id
+        deployment.logs = [*deployment.logs, f"Container worker submitted: {worker_id}."]
+        deployment.state_events = [
+            *deployment.state_events,
+            {
+                "type": "worker_submitted",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "worker_id": worker_id,
+            },
         ]
         self._touch(deployment)
         await db.flush()
@@ -369,6 +362,8 @@ class WorkspaceDeploymentService:
         deployment = await self.get(db, conversation_id, deployment_id)
         if deployment is None:
             return None
+        if deployment.status == "stopped":
+            return deployment
         if deployment.kind == "source_zip":
             self.export_path(conversation_id, deployment_id).unlink(missing_ok=True)
         elif deployment.kind == "static_site":
@@ -377,6 +372,7 @@ class WorkspaceDeploymentService:
             deployment.snapshot_path = None
             deployment.url = None
         elif deployment.kind == "container":
+            previous_status = deployment.status
             await self._container_worker.remove(
                 container_id=deployment.container_id,
                 image_id=deployment.image_id,
@@ -384,12 +380,26 @@ class WorkspaceDeploymentService:
             )
             deployment.container_id = None
             deployment.runtime_id = None
+            deployment.image_id = None
+            deployment.host_port = None
             deployment.runtime_status = "stopped"
             deployment.url = None
             deployment.healthcheck_url = None
         deployment.status = "stopped"
         deployment.stopped_at = datetime.now(UTC)
         deployment.logs = [*deployment.logs, "Deployment marked as stopped."]
+        if deployment.kind == "container":
+            deployment.state_events = [
+                *(deployment.state_events or []),
+                {
+                    "type": "stop_requested"
+                    if previous_status in {"queued", "publishing"}
+                    else "status_changed",
+                    "timestamp": deployment.stopped_at.isoformat(),
+                    "from": previous_status,
+                    "to": "stopped",
+                },
+            ]
         self._touch(deployment)
         await db.flush()
         return deployment
@@ -454,7 +464,8 @@ class WorkspaceDeploymentService:
             deployment.error = "Source archive expired and was removed."
             deployment.logs = [*deployment.logs, "Source archive expired and was removed."]
             self._touch(deployment)
-        if deployments:
+        stale_count = await mark_stale_container_deployments(db)
+        if deployments or stale_count:
             await db.flush()
         container_stmt = select(WorkspaceDeployment).where(
             WorkspaceDeployment.kind == "container",
@@ -486,7 +497,7 @@ class WorkspaceDeploymentService:
             self._touch(deployment)
         if expired_containers:
             await db.flush()
-        return len(deployments) + len(expired_containers)
+        return len(deployments) + len(expired_containers) + stale_count
 
     async def cleanup_container_runtime_orphans(
         self,

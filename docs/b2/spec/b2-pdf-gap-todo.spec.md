@@ -2,8 +2,8 @@
 
 > 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，维护 B2 当前完成度、剩余缺口和建议执行顺序。
 >
-> 状态：P0 core implemented / P1 active backlog / P2 hardening backlog
-> 最后更新：2026-06-03
+> 状态：P0 core implemented / P1 active backlog / B2-TODO-05 API E2E passed
+> 最后更新：2026-06-04
 >
 > Spec 整理入口：当前契约、验证报告和剩余 backlog 见 [README.md](README.md)。
 
@@ -47,7 +47,7 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 | 2. 主 Agent 协调器 | 任务拆解、DAG 并行、失败降级、冲突检测、summary、Evaluation MVP、Agent-to-Agent Review Thread / repair live E2E 已完成 | 基本达标 | 前端 handoff timeline 已交接给 F |
 | 3. 多 Agent 接入 | Claude Code / Codex / OpenCode 接入；自建 Agent 和 `allowed_tools` MVP 完成 | 基本达标 | external runtime 最小权限暂缓 |
 | 4. 产物预览与编辑 | HTML / Diff / preview / deployment card 强；Workflow card、runtime dry-run、run history / health API MVP 已完成；文档、PPT、图片、archive 后端 MVP 和公网 API/SSE E2E 已完成；版本历史、局部编辑弱 | 部分达标 | 前端产品化 |
-| 5. 部署发布 | static release、source zip、container deployment、status card、repair/redeploy 已完成演示 MVP | 基本达标 | 只剩生产 hardening |
+| 5. 部署发布 | static release、source zip、container deployment、status card、repair/redeploy 已完成演示 MVP；生产默认与队列化 worker hardening 已通过公网 direct API E2E | 基本达标 | 后续仅剩更强生产隔离和外部队列 |
 | 6. 多端支持 | Web 端为主；桌面/移动端非 B2 主责 | 部分达标 | B2 不作为当前主线 |
 
 ---
@@ -525,12 +525,15 @@ followup_attempt_agents: [opencode-helper]
 
 - PDF 第五点演示 MVP 已达标。
 - repair/redeploy 与清理 MVP 已完成。
+- 2026-06-04 后端 production hardening 已通过公网 direct API E2E：container 默认关闭、生产推荐 Podman、Docker 仅 trusted demo override；container API 返回 `queued` 后由 in-process queueable worker 推进状态。
+- Production-default E2E：container 最终 `not_supported`，runtime_kind `podman`；preview、static release、source zip、cleanup 均通过。
+- Demo override E2E：container `queued -> published`，`worker_id`、`attempt_count=1`、`state_events` 已写入报告；healthcheck / stop / cleanup 均通过。
 
 待办：
 
-- Rootless runtime。
-- 队列化 worker。
-- 生产级 health check retry / backoff。
+- Rootless Podman 生产部署实机验证。
+- 外部队列 worker（Redis/Celery/RQ 等）替换当前 in-process MVP。
+- Orchestrator API/SSE queued worker 复验（direct API 已通过）。
 - 更强宿主隔离。
 - 前端部署历史 / 状态卡的更细粒度 repair 展示。
 

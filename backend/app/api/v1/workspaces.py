@@ -381,6 +381,8 @@ async def create_workspace_deployment(
             health_path=payload.health_path,
             start_command=payload.start_command,
         )
+        if payload.kind == "container" and deployment.status == "queued":
+            await db.commit()
     except (
         WorkspaceDeploymentDisabledError,
         WorkspaceDeploymentError,

@@ -1,7 +1,7 @@
 # Orchestrator Native Deployment Execution Spec
 
-> 状态：Implemented hardening MVP / API-SSE E2E passed
-> 最后更新：2026-06-03
+> 状态：Production hardening API E2E passed
+> 最后更新：2026-06-04
 > 依据：课程设计第五点“部署发布”，以聊天中直接发送“部署”指令并返回部署状态卡片为产品目标。
 
 ## 1. 背景与重构目标
@@ -17,7 +17,7 @@
 - 静态站点不可变发布。
 - Source zip 打包下载。
 - Deployment record 和 `deployment_status`。
-- Container policy、受控 `ContainerDeployWorker`、默认开启的 trusted Docker 执行路径。
+- Container policy、受控 `ContainerDeployWorker`、queueable dispatcher；生产默认不启用 container runtime，demo 需显式开启 trusted Docker。
 
 本轮重构目标是让 Orchestrator 具备一等部署编排能力：
 
@@ -83,14 +83,15 @@ SourcePackageWorker
 ContainerDeployWorker
 ```
 
-当前 `StaticReleaseWorker` 和 `SourcePackageWorker` 的核心能力已经在 API 进程内实现。重构后应统一抽象到
-Worker 接口下，便于后续 container deployment 和异步状态更新。
+当前 `StaticReleaseWorker` 和 `SourcePackageWorker` 的核心能力已经在 API 进程内实现。
+Container deployment 已使用 queueable dispatcher contract；本轮默认实现为 in-process background worker，
+后续可替换成外部队列。
 
 ## 3. Native Container Deployment MVP
 
-为了贴近课程设计和日常 Agent 使用体验，容器化部署 MVP 已改为默认可真实执行，而不是永久
-`not_supported`。当前课程演示环境默认开启 trusted Docker Worker，由平台执行受控
-Docker build/run。
+为了贴近课程设计和日常 Agent 使用体验，容器化部署不再是永久 `not_supported`：
+生产默认保持关闭，课程 demo 可通过显式 trusted Docker override 真实执行。启用后由平台执行受控
+Docker/Podman build/run，API 初始返回 `queued` 并由 worker 后台推进状态。
 
 ### 3.1 MVP 范围
 
@@ -137,22 +138,25 @@ create_deployment(kind="container", entry_path=null)
 | `rootless_podman` | `DEPLOYMENT_CONTAINER_RUNTIME=podman` | 更适合长期安全运行 |
 | `trusted_docker` | `DEPLOYMENT_CONTAINER_RUNTIME=docker` | 适合课程 Demo / 单机可信环境 |
 
-当前课程演示默认：
+生产默认：
+
+```text
+DEPLOYMENT_CONTAINER_ENABLED=false
+DEPLOYMENT_CONTAINER_RUNTIME=podman
+DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=false
+DEPLOYMENT_CONTAINER_PORT_START=8081
+DEPLOYMENT_CONTAINER_PORT_END=8085
+```
+
+课程 demo 如需继续真实 Docker container deployment，必须显式 override：
 
 ```text
 DEPLOYMENT_CONTAINER_ENABLED=true
 DEPLOYMENT_CONTAINER_RUNTIME=docker
 DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=true
-DEPLOYMENT_CONTAINER_PORT_START=8081
-DEPLOYMENT_CONTAINER_PORT_END=8085
 ```
 
-如需切回更保守的生产策略，可由管理员显式关闭：
-
-```text
-DEPLOYMENT_CONTAINER_ENABLED=false
-```
-
+Docker runtime 只有在 `trusted_host_mode=true` 时允许；Podman runtime 不要求 trusted host mode。
 开启后仍必须经过平台 Worker 和 policy 校验，不允许 LLM 直接拼接任意 `docker run` 命令。
 
 ## 4. Container Policy
@@ -183,6 +187,9 @@ DEPLOYMENT_CONTAINER_MAX_CPU=1
 DEPLOYMENT_CONTAINER_MAX_MEMORY_MB=512
 DEPLOYMENT_CONTAINER_MAX_RUNTIME_SECONDS=3600
 DEPLOYMENT_CONTAINER_HEALTH_TIMEOUT_SECONDS=30
+DEPLOYMENT_CONTAINER_HEALTH_RETRY_INTERVAL_SECONDS=1
+DEPLOYMENT_CONTAINER_HEALTH_MAX_ATTEMPTS=30
+DEPLOYMENT_CONTAINER_HEALTH_BACKOFF_MULTIPLIER=1.5
 DEPLOYMENT_CONTAINER_LOG_TAIL_BYTES=20000
 ```
 
@@ -217,6 +224,11 @@ runtime_kind
 runtime_status
 healthcheck_url
 logs_tail
+worker_id
+attempt_count
+failure_category
+last_error_code
+state_events
 queued_at
 started_at
 completed_at
@@ -268,7 +280,8 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - `Dockerfile` 必须存在。
 - `container_port` 必须明确，或由 Dockerfile `EXPOSE` 唯一推断。
 - `start_command` 默认不允许由用户自由传入；如开放必须通过 allowlist。
-- 返回 `deployment_status`，包含 `url`、`logs_preview`、`error`。
+- 返回 `deployment_status`，包含 `deployment_id`、`kind`、`runtime_kind`、`runtime_status`、
+  `failure_category`、`last_error_code`、`state_events` 摘要，以及 `url`、`logs_preview`、`error`。
 
 ## 7. Orchestrator 行为重构
 
@@ -285,8 +298,11 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 3. 用户说“打包源码 / 下载源码”：调用 `package_workspace_source`。
 4. 用户说“容器化部署 / 部署后端服务”：调用 `create_deployment(container)`。
 5. 如果 container worker 被管理员关闭：返回可解释的 `not_supported`。
-6. 默认情况下 container worker 真实构建并运行。
-7. 如果部署失败：Orchestrator 读取日志，生成修复任务，调度子 agent 修改 workspace，再重新部署。
+6. 生产默认 container worker 关闭并返回 `not_supported`；demo override 后才真实构建运行。
+7. 启用后 `create_deployment(container)` 初始返回 `queued` 或 `publishing`，worker 后台推进终态。
+8. `deployment_health` 对 `queued/publishing` 返回 skipped/pending-style summary，不触发 repair。
+9. 如果部署失败：Orchestrator 优先读取 `failure_category` / `last_error_code` 和 state events，
+   再结合 logs 生成修复任务，调度子 agent 修改 workspace，再重新部署。
 
 ## 8. 后端实现步骤
 
@@ -314,19 +330,27 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 
 - 已更新 platform tool executor，支持 `container_port`、`health_path`、`start_command` validation。
 - 已新增 `stop_deployment` tool。
-- `create_deployment(container)` 默认真实 build/run；worker 被显式关闭时返回 `not_supported`。
-- 已返回 runtime metadata、healthcheck URL、logs tail。
+- `create_deployment(container)` 在生产默认下返回 `not_supported`；demo override 后真实 build/run。
+- 已返回 runtime metadata、healthcheck URL、logs tail、failure_category、last_error_code、state_events。
 - 质量门失败后会调度 repair agent；repair 修改 workspace 后必须刷新 preview snapshot，再重新执行 browser verify，避免验证旧快照。
 - 部署阶段已接入 `deployment_health` evaluation：失败时生成结构化 reflection，repair instruction
   包含 deployment kind、error、logs/logs_tail 和原始 tool arguments；repair agent 修改 workspace 后会重新调用
-  同一个 deployment tool。`not_supported` 仅记录平台限制，不触发自动修复。
-- 后端直连 API/SSE E2E 已验证：质量门通过后会继续调用 static release、source zip 和 container deployment tool。
+  同一个 deployment tool。`queued/publishing` 视为 pending/skipped，`not_supported` 仅记录平台限制，不触发自动修复。
+- 2026-06-04 B2-TODO-05 direct public API E2E 已验证 production-default
+  `not_supported` 和 trusted Docker demo override `queued -> published` 两条路径。
 
 ### Phase 4 - E2E 与前端联调
 
-- 直接 API E2E 已扩展 container case，默认要求 `published`。
+- 直接 API E2E 已扩展 container case；当前生产默认应返回 `not_supported`，demo override 下才要求 `published`。
 - 前端未完成时，后端验收以直接 API E2E 和 Orchestrator API/SSE E2E 为准，不要求远端 UI 渲染状态卡。
-- Orchestrator API/SSE E2E 已验证静态发布、源码包和默认开启的容器发布链路。
+- 历史 Orchestrator API/SSE E2E 已在 demo override 下验证静态发布、源码包和容器发布链路。
+- 2026-06-04 direct API E2E 证据：
+  - production default report：`/tmp/agenthub_b2_todo_05_prod_default_e2e_report.json`，
+    conversation `42b7d9e4-1243-4b4c-9394-1ebb54568ed3`，container `not_supported`，
+    runtime_kind `podman`。
+  - demo override report：`/tmp/agenthub_b2_todo_05_demo_container_e2e_report.json`，
+    conversation `8b5088bd-161b-4f68-aa74-4ab1e8547546`，container `queued -> published`，
+    worker `inproc-container-aacc169897e0`，`attempt_count=1`，`state_event_count=13`。
 - Orchestrator live E2E 增加 deployment repair 专用场景：首次容器部署失败后必须观察到
   `deployment_health` failure、`reflection_created`、repair agent attempt、第二次 `create_deployment` 和最终
   `published=true`。
@@ -336,15 +360,17 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 
 单元 / API：
 
-- Dockerfile 不存在 -> `failed`。
-- Dockerfile 存在且健康检查通过 -> `published`。
+- 默认 container disabled -> `not_supported`。
+- Docker trusted false -> `not_supported` / policy rejected；Podman trusted false 允许。
+- Dockerfile 不存在 -> 初始 `queued`，worker 最终 `failed` + `failure_category="build_failed"`。
+- Dockerfile 存在且健康检查通过 -> 初始 `queued`，worker 最终 `published`。
 - host port 被占用 -> 换端口或失败，策略必须明确。
-- stop deployment -> 容器停止、URL 不可访问。
+- repeated stop deployment -> 幂等 `stopped`；queued/publishing stop 记录 cancellation intent。
 - 删除 conversation -> 容器、镜像/快照、zip、release 全部清理。
 - Dockerfile 尝试 privileged / host mount 不应被平台 run 参数允许。
-- 构建超时、运行超时、健康检查失败均写入 error/logs。
+- 构建超时、运行超时、健康检查失败均写入 error/logs/state_events。
 
-真实 E2E：
+公网 E2E 本轮暂缓，以下命令/场景等待用户后续明确指令再执行：
 
 ```text
 @orchestrator 请生成一个最小 FastAPI 服务，包含 Dockerfile，

@@ -96,6 +96,44 @@ uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/
 
 若是小改动，可先跑相关单测；正式交付前再跑更大范围回归。
 
+Deployment / Release production hardening 相关变更的本地门禁：
+
+```bash
+cd /home/ubuntu/agenthub/backend
+uv run python -m pytest \
+  tests/test_workspace_api.py \
+  tests/test_workspace_container_release.py \
+  tests/test_orchestrator_platform_tools.py \
+  tests/test_orchestrator_quality_gate.py \
+  tests/test_stream_content_blocks.py \
+  -q
+uv run python -m ruff check \
+  app/core/config.py \
+  app/models/workspace.py \
+  app/schemas/workspace.py \
+  app/services/workspace_deployment.py \
+  app/services/workspace_container_release.py \
+  app/services/workspace_deployment_workers.py \
+  app/services/workspace_janitor.py \
+  app/services/orchestrator_platform_tools.py \
+  app/agents/orchestrator \
+  tests
+uv run python -m mypy \
+  app/core/config.py \
+  app/models/workspace.py \
+  app/schemas/workspace.py \
+  app/services/workspace_deployment.py \
+  app/services/workspace_container_release.py \
+  app/services/workspace_deployment_workers.py \
+  app/services/workspace_janitor.py \
+  app/services/orchestrator_platform_tools.py \
+  app/agents/orchestrator
+```
+
+该门禁应确认 production 默认 container disabled / Podman recommended、demo Docker override、
+queued-first worker 状态流、health retry/backoff、`failure_category` / `last_error_code` /
+`state_events`、stop 幂等和 janitor cleanup 语义。
+
 ### 4. Apply Database Migrations When Needed
 
 新增或修改 `backend/alembic/versions/**`、数据库模型时：
@@ -167,7 +205,9 @@ uv run alembic current
 - 新增 API：检查 OpenAPI 是否暴露新路由。
 - Preview / deployment：请求对应 API 并检查状态字段。
 
-部署发布后端或原生部署相关变更可直接执行公网 API E2E，不依赖远端前端重新发布：
+部署发布后端或原生部署相关变更可直接执行公网 API E2E，不依赖远端前端重新发布。
+2026-06-04 Deployment / Release production hardening 本轮不自动执行该公网 E2E；
+必须等用户后续明确指令再跑：
 
 ```bash
 cd /home/ubuntu/agenthub/backend
