@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator.planner import PLANNER_SYSTEM_PROMPT
 from app.agents.types import ChatMessage, StreamChunk
 from tests.orchestrator_fakes import (
     FakeAnswerGateway,
@@ -12,6 +13,67 @@ from tests.orchestrator_fakes import (
     _task,
     _text_chunks,
 )
+
+
+def test_planner_prompt_references_agent_capability_profile_rule() -> None:
+    assert "capability profile" in PLANNER_SYSTEM_PROMPT
+    assert "stronger recent" in PLANNER_SYSTEM_PROMPT
+    assert "clearly stronger agent" in PLANNER_SYSTEM_PROMPT
+    assert "Do not probe a" in PLANNER_SYSTEM_PROMPT
+    assert "outside the available agents list" in PLANNER_SYSTEM_PROMPT
+
+
+async def test_orchestrator_planner_receives_only_capability_profile_memory() -> None:
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("created document"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "create-document",
+                            "opencode-helper",
+                            "Create document",
+                            "Create report.md.",
+                        )
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    memory = (
+        "Agent capability profile from recent Orchestrator runs:\n"
+        "- @claude-code: success_count=0; failure_count=1\n"
+        "- @opencode-helper: success_count=1; failure_count=0\n\n"
+        "Previous Orchestrator structured memory:\n"
+        "private historical details that the planner does not need"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="system", content=memory),
+            ChatMessage(role="user", content="Create report.md"),
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "sub_adapters": {"opencode-helper": opencode},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    planner_message = planner.calls[0]["messages"][0].content
+    assert "Agent capability profile available to planner:" in planner_message
+    assert "@opencode-helper: success_count=1; failure_count=0" in planner_message
+    assert "private historical details" not in planner_message
+
 
 
 async def test_orchestrator_planner_cannot_select_agent_outside_available_agents() -> None:

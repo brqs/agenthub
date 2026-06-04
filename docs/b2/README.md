@@ -57,6 +57,7 @@
 | [../frontend/deployment-release-handoff.md](../frontend/deployment-release-handoff.md) | 前端远端发布交接：状态卡发布步骤和联调信息清单 |
 | [../frontend/agent-review-thread-handoff.md](../frontend/agent-review-thread-handoff.md) | Agent-to-Agent Review Thread 前端 timeline 产品化交接 |
 | [../frontend/rich-artifact-preview-handoff.md](../frontend/rich-artifact-preview-handoff.md) | Rich Artifact / manifest API / evaluation status 前端产品化交接 |
+| [../frontend/agent-capability-profile-handoff.md](../frontend/agent-capability-profile-handoff.md) | Agent Capability Profile v1 API、类型生成与后续只读 UI 交接 |
 
 ## Spec
 

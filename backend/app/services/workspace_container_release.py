@@ -9,12 +9,12 @@ import socket
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import httpx
 
 from app.core.config import settings
-from app.services.workspace_deployment_workers import DeploymentWorker
 from app.services.workspace_service import WorkspaceFileTooLarge, WorkspaceViolation
 
 CONTAINER_EXCLUDED_PARTS = {
@@ -31,6 +31,8 @@ EXPOSE_RE = re.compile(r"^\s*EXPOSE\s+(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 MANAGED_LABEL = "agenthub.managed=true"
 DEPLOYMENT_LABEL = "agenthub.deployment_id"
 CommandRunner = Callable[[list[str], int], Awaitable[tuple[int, str, str]]]
+StateEventSink = Callable[[str, dict[str, Any]], Awaitable[None]]
+CancellationChecker = Callable[[], Awaitable[bool]]
 
 
 class ContainerPolicyError(RuntimeError):
@@ -39,6 +41,10 @@ class ContainerPolicyError(RuntimeError):
 
 class ContainerDeploymentError(RuntimeError):
     """Raised when the container worker cannot publish a deployment."""
+
+
+class ContainerDeploymentCancelledError(ContainerDeploymentError):
+    """Raised when a queued/publishing container deployment is stopped."""
 
 
 @dataclass(frozen=True)
@@ -111,7 +117,7 @@ def current_container_policy() -> ContainerReleasePolicy:
     )
 
 
-class ContainerDeployWorker(DeploymentWorker):
+class ContainerDeployWorker:
     """Build and run one workspace Dockerfile with platform-controlled flags."""
 
     def __init__(
@@ -133,6 +139,8 @@ class ContainerDeployWorker(DeploymentWorker):
         *,
         container_port: int | None,
         health_path: str,
+        event_sink: StateEventSink | None = None,
+        cancellation_checker: CancellationChecker | None = None,
     ) -> ContainerDeploymentResult:
         policy = current_container_policy()
         self._policy_validator.validate(policy)
@@ -140,6 +148,7 @@ class ContainerDeployWorker(DeploymentWorker):
         dockerfile = root / "Dockerfile"
         if not dockerfile.is_file() or dockerfile.is_symlink():
             raise ContainerDeploymentError("Dockerfile is required for container deployment")
+        await _raise_if_cancelled(cancellation_checker)
         resolved_port = container_port or _infer_exposed_port(
             dockerfile.read_text(encoding="utf-8")
         )
@@ -151,10 +160,26 @@ class ContainerDeployWorker(DeploymentWorker):
             raise ContainerDeploymentError("container_port must be between 1 and 65535")
         normalized_health_path = _normalize_health_path(health_path)
         build_context = self._build_context(root, deployment_id)
+        await _emit_event(
+            event_sink,
+            "snapshot_created",
+            {"step": "snapshot", "message": "Container build context created."},
+        )
         image_tag = f"agenthub-deployment-{deployment_id}"
         host_port = _allocate_host_port()
+        await _emit_event(
+            event_sink,
+            "port_allocated",
+            {"step": "port", "host_port": host_port, "container_port": resolved_port},
+        )
         runtime = settings.deployment_container_runtime
         logs: list[str] = [f"Building image {image_tag} from workspace snapshot."]
+        await _raise_if_cancelled(cancellation_checker)
+        await _emit_event(
+            event_sink,
+            "build_started",
+            {"step": "build", "runtime": runtime, "image_id": image_tag},
+        )
         build_rc, build_out, build_err = await self._command_runner(
             [
                 runtime,
@@ -172,7 +197,22 @@ class ContainerDeployWorker(DeploymentWorker):
         logs.append(_trim_logs(build_out, build_err))
         if build_rc != 0:
             await self.remove(container_id=None, image_id=image_tag, snapshot_path=build_context)
+            await _emit_event(
+                event_sink,
+                "build_failed",
+                {"step": "build", "exit_code": build_rc},
+            )
             raise ContainerDeploymentError(_trim_message("container image build failed", logs))
+        await _emit_event(
+            event_sink,
+            "build_completed",
+            {"step": "build", "exit_code": build_rc},
+        )
+        try:
+            await _raise_if_cancelled(cancellation_checker)
+        except ContainerDeploymentCancelledError:
+            await self.remove(container_id=None, image_id=image_tag, snapshot_path=build_context)
+            raise
         run_command = [
             runtime,
             "run",
@@ -202,6 +242,11 @@ class ContainerDeployWorker(DeploymentWorker):
             f"{host_port}:{resolved_port}",
             image_tag,
         ]
+        await _emit_event(
+            event_sink,
+            "run_started",
+            {"step": "run", "host_port": host_port, "container_port": resolved_port},
+        )
         run_rc, run_out, run_err = await self._command_runner(
             run_command,
             settings.deployment_container_health_timeout_seconds,
@@ -209,8 +254,14 @@ class ContainerDeployWorker(DeploymentWorker):
         logs.append(_trim_logs(run_out, run_err))
         if run_rc != 0:
             await self.remove(container_id=None, image_id=image_tag, snapshot_path=build_context)
+            await _emit_event(event_sink, "run_failed", {"step": "run", "exit_code": run_rc})
             raise ContainerDeploymentError(_trim_message("container run failed", logs))
         container_id = run_out.strip().splitlines()[-1] if run_out.strip() else image_tag
+        await _emit_event(
+            event_sink,
+            "run_completed",
+            {"step": "run", "container_id": container_id, "exit_code": run_rc},
+        )
         base_url = settings.deployment_container_public_base_url.rstrip("/")
         url = f"{base_url}:{host_port}"
         healthcheck_url = f"{url}{normalized_health_path}"
@@ -222,7 +273,8 @@ class ContainerDeployWorker(DeploymentWorker):
             f"{local_base_url}:{host_port}{normalized_health_path}"
         )
         try:
-            await self._check_health(local_healthcheck_url)
+            await _raise_if_cancelled(cancellation_checker)
+            await self._check_health(local_healthcheck_url, event_sink=event_sink)
         except ContainerDeploymentError as exc:
             logs_rc, logs_out, logs_err = await self._command_runner(
                 [runtime, "logs", "--tail", "80", container_id],
@@ -234,9 +286,19 @@ class ContainerDeployWorker(DeploymentWorker):
                 image_id=image_tag,
                 snapshot_path=build_context,
             )
+            await _emit_event(
+                event_sink,
+                "health_failed",
+                {"step": "health", "healthcheck_url": healthcheck_url},
+            )
             raise ContainerDeploymentError(
                 _trim_message("container health check failed", logs)
             ) from exc
+        await _emit_event(
+            event_sink,
+            "health_passed",
+            {"step": "health", "healthcheck_url": healthcheck_url},
+        )
         return ContainerDeploymentResult(
             url=url,
             healthcheck_url=healthcheck_url,
@@ -382,22 +444,53 @@ class ContainerDeployWorker(DeploymentWorker):
         if resolved != root:
             shutil.rmtree(resolved, ignore_errors=True)
 
-    async def _check_health(self, url: str) -> None:
-        deadline = (
-            asyncio.get_running_loop().time()
-            + settings.deployment_container_health_timeout_seconds
-        )
+    async def _check_health(
+        self,
+        url: str,
+        *,
+        event_sink: StateEventSink | None = None,
+    ) -> None:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + settings.deployment_container_health_timeout_seconds
+        attempts = max(settings.deployment_container_health_max_attempts, 1)
+        interval = max(settings.deployment_container_health_retry_interval_seconds, 0)
+        multiplier = max(settings.deployment_container_health_backoff_multiplier, 1)
+        started = loop.time()
         async with self._http_client_factory() as client:
-            while True:
+            for attempt in range(1, attempts + 1):
+                elapsed = loop.time() - started
                 try:
                     response = await client.get(url)
+                    await _emit_event(
+                        event_sink,
+                        "health_attempt",
+                        {
+                            "step": "health",
+                            "attempt": attempt,
+                            "http_status": response.status_code,
+                            "elapsed_seconds": round(elapsed, 3),
+                        },
+                    )
                     if 200 <= response.status_code < 400:
                         return
-                except httpx.HTTPError:
-                    pass
-                if asyncio.get_running_loop().time() >= deadline:
+                except httpx.HTTPError as exc:
+                    await _emit_event(
+                        event_sink,
+                        "health_attempt",
+                        {
+                            "step": "health",
+                            "attempt": attempt,
+                            "error_category": exc.__class__.__name__,
+                            "elapsed_seconds": round(elapsed, 3),
+                        },
+                    )
+                if loop.time() >= deadline or attempt >= attempts:
                     raise ContainerDeploymentError(f"container health check timed out: {url}")
-                await asyncio.sleep(1)
+                sleep_for = min(interval, max(deadline - loop.time(), 0))
+                if sleep_for > 0:
+                    await asyncio.sleep(sleep_for)
+                interval *= multiplier
+        raise ContainerDeploymentError(f"container health check timed out: {url}")
 
 
 async def _run_command(command: list[str], timeout_seconds: int) -> tuple[int, str, str]:
@@ -428,6 +521,22 @@ def _allocate_host_port() -> int:
                 continue
             return port
     raise ContainerDeploymentError("container deployment port pool is exhausted")
+
+
+async def _emit_event(
+    event_sink: StateEventSink | None,
+    event_type: str,
+    payload: dict[str, Any],
+) -> None:
+    if event_sink is not None:
+        await event_sink(event_type, payload)
+
+
+async def _raise_if_cancelled(
+    cancellation_checker: CancellationChecker | None,
+) -> None:
+    if cancellation_checker is not None and await cancellation_checker():
+        raise ContainerDeploymentCancelledError("container deployment stop requested")
 
 
 def _infer_exposed_port(dockerfile_text: str) -> int | None:

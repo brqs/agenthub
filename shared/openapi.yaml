@@ -288,6 +288,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conversation_id}/agent-capability-profile:
+    get:
+      tags:
+      - Conversations
+      summary: Get Conversation Agent Capability Profile
+      operationId: get_conversation_agent_capability_profile_api_v1_conversations__conversation_id__agent_capability_profile_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: recent_runs
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 20
+          title: Recent Runs
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentCapabilityProfileOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/conversations/{conv_id}/orchestrator-runs:
     get:
       tags:
@@ -1462,6 +1500,85 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    AgentCapabilityProfileItemOut:
+      properties:
+        agent_id:
+          type: string
+          title: Agent Id
+        runs_considered:
+          type: integer
+          title: Runs Considered
+        task_count:
+          type: integer
+          title: Task Count
+        success_count:
+          type: integer
+          title: Success Count
+        failure_count:
+          type: integer
+          title: Failure Count
+        artifact_missing_count:
+          type: integer
+          title: Artifact Missing Count
+        evaluation_failed_count:
+          type: integer
+          title: Evaluation Failed Count
+        avg_attempts:
+          type: number
+          title: Avg Attempts
+        artifact_kinds:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Artifact Kinds
+        review_outcomes:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Review Outcomes
+        repair_success_count:
+          type: integer
+          title: Repair Success Count
+        recent_failure_reasons:
+          items:
+            type: string
+          type: array
+          title: Recent Failure Reasons
+        confidence:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          title: Confidence
+      type: object
+      required:
+      - agent_id
+      - runs_considered
+      - task_count
+      - success_count
+      - failure_count
+      - artifact_missing_count
+      - evaluation_failed_count
+      - avg_attempts
+      - repair_success_count
+      - confidence
+      title: AgentCapabilityProfileItemOut
+    AgentCapabilityProfileOut:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AgentCapabilityProfileItemOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - total
+      title: AgentCapabilityProfileOut
     AgentList:
       properties:
         items:
