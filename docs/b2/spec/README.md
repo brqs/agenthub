@@ -137,6 +137,7 @@ B2 当前只保留必要契约和当前验证报告：
 | Frontend | [../../frontend/spec/deployment-release-handoff.spec.md](../../frontend/spec/deployment-release-handoff.spec.md) | Deployment / Release 状态卡交接 |
 | Frontend | [../../frontend/agent-review-thread-handoff.md](../../frontend/agent-review-thread-handoff.md) | Agent-to-Agent review / handoff / repair timeline 产品化交接 |
 | Frontend | [../../frontend/rich-artifact-preview-handoff.md](../../frontend/rich-artifact-preview-handoff.md) | Rich artifact card / manifest API / evaluation status 产品化交接 |
+| Frontend | [../../frontend/agent-capability-profile-handoff.md](../../frontend/agent-capability-profile-handoff.md) | Agent capability profile API、类型生成与只读展示交接 |
 
 ---
 

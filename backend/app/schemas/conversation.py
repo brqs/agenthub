@@ -141,6 +141,29 @@ class OrchestratorRunDetailOut(BaseModel):
     events: list[OrchestratorRunEventOut]
 
 
+class AgentCapabilityProfileItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    agent_id: str
+    runs_considered: int
+    task_count: int
+    success_count: int
+    failure_count: int
+    artifact_missing_count: int
+    evaluation_failed_count: int
+    avg_attempts: float
+    artifact_kinds: dict[str, int] = Field(default_factory=dict)
+    review_outcomes: dict[str, int] = Field(default_factory=dict)
+    repair_success_count: int
+    recent_failure_reasons: list[str] = Field(default_factory=list)
+    confidence: Literal["low", "medium", "high"]
+
+
+class AgentCapabilityProfileOut(BaseModel):
+    items: list[AgentCapabilityProfileItemOut]
+    total: int
+
+
 class ContextCompressionConfigOut(BaseModel):
     mode: str
     provider: str

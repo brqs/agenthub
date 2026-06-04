@@ -1245,3 +1245,34 @@ Workflow runtime MVP 必须保持无副作用边界。先把可审计的 dry-run
 
 ### 经验
 Live E2E 失败不能直接停在 report。这里的 rich artifact 首次失败是场景 prompt 与 runtime approval 的组合问题；evaluation repair 首次失败是 evaluator 对 markdown 标题/占位符语义的误判。把失败现场留住，再按 skill 分类修复和重跑，才能把“验收脚本失败”收敛成可复用的后端契约。
+
+## 2026-06-04 — Codex 完成 Agent Capability Profile v1 公网闭环
+
+### 任务
+按 Orchestrator live E2E repair loop 与 backend deploy Skill，部署并硬验收 Capability Profile v1，同时回归 attribution、evaluation repair、review repair 和 quality/preview。
+
+### 关键 Prompt
+> # Agent Capability Profile v1 统一公网 E2E 测试计划
+
+### AI 输出摘要
+1. 完成本地门禁、Alembic 状态记录、后端多次修复重启、双端 health、公网 OpenAPI 和 Orchestrator config 校验。
+2. 修复 Capability Profile seed 场景：限制为一个逻辑 task，并禁止子 Agent 在单次调用内模拟 evaluation/fallback，确保 runtime 真实产生 Claude failure 与 Opencode success。
+3. 修复 planner 的真实缺口：`_planner_messages()` 原先丢弃 memory messages，planner 虽有画像规则却看不到画像；现在只提取 capability profile 段供软选择，不扩散无关 structured memory 历史。
+4. `p1_agent_capability_profile` 公网 E2E 通过：Claude `success=0/failure=1/evaluation_failed=1`，Opencode `success=1/failure=0`，follow-up 唯一 task/attempt 均为 Opencode。
+5. `p1_attribution`、`p1_evaluation_repair`、`p1_review_thread_repair` 和 `quality` 全部通过；quality 覆盖 8082 preview、browser verifier、桌面/移动截图、按钮交互和无错误断言。
+
+### 证据
+- Capability report：`/tmp/agenthub_p1_agent_capability_profile_report.json`
+- Capability SSE：`/tmp/agenthub_p1_agent_capability_profile_sse.jsonl`
+- Capability conversation：`8dd905aa-e51a-4f68-b869-2cc4c6278a3d`
+- Attribution report：`/tmp/agenthub_p1_attribution_report.json`
+- Evaluation repair report：`/tmp/agenthub_p1_evaluation_repair_report.json`
+- Review repair report：`/tmp/agenthub_p1_review_thread_report.json`
+- Quality report：`/tmp/agenthub_orchestrator_quality_report.json`
+- Quality browser report：`/tmp/agenthub_orchestrator_quality_browser.json`
+
+### 人工调整
+本轮只部署后端，不部署前端；无 migration 或 seed/default config 变更，因此未执行 migration upgrade 或 seed。最终后端 PID `3866485`，Alembic `6d7e8f9012ab (head)`，本机和公网 `/health` 均返回 `{"status":"ok"}`，公网 OpenAPI 已包含 capability profile 路由。
+
+### 经验
+“planner prompt 写了要参考画像”不等于 planner 真正看到了画像。Live E2E 通过强弱明确的种子历史和实际 task/attempt Agent 断言，发现了 messages 被 planner 丢弃的实现缺口；只传画像段既让选择依据生效，也避免把整段历史上下文无边界注入 planner。
