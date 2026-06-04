@@ -164,6 +164,42 @@ class AgentCapabilityProfileOut(BaseModel):
     total: int
 
 
+class AgentCapabilityProfileV2ItemOut(AgentCapabilityProfileItemOut):
+    scope: Literal["user"] = "user"
+    conversation_count: int
+    weighted_task_count: float
+    weighted_success_score: float
+    weighted_failure_score: float
+    success_rate: float
+    timeout_count: int
+    task_types: dict[str, int] = Field(default_factory=dict)
+    task_taxonomy: dict[str, int] = Field(default_factory=dict)
+    score: float
+    score_reasons: list[str] = Field(default_factory=list)
+
+
+class UserPreferenceMemoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    runs_considered: int
+    source_conversation_count: int
+    domains: dict[str, int] = Field(default_factory=dict)
+    artifact_preferences: dict[str, int] = Field(default_factory=dict)
+    deployment_preferences: dict[str, int] = Field(default_factory=dict)
+    language_style_hints: dict[str, int] = Field(default_factory=dict)
+    summary: list[str] = Field(default_factory=list)
+
+
+class AgentCapabilityProfileV2Out(BaseModel):
+    items: list[AgentCapabilityProfileV2ItemOut]
+    preferences: UserPreferenceMemoryOut
+    scope: Literal["user"]
+    source_conversation_count: int
+    runs_considered: int
+    generated_at: datetime
+    total: int
+
+
 class ContextCompressionConfigOut(BaseModel):
     mode: str
     provider: str

@@ -5,14 +5,18 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH,
     DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH,
     DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH,
+    DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH,
+    DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
     P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
     P1_AGENT_CAPABILITY_PROFILE_PROMPT,
     P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
     P1_RICH_ARTIFACTS_PROMPT,
+    P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT,
     SERVER_COMMAND_RE,
     evaluate_p1_agent_capability_profile,
     evaluate_p1_evaluation_repair,
     evaluate_p1_rich_artifacts,
+    evaluate_p2_agent_capability_profile_v2,
 )
 
 
@@ -64,6 +68,12 @@ def test_p1_rich_artifacts_defaults_are_registered() -> None:
     assert DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH == (
         "/tmp/agenthub_p1_agent_capability_profile_sse.jsonl"
     )
+    assert DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH == (
+        "/tmp/agenthub_p2_agent_capability_profile_v2_report.json"
+    )
+    assert DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH == (
+        "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl"
+    )
 
 
 def test_p1_rich_artifacts_archive_task_uses_shell_capable_agent() -> None:
@@ -91,6 +101,20 @@ def test_p1_agent_capability_profile_scenario_has_strong_seed_difference() -> No
     assert "具体执行 Agent" in P1_AGENT_CAPABILITY_PROFILE_PROMPT
     assert "只规划一个逻辑文档任务" in P1_AGENT_CAPABILITY_PROFILE_PROMPT
     assert "所有实际 attempt" in P1_AGENT_CAPABILITY_PROFILE_PROMPT
+
+
+def test_p2_agent_capability_profile_v2_prompt_uses_user_scope_without_agent_name() -> None:
+    assert "Agent capability profile v2 from recent user Orchestrator runs" in (
+        P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+    )
+    assert "User preference memory from recent Orchestrator runs" in (
+        P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+    )
+    assert "p2-capability-v2-followup.md" in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+    assert "不点名任何执行 Agent" in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+    assert "claude-code" not in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+    assert "opencode-helper" not in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+    assert "codex-helper" not in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
 
 
 def test_evaluate_p1_agent_capability_profile_checks_actual_selected_agent() -> None:
@@ -126,6 +150,53 @@ def test_evaluate_p1_agent_capability_profile_rejects_summary_only_claim() -> No
     )
     assert (
         report["acceptance"]["p1_agent_capability_followup_attempt_agent_opencode"]
+        is False
+    )
+    assert report["acceptance"]["passed"] is False
+
+
+def test_evaluate_p2_agent_capability_profile_v2_checks_cross_conversation_selection() -> None:
+    report = _agent_capability_profile_v2_report(
+        task_agent="opencode-helper",
+        attempt_agent="opencode-helper",
+    )
+
+    evaluate_p2_agent_capability_profile_v2(report)
+
+    assert report["acceptance"]["p2_agent_capability_v2_api_user_scope"] is True
+    assert (
+        report["acceptance"][
+            "p2_agent_capability_v2_new_conversation_empty_before_followup"
+        ]
+        is True
+    )
+    assert report["acceptance"]["p2_agent_capability_v2_seed_claude_failed"] is True
+    assert report["acceptance"]["p2_agent_capability_v2_seed_opencode_succeeded"] is True
+    assert (
+        report["acceptance"]["p2_agent_capability_v2_followup_task_agent_opencode"]
+        is True
+    )
+    assert (
+        report["acceptance"]["p2_agent_capability_v2_followup_attempt_agent_opencode"]
+        is True
+    )
+    assert report["acceptance"]["passed"] is True
+
+
+def test_evaluate_p2_agent_capability_profile_v2_rejects_wrong_actual_agent() -> None:
+    report = _agent_capability_profile_v2_report(
+        task_agent="claude-code",
+        attempt_agent="claude-code",
+    )
+
+    evaluate_p2_agent_capability_profile_v2(report)
+
+    assert (
+        report["acceptance"]["p2_agent_capability_v2_followup_task_agent_opencode"]
+        is False
+    )
+    assert (
+        report["acceptance"]["p2_agent_capability_v2_followup_attempt_agent_opencode"]
         is False
     )
     assert report["acceptance"]["passed"] is False
@@ -189,6 +260,69 @@ def _agent_capability_profile_report(
         },
         "target_agent_message": {"content": []},
         "workspace_files": [{"path": "capability-followup.md"}],
+    }
+
+
+def _agent_capability_profile_v2_report(
+    *,
+    task_agent: str,
+    attempt_agent: str,
+) -> dict[str, object]:
+    return {
+        "followup_runs_before_count": 0,
+        "agent_capability_profile_v2_before_followup": {
+            "scope": "user",
+            "source_conversation_count": 1,
+            "runs_considered": 1,
+            "preferences": {"artifact_preferences": {"document": 2}},
+            "items": [
+                {
+                    "agent_id": "claude-code",
+                    "task_count": 1,
+                    "success_count": 0,
+                    "failure_count": 1,
+                    "evaluation_failed_count": 1,
+                    "score": -1.5,
+                },
+                {
+                    "agent_id": "opencode-helper",
+                    "task_count": 1,
+                    "success_count": 1,
+                    "failure_count": 0,
+                    "evaluation_failed_count": 0,
+                    "score": 2.0,
+                },
+            ],
+        },
+        "orchestrator_runs": [
+            {
+                "final_summary": (
+                    "Agent capability profile v2 from recent user Orchestrator runs; "
+                    "User preference memory from recent Orchestrator runs; "
+                    "user-scope recent success 选择依据: opencode-helper"
+                )
+            }
+        ],
+        "orchestrator_run_detail": {
+            "tasks": [
+                {
+                    "task_id": "followup-v2",
+                    "agent_id": task_agent,
+                    "title": "Create p2-capability-v2-followup.md",
+                    "instruction": "Create p2-capability-v2-followup.md",
+                    "expected_output": "p2-capability-v2-followup.md",
+                }
+            ],
+            "attempts": [
+                {
+                    "task_id": "followup-v2",
+                    "agent_id": attempt_agent,
+                    "state": "succeeded",
+                }
+            ],
+        },
+        "target_agent_message": {"content": []},
+        "workspace_files": [{"path": "p2-capability-v2-followup.md"}],
     }
 
 

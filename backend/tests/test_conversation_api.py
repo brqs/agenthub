@@ -155,6 +155,50 @@ async def test_agent_capability_profile_api_returns_items_for_owner(
     assert item["artifact_kinds"] == {"document": 1}
 
 
+async def test_agent_capability_profile_v2_api_returns_user_scope_profile(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation_id = await _create_group_conversation(client, headers)
+    await _seed_profile_run(conversation_id, "conv-api-agent-api-profile-v2")
+
+    response = await client.get(
+        f"/api/v1/conversations/{conversation_id}/agent-capability-profile-v2",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["scope"] == "user"
+    assert body["total"] == 1
+    assert body["runs_considered"] == 1
+    assert body["source_conversation_count"] == 1
+    assert body["generated_at"]
+    assert body["preferences"]["runs_considered"] == 1
+    item = body["items"][0]
+    assert item["agent_id"] == "conv-api-agent-api-profile-v2"
+    assert item["scope"] == "user"
+    assert item["conversation_count"] == 1
+    assert item["success_count"] == 1
+    assert item["success_rate"] == 1.0
+    assert item["score_reasons"]
+
+
+async def test_agent_capability_profile_v2_api_forbids_other_users(
+    client: AsyncClient,
+) -> None:
+    _, owner_headers = await _register(client)
+    _, other_headers = await _register(client)
+    conversation_id = await _create_group_conversation(client, owner_headers)
+
+    response = await client.get(
+        f"/api/v1/conversations/{conversation_id}/agent-capability-profile-v2",
+        headers=other_headers,
+    )
+
+    assert response.status_code == 403
+
+
 async def test_agent_capability_profile_api_forbids_other_users(
     client: AsyncClient,
 ) -> None:
@@ -172,12 +216,14 @@ async def test_agent_capability_profile_api_forbids_other_users(
 
 async def test_openapi_includes_agent_capability_profile_contract() -> None:
     route = "/api/v1/conversations/{conversation_id}/agent-capability-profile"
+    route_v2 = "/api/v1/conversations/{conversation_id}/agent-capability-profile-v2"
     runtime_document = app.openapi()
     shared_path = Path(__file__).parents[1] / ".." / "shared" / "openapi.yaml"
     shared_document = yaml.safe_load(shared_path.resolve().read_text(encoding="utf-8"))
 
     for document in (runtime_document, shared_document):
         assert route in document["paths"]
+        assert route_v2 in document["paths"]
         response = document["paths"][route]["get"]["responses"]["200"]
         assert response["content"]["application/json"]["schema"] == {
             "$ref": "#/components/schemas/AgentCapabilityProfileOut"
@@ -185,3 +231,10 @@ async def test_openapi_includes_agent_capability_profile_contract() -> None:
         schemas = document["components"]["schemas"]
         assert "AgentCapabilityProfileOut" in schemas
         assert "AgentCapabilityProfileItemOut" in schemas
+        response_v2 = document["paths"][route_v2]["get"]["responses"]["200"]
+        assert response_v2["content"]["application/json"]["schema"] == {
+            "$ref": "#/components/schemas/AgentCapabilityProfileV2Out"
+        }
+        assert "AgentCapabilityProfileV2Out" in schemas
+        assert "AgentCapabilityProfileV2ItemOut" in schemas
+        assert "UserPreferenceMemoryOut" in schemas

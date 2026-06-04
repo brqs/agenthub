@@ -2,7 +2,7 @@
 
 > 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，维护 B2 当前完成度、剩余缺口和建议执行顺序。
 >
-> 状态：P0 core implemented / P1 active backlog / B2-TODO-05 API E2E passed
+> 状态：P1 complete / P2 active backlog / B2-TODO-08 backend E2E passed
 > 最后更新：2026-06-04
 >
 > Spec 整理入口：当前契约、验证报告和剩余 backlog 见 [README.md](README.md)。
@@ -22,11 +22,12 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 - 通用 Evaluation / Reflection MVP。
 - Deployment / Release 演示 MVP：static release、source zip、container deployment、deployment repair/redeploy。
 
-当前最影响课程设计完成度的缺口不再是 P1 三项基础能力，而是后续产品深化。按 B2 owner 口径，最高优先级收敛为：
+当前最影响课程设计完成度的缺口不再是 P1 三项基础能力，而是后续产品深化。B2-TODO-05 Deployment / Release production hardening 已通过 direct public API E2E 和 Orchestrator API/SSE queued worker 公网回归；B2-TODO-08 Capability Profile v2 / User Preference Memory 后端 MVP、本地验证和公网 API/SSE E2E 已完成，下一步是前端只读展示和 B2 后续扩展。按 B2 owner 口径，优先级收敛为：
 
 1. **P1-B2-02 更多产物类型与预览**：文档、PPT、图片、附件、archive、manifest API 后端 MVP 和公网 API/SSE E2E 已完成；版本历史和局部编辑仍属于前端/后续产品化。
 2. **P1-B2-03 Evaluation / Reflection 深化**：Workflow validation / runtime dry-run、PPT outline、`.pptx` 轻量解析、图片、archive、文档结构质量、`manual_review_required`、deployment health 和 evaluator repair loop 已有 MVP 或公网 E2E 证据；更多 runner、生产 LLM-as-judge 仍待后续扩展。
-3. **P2-B2-01 Workflow runtime 扩展**：本地无副作用 dry-run runner / run history / health check 已完成；后续如需真实外部 step、队列化长任务或平台 tool step，再按 P2 扩展。
+3. **B2-TODO-08 Capability Profile v2 / User Preference Memory**：后端 MVP 已新增跨 conversation 用户级长期画像、时间衰减、样本权重和 deterministic 用户偏好记忆；公网 E2E `p2_agent_capability_profile_v2` 已通过。
+4. **P2-B2-01 Workflow runtime 扩展**：本地无副作用 dry-run runner / run history / health check 已完成；后续如需真实外部 step、队列化长任务或平台 tool step，再按 P2 扩展。
 
 跨团队最高优先级交接项：
 
@@ -519,7 +520,7 @@ followup_attempt_agents: [opencode-helper]
 
 ### B2-TODO-05 Deployment / Release 生产 hardening
 
-优先级：P2。
+优先级：P2 长期 follow-up；当前 direct API 与 Orchestrator API/SSE E2E 门禁已完成。
 
 当前状态：
 
@@ -528,12 +529,22 @@ followup_attempt_agents: [opencode-helper]
 - 2026-06-04 后端 production hardening 已通过公网 direct API E2E：container 默认关闭、生产推荐 Podman、Docker 仅 trusted demo override；container API 返回 `queued` 后由 in-process queueable worker 推进状态。
 - Production-default E2E：container 最终 `not_supported`，runtime_kind `podman`；preview、static release、source zip、cleanup 均通过。
 - Demo override E2E：container `queued -> published`，`worker_id`、`attempt_count=1`、`state_events` 已写入报告；healthcheck / stop / cleanup 均通过。
+- 2026-06-04 Orchestrator API/SSE queued worker 回归已通过：
+  - Production-default report：`/tmp/agenthub_b2_todo_05_orch_prod_default_report.json`，
+    conversation `963afa42-0549-4fa0-81b0-8fad6b013a4b`，container 最终 `not_supported`，
+    `deployment_status` block 和 runtime metadata 均可见，`not_supported` 未触发 repair/reflection。
+  - Demo override report：`/tmp/agenthub_b2_todo_05_orch_demo_report.json`，
+    conversation `ce767e6f-b03c-41fb-af85-fe637983c356`，container `publishing -> published`，
+    worker `inproc-container-71038d04c528`，`attempt_count=1`，`state_event_count=12`，
+    healthcheck / stop cleanup 均通过。
+- 可选 repair/redeploy confirmation 本轮记录为未通过：`/tmp/agenthub_b2_todo_05_orch_repair_report.json`
+  观察到 `build_failed` / `container_build_failed`，但未触发 `reflection_created` 和 redeploy；不作为本轮主验收阻断。
 
-待办：
+长期 follow-up：
 
 - Rootless Podman 生产部署实机验证。
 - 外部队列 worker（Redis/Celery/RQ 等）替换当前 in-process MVP。
-- Orchestrator API/SSE queued worker 复验（direct API 已通过）。
+- Orchestrator repair/redeploy 在 queued worker 新语义下的稳定复验。
 - 更强宿主隔离。
 - 前端部署历史 / 状态卡的更细粒度 repair 展示。
 
@@ -545,25 +556,37 @@ followup_attempt_agents: [opencode-helper]
 
 ### B2-TODO-08 Capability Profile v2 / User Preference Memory
 
-优先级：P2。
+优先级：P2；后端 MVP implemented，本地验证完成，公网 E2E 已通过。
 
 当前状态：
 
-- 有 `orchestrator_runs` / `tasks` / `attempts` / `events`。
-- Capability Profile v1 已在当前 conversation 内按实际参与 Agent 聚合，并通过 memory context 供 planner 软选择。
-- v1 不跨 conversation，不做时间衰减，也不记录用户偏好。
+- 新增 user-scope `build_agent_capability_profile_v2()`，从当前用户拥有的多个 conversation 的 terminal Orchestrator runs 实时聚合，不新增数据库表或 migration。
+- v2 保留 v1 的实际参与 Agent 归属语义，并增加 `conversation_count`、weighted success/failure、`success_rate`、`timeout_count`、`task_types`、`task_taxonomy`、`score` 和 `score_reasons`。
+- 新增 deterministic `UserPreferenceMemory`，从历史 request/summary/artifact kind 中提取 domains、artifact、deployment 和 language/style hints；不调用 LLM。
+- Memory context 已注入 v2 profile、user preference、v1 profile 和 structured memory，并共用 `orchestrator_memory_context_max_chars`。
+- Planner 白名单读取 v2 profile、user preference 和 v1 profile，不读取完整 structured memory；当前请求显式 Agent/技术/风格优先，available/managed agent 校验仍是硬边界。
+- 新增只读 API：`GET /api/v1/conversations/{conversation_id}/agent-capability-profile-v2`；v1 API wire shape 保持不变。
+- `shared/openapi.yaml` 已同步 `AgentCapabilityProfileV2Out`、`AgentCapabilityProfileV2ItemOut` 和 `UserPreferenceMemoryOut`。
+- 公网 API/SSE E2E `p2_agent_capability_profile_v2` 已通过：report `/tmp/agenthub_p2_agent_capability_profile_v2_report.json`，SSE `/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl`，seed conversation `d9c96baf-2e4e-4b3a-a4a0-39ee68bf2f27`，follow-up conversation `0d7ed6d6-dcbf-4212-9150-55d410af622c`。
 
-待办：
+本地验证：
 
-- 跨 conversation 的用户级或 workspace 级长期画像。
-- 时间衰减、样本权重、timeout rate 和更细粒度 task taxonomy。
-- 可解释但更稳定的软评分/推荐策略。
-- 记录用户偏好，例如常用主题、代码风格、部署偏好。
+```bash
+cd backend
+uv run python -m pytest tests/test_orchestrator_memory.py tests/test_conversation_api.py tests/test_orchestrator_planning.py tests/test_orchestrator.py -q
+uv run python -m ruff check app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py tests/test_orchestrator_memory.py tests/test_conversation_api.py tests/test_orchestrator_planning.py
+uv run python -m mypy app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py
+git diff --check
+```
+
+后续待办：
+
+- 前端重新生成类型并做只读展示；不提供 mutation、手动改分或硬编码调度控制。
 
 验收标准：
 
-- 同类失败多次后，Orchestrator 会降低该 Agent 优先级。
-- 调度理由中能说明选择某 Agent 的历史依据。
+- 同类失败多次后，Orchestrator 能在 planner memory signal 中看到该 Agent 的扣分原因。
+- 调度理由中能说明选择某 Agent 的历史依据，同时不会覆盖本轮显式指令。
 
 ### B2-TODO-07 Evaluation / Reflection 深化
 
@@ -633,17 +656,17 @@ followup_attempt_agents: [opencode-helper]
 
    后端 review / repair / memory / live E2E 已完成；rich artifact 后端 `file` block、manifest API、evaluation status 和公网 API/SSE E2E 已完成。前端补 handoff timeline、rich artifact card、manifest 聚合、版本历史和局部编辑入口。交接文档：[../../frontend/agent-review-thread-handoff.md](../../frontend/agent-review-thread-handoff.md)、[../../frontend/rich-artifact-preview-handoff.md](../../frontend/rich-artifact-preview-handoff.md)。
 
-2. P1-B2-03 后续扩展 / B2-TODO-07 Evaluation / Reflection 深化
+2. B2-TODO-08 Capability Profile v2 / User Preference Memory 前端消费与后端观测
+
+   Capability Profile v2 后端已完成跨 conversation 用户级长期画像、时间衰减、样本权重、timeout rate、task taxonomy、deterministic user preference memory、只读 API、OpenAPI 和公网 API/SSE E2E。下一阶段以前端只读展示、空态/低置信文案和线上观测为主，不新增 mutation 或手动改分入口。
+
+3. P1-B2-03 后续扩展 / B2-TODO-07 Evaluation / Reflection 深化
 
    当前 deterministic evaluator MVP 和公网 repair loop E2E 已完成。更多 runner alias、生产 LLM-as-judge 和 workflow 外部 step 作为后续扩展。
 
-3. B2-TODO-05 Deployment / Release 生产 hardening
+4. B2-TODO-05 Deployment / Release 生产 hardening 长期 follow-up
 
-   PDF 第五点已达演示 MVP，后续以生产安全和稳定性为主。
-
-4. B2-TODO-08 Capability Profile v2 / User Preference Memory
-
-   提升 planner 选择 Agent 的智能度和可解释性。
+   当前 production-default 和 trusted Docker demo override direct public API E2E 已通过；后续只保留 Rootless Podman 实机验证、外部队列 worker、更强宿主隔离和前端部署历史/状态卡增强。
 
 暂缓：B2-DEFER-01 External Runtime 最小权限与 Worker 隔离。
 
@@ -665,8 +688,8 @@ followup_attempt_agents: [opencode-helper]
 | 部署状态卡片 | 可以 | 已达演示 MVP |
 | Static release | 可以 | 已达演示 MVP |
 | Source zip 下载 | 可以 | 已达演示 MVP |
-| Container deployment | 可以 | 已达演示 MVP，后续 hardening |
-| Deployment repair/redeploy | 可以 | 已达演示 MVP |
+| Container deployment | 可以 | production-default / demo override direct API E2E 已通过，后续生产隔离/外部队列 |
+| Deployment repair/redeploy | 可以 | 已达演示 MVP，历史 API/SSE E2E 已过 |
 | Orchestrator 子 Agent 分段显示 | 可以 | 保持 attribution / grouped rendering 回归测试 |
 | Workflow 产物 | artifact / preview / runtime dry-run MVP 可以 | 后续按需扩展外部 step / 平台 tool step |
 | Agent-to-Agent review | 可以 | 后端 repair live E2E 已过，前端 timeline 已交接给 F |

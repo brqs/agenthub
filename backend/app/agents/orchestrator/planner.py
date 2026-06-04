@@ -12,10 +12,22 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 TASK_PLAN_TOOL_NAME = "submit_task_plan"
 DEFAULT_PLANNER_MAX_TOKENS = 2048
+AGENT_CAPABILITY_PROFILE_V2_HEADER = (
+    "Agent capability profile v2 from recent user Orchestrator runs:"
+)
+USER_PREFERENCE_MEMORY_HEADER = (
+    "User preference memory from recent Orchestrator runs:"
+)
 AGENT_CAPABILITY_PROFILE_HEADER = (
     "Agent capability profile from recent Orchestrator runs:"
 )
 ORCHESTRATOR_MEMORY_HEADER = "Previous Orchestrator structured memory:"
+PLANNER_MEMORY_SECTION_HEADERS = (
+    AGENT_CAPABILITY_PROFILE_V2_HEADER,
+    USER_PREFERENCE_MEMORY_HEADER,
+    AGENT_CAPABILITY_PROFILE_HEADER,
+    ORCHESTRATOR_MEMORY_HEADER,
+)
 
 PLANNER_SYSTEM_PROMPT = """You are AgentHub's Orchestrator planner.
 Create a concise task plan for the available agents only.
@@ -23,12 +35,16 @@ You must call submit_task_plan exactly once when the tool is available.
 If tools are unavailable, output only JSON in the same shape as the tool input.
 Each task must target exactly one available agent_id. Do not assign tasks to agent ids
 outside the available agents list, even if memory mentions them.
-When assigning tasks, prefer agents whose capability profile shows stronger recent
-success for the requested task type, artifact kind, review, or repair pattern.
-When the profile clearly shows one available agent recently succeeded and another
-failed for the matching work, assign the clearly stronger agent unless the user
-explicitly selects an agent or task constraints require otherwise. Do not probe a
-weaker agent first and rely on fallback when the profile already provides clear evidence.
+When assigning tasks, prefer agents whose user-scope v2 capability profile shows
+stronger recent success for the requested task type, artifact kind, review, or
+repair pattern. Use current-conversation capability profile evidence as the tie
+breaker when it is recent and high confidence. User instructions in the current
+request, including explicit agent, technology, or style choices, override historical
+profile and preference memory. When the profile clearly shows one available agent
+recently succeeded and another failed for the matching work, assign the clearly
+stronger agent unless the user explicitly selects an agent or task constraints
+require otherwise. Do not probe a weaker agent first and rely on fallback when the
+profile already provides clear evidence.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
 Preserve every explicit deliverable and acceptance requirement from the user request in
@@ -185,17 +201,17 @@ def _planner_messages(
     allowed_agent_ids: list[str],
 ) -> list[ChatMessage]:
     agents = _available_agents_description(config, allowed_agent_ids)
-    capability_profile = _agent_capability_profile_context(messages)
-    capability_profile_section = (
-        "Agent capability profile available to planner:\n"
-        f"{capability_profile}\n\n"
-        if capability_profile
+    memory_context = _planner_memory_context(messages)
+    memory_context_section = (
+        "Orchestrator memory signals available to planner:\n"
+        f"{memory_context}\n\n"
+        if memory_context
         else ""
     )
     content = (
         "User request:\n"
         f"{user_request}\n\n"
-        f"{capability_profile_section}"
+        f"{memory_context_section}"
         "Available agents:\n"
         f"{agents}\n\n"
         "Port preview/deploy requests must not become sub-agent execution tasks. "
@@ -208,22 +224,35 @@ def _planner_messages(
     return [ChatMessage(role="user", content=content)]
 
 
-def _agent_capability_profile_context(messages: list[ChatMessage]) -> str:
+def _planner_memory_context(messages: list[ChatMessage]) -> str:
     sections: list[str] = []
     for message in messages:
         if message.role != "system":
             continue
-        start = message.content.find(AGENT_CAPABILITY_PROFILE_HEADER)
-        if start < 0:
-            continue
-        end = message.content.find(
-            f"\n\n{ORCHESTRATOR_MEMORY_HEADER}",
-            start,
-        )
-        section = message.content[start : end if end >= 0 else None].strip()
-        if section and section not in sections:
-            sections.append(section)
+        for header in (
+            AGENT_CAPABILITY_PROFILE_V2_HEADER,
+            USER_PREFERENCE_MEMORY_HEADER,
+            AGENT_CAPABILITY_PROFILE_HEADER,
+        ):
+            section = _memory_section(message.content, header)
+            if section and section not in sections:
+                sections.append(section)
     return "\n\n".join(sections)
+
+
+def _memory_section(content: str, header: str) -> str:
+    start = content.find(header)
+    if start < 0:
+        return ""
+    end_candidates = [
+        index
+        for candidate in PLANNER_MEMORY_SECTION_HEADERS
+        if candidate != header
+        for index in [content.find(f"\n\n{candidate}", start + len(header))]
+        if index >= 0
+    ]
+    end = min(end_candidates) if end_candidates else len(content)
+    return content[start:end].strip()
 
 
 def _task_plan_tool() -> ToolSpec:

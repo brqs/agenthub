@@ -326,6 +326,62 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conversation_id}/agent-capability-profile-v2:
+    get:
+      tags:
+      - Conversations
+      summary: Get Conversation Agent Capability Profile V2
+      operationId: get_conversation_agent_capability_profile_v2_api_v1_conversations__conversation_id__agent_capability_profile_v2_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: recent_runs
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 60
+          title: Recent Runs
+      - name: half_life_days
+        in: query
+        required: false
+        schema:
+          type: number
+          maximum: 365.0
+          minimum: 1.0
+          default: 30.0
+          title: Half Life Days
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 10
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentCapabilityProfileV2Out'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/conversations/{conv_id}/orchestrator-runs:
     get:
       tags:
@@ -1579,6 +1635,154 @@ components:
       - items
       - total
       title: AgentCapabilityProfileOut
+    AgentCapabilityProfileV2ItemOut:
+      properties:
+        agent_id:
+          type: string
+          title: Agent Id
+        runs_considered:
+          type: integer
+          title: Runs Considered
+        task_count:
+          type: integer
+          title: Task Count
+        success_count:
+          type: integer
+          title: Success Count
+        failure_count:
+          type: integer
+          title: Failure Count
+        artifact_missing_count:
+          type: integer
+          title: Artifact Missing Count
+        evaluation_failed_count:
+          type: integer
+          title: Evaluation Failed Count
+        avg_attempts:
+          type: number
+          title: Avg Attempts
+        artifact_kinds:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Artifact Kinds
+        review_outcomes:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Review Outcomes
+        repair_success_count:
+          type: integer
+          title: Repair Success Count
+        recent_failure_reasons:
+          items:
+            type: string
+          type: array
+          title: Recent Failure Reasons
+        confidence:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          title: Confidence
+        scope:
+          type: string
+          const: user
+          title: Scope
+          default: user
+        conversation_count:
+          type: integer
+          title: Conversation Count
+        weighted_task_count:
+          type: number
+          title: Weighted Task Count
+        weighted_success_score:
+          type: number
+          title: Weighted Success Score
+        weighted_failure_score:
+          type: number
+          title: Weighted Failure Score
+        success_rate:
+          type: number
+          title: Success Rate
+        timeout_count:
+          type: integer
+          title: Timeout Count
+        task_types:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Task Types
+        task_taxonomy:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Task Taxonomy
+        score:
+          type: number
+          title: Score
+        score_reasons:
+          items:
+            type: string
+          type: array
+          title: Score Reasons
+      type: object
+      required:
+      - agent_id
+      - runs_considered
+      - task_count
+      - success_count
+      - failure_count
+      - artifact_missing_count
+      - evaluation_failed_count
+      - avg_attempts
+      - repair_success_count
+      - confidence
+      - conversation_count
+      - weighted_task_count
+      - weighted_success_score
+      - weighted_failure_score
+      - success_rate
+      - timeout_count
+      - score
+      title: AgentCapabilityProfileV2ItemOut
+    AgentCapabilityProfileV2Out:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AgentCapabilityProfileV2ItemOut'
+          type: array
+          title: Items
+        preferences:
+          $ref: '#/components/schemas/UserPreferenceMemoryOut'
+        scope:
+          type: string
+          const: user
+          title: Scope
+        source_conversation_count:
+          type: integer
+          title: Source Conversation Count
+        runs_considered:
+          type: integer
+          title: Runs Considered
+        generated_at:
+          type: string
+          format: date-time
+          title: Generated At
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - preferences
+      - scope
+      - source_conversation_count
+      - runs_considered
+      - generated_at
+      - total
+      title: AgentCapabilityProfileV2Out
     AgentList:
       properties:
         items:
@@ -2940,6 +3144,44 @@ components:
       - username
       - created_at
       title: UserOut
+    UserPreferenceMemoryOut:
+      properties:
+        runs_considered:
+          type: integer
+          title: Runs Considered
+        source_conversation_count:
+          type: integer
+          title: Source Conversation Count
+        domains:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Domains
+        artifact_preferences:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Artifact Preferences
+        deployment_preferences:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Deployment Preferences
+        language_style_hints:
+          additionalProperties:
+            type: integer
+          type: object
+          title: Language Style Hints
+        summary:
+          items:
+            type: string
+          type: array
+          title: Summary
+      type: object
+      required:
+      - runs_considered
+      - source_conversation_count
+      title: UserPreferenceMemoryOut
     ValidationError:
       properties:
         loc:
@@ -3389,6 +3631,31 @@ components:
           - type: string
           - type: 'null'
           title: Logs Tail
+        worker_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Worker Id
+        attempt_count:
+          type: integer
+          title: Attempt Count
+          default: 0
+        failure_category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Failure Category
+        last_error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Error Code
+        state_events:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: State Events
         queued_at:
           anyOf:
           - type: string
