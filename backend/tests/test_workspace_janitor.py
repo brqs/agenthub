@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 
-from app.services.workspace_janitor import WorkspaceResourceJanitor
+from app.services.workspace.janitor import WorkspaceResourceJanitor
 
 
 def test_janitor_keeps_recent_untracked_directory(tmp_path) -> None:

@@ -78,3 +78,36 @@
 - External runtime 生命周期：[../external-runtime-lifecycle.spec.md](../external-runtime-lifecycle.spec.md)
 - Workspace artifact / preview：[../workspace-artifact-preview.spec.md](../workspace-artifact-preview.spec.md)
 - B2 PDF gap：[../b2-pdf-gap-todo.spec.md](../b2-pdf-gap-todo.spec.md)
+
+---
+
+## 5. Behavior-preserving Refactor 记录
+
+2026-06-04 的 Orchestrator package 瘦身为内部维护性重构：
+
+- 保持 `OrchestratorAdapter.stream()`、`StreamChunk` 顺序、`block_index` remap、`agent_id` attribution、planner task schema、evaluator payload 语义不变。
+- `execution.py` 仅拆出 attempt 配置/message、review repair、artifact file block/manifest、evaluation/workflow dry-run、workspace conflict、stream event accumulation helper。
+- `task_planning.py` 保留 `resolve_tasks()` 主入口，拆出 direct routing、legacy template derivation、agent review task expansion。
+- `evaluation.py` 保留 `evaluate_attempt()` 与 payload/reflection helper 的导入路径，拆出 evaluator types 与 artifact/test-runner evaluator 实现。
+- `quality.py` 保留 browser quality gate 主流程，拆出 preview/deployment tool chunk、repair instruction/entry discovery、deployment health/release helper。
+- 本轮不新增功能，不改 public API、数据库 migration、seed、OpenAPI 或前端代码；不执行公网 E2E。
+
+2026-06-05 在不改变上述边界的前提下进一步整理目录：
+
+- 根目录只保留 package 入口、稳定导入契约与主要 orchestration facade：`adapter.py`、`artifacts.py`、`evaluation.py`、`execution.py`、`planner.py`、`quality.py`、`task_planning.py`、`tools.py`、`types.py`、`workspace_changes.py`。
+- routing、execution helper、planning templates、evaluation evaluator、quality、tools/tool loop、ReAct、memory 与 stream helper 按功能收进 `_internal/`。
+- planning templates 按 delivery、workspace conflict、legacy fallback 分组；evaluation evaluator 按 document/static、workflow、media/archive、runner/judge 与安全文件访问分组。
+- `tools.py` 保留稳定 facade，catalog、workspace executor、dispatch、stream/result construction 与 loop 分开；ReAct 按 runtime、decision/parser、task graph mutation 分开。
+- 无仓库调用方的旧根模块不保留转发 facade，避免根目录再次变成平铺 helper 集合。
+- `_internal` 下模块不是 public API；外部调用继续通过根目录 facade。
+- 本地 Orchestrator targeted pytest：`176 passed`；Ruff、Mypy、`git diff --check` passed。
+- 本轮未执行公网 E2E，未改数据库、OpenAPI、seed/default config 或前端代码。
+
+同日完成 Memory / Capability Profile service 的 behavior-preserving 可读性重构：
+
+- `backend/app/services/orchestrator_memory.py` 保留为稳定兼容门面，公共导入路径不变。
+- 实现按 store、queries、capability v1/v2、preferences、context、run reader、serialization 和 types 收进 `backend/app/services/_orchestrator_memory/`。
+- v1/v2 共用实际参与 Agent、artifact、failure insight 与 confidence 规则；查询、聚合和格式化职责分离。
+- 本轮不是 Capability Profile v3；不改统计、score、decay、taxonomy、preference、section 文本/顺序/预算、API wire shape、数据库或 planner 行为。
+- Memory targeted pytest `102 passed`；Ruff、Mypy、`git diff --check` passed。
+- 未执行公网 E2E；历史 Capability Profile acceptance 不做适配。

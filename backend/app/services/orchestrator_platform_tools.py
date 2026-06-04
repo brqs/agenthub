@@ -14,7 +14,7 @@ from app.agents.config_validation import AgentConfigValidationError, validate_ag
 from app.agents.orchestrator.tools import OrchestratorToolResult
 from app.models.agent import Agent
 from app.models.conversation import Conversation
-from app.services.browser_preview_verifier import (
+from app.services.workspace.preview_verifier import (
     BrowserPreviewVerifier,
     BrowserPreviewVerifyDisabledError,
     BrowserPreviewVerifyError,

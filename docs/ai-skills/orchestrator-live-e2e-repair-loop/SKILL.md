@@ -7,7 +7,7 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 
 > 类型：AI 协作 Skill / 测试修复闭环
 > 适用范围：AgentHub Orchestrator、workspace artifact、preview/browser verify、B2 P0/P1 live E2E
-> 最后更新：2026-06-03
+> 最后更新：2026-06-05
 
 ---
 
@@ -387,7 +387,39 @@ uv run python scripts/deployment_release_api_e2e.py
 
 ---
 
-## 9. 修复规则
+## 9. 脚本结构与新增 Scenario
+
+兼容执行入口保持不变：
+
+```bash
+cd /home/ubuntu/agenthub/backend
+uv run python scripts/orchestrator_live_e2e.py
+```
+
+实现位于 `backend/scripts/orchestrator_e2e/`：
+
+| 模块 | 职责 |
+|---|---|
+| `config.py` | `E2ESettings`、env parsing、稳定 report/SSE/browser 默认路径 |
+| `scenarios.py` | `ScenarioSpec` 与所有现有 scenario registry |
+| `evaluators.py` | 只读取和更新 report 的纯 acceptance evaluator |
+| `client.py` | auth 与 run detail HTTP helper |
+| `workspace.py` | workspace tree/file/artifact helper |
+| `deployment.py` | deployment polling 与 source zip 检查 |
+| `io.py` | JSON/JSONL、SSE、时间戳与 URL helper |
+| `runner.py` | live scenario 执行与历史 quality/deployment flow |
+
+新增 scenario 时：
+
+1. 在 `config.py` 注册稳定默认 report/SSE/browser path。
+2. 在 `scenarios.py` 注册 prompt、agent ids、runner、evaluator。
+3. runner 负责发请求并把补充证据写入 report；evaluator 不发 live API 请求。
+4. 在 `tests/test_orchestrator_live_e2e_script.py` 补 registry/default/prompt/evaluator 测试。
+5. 不向兼容入口 `orchestrator_live_e2e.py` 堆 scenario 实现。
+
+---
+
+## 10. 修复规则
 
 - 优先最小改动，不重构无关模块。
 - 修复后补或更新自动化测试。
@@ -408,7 +440,7 @@ sed -n '1,240p' /home/ubuntu/agenthub/docs/ai-skills/backend-deploy/SKILL.md
 
 ---
 
-## 10. 结果沉淀位置
+## 11. 结果沉淀位置
 
 这类计划不应全部堆进单个 spec。建议分层沉淀：
 
@@ -418,5 +450,5 @@ sed -n '1,240p' /home/ubuntu/agenthub/docs/ai-skills/backend-deploy/SKILL.md
 | 当前能力契约 | `docs/b2/spec/orchestrator/core.spec.md`、`orchestrator/tool-calling.spec.md`、`workspace-artifact-preview.spec.md` |
 | Orchestrator 真实结果 | `docs/b2/spec/orchestrator/live-e2e-report.spec.md` |
 | 后续缺口 | `docs/b2/spec/b2-pdf-gap-todo.spec.md` |
-| 可重复执行脚本说明 | `backend/scripts/orchestrator_live_e2e.py` 和相关 report 文档 |
+| 可重复执行脚本说明 | `backend/scripts/orchestrator_live_e2e.py`、`backend/scripts/orchestrator_e2e/` 和相关 report 文档 |
 | AI 协作过程证据 | `docs/ai-collaboration-log.md` |

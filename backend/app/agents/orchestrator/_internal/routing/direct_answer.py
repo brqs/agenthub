@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
-from app.agents.orchestrator.streams import (
+from app.agents.orchestrator._internal.streams import (
     attach_agent_id,
     remap_block_index,
     remap_tool_call_id,
@@ -21,27 +21,18 @@ and dispatch specialist agents instead.
 """
 
 META_QUESTION_MARKERS = (
-    "\u4f60\u597d",
-    "\u60a8\u597d",
-    "\u4f60\u662f\u8c01",
-    "\u4f60\u662f\u4ec0\u4e48",
-    "\u4f60\u662f\u4ec0\u4e48\u6a21\u578b",
-    "\u4f60\u7528\u4ec0\u4e48\u6a21\u578b",
-    "\u4ec0\u4e48\u6a21\u578b",
-    "\u54ea\u4e2a\u6a21\u578b",
-    "\u4f60\u6709\u4ec0\u4e48\u80fd\u529b",
-    "\u4f60\u80fd\u505a\u4ec0\u4e48",
-    "\u4f60\u7684\u80fd\u529b",
-    "\u4f60\u7684\u804c\u8d23",
-    "\u4ecb\u7ecd\u4e00\u4e0b",
-    "\u81ea\u6211\u4ecb\u7ecd",
-    "\u4f60\u4e4b\u524d\u6709\u4ec0\u4e48\u7f16\u7a0b\u4efb\u52a1",
-    "\u4e4b\u524d\u6709\u4ec0\u4e48\u7f16\u7a0b\u4efb\u52a1",
-    "\u4e4b\u524d\u6709\u4ec0\u4e48\u4efb\u52a1",
-    "\u7f16\u7a0b\u4efb\u52a1\u5417",
-    "hello",
-    "hi",
-    "hey",
+    "你是谁",
+    "你是什么",
+    "什么模型",
+    "哪个模型",
+    "什么 runtime",
+    "什么runtime",
+    "能做什么",
+    "可以做什么",
+    "介绍一下",
+    "自我介绍",
+    "你的能力",
+    "你的职责",
     "who are you",
     "what model",
     "which model",
@@ -73,20 +64,7 @@ def should_direct_answer(
     normalized = strip_orchestrator_mention(user_request).lower()
     if has_task_intent(normalized):
         return False
-    if _is_simple_greeting(normalized):
-        return True
     return any(marker in normalized for marker in META_QUESTION_MARKERS)
-
-
-def _is_simple_greeting(text: str) -> bool:
-    compact = text.strip().strip("!！?？。,.， ")
-    return compact in {
-        "\u4f60\u597d",
-        "\u60a8\u597d",
-        "hello",
-        "hi",
-        "hey",
-    }
 
 
 async def run_direct_answer(

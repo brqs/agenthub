@@ -1,0 +1,176 @@
+"""Environment-backed settings and stable artifact path defaults."""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+DEFAULT_BASE_URL = "http://154.44.25.94:1573"
+DEFAULT_USERNAME = "12345678"
+DEFAULT_PASSWORD = "12345678"
+DEFAULT_SCENARIO = "quality"
+CONTAINER_STATUS_EXPECTATIONS = frozenset({"not_supported", "published", "any"})
+
+DEFAULT_P1_ATTRIBUTION_SSE_PATH = "/tmp/agenthub_p1_attribution_sse.jsonl"  # noqa: S108
+DEFAULT_P1_WORKFLOW_SSE_PATH = "/tmp/agenthub_p1_workflow_sse.jsonl"  # noqa: S108
+DEFAULT_P1_WORKFLOW_RUNTIME_SSE_PATH = "/tmp/agenthub_p1_workflow_runtime_sse.jsonl"  # noqa: S108
+DEFAULT_P1_REVIEW_THREAD_SSE_PATH = "/tmp/agenthub_p1_review_thread_sse.jsonl"  # noqa: S108
+DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH = "/tmp/agenthub_p1_rich_artifacts_sse.jsonl"  # noqa: S108
+DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH = "/tmp/agenthub_p1_evaluation_repair_sse.jsonl"  # noqa: S108
+DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH = "/tmp/agenthub_p1_agent_capability_profile_sse.jsonl"  # noqa: S108
+DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl"  # noqa: S108
+)
+DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
+DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
+DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
+DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
+DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH = "/tmp/agenthub_custom_agent_tools_sse.jsonl"  # noqa: S108
+
+DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
+DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
+DEFAULT_P1_WORKFLOW_RUNTIME_REPORT_PATH = "/tmp/agenthub_p1_workflow_runtime_report.json"  # noqa: S108
+DEFAULT_P1_REVIEW_THREAD_REPORT_PATH = "/tmp/agenthub_p1_review_thread_report.json"  # noqa: S108
+DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH = "/tmp/agenthub_p1_rich_artifacts_report.json"  # noqa: S108
+DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH = "/tmp/agenthub_p1_evaluation_repair_report.json"  # noqa: S108
+DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p1_agent_capability_profile_report.json"  # noqa: S108
+)
+DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_p2_agent_capability_profile_v2_report.json"  # noqa: S108
+)
+DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
+DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
+DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
+DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
+DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH = "/tmp/agenthub_custom_agent_tools_report.json"  # noqa: S108
+
+DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
+DEFAULT_QUALITY_BROWSER_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
+DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
+DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_browser.json"  # noqa: S108
+
+
+@dataclass(frozen=True)
+class ScenarioDefaults:
+    report_path: str
+    sse_path: str
+    browser_report_path: str = DEFAULT_QUALITY_BROWSER_REPORT_PATH
+
+
+SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
+    "quality": ScenarioDefaults(DEFAULT_QUALITY_REPORT_PATH, DEFAULT_QUALITY_SSE_PATH),
+    "fullstack": ScenarioDefaults(
+        DEFAULT_FULLSTACK_REPORT_PATH,
+        DEFAULT_FULLSTACK_SSE_PATH,
+        DEFAULT_FULLSTACK_BROWSER_REPORT_PATH,
+    ),
+    "deployment": ScenarioDefaults(
+        DEFAULT_DEPLOYMENT_REPORT_PATH,
+        DEFAULT_DEPLOYMENT_SSE_PATH,
+        DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH,
+    ),
+    "deployment_repair": ScenarioDefaults(
+        DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH,
+        DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH,
+        DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH,
+    ),
+    "custom_agent_tools": ScenarioDefaults(
+        DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH,
+        DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH,
+    ),
+    "p1_attribution": ScenarioDefaults(
+        DEFAULT_P1_ATTRIBUTION_REPORT_PATH,
+        DEFAULT_P1_ATTRIBUTION_SSE_PATH,
+    ),
+    "p1_workflow": ScenarioDefaults(
+        DEFAULT_P1_WORKFLOW_REPORT_PATH,
+        DEFAULT_P1_WORKFLOW_SSE_PATH,
+    ),
+    "p1_workflow_runtime": ScenarioDefaults(
+        DEFAULT_P1_WORKFLOW_RUNTIME_REPORT_PATH,
+        DEFAULT_P1_WORKFLOW_RUNTIME_SSE_PATH,
+    ),
+    "p1_review_thread_repair": ScenarioDefaults(
+        DEFAULT_P1_REVIEW_THREAD_REPORT_PATH,
+        DEFAULT_P1_REVIEW_THREAD_SSE_PATH,
+    ),
+    "p1_rich_artifacts": ScenarioDefaults(
+        DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH,
+        DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH,
+    ),
+    "p1_evaluation_repair": ScenarioDefaults(
+        DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH,
+        DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH,
+    ),
+    "p1_agent_capability_profile": ScenarioDefaults(
+        DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
+        DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
+    ),
+    "p2_agent_capability_profile_v2": ScenarioDefaults(
+        DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH,
+        DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
+    ),
+}
+
+
+@dataclass(frozen=True)
+class E2ESettings:
+    base_url: str
+    username: str
+    password: str
+    scenario: str
+    report_path: Path
+    sse_path: Path
+    browser_report_path: Path
+    prompt_override: str | None
+    expect_container_status: str
+    container_poll_timeout_seconds: float
+    container_poll_interval_seconds: float
+    use_temporary_user: bool
+
+
+def validate_container_status_expectation(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in CONTAINER_STATUS_EXPECTATIONS:
+        raise ValueError(
+            "AGENTHUB_E2E_EXPECT_CONTAINER_STATUS must be not_supported, published, or any"
+        )
+    return normalized
+
+
+def defaults_for_scenario(scenario: str) -> ScenarioDefaults:
+    return SCENARIO_DEFAULTS.get(scenario, SCENARIO_DEFAULTS[DEFAULT_SCENARIO])
+
+
+def load_settings(env: Mapping[str, str] | None = None) -> E2ESettings:
+    source = os.environ if env is None else env
+    scenario = source.get("AGENTHUB_E2E_SCENARIO", DEFAULT_SCENARIO).strip().lower()
+    defaults = defaults_for_scenario(scenario)
+    return E2ESettings(
+        base_url=source.get("AGENTHUB_E2E_BASE_URL", DEFAULT_BASE_URL),
+        username=source.get("AGENTHUB_E2E_USERNAME", DEFAULT_USERNAME),
+        password=source.get("AGENTHUB_E2E_PASSWORD", DEFAULT_PASSWORD),
+        scenario=scenario,
+        report_path=Path(source.get("AGENTHUB_E2E_REPORT_PATH", defaults.report_path)),
+        sse_path=Path(source.get("AGENTHUB_E2E_SSE_PATH", defaults.sse_path)),
+        browser_report_path=Path(
+            source.get("AGENTHUB_E2E_BROWSER_REPORT_PATH", defaults.browser_report_path)
+        ),
+        prompt_override=source.get("AGENTHUB_E2E_PROMPT"),
+        expect_container_status=validate_container_status_expectation(
+            source.get("AGENTHUB_E2E_EXPECT_CONTAINER_STATUS", "published")
+        ),
+        container_poll_timeout_seconds=float(
+            source.get("AGENTHUB_E2E_CONTAINER_POLL_TIMEOUT_SECONDS", "180")
+        ),
+        container_poll_interval_seconds=float(
+            source.get("AGENTHUB_E2E_CONTAINER_POLL_INTERVAL_SECONDS", "2")
+        ),
+        use_temporary_user=(
+            scenario == "p2_agent_capability_profile_v2"
+            and "AGENTHUB_E2E_USERNAME" not in source
+        ),
+    )
