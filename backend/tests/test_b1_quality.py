@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -11,7 +13,10 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 
+import app.api.v1.stream as stream_module
+from app.agents.types import StreamChunk
 from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
@@ -103,6 +108,92 @@ async def _send_message(
     return response.json()
 
 
+async def _send_message_after_marking_error(
+    client: AsyncClient,
+    headers: dict[str, str],
+    conversation_id: str,
+    failed_message_id: UUID,
+    target_agent_id: str,
+) -> dict[str, Any]:
+    async with SessionFactory() as db:
+        failed_message = await db.get(Message, failed_message_id)
+        assert failed_message is not None
+        failed_message.status = "error"
+        failed_message.content = [{"type": "text", "text": "failed"}]
+        await db.commit()
+    return await _send_message(client, headers, conversation_id, target_agent_id)
+
+
+class _ConnectedRequest:
+    async def is_disconnected(self) -> bool:
+        return False
+
+
+class _HangingAdapter:
+    async def stream(
+        self,
+        messages: list[Any],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        _ = messages, system_prompt, config, workspace_path, tool_specs
+        yield StreamChunk(event_type="start", agent_id="test-agent")
+        yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+        yield StreamChunk(event_type="delta", block_index=0, text_delta="partial")
+        await asyncio.Event().wait()
+
+
+class _CountingAdapter:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream(
+        self,
+        messages: list[Any],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        _ = messages, system_prompt, config, workspace_path, tool_specs
+        self.calls += 1
+        yield StreamChunk(event_type="start", agent_id="test-agent")
+        yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+        yield StreamChunk(event_type="delta", block_index=0, text_delta="hello")
+        yield StreamChunk(event_type="block_end", block_index=0)
+        yield StreamChunk(event_type="done", agent_id="test-agent", total_blocks=1)
+
+
+async def _insert_messages(
+    conversation_id: str,
+    count: int,
+    *,
+    last_status: str = "done",
+) -> list[Message]:
+    base_time = datetime.now(UTC) - timedelta(minutes=count)
+    messages: list[Message] = []
+    async with SessionFactory() as db:
+        for index in range(count):
+            message = Message(
+                conversation_id=UUID(conversation_id),
+                role="agent" if index % 2 else "user",
+                agent_id="test-agent" if index % 2 else None,
+                content=[{"type": "text", "text": f"message {index:02d}"}],
+                status=last_status if index == count - 1 else "done",
+                created_at=base_time + timedelta(seconds=index),
+            )
+            db.add(message)
+            messages.append(message)
+        await db.commit()
+        for message in messages:
+            await db.refresh(message)
+    return messages
+
+
 async def test_create_conversation_rejects_missing_agent(client: AsyncClient) -> None:
     _, headers = await _register(client)
     response = await client.post(
@@ -132,6 +223,293 @@ async def test_create_conversation_rejects_other_users_agent(client: AsyncClient
 
     assert response.status_code == 404
     assert response.json()["detail"]["error"]["code"] == "AGENT_NOT_FOUND"
+
+
+async def test_list_messages_defaults_to_recent_page_in_ascending_order(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    await _insert_messages(conversation["id"], 35)
+
+    response = await client.get(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    texts = [item["content"][0]["text"] for item in body["items"]]
+    assert len(texts) == 30
+    assert texts[0] == "message 05"
+    assert texts[-1] == "message 34"
+    assert texts == sorted(texts)
+    assert body["has_more"] is True
+    assert body["next_cursor"] == body["items"][0]["id"]
+
+
+async def test_list_messages_before_cursor_loads_older_page(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    await _insert_messages(conversation["id"], 35)
+
+    recent = (
+        await client.get(
+            f"/api/v1/conversations/{conversation['id']}/messages",
+            headers=headers,
+            params={"limit": 30},
+        )
+    ).json()
+    older = await client.get(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+        params={"limit": 30, "cursor": recent["next_cursor"], "direction": "before"},
+    )
+
+    assert older.status_code == 200
+    body = older.json()
+    texts = [item["content"][0]["text"] for item in body["items"]]
+    assert texts == [f"message {index:02d}" for index in range(5)]
+    assert body["has_more"] is False
+    assert body["next_cursor"] is None
+
+
+async def test_list_messages_keeps_latest_streaming_message_in_default_page(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _insert_messages(conversation["id"], 35, last_status="streaming")
+
+    response = await client.get(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["items"][-1]["id"] == str(messages[-1].id)
+    assert body["items"][-1]["status"] == "streaming"
+    assert body["items"][-1]["content"][0]["text"] == "message 34"
+
+
+async def test_mark_stream_error_terminalizes_claimed_message(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        accumulator = stream_module._ContentAccumulator()
+        await stream_module._mark_stream_error(
+            db,
+            message,
+            accumulator,
+            "Stream was cancelled before the Agent finished.",
+        )
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "error"
+        assert message.content
+        assert "cancelled" in message.content[0]["text"].lower()
+
+
+async def test_mark_stream_error_recovers_invalid_transaction(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        with pytest.raises(SQLAlchemyError):
+            await db.execute(text("SELECT * FROM table_that_does_not_exist"))
+        await stream_module._mark_stream_error(
+            db,
+            message,
+            stream_module._ContentAccumulator(),
+            "Stream was cancelled before the Agent finished.",
+        )
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "error"
+        assert "cancelled" in message.content[0]["text"].lower()
+
+
+async def test_stream_idle_timeout_marks_message_error_and_yields_sse_error(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "agent_stream_idle_timeout_seconds", 0.01)
+    monkeypatch.setattr(settings, "agent_stream_hard_timeout_seconds", 30)
+
+    async def fake_get_adapter(agent_id: str, db: Any) -> _HangingAdapter:
+        _ = agent_id, db
+        return _HangingAdapter()
+
+    monkeypatch.setattr(stream_module, "get_adapter", fake_get_adapter)
+
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    events: list[dict[str, str]] = []
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        async for event in stream_module._event_generator(
+            db,
+            _ConnectedRequest(),
+            message,
+        ):
+            events.append(event)
+            if event["event"] == "error":
+                break
+
+    assert [event["event"] for event in events] == [
+        "start",
+        "block_start",
+        "delta",
+        "error",
+    ]
+    assert "stream_idle_timeout" in events[-1]["data"]
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "error"
+        assert message.content[0]["text"] == "partial"
+        assert "timed out" in message.content[1]["text"]
+
+
+async def test_stream_run_manager_reuses_runtime_for_multiple_subscribers(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path))
+    adapter = _CountingAdapter()
+
+    async def fake_get_adapter(agent_id: str, db: Any) -> _CountingAdapter:
+        _ = agent_id, db
+        return adapter
+
+    monkeypatch.setattr(stream_module, "get_adapter", fake_get_adapter)
+
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        message.status = "streaming"
+        await db.commit()
+        session = await stream_module.stream_run_manager.start(message)
+        reused = await stream_module.stream_run_manager.start(message)
+
+    assert reused is session
+    first = stream_module.stream_run_manager.subscribe(session).__aiter__()
+    second = stream_module.stream_run_manager.subscribe(session).__aiter__()
+
+    first_event = await anext(first)
+    second_event = await anext(second)
+    assert first_event["event"] == "start"
+    assert second_event["event"] == "start"
+
+    await session.task
+    assert adapter.calls == 1
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "done"
+        assert message.content == [{"type": "text", "text": "hello"}]
+
+
+async def test_streaming_message_without_manager_terminalizes_as_error(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        message.status = "streaming"
+        message.content = []
+        await db.commit()
+
+    response = await client.get(
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert "stream_session_lost" in response.text
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "error"
+        assert "interrupted" in message.content[0]["text"]
+
+
+async def test_send_message_cleans_stale_stream_before_busy_check(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "agent_stream_stale_seconds", 1)
+
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    stale_pair = await _send_message(client, headers, conversation["id"], agent_id)
+    stale_message_id = UUID(stale_pair["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        stale_message = await db.get(Message, stale_message_id)
+        assert stale_message is not None
+        stale_message.status = "streaming"
+        stale_message.content = []
+        stale_message.created_at = datetime.now(UTC) - timedelta(seconds=30)
+        await db.commit()
+
+    fresh_pair = await _send_message(client, headers, conversation["id"], agent_id)
+
+    assert fresh_pair["agent_message"]["status"] == "pending"
+    async with SessionFactory() as db:
+        stale_message = await db.get(Message, stale_message_id)
+        assert stale_message is not None
+        assert stale_message.status == "error"
+        assert stale_message.content[0]["text"].startswith("Agent stream expired")
 
 
 async def test_message_and_conversation_routes_forbid_other_user_resources(
@@ -242,6 +620,32 @@ async def test_send_message_rejects_when_agent_response_pending(
         ).scalars().all()
 
     assert [message.role for message in messages] == ["user", "agent"]
+
+
+async def test_regenerate_rejects_when_conversation_busy(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    failed_pair = await _send_message(client, headers, conversation["id"], agent_id)
+    busy_pair = await _send_message_after_marking_error(
+        client,
+        headers,
+        conversation["id"],
+        UUID(failed_pair["agent_message"]["id"]),
+        agent_id,
+    )
+
+    response = await client.post(
+        f"/api/v1/messages/{failed_pair['agent_message']['id']}/regenerate",
+        headers=headers,
+    )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["detail"]["error"]["code"] == "CONVERSATION_BUSY"
+    assert body["detail"]["error"]["details"]["message_id"] == busy_pair["agent_message"]["id"]
 
 
 async def test_password_over_bcrypt_limit_returns_422(client: AsyncClient) -> None:
@@ -534,3 +938,4 @@ async def test_stream_adapter_exception_marks_message_error_and_preserves_partia
     assert len(message.content) >= 1
     assert message.content[0]["type"] == "text"
     assert message.content[0]["text"] == "partial"
+    assert "boom" in message.content[1]["text"]

@@ -17,11 +17,13 @@ async def _collect(
     messages: list[ChatMessage] | None = None,
     workspace_path: Path | None = None,
 ) -> list[StreamChunk]:
+    stream_config = dict(config or {})
+    stream_config.setdefault("orchestrator_subagent_text_visible", True)
     return [
         chunk
         async for chunk in adapter.stream(
             messages=messages or [ChatMessage(role="user", content="Build a todo app")],
-            config=config,
+            config=stream_config,
             workspace_path=workspace_path,
         )
     ]

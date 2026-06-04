@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     deployment_container_runtime: str = Field(default="docker")
     deployment_container_trusted_host_mode: bool = Field(default=True)
     deployment_container_public_base_url: str = Field(default="http://111.229.151.159")
+    deployment_container_healthcheck_base_url: str = Field(default="")
     deployment_container_build_root: str = Field(
         default="/tmp/agenthub_container_deployments"  # noqa: S108 - generated deployments.
     )
@@ -121,6 +122,15 @@ class Settings(BaseSettings):
     orchestrator_llm_planning_default: bool = Field(default=True)
     orchestrator_parallel_enabled_default: bool = Field(default=True)
     orchestrator_parallel_max_concurrency_default: int = Field(default=3)
+    orchestrator_subagent_text_visible_default: bool = Field(default=False)
+
+    # External runtime isolation
+    external_runtime_state_dir: str = Field(
+        default="/tmp/agenthub_external_runtime"  # noqa: S108 - per-message runtime state.
+    )
+    agent_stream_stale_seconds: int = Field(default=900)
+    agent_stream_idle_timeout_seconds: int = Field(default=60)
+    agent_stream_hard_timeout_seconds: int = Field(default=900)
 
     # ─── CORS ───
     cors_origins: str = Field(default="http://localhost:5173")

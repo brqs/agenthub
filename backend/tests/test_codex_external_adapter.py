@@ -237,6 +237,37 @@ class TestCodexDirectChat:
         ]
         assert chunks[2].text_delta == "direct"
 
+    async def test_simple_greeting_returns_direct_text_without_cli_or_classifier(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def fail_direct_chat(**_kwargs: Any) -> DirectChatDecision:
+            pytest.fail("simple greetings should not start the direct-chat classifier")
+
+        async def fail_stream_cli_text(*_args: Any, **_kwargs: Any) -> AsyncIterator[Any]:
+            pytest.fail("Codex CLI should not start for simple greetings")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr(codex_module, "maybe_stream_direct_chat", fail_direct_chat)
+        monkeypatch.setattr(codex_module, "stream_cli_text", fail_stream_cli_text)
+
+        chunks = await _collect(
+            CodexAdapter(agent_id="codex-test"),
+            workspace_path=tmp_path,
+            config={"qa_short_circuit_enabled": True},
+            messages=[ChatMessage(role="user", content="你好")],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert "Codex Helper" in (chunks[2].text_delta or "")
+
 
 def _fake_stream_cli_timeout(
     *,

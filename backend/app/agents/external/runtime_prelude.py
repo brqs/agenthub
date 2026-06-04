@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.external.direct_chat import DirectChatDecision
-from app.agents.external.workspace_prompt import direct_identity_response
+from app.agents.external.workspace_prompt import (
+    direct_identity_response,
+    direct_small_talk_response,
+)
 from app.agents.types import ChatMessage, StreamChunk
 
 ErrorChunkFactory = Callable[[str, str], StreamChunk]
@@ -44,6 +47,13 @@ async def external_runtime_prelude(
         )
 
     direct_response = direct_identity_response(messages, agent_id=adapter.agent_id)
+    if direct_response:
+        return RuntimePreludeResult(
+            merged_config={},
+            stream=_iter_chunks(text_result_chunks(direct_response, adapter.agent_id)),
+        )
+
+    direct_response = direct_small_talk_response(messages, agent_id=adapter.agent_id)
     if direct_response:
         return RuntimePreludeResult(
             merged_config={},

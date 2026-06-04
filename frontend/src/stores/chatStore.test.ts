@@ -6,8 +6,10 @@ function resetChatStore() {
   useChatStore.getState().clearChat();
 }
 
-function addStreamingMessage(conversationId = 'conv-demo-flow'): string {
-  const messageId = '00000000-0000-4000-8000-000000000099';
+function addStreamingMessage(
+  conversationId = 'conv-demo-flow',
+  messageId = '00000000-0000-4000-8000-000000000099',
+): string {
   const message: DemoMessage = {
     id: messageId,
     conversation_id: conversationId,
@@ -155,8 +157,8 @@ describe('chatStore', () => {
         block_index: 0,
         block_type: 'task_card',
         metadata: {
-          title: '测试任务',
-          tasks: [{ id: 'plan', agent_id: 'orchestrator', title: '规划', status: 'running' }],
+          title: '娴嬭瘯浠诲姟',
+          tasks: [{ id: 'plan', agent_id: 'orchestrator', title: '瑙勫垝', status: 'running' }],
         },
       },
     });
@@ -185,7 +187,7 @@ describe('chatStore', () => {
     expect(useChatStore.getState().messagesByConversation['conv-demo-flow'][0]).toMatchObject({
       status: 'done',
       content: [
-        { type: 'task_card', title: '测试任务' },
+        { type: 'task_card', title: '娴嬭瘯浠诲姟' },
         { type: 'text', text: 'hello' },
         { type: 'tool_call', call_id: 'call-write', status: 'ok', output_preview: 'wrote file' },
       ],
@@ -268,6 +270,55 @@ describe('chatStore', () => {
     });
   });
 
+  it('updates orchestrator task card progress by exact agent switch task', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'task_card',
+        metadata: {
+          title: 'Orchestrator plan',
+          tasks: [
+            { id: 'task-a', agent_id: 'claude-code', title: 'Build HTML', status: 'pending' },
+            { id: 'task-b', agent_id: 'claude-code', title: 'Review HTML', status: 'pending' },
+          ],
+        },
+      },
+    });
+
+    store.applyStreamEvent(messageId, {
+      event: 'agent_switch',
+      data: { from_agent: 'orchestrator', to_agent: 'claude-code', task: 'Build HTML' },
+    });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'task_card',
+      tasks: [
+        { id: 'task-a', status: 'running' },
+        { id: 'task-b', status: 'pending' },
+      ],
+    });
+
+    store.applyStreamEvent(messageId, {
+      event: 'agent_switch',
+      data: { from_agent: 'orchestrator', to_agent: 'claude-code', task: 'Review HTML' },
+    });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'task_card',
+      tasks: [
+        { id: 'task-a', status: 'done' },
+        { id: 'task-b', status: 'running' },
+      ],
+    });
+  });
+
   it('marks stream errors and supports retry reset', () => {
     const messageId = addStreamingMessage();
     useChatStore.getState().applyStreamEvent(messageId, {
@@ -279,6 +330,258 @@ describe('chatStore', () => {
     expect(useChatStore.getState().messagesByConversation['conv-demo-flow'][0]).toMatchObject({
       status: 'streaming',
       content: [{ type: 'text', text: '' }],
+    });
+  });
+
+  it('ignores late stream errors after a message is done', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: { block_index: 0, block_type: 'text' },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'delta',
+      data: { block_index: 0, text_delta: 'finished output' },
+    });
+    store.applyStreamEvent(messageId, { event: 'done', data: { total_blocks: 1 } });
+    store.applyStreamEvent(messageId, {
+      event: 'error',
+      data: { error: 'late transport error' },
+    });
+
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow'][0]).toMatchObject({
+      status: 'done',
+      content: [{ type: 'text', text: 'finished output' }],
+    });
+  });
+
+  it('lets hydrated done snapshots recover a locally errored message', () => {
+    const messageId = addStreamingMessage('conv-hydrate-done');
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'error',
+      data: { error: 'local stream closed' },
+    });
+
+    store.hydrateMessages('conv-hydrate-done', [
+      {
+        id: messageId,
+        conversation_id: 'conv-hydrate-done',
+        role: 'agent',
+        agent_id: 'claude-code',
+        reply_to_id: null,
+        status: 'done',
+        is_pinned: false,
+        created_at: '2026-05-31T00:00:00.000Z',
+        content: [{ type: 'text', text: 'server says done' }],
+      },
+    ]);
+
+    expect(useChatStore.getState().messagesByConversation['conv-hydrate-done'][0]).toMatchObject({
+      status: 'done',
+      content: [{ type: 'text', text: 'server says done' }],
+    });
+  });
+
+  it('tracks multiple active streams independently', () => {
+    const first = addStreamingMessage('conv-a', '00000000-0000-4000-8000-0000000000a1');
+    const second = addStreamingMessage('conv-b', '00000000-0000-4000-8000-0000000000b2');
+    useChatStore.getState().startActiveStream({
+      id: first,
+      conversation_id: 'conv-a',
+      agent_id: 'claude-code',
+    });
+    useChatStore.getState().startActiveStream({
+      id: second,
+      conversation_id: 'conv-b',
+      agent_id: 'orchestrator',
+    });
+
+    expect(Object.keys(useChatStore.getState().activeStreams).sort()).toEqual(
+      [first, second].sort(),
+    );
+
+    useChatStore.getState().applyStreamEvent(first, {
+      event: 'done',
+      data: { total_blocks: 0 },
+    });
+    useChatStore.getState().finishActiveStream(first);
+
+    expect(useChatStore.getState().activeStreams[first]).toBeUndefined();
+    expect(useChatStore.getState().activeStreams[second]).toMatchObject({
+      conversationId: 'conv-b',
+    });
+    expect(useChatStore.getState().messagesByConversation['conv-a'][0].status).toBe('done');
+    expect(useChatStore.getState().messagesByConversation['conv-b'][0].status).toBe(
+      'streaming',
+    );
+  });
+
+  it('does not clobber active streaming content during hydration', () => {
+    const messageId = addStreamingMessage('conv-active');
+    useChatStore.getState().startActiveStream({
+      id: messageId,
+      conversation_id: 'conv-active',
+      agent_id: 'orchestrator',
+    });
+    useChatStore.getState().applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: { block_index: 0, block_type: 'text' },
+    });
+    useChatStore.getState().applyStreamEvent(messageId, {
+      event: 'delta',
+      data: { block_index: 0, text_delta: 'local stream text' },
+    });
+
+    useChatStore.getState().hydrateMessages('conv-active', [
+      {
+        id: messageId,
+        conversation_id: 'conv-active',
+        role: 'agent',
+        agent_id: 'orchestrator',
+        reply_to_id: null,
+        status: 'streaming',
+        is_pinned: false,
+        created_at: '2026-05-31T00:00:00.000Z',
+        content: [],
+      },
+    ]);
+
+    expect(useChatStore.getState().messagesByConversation['conv-active'][0].content).toEqual([
+      { type: 'text', agent_id: null, text: 'local stream text' },
+    ]);
+  });
+
+  it('keeps active streaming messages missing from the hydrated page', () => {
+    const messageId = addStreamingMessage('conv-active-missing');
+    useChatStore.getState().startActiveStream({
+      id: messageId,
+      conversation_id: 'conv-active-missing',
+      agent_id: 'orchestrator',
+    });
+    useChatStore.getState().applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: { block_index: 0, block_type: 'code', metadata: { language: 'html' } },
+    });
+    useChatStore.getState().applyStreamEvent(messageId, {
+      event: 'delta',
+      data: { block_index: 0, code_delta: '<!doctype html>' },
+    });
+
+    useChatStore.getState().hydrateMessages('conv-active-missing', [
+      {
+        id: '00000000-0000-4000-8000-000000000124',
+        conversation_id: 'conv-active-missing',
+        role: 'user',
+        agent_id: null,
+        reply_to_id: null,
+        status: 'done',
+        is_pinned: false,
+        created_at: '2026-05-30T00:00:00.000Z',
+        content: [{ type: 'text', text: 'older server message' }],
+      },
+    ]);
+
+    expect(
+      useChatStore
+        .getState()
+        .messagesByConversation['conv-active-missing'].map((message) => message.id),
+    ).toEqual(['00000000-0000-4000-8000-000000000124', messageId]);
+    expect(useChatStore.getState().messagesByConversation['conv-active-missing'][1].content).toEqual([
+      { type: 'code', agent_id: null, language: 'html', code: '<!doctype html>' },
+    ]);
+  });
+
+  it('recovers hydrated streaming messages as active streams', () => {
+    useChatStore.getState().hydrateMessages('conv-stale', [
+      {
+        id: '00000000-0000-4000-8000-000000000123',
+        conversation_id: 'conv-stale',
+        role: 'agent',
+        agent_id: 'claude-code',
+        reply_to_id: null,
+        status: 'streaming',
+        is_pinned: false,
+        created_at: '2026-05-31T00:00:00.000Z',
+        content: [],
+      },
+    ]);
+
+    expect(useChatStore.getState().messagesByConversation['conv-stale'][0]).toMatchObject({
+      status: 'streaming',
+      content: [],
+    });
+    expect(
+      useChatStore.getState().activeStreams['00000000-0000-4000-8000-000000000123'],
+    ).toMatchObject({
+      conversationId: 'conv-stale',
+      agentId: 'claude-code',
+    });
+  });
+
+  it('clears active streams when hydrated snapshots are terminal', () => {
+    const messageId = addStreamingMessage('conv-terminal');
+    useChatStore.getState().startActiveStream({
+      id: messageId,
+      conversation_id: 'conv-terminal',
+      agent_id: 'orchestrator',
+    });
+
+    useChatStore.getState().hydrateMessages('conv-terminal', [
+      {
+        id: messageId,
+        conversation_id: 'conv-terminal',
+        role: 'agent',
+        agent_id: 'orchestrator',
+        reply_to_id: null,
+        status: 'done',
+        is_pinned: false,
+        created_at: '2026-05-31T00:00:00.000Z',
+        content: [{ type: 'text', text: 'server done' }],
+      },
+    ]);
+
+    expect(useChatStore.getState().activeStreams[messageId]).toBeUndefined();
+    expect(useChatStore.getState().messagesByConversation['conv-terminal'][0]).toMatchObject({
+      status: 'done',
+      content: [{ type: 'text', text: 'server done' }],
+    });
+  });
+
+  it('preserves active local content when a streaming server snapshot is empty', () => {
+    const messageId = addStreamingMessage('conv-stale-content');
+    useChatStore.getState().startActiveStream({
+      id: messageId,
+      conversation_id: 'conv-stale-content',
+      agent_id: 'orchestrator',
+    });
+    useChatStore.getState().applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: { block_index: 0, block_type: 'text' },
+    });
+    useChatStore.getState().applyStreamEvent(messageId, {
+      event: 'delta',
+      data: { block_index: 0, text_delta: 'partial local output' },
+    });
+
+    useChatStore.getState().hydrateMessages('conv-stale-content', [
+      {
+        id: messageId,
+        conversation_id: 'conv-stale-content',
+        role: 'agent',
+        agent_id: 'orchestrator',
+        reply_to_id: null,
+        status: 'streaming',
+        is_pinned: false,
+        created_at: '2026-05-31T00:00:00.000Z',
+        content: [],
+      },
+    ]);
+
+    expect(useChatStore.getState().messagesByConversation['conv-stale-content'][0]).toMatchObject({
+      status: 'streaming',
+      content: [{ type: 'text', text: 'partial local output' }],
     });
   });
 

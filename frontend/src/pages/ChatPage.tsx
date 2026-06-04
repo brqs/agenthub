@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { RightAgentPanel } from '@/components/agents/RightAgentPanel';
 import { ChatHeader } from '@/components/chat/ChatHeader';
@@ -18,7 +17,6 @@ import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useRegenerateMessage } from '@/hooks/useRegenerateMessage';
 import { useSendMessage } from '@/hooks/useSendMessage';
-import { useStream } from '@/hooks/useStream';
 import { useUpdateConversation } from '@/hooks/useUpdateConversation';
 import { useUpdateMessage } from '@/hooks/useUpdateMessage';
 import type { Agent } from '@/lib/types';
@@ -29,10 +27,8 @@ import { useUiStore } from '@/stores/uiStore';
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
-  const streamingToolNamesRef = useRef<Record<string, string>>({});
   const [newConversationOpen, setNewConversationOpen] = useState(false);
+  const [retryingMessageIds, setRetryingMessageIds] = useState<Record<string, boolean>>({});
   const [mentionInsertRequest, setMentionInsertRequest] = useState<{
     agentId: string;
     requestId: number;
@@ -45,7 +41,7 @@ export function ChatPage() {
   const setSearch = useChatStore((state) => state.setSearch);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
   const highlightedMessageId = useChatStore((state) => state.highlightedMessageId);
-  const applyStreamEvent = useChatStore((state) => state.applyStreamEvent);
+  const startActiveStream = useChatStore((state) => state.startActiveStream);
   const setHighlightedMessageId = useChatStore((state) => state.setHighlightedMessageId);
   const conversationSidebarCollapsed = useUiStore((state) => state.conversationSidebarCollapsed);
   const rightPanelOpen = useUiStore((state) => state.rightPanelOpen);
@@ -66,38 +62,16 @@ export function ChatPage() {
     conversationId,
     selectedConversationId,
   );
-  const { data: messages, isLoading: messagesLoading } = useMessages(conversation?.id);
+  const {
+    data: messages,
+    isLoading: messagesLoading,
+    isLoadingMore: messagesLoadingMore,
+    hasMore: messagesHasMore,
+    fetchPreviousPage: fetchPreviousMessages,
+  } = useMessages(conversation?.id);
   const updateConversation = useUpdateConversation();
   const updateMessage = useUpdateMessage();
   const regenerateMessage = useRegenerateMessage();
-
-  useStream(streamingMessageId, {
-    onEvent: (event) => {
-      if (streamingMessageId) applyStreamEvent(streamingMessageId, event);
-      if (event.event === 'tool_call') {
-        streamingToolNamesRef.current[event.data.call_id] = event.data.tool_name;
-      }
-      if (event.event === 'tool_result') {
-        const toolName = streamingToolNamesRef.current[event.data.call_id];
-        if (conversation?.id && isWorkspaceWritingTool(toolName)) {
-          void queryClient.invalidateQueries({ queryKey: ['workspace-tree', conversation.id] });
-        }
-        delete streamingToolNamesRef.current[event.data.call_id];
-      }
-    },
-    onDone: () => {
-      if (conversation?.id) {
-        void queryClient.invalidateQueries({ queryKey: ['messages', conversation.id] });
-        void queryClient.invalidateQueries({ queryKey: ['workspace-tree', conversation.id] });
-      }
-      setStreamingMessageId(null);
-    },
-    onError: () => setStreamingMessageId(null),
-  });
-
-  useEffect(() => {
-    streamingToolNamesRef.current = {};
-  }, [streamingMessageId]);
 
   useEffect(() => {
     if (!conversationId && conversation?.id) {
@@ -180,13 +154,27 @@ export function ChatPage() {
               agents={agents}
               highlightedMessageId={highlightedMessageId}
               isLoading={messagesLoading}
+              isLoadingMore={messagesLoadingMore}
+              hasMore={messagesHasMore}
+              onLoadMore={fetchPreviousMessages}
               onTogglePin={toggleMessagePinRemote}
               onMentionAgent={conversation.mode === 'group' ? mentionAgent : undefined}
+              retryingMessageIds={retryingMessageIds}
               onRetry={async (messageId) => {
+                if (retryingMessageIds[messageId]) return;
                 const target = messages.find((item) => item.id === messageId);
                 if (!target) return;
-                const nextMessage = await regenerateMessage.regenerate(target);
-                setStreamingMessageId(nextMessage.id);
+                setRetryingMessageIds((current) => ({ ...current, [messageId]: true }));
+                try {
+                  const nextMessage = await regenerateMessage.regenerate(target);
+                  startActiveStream(nextMessage);
+                } finally {
+                  setRetryingMessageIds((current) => {
+                    const next = { ...current };
+                    delete next[messageId];
+                    return next;
+                  });
+                }
               }}
             />
             <MessageInput
@@ -196,8 +184,7 @@ export function ChatPage() {
               isOffline={!isOnline}
               mentionInsertRequest={mentionInsertRequest}
               onSend={async (text) => {
-                const result = await sendMessage(conversation.id, text);
-                if (result?.agentMessageId) setStreamingMessageId(result.agentMessageId);
+                await sendMessage(conversation.id, text);
               }}
             />
           </>
@@ -267,12 +254,6 @@ export function ChatPage() {
       )}
     </div>
   );
-}
-
-function isWorkspaceWritingTool(toolName: string | undefined): boolean {
-  if (!toolName) return false;
-  const normalized = toolName.toLowerCase();
-  return normalized.includes('write') || normalized.includes('file');
 }
 
 function LoadingChatPlaceholder() {

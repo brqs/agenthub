@@ -70,6 +70,7 @@ from app.agents.orchestrator.workspace_changes import (
     snapshot_workspace,
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
+from app.core.config import settings
 from app.services.artifact_manifest import (
     ArtifactManifestService,
     evaluation_results_for_artifact,
@@ -148,6 +149,45 @@ def _text_block_with_next(
     return tuple(
         (chunk, next_block_index)
         for chunk in _text_block(block_index, text, agent_id=agent_id)
+    )
+
+
+def _task_card_block(
+    block_index: int,
+    tasks: list[SubTask],
+) -> tuple[tuple[StreamChunk, int], ...]:
+    metadata = {
+        "title": "Orchestrator 调度计划",
+        "tasks": [
+            {
+                "id": task.task_id,
+                "agent_id": task.agent_id,
+                "title": task.title,
+                "status": "pending",
+            }
+            for task in sorted(tasks, key=lambda item: (item.priority, item.task_id))
+        ],
+    }
+    next_block_index = block_index + 1
+    return (
+        (
+            StreamChunk(
+                event_type="block_start",
+                block_index=block_index,
+                block_type="task_card",
+                agent_id="orchestrator",
+                metadata=metadata,
+            ),
+            next_block_index,
+        ),
+        (
+            StreamChunk(
+                event_type="block_end",
+                block_index=block_index,
+                agent_id="orchestrator",
+            ),
+            next_block_index,
+        ),
     )
 
 
@@ -319,6 +359,7 @@ async def _run_task(
                     call_id_prefix=call_id_prefix,
                 ),
                 sub_messages,
+                _sub_adapter_config(config, agent_id, task, attempt_index),
                 next_block_index,
                 workspace_path,
                 tool_specs,
@@ -328,6 +369,7 @@ async def _run_task(
                 error_reason=_error_reason,
                 accumulate_text_event=_accumulate_text_event,
                 accumulate_tool_event=_accumulate_tool_event,
+                subagent_text_visible=_subagent_text_visible(config),
             ):
                 next_block_index = updated_block_index
                 task_failed = subtask_failed
@@ -823,6 +865,42 @@ def _positive_int_config(
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         return default
     return int(value)
+
+
+def _subagent_text_visible(config: Mapping[str, Any]) -> bool:
+    value = config.get("orchestrator_subagent_text_visible")
+    if isinstance(value, bool):
+        return value
+    return settings.orchestrator_subagent_text_visible_default
+
+
+def _sub_adapter_config(
+    config: Mapping[str, Any],
+    agent_id: str,
+    task: SubTask,
+    attempt_index: int,
+) -> dict[str, Any]:
+    parent_context = config.get("runtime_context")
+    runtime_context: dict[str, str] = {}
+    if isinstance(parent_context, Mapping):
+        runtime_context = {
+            str(key): str(value)
+            for key, value in parent_context.items()
+            if isinstance(key, str) and value is not None
+        }
+    parent_message_id = runtime_context.get("agent_message_id", "orchestrator")
+    runtime_context.update(
+        {
+            "agent_id": agent_id,
+            "agent_message_id": (
+                f"{parent_message_id}-{task.task_id}-attempt-{attempt_index}-{agent_id}"
+            ),
+            "orchestrator_parent_message_id": parent_message_id,
+            "orchestrator_task_id": task.task_id,
+            "orchestrator_attempt_index": str(attempt_index),
+        }
+    )
+    return {"runtime_context": runtime_context}
 
 
 def _agent_for_attempt(

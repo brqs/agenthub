@@ -20,6 +20,8 @@ WORKDIR /app
 # 系统依赖（asyncpg 编译需要）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    docker-cli \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Python 依赖

@@ -128,6 +128,7 @@ async def run_cli_text(
     *,
     cwd: Path,
     timeout_seconds: float,
+    env: dict[str, str] | None = None,
 ) -> CliResult:
     process = await asyncio.create_subprocess_exec(
         *resolve_command(command),
@@ -135,7 +136,7 @@ async def run_cli_text(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(cwd),
-        env=cli_env(),
+        env=env or cli_env(),
         **process_kwargs(),
     )
     try:
@@ -162,6 +163,7 @@ async def stream_cli_text(
     agent_id: str,
     provider: str,
     activity_paths: Iterable[Path] | None = None,
+    env: dict[str, str] | None = None,
 ) -> AsyncIterator[StreamChunk | CliCompleted]:
     """Run a CLI process while emitting heartbeats and tracking output activity."""
     budget = RuntimeBudget(budget_config)
@@ -194,7 +196,7 @@ async def stream_cli_text(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(cwd),
-            env=cli_env(),
+            env=env or cli_env(),
             **process_kwargs(),
         )
         reader_tasks = [

@@ -79,6 +79,22 @@ curl -i http://127.0.0.1:8000/health
 docker compose logs --tail=80 backend
 ```
 
+每次 `git pull` 或同步主仓库后，都必须先执行：
+
+```bash
+docker compose exec backend alembic upgrade head
+docker compose exec backend alembic current
+```
+
+当前期望 head：
+
+```text
+4b5c6d7e8f90
+```
+
+如果未执行最新 migration，workspace preview / deployment API 会因为
+`workspace_deployments` 缺少 release、snapshot 或 container runtime 字段而失败。
+
 停止服务栈：
 
 ```bash
@@ -107,6 +123,9 @@ docker compose exec backend python -m app.seeds.seed_agents
 -> c2f8e1d9a4b7_add_conversation_memories.py
 -> f4a3b2c1d0e9_add_workspaces.py
 -> 9a1b2c3d4e5f_add_orchestrator_memory.py
+-> 2f3a4b5c6d7e_add_workspace_deployments.py
+-> 3a4b5c6d7e8f_harden_workspace_releases.py
+-> 4b5c6d7e8f90_add_container_deployment_runtime_metadata.py
 ```
 
 `9a1b2c3d4e5f_add_orchestrator_memory.py` 新增 Orchestrator structured memory 表：
@@ -118,6 +137,14 @@ docker compose exec backend python -m app.seeds.seed_agents
 
 这些表用于 Orchestrator 跨轮结构化记忆。如果不执行 `alembic upgrade head`，Orchestrator 仍可启动，但真实任务编排时 structured memory 写入和 debug API 会不可用。
 
+后续三条 deployment migration 新增：
+
+- `workspace_preview_sessions` 快照隔离字段。
+- `workspace_deployments`、release token、snapshot、digest、file count、过期时间。
+- container deployment runtime metadata，包括 runtime id、image/container id、host port、healthcheck、logs tail。
+
+这些字段用于 preview、static release、source zip 和 container deployment。
+
 验证当前数据库版本：
 
 ```bash
@@ -127,7 +154,7 @@ docker compose exec postgres psql -U ${POSTGRES_USER:-agenthub} -d ${POSTGRES_DB
 期望版本：
 
 ```text
-9a1b2c3d4e5f
+4b5c6d7e8f90
 ```
 
 验证 Orchestrator structured memory 表：
@@ -146,6 +173,62 @@ orchestrator_run_events
 ```
 
 `seed_agents` 会 upsert 内置 agent。每次更新内置 agent 配置后都建议执行一次，确保 `orchestrator` 的 `orchestrator_memory_*` 配置同步到数据库。
+
+## Preview / Deployment 运维配置
+
+Workspace preview 和 deployment 均由平台后端管理，Agent runtime 不直接启动 8082 服务，也不直接执行部署命令。
+
+常用环境变量：
+
+```env
+PREVIEW_PORT_START=8082
+PREVIEW_PORT_END=8182
+PREVIEW_SNAPSHOT_DIR=/tmp/agenthub_preview_snapshots
+PREVIEW_SESSION_TTL_SECONDS=3600
+
+DEPLOYMENT_PUBLIC_BASE_URL=http://111.229.151.159:8000
+DEPLOYMENT_STATIC_ROOT=/tmp/agenthub_static_releases
+DEPLOYMENT_EXPORT_TTL_SECONDS=86400
+DEPLOYMENT_JANITOR_INTERVAL_SECONDS=300
+
+DEPLOYMENT_CONTAINER_ENABLED=true
+DEPLOYMENT_CONTAINER_RUNTIME=docker
+DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=true
+DEPLOYMENT_CONTAINER_PUBLIC_BASE_URL=http://111.229.151.159
+DEPLOYMENT_CONTAINER_PORT_START=8081
+DEPLOYMENT_CONTAINER_PORT_END=8085
+```
+
+运维规则：
+
+- Preview 是临时开发预览，服务隔离快照，不直接暴露原始 workspace。
+- Static release 是不可变发布版本，stop 后 token 立即失效。
+- Source zip 有过期时间，janitor 清理过期文件。
+- Container deployment 必须经过平台 worker 和 policy 校验，不允许 Agent 直接执行任意 Docker 命令。
+- 如果服务器不允许容器部署，设置 `DEPLOYMENT_CONTAINER_ENABLED=false`，API 会返回受控的 not_supported / error 状态，而不是让 runtime 自行部署。
+
+## B1 云端 E2E Checklist
+
+更新服务器后建议至少验证：
+
+```bash
+curl -i http://127.0.0.1:8000/health
+curl -i http://127.0.0.1:8000/docs
+docker compose exec backend alembic current
+docker compose exec backend python -m app.seeds.seed_agents
+docker compose exec backend pytest tests/test_workspace_api.py tests/test_stream_tool_calls.py -q
+```
+
+真实联调时再补：
+
+- 登录 / 注册。
+- 创建 group conversation。
+- 发送 Orchestrator 消息生成 HTML。
+- 调用 workspace tree / file API。
+- 调用 preview API。
+- 调用 deployments API 创建 static site。
+- 调用 source zip download。
+- stop preview / deployment 后确认 URL 失效。
 
 ## 安全注意事项
 

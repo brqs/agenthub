@@ -462,6 +462,7 @@ async def test_tool_calling_hides_orchestrator_tool_trace_but_keeps_child_output
         config={
             "orchestrator_tool_calling_enabled": True,
             "orchestrator_tool_trace_visible": False,
+            "orchestrator_subagent_text_visible": True,
             "orchestrator_tool_gateway": gateway,
             "managed_agent_ids": ["codex-helper"],
             "sub_adapters": {"codex-helper": writer},
