@@ -154,6 +154,45 @@ def _text_block_with_next(
     )
 
 
+def _task_card_block(
+    block_index: int,
+    tasks: list[SubTask],
+) -> tuple[tuple[StreamChunk, int], ...]:
+    metadata = {
+        "title": "Orchestrator 调度计划",
+        "tasks": [
+            {
+                "id": task.task_id,
+                "agent_id": task.agent_id,
+                "title": task.title,
+                "status": "pending",
+            }
+            for task in sorted(tasks, key=lambda item: (item.priority, item.task_id))
+        ],
+    }
+    next_block_index = block_index + 1
+    return (
+        (
+            StreamChunk(
+                event_type="block_start",
+                block_index=block_index,
+                block_type="task_card",
+                agent_id="orchestrator",
+                metadata=metadata,
+            ),
+            next_block_index,
+        ),
+        (
+            StreamChunk(
+                event_type="block_end",
+                block_index=block_index,
+                agent_id="orchestrator",
+            ),
+            next_block_index,
+        ),
+    )
+
+
 def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> str:
     _ = task
     _ = agent_id
