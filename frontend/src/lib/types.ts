@@ -36,6 +36,12 @@ export type Conversation = Override<
 export type ConversationList = Override<Schemas['ConversationList'], { items: Conversation[] }>;
 export type CreateConversationRequest = Schemas['CreateConversationRequest'];
 export type UpdateConversationRequest = Schemas['UpdateConversationRequest'];
+export type OrchestratorRunList = Schemas['OrchestratorRunList'];
+export type OrchestratorRun = Schemas['OrchestratorRunOut'];
+export type OrchestratorRunDetail = Schemas['OrchestratorRunDetailOut'];
+export type OrchestratorTask = Schemas['OrchestratorTaskOut'];
+export type OrchestratorTaskAttempt = Schemas['OrchestratorTaskAttemptOut'];
+export type OrchestratorRunEvent = Schemas['OrchestratorRunEventOut'];
 
 // ─── Workspace deployments ───
 export type WorkspaceDeploymentRequest = Schemas['WorkspaceDeploymentRequest'];

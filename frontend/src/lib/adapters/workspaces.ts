@@ -44,6 +44,35 @@ export interface WorkspaceFile {
   content: string | Blob;
 }
 
+export type ArtifactEvaluationStatus =
+  | 'passed'
+  | 'failed'
+  | 'manual_review_required'
+  | 'unknown';
+
+export interface WorkspaceArtifact {
+  path: string;
+  artifact_kind: 'document' | 'ppt' | 'image' | 'archive' | 'code' | 'workflow' | 'other';
+  filename: string;
+  size: number;
+  mime_type: string;
+  url: string;
+  agent_id?: string | null;
+  task_id?: string | null;
+  run_id?: string | null;
+  preview_text?: string | null;
+  preview_truncated?: boolean | null;
+  metadata: Record<string, unknown>;
+  evaluation_status: ArtifactEvaluationStatus;
+  evaluation_results: Array<Record<string, unknown>>;
+  created_at: string;
+  updated_at: string;
+}
+
+interface WorkspaceArtifactListResponse {
+  items: WorkspaceArtifact[];
+}
+
 function normalizeNode(node: RawWorkspaceNode): WorkspaceNode {
   if (node.type === 'file') {
     return {
@@ -124,4 +153,11 @@ export async function writeWorkspaceFile(
   await api.put(`/api/v1/workspaces/${conversationId}/files/${encodeWorkspacePath(path)}`, content, {
     headers: { 'Content-Type': mimeType },
   });
+}
+
+export async function listWorkspaceArtifacts(conversationId: string): Promise<WorkspaceArtifact[]> {
+  const { data } = await api.get<WorkspaceArtifactListResponse>(
+    `/api/v1/workspaces/${conversationId}/artifacts`,
+  );
+  return data.items;
 }

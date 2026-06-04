@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as workspacesAdapter from '@/lib/adapters/workspaces';
+import { queryKeys } from '@/lib/queryKeys';
+import { useAuthStore } from '@/stores/authStore';
 
 export function useWorkspaceTree(conversationId: string | null | undefined) {
   return useQuery({
@@ -19,6 +21,20 @@ export function useWorkspaceFile(
     queryFn: () => workspacesAdapter.readWorkspaceFile(conversationId as string, path as string),
     enabled: Boolean(conversationId) && Boolean(path),
     retry: false,
+  });
+}
+
+export function useWorkspaceArtifacts(
+  conversationId: string | null | undefined,
+  enabled = true,
+) {
+  const userId = useAuthStore((state) => state.user?.id);
+  return useQuery({
+    queryKey: queryKeys.workspaceArtifacts(userId, conversationId),
+    queryFn: () => workspacesAdapter.listWorkspaceArtifacts(conversationId as string),
+    enabled: enabled && Boolean(userId) && Boolean(conversationId),
+    retry: false,
+    staleTime: 30_000,
   });
 }
 
