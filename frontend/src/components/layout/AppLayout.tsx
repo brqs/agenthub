@@ -23,6 +23,9 @@ export function AppLayout() {
   const cycleThemePreference = useUiStore((s) => s.cycleThemePreference);
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const setUserMenuOpen = useUiStore((s) => s.setUserMenuOpen);
+  const setConversationSidebarCollapsed = useUiStore(
+    (s) => s.setConversationSidebarCollapsed,
+  );
 
   return (
     <div className="app-viewport surface-app flex w-screen overflow-hidden">
@@ -32,6 +35,7 @@ export function AppLayout() {
         onCycleTheme={cycleThemePreference}
         onOpenSettings={() => setSettingsOpen(true)}
         onToggleUserMenu={() => setUserMenuOpen(!userMenuOpen)}
+        onChatClick={() => setConversationSidebarCollapsed(false)}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <OfflineBanner
