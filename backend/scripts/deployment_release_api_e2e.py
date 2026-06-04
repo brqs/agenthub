@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import zipfile
 from datetime import UTC, datetime
 from io import BytesIO
@@ -16,12 +17,26 @@ import httpx
 BASE_URL = os.getenv("AGENTHUB_DEPLOYMENT_E2E_BASE_URL", "http://111.229.151.159:8000")
 USERNAME = os.getenv("AGENTHUB_E2E_USERNAME", "12345678")
 PASSWORD = os.getenv("AGENTHUB_E2E_PASSWORD", "12345678")
-EXPECT_CONTAINER = os.getenv("AGENTHUB_E2E_EXPECT_CONTAINER", "true").lower() in {
-    "1",
-    "true",
-    "yes",
-}
+_EXPECT_CONTAINER_STATUS = os.getenv("AGENTHUB_E2E_EXPECT_CONTAINER_STATUS")
+if _EXPECT_CONTAINER_STATUS is None:
+    _LEGACY_EXPECT_CONTAINER = os.getenv("AGENTHUB_E2E_EXPECT_CONTAINER", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    _EXPECT_CONTAINER_STATUS = "published" if _LEGACY_EXPECT_CONTAINER else "any"
+EXPECT_CONTAINER_STATUS = _EXPECT_CONTAINER_STATUS.strip().lower()
+if EXPECT_CONTAINER_STATUS not in {"not_supported", "published", "any"}:
+    raise ValueError(
+        "AGENTHUB_E2E_EXPECT_CONTAINER_STATUS must be not_supported, published, or any"
+    )
 CONTAINER_BASE_IMAGE = os.getenv("AGENTHUB_E2E_CONTAINER_BASE_IMAGE", "python:3.12-slim")
+CONTAINER_POLL_TIMEOUT_SECONDS = float(
+    os.getenv("AGENTHUB_E2E_CONTAINER_POLL_TIMEOUT_SECONDS", "180")
+)
+CONTAINER_POLL_INTERVAL_SECONDS = float(
+    os.getenv("AGENTHUB_E2E_CONTAINER_POLL_INTERVAL_SECONDS", "2")
+)
 REPORT_PATH = Path(
     os.getenv(
         "AGENTHUB_DEPLOYMENT_E2E_REPORT_PATH",
@@ -38,6 +53,7 @@ EXCLUDED_PARTS = {
     "node_modules",
     "secrets",
 }
+CONTAINER_TERMINAL_STATUSES = {"published", "failed", "stopped", "not_supported"}
 
 
 def utc_now() -> str:
@@ -82,8 +98,59 @@ def create_deployment(
     return cast(dict[str, Any], response.json())
 
 
+def get_deployment(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conversation_id: str,
+    deployment_id: str,
+) -> dict[str, Any]:
+    response = client.get(
+        f"/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}",
+        headers=headers,
+    )
+    assert_status(response, 200)
+    return cast(dict[str, Any], response.json())
+
+
+def wait_for_container_terminal(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conversation_id: str,
+    deployment: dict[str, Any],
+) -> tuple[dict[str, Any], float]:
+    started = time.monotonic()
+    current = deployment
+    while current.get("status") not in CONTAINER_TERMINAL_STATUSES:
+        elapsed = time.monotonic() - started
+        if elapsed >= CONTAINER_POLL_TIMEOUT_SECONDS:
+            raise AssertionError(
+                "container deployment did not reach terminal status within "
+                f"{CONTAINER_POLL_TIMEOUT_SECONDS:.1f}s: {current}"
+            )
+        time.sleep(CONTAINER_POLL_INTERVAL_SECONDS)
+        current = get_deployment(
+            client,
+            headers,
+            conversation_id,
+            str(deployment["id"]),
+        )
+    return current, time.monotonic() - started
+
+
 def contains_excluded_path(path: str) -> bool:
     return any(part in EXCLUDED_PARTS or part.startswith(".env.") for part in Path(path).parts)
+
+
+def redact_release_url(url: str) -> str:
+    parsed = urlparse(url)
+    parts = parsed.path.split("/")
+    try:
+        releases_index = parts.index("releases")
+    except ValueError:
+        return url
+    if releases_index + 1 < len(parts):
+        parts[releases_index + 1] = "<redacted>"
+    return parsed._replace(path="/".join(parts)).geturl()
 
 
 def is_unavailable(
@@ -107,12 +174,13 @@ def main() -> None:
         "bugs": [],
         "warnings": [],
         "cleanup_checks": {},
+        "expected_container_status": EXPECT_CONTAINER_STATUS,
     }
     conversation_id: str | None = None
     headers: dict[str, str] = {}
     client = httpx.Client(
         base_url=BASE_URL,
-        timeout=90 if EXPECT_CONTAINER else 20,
+        timeout=30,
         trust_env=False,
     )
     try:
@@ -220,7 +288,7 @@ def main() -> None:
             {"kind": "static_site", "entry_path": "index.html", "requested_port": 8082},
         )
         release_url = static_release["url"]
-        report["release_url"] = release_url
+        report["release_url"] = redact_release_url(release_url)
         report["release_metadata"] = {
             key: static_release.get(key)
             for key in ("artifact_digest", "file_count", "size_bytes", "published_at")
@@ -264,7 +332,15 @@ def main() -> None:
             conversation_id,
             {"kind": "container", "container_port": 8000, "health_path": "/health"},
         )
+        report["container_initial_status"] = container["status"]
+        container, container_poll_elapsed = wait_for_container_terminal(
+            client,
+            headers,
+            conversation_id,
+            container,
+        )
         report["container_status"] = container["status"]
+        report["container_poll_elapsed_seconds"] = round(container_poll_elapsed, 3)
         report["container_deployment"] = {
             key: container.get(key)
             for key in (
@@ -276,9 +352,19 @@ def main() -> None:
                 "container_port",
                 "runtime_kind",
                 "runtime_status",
+                "worker_id",
+                "attempt_count",
+                "failure_category",
+                "last_error_code",
+                "state_events",
                 "error",
             )
         }
+        if EXPECT_CONTAINER_STATUS != "any" and container["status"] != EXPECT_CONTAINER_STATUS:
+            raise AssertionError(
+                "container deployment reached "
+                f"{container['status']}, expected {EXPECT_CONTAINER_STATUS}: {container}"
+            )
         if container["status"] == "published":
             health = client.get(container["healthcheck_url"])
             assert_status(health, 200)
@@ -298,10 +384,10 @@ def main() -> None:
                     "message": "container worker is disabled on this backend",
                 }
             )
-            if EXPECT_CONTAINER:
-                raise AssertionError("expected published container deployment, got not_supported")
         else:
-            raise AssertionError(f"container deployment failed: {container}")
+            raise AssertionError(
+                f"container deployment reached unhealthy terminal state: {container}"
+            )
 
         stopped = client.delete(
             f"/api/v1/workspaces/{conversation_id}/deployments/{static_release['id']}",

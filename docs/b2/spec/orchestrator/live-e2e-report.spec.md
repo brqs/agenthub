@@ -29,6 +29,8 @@
 - `/tmp/agenthub_orchestrator_quality_browser.json`
 - `/tmp/agenthub_orchestrator_quality_sse.jsonl`
 - `/tmp/agenthub_deployment_release_api_e2e_report.json`
+- `/tmp/agenthub_b2_todo_05_prod_default_e2e_report.json`
+- `/tmp/agenthub_b2_todo_05_demo_container_e2e_report.json`
 - `/tmp/agenthub_deployment_flow_report.json`
 - `/tmp/agenthub_deployment_repair_flow_report.json`
 - `/tmp/agenthub_custom_agent_tools_report.json`
@@ -88,6 +90,38 @@ conversation_id: 25474a7c-f9e3-42e1-9d11-8e43685c869b
 passed: true
 preview_url: http://111.229.151.159:8082/index.html
 container_status: published
+```
+
+2026-06-04 B2-TODO-05 production hardening direct public API E2E 证据：
+
+```text
+script: backend/scripts/deployment_release_api_e2e.py
+base_url: http://111.229.151.159:8000
+report: /tmp/agenthub_b2_todo_05_prod_default_e2e_report.json
+conversation_id: 42b7d9e4-1243-4b4c-9394-1ebb54568ed3
+passed: true
+expected_container_status: not_supported
+container_initial_status: not_supported
+container_status: not_supported
+container_runtime_kind: podman
+cleanup_checks: preview/release/source_zip unavailable
+```
+
+```text
+script: backend/scripts/deployment_release_api_e2e.py
+base_url: http://111.229.151.159:8000
+report: /tmp/agenthub_b2_todo_05_demo_container_e2e_report.json
+conversation_id: 8b5088bd-161b-4f68-aa74-4ab1e8547546
+passed: true
+expected_container_status: published
+container_status_flow: queued -> published
+container_runtime_kind: docker
+container_worker_id: inproc-container-aacc169897e0
+container_attempt_count: 1
+container_state_event_count: 13
+container_healthcheck_url: http://111.229.151.159:8081/health
+container_stop_cleanup: true
+production_default_restored_after_demo: true
 ```
 
 ```text

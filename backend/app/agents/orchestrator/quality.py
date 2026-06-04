@@ -569,6 +569,7 @@ def _deployment_health_result(
         )
     issues: list[EvaluationIssue] = []
     checked: list[str] = []
+    pending: list[str] = []
     for tool_name, arguments, result in tool_results:
         kind = str(arguments.get("kind") or tool_name)
         checked.append(kind)
@@ -585,6 +586,9 @@ def _deployment_health_result(
                     ),
                 )
             )
+            continue
+        if status in {"queued", "publishing"}:
+            pending.append(kind)
             continue
         if tool_name == "package_workspace_source":
             if status != "published" or not _optional_str(payload.get("download_url")):
@@ -609,6 +613,23 @@ def _deployment_health_result(
                     repair_hint=(
                         "Keep the static/source deployment healthy and document the "
                         "container limitation."
+                    ),
+                )
+            )
+            continue
+        if status == "failed":
+            failure_category = _optional_str(payload.get("failure_category"))
+            last_error_code = _optional_str(payload.get("last_error_code"))
+            repair_hint = _deployment_failure_repair_hint(failure_category)
+            issues.append(
+                EvaluationIssue(
+                    code=failure_category or "deployment_failed",
+                    message=f"{kind} deployment failed.",
+                    evidence=result.output,
+                    repair_hint=(
+                        f"{repair_hint} Last error code: {last_error_code}."
+                        if last_error_code
+                        else repair_hint
                     ),
                 )
             )
@@ -651,7 +672,7 @@ def _deployment_health_result(
             )
     return EvaluationResult(
         evaluator="deployment_health",
-        status="failed" if issues else "passed",
+        status="failed" if issues else "skipped" if pending else "passed",
         passed=not issues,
         severity="major" if issues else "info",
         issues=issues,
@@ -665,6 +686,29 @@ def _deployment_result_repairable(result: EvaluationResult) -> bool:
     return not any(
         issue.code == "container_deployment_not_supported" for issue in result.issues
     )
+
+
+def _deployment_failure_repair_hint(failure_category: str | None) -> str:
+    if failure_category == "build_failed":
+        return "Fix the Dockerfile, build context, copied files, or dependency install step."
+    if failure_category == "run_failed":
+        return "Fix the container startup command, exposed port, or runtime dependency failure."
+    if failure_category == "health_check_failed":
+        return "Fix the app health route, listen address, container_port, or startup readiness."
+    if failure_category == "policy_rejected":
+        return "Adjust the deployment request or workspace artifact to satisfy platform policy."
+    if failure_category == "port_pool_exhausted":
+        return (
+            "Retry after an existing container deployment is stopped or the port pool "
+            "is expanded."
+        )
+    if failure_category == "runtime_unavailable":
+        return "Ask an operator to enable the configured container runtime."
+    if failure_category == "cleanup_failed":
+        return "Ask an operator to inspect deployment cleanup before retrying."
+    if failure_category == "timeout":
+        return "Reduce startup/build time or fix a worker timeout before retrying deployment."
+    return "Fix the deployment artifact and rerun the platform deployment tool."
 
 
 def _deployment_reflection(
