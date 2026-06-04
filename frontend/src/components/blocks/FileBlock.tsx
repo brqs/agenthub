@@ -1,4 +1,7 @@
 import {
+  AlertTriangle,
+  CheckCircle2,
+  CircleHelp,
   ExternalLink,
   Eye,
   FileArchive,
@@ -13,6 +16,7 @@ import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { handleExternalLink } from '@/lib/nativeShell';
+import type { ArtifactEvaluationStatus } from '@/lib/adapters/workspaces';
 
 function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`;
@@ -39,6 +43,39 @@ function kindLabel(kind?: string | null): string {
   return '文件';
 }
 
+function evaluationPresentation(status: ArtifactEvaluationStatus) {
+  if (status === 'passed') {
+    return {
+      icon: CheckCircle2,
+      label: '评估通过',
+      className:
+        'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200',
+    };
+  }
+  if (status === 'failed') {
+    return {
+      icon: AlertTriangle,
+      label: '评估失败',
+      className:
+        'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200',
+    };
+  }
+  if (status === 'manual_review_required') {
+    return {
+      icon: CircleHelp,
+      label: '需人工复核',
+      className:
+        'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200',
+    };
+  }
+  return {
+    icon: CircleHelp,
+    label: '评估未知',
+    className:
+      'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400',
+  };
+}
+
 function metadataNumber(metadata: Record<string, unknown> | undefined, key: string): number | null {
   const value = metadata?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -47,6 +84,20 @@ function metadataNumber(metadata: Record<string, unknown> | undefined, key: stri
 function metadataEntries(metadata: Record<string, unknown> | undefined): string[] {
   const value = metadata?.top_entries;
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function evaluationSummary(results: Array<Record<string, unknown>> | undefined): string | null {
+  const first = results?.[0];
+  if (!first) return null;
+  const issues = first.issues;
+  if (Array.isArray(issues) && issues.length > 0) {
+    return issues
+      .slice(0, 2)
+      .map((issue) => (typeof issue === 'string' ? issue : JSON.stringify(issue)))
+      .join('；');
+  }
+  const message = first.message ?? first.summary ?? first.error;
+  return typeof message === 'string' && message.trim() ? message : null;
 }
 
 export function FileBlock({
@@ -59,6 +110,10 @@ export function FileBlock({
   previewText,
   previewTruncated,
   metadata,
+  evaluationStatus = 'unknown',
+  evaluationResults,
+  taskId,
+  runId,
 }: {
   filename: string;
   path?: string | null;
@@ -69,6 +124,10 @@ export function FileBlock({
   previewText?: string | null;
   previewTruncated?: boolean | null;
   metadata?: Record<string, unknown>;
+  evaluationStatus?: ArtifactEvaluationStatus;
+  evaluationResults?: Array<Record<string, unknown>>;
+  taskId?: string | null;
+  runId?: string | null;
 }) {
   const Icon = getFileIcon(mimeType);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -76,11 +135,15 @@ export function FileBlock({
   const canPreview = Boolean(previewText) || (isImage && Boolean(url));
   const slideCount = metadataNumber(metadata, 'slide_count');
   const fileCount = metadataNumber(metadata, 'file_count');
+  const totalSize = metadataNumber(metadata, 'total_size');
   const entries = metadataEntries(metadata);
+  const evaluation = evaluationPresentation(evaluationStatus);
+  const EvaluationIcon = evaluation.icon;
+  const evalSummary = evaluationSummary(evaluationResults);
 
   return (
     <>
-      <div className="my-3 flex items-center gap-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-sm transition hover:border-brand hover:bg-slate-900">
+      <div className="my-3 flex items-start gap-3 rounded-md border border-slate-300 bg-white p-3 text-sm shadow-sm transition hover:border-brand hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-900">
         {isImage && url ? (
           <button
             type="button"
@@ -112,14 +175,36 @@ export function FileBlock({
           )}
           {(slideCount !== null || fileCount !== null) && (
             <span className="mt-1 block truncate text-xs text-slate-500">
-              {slideCount !== null ? `${slideCount} slides` : null}
+              {slideCount !== null ? `${slideCount} 页幻灯片` : null}
               {slideCount !== null && fileCount !== null ? ' · ' : null}
-              {fileCount !== null ? `${fileCount} files` : null}
+              {fileCount !== null ? `${fileCount} 个文件` : null}
+              {fileCount !== null && totalSize !== null ? ` · ${formatBytes(totalSize)}` : null}
             </span>
           )}
           {entries.length > 0 && (
             <span className="mt-1 block truncate text-xs text-slate-500">
               {entries.slice(0, 4).join(', ')}
+            </span>
+          )}
+          <span className="mt-2 flex flex-wrap items-center gap-2">
+            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${evaluation.className}`}>
+              <EvaluationIcon className="h-3 w-3" />
+              {evaluation.label}
+            </span>
+            {taskId && (
+              <span className="max-w-40 truncate rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800">
+                task {taskId}
+              </span>
+            )}
+            {runId && (
+              <span className="max-w-40 truncate rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800">
+                run {runId}
+              </span>
+            )}
+          </span>
+          {evalSummary && (
+            <span className="mt-1 block line-clamp-2 text-xs leading-5 text-slate-600 dark:text-slate-400">
+              {evalSummary}
             </span>
           )}
         </span>

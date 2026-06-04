@@ -28,6 +28,20 @@ function addStreamingMessage(conversationId = 'conv-demo-flow'): string {
   return messageId;
 }
 
+function createMessage(overrides: Partial<Message> & Pick<Message, 'id' | 'role'>): Message {
+  return {
+    id: overrides.id,
+    conversation_id: overrides.conversation_id ?? 'conv-demo-flow',
+    role: overrides.role,
+    agent_id: overrides.agent_id ?? null,
+    reply_to_id: overrides.reply_to_id ?? null,
+    status: overrides.status ?? 'done',
+    is_pinned: overrides.is_pinned ?? false,
+    created_at: overrides.created_at ?? '2026-05-31T00:00:00.000Z',
+    content: overrides.content ?? [{ type: 'text', text: overrides.id }],
+  };
+}
+
 describe('chatStore', () => {
   beforeEach(() => {
     resetChatStore();
@@ -58,6 +72,78 @@ describe('chatStore', () => {
 
     expect(useChatStore.getState().selectedConversationId).toBe(mockConversations[0]?.id);
     expect(useChatStore.getState().messagesByConversation['conv-demo-flow']).toEqual([message]);
+  });
+
+  it('orders hydrated messages by display chronology and reply relationship', () => {
+    const userOne = createMessage({
+      id: '00000000-0000-4000-8000-000000000101',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+    });
+    const agentOne = createMessage({
+      id: '00000000-0000-4000-8000-000000000102',
+      role: 'agent',
+      agent_id: 'claude-code',
+      reply_to_id: userOne.id,
+      created_at: '2026-05-31T00:00:00.000Z',
+    });
+    const userTwo = createMessage({
+      id: '00000000-0000-4000-8000-000000000103',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+    });
+    const agentTwo = createMessage({
+      id: '00000000-0000-4000-8000-000000000104',
+      role: 'agent',
+      agent_id: 'claude-code',
+      reply_to_id: userTwo.id,
+      created_at: '2026-05-31T00:00:00.000Z',
+    });
+
+    useChatStore
+      .getState()
+      .hydrateMessages('conv-demo-flow', [agentTwo, agentOne, userTwo, userOne]);
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'].map((message) => message.id),
+    ).toEqual([userOne.id, agentOne.id, userTwo.id, agentTwo.id]);
+  });
+
+  it('keeps a replaced server message next to its parent user message', () => {
+    const userMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000201',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+    });
+    const pendingAgentMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000202',
+      role: 'agent',
+      agent_id: 'claude-code',
+      reply_to_id: userMessage.id,
+      status: 'pending',
+      created_at: '2026-05-31T00:00:00.000Z',
+    });
+    const nextUserMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000203',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+    });
+    const completedAgentMessage = {
+      ...pendingAgentMessage,
+      status: 'done' as const,
+      content: [{ type: 'text' as const, text: 'done' }],
+    };
+
+    useChatStore
+      .getState()
+      .hydrateMessages('conv-demo-flow', [userMessage, nextUserMessage, pendingAgentMessage]);
+    useChatStore
+      .getState()
+      .replaceMessageLocal(pendingAgentMessage.id, completedAgentMessage);
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'].map((message) => message.id),
+    ).toEqual([userMessage.id, pendingAgentMessage.id, nextUserMessage.id]);
   });
 
   it('applies stream events to text, code, task card and tool blocks', () => {

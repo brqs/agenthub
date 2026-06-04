@@ -8,9 +8,17 @@
 import { Capacitor } from '@capacitor/core';
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+const allowInsecureNativeApi =
+  (import.meta.env.VITE_ALLOW_INSECURE_NATIVE_API as string | undefined) === 'true';
 
-if (Capacitor.isNativePlatform() && !apiBaseUrl.startsWith('https://')) {
-  throw new Error('Capacitor runtime requires VITE_API_BASE_URL=https://...');
+if (
+  Capacitor.isNativePlatform() &&
+  !apiBaseUrl.startsWith('https://') &&
+  !(allowInsecureNativeApi && apiBaseUrl.startsWith('http://'))
+) {
+  throw new Error(
+    'Capacitor runtime requires VITE_API_BASE_URL=https://... unless VITE_ALLOW_INSECURE_NATIVE_API=true is set for a temporary HTTP backend.',
+  );
 }
 
 export const env = {

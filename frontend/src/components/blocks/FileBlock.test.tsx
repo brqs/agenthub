@@ -80,9 +80,44 @@ describe('FileBlock', () => {
     );
 
     expect(screen.getByText('压缩包')).toBeInTheDocument();
-    expect(screen.getByText(/2 files/)).toBeInTheDocument();
+    expect(screen.getByText(/2 个文件/)).toBeInTheDocument();
     expect(screen.getByText(/README.md, src\/app.ts/)).toBeInTheDocument();
     expect(screen.getByText('PPT')).toBeInTheDocument();
-    expect(screen.getByText(/3 slides/)).toBeInTheDocument();
+    expect(screen.getByText(/3 页幻灯片/)).toBeInTheDocument();
+  });
+
+  it('distinguishes evaluation states without treating unknown as passed', () => {
+    render(
+      <>
+        <FileBlock
+          filename="passed.md"
+          url="https://example.com/passed.md"
+          size={128}
+          mimeType="text/markdown"
+          artifactKind="document"
+          evaluationStatus="passed"
+        />
+        <FileBlock
+          filename="manual.md"
+          url="https://example.com/manual.md"
+          size={128}
+          mimeType="text/markdown"
+          artifactKind="document"
+          evaluationStatus="manual_review_required"
+        />
+        <FileBlock
+          filename="unknown.md"
+          url="https://example.com/unknown.md"
+          size={128}
+          mimeType="text/markdown"
+          artifactKind="document"
+          evaluationStatus="unknown"
+        />
+      </>,
+    );
+
+    expect(screen.getByText('评估通过')).toBeInTheDocument();
+    expect(screen.getByText('需人工复核')).toBeInTheDocument();
+    expect(screen.getByText('评估未知')).toBeInTheDocument();
   });
 });

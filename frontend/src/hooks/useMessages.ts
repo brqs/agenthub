@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as messagesAdapter from '@/lib/adapters/messages';
 import { queryKeys } from '@/lib/queryKeys';
 import { useAuthStore } from '@/stores/authStore';
-import { useChatStore } from '@/stores/chatStore';
+import { sortMessagesForDisplay, useChatStore } from '@/stores/chatStore';
 import type { DemoMessage } from '@/lib/mockData';
 
 interface UseMessagesResult {
@@ -38,11 +38,7 @@ export function useMessages(conversationId: string | null | undefined): UseMessa
 
   useEffect(() => {
     if (conversationId && query.data) {
-      // Backend cursor pagination returns most-recent batch; ensure ascending order for the UI.
-      const sorted = [...query.data.items].sort((a, b) =>
-        a.created_at.localeCompare(b.created_at),
-      );
-      hydrateMessages(conversationId, sorted);
+      hydrateMessages(conversationId, sortMessagesForDisplay(query.data.items));
     }
   }, [conversationId, query.data, hydrateMessages]);
 

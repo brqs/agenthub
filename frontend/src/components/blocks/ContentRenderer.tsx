@@ -9,19 +9,23 @@ import { UnknownBlock } from './UnknownBlock';
 import { WebPreviewBlock } from './WebPreviewBlock';
 import { WorkflowBlock } from './WorkflowBlock';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { buildRichArtifactViewModel } from '@/components/artifact/richArtifactModel';
+import type { WorkspaceArtifact } from '@/lib/adapters/workspaces';
 import type { DemoContentBlock } from '@/lib/mockData';
-import type { Agent } from '@/lib/types';
+import type { Agent, FileBlock as FileContentBlock } from '@/lib/types';
 
 export function ContentRenderer({
   blocks,
   agents = [],
   streaming = false,
   conversationId,
+  artifactManifestByPath,
 }: {
   blocks: DemoContentBlock[];
   agents?: Agent[];
   streaming?: boolean;
   conversationId?: string;
+  artifactManifestByPath?: Map<string, WorkspaceArtifact>;
 }) {
   const groups = groupBlocksByAgent(blocks);
   const shouldGroup = new Set(groups.map((group) => group.agentId).filter(Boolean)).size > 1;
@@ -32,7 +36,15 @@ export function ContentRenderer({
         ? groups.map((group) => {
             if (!group.agentId) {
               return group.blocks.map(({ block, index }) =>
-                renderBlock(block, index, blocks.length, agents, streaming, conversationId),
+                renderBlock(
+                  block,
+                  index,
+                  blocks.length,
+                  agents,
+                  streaming,
+                  conversationId,
+                  artifactManifestByPath,
+                ),
               );
             }
 
@@ -48,14 +60,30 @@ export function ContentRenderer({
                 </div>
                 <div className="min-w-0 space-y-2">
                   {group.blocks.map(({ block, index }) =>
-                    renderBlock(block, index, blocks.length, agents, streaming, conversationId),
+                    renderBlock(
+                      block,
+                      index,
+                      blocks.length,
+                      agents,
+                      streaming,
+                      conversationId,
+                      artifactManifestByPath,
+                    ),
                   )}
                 </div>
               </section>
             );
           })
         : blocks.map((block, index) =>
-            renderBlock(block, index, blocks.length, agents, streaming, conversationId),
+            renderBlock(
+              block,
+              index,
+              blocks.length,
+              agents,
+              streaming,
+              conversationId,
+              artifactManifestByPath,
+            ),
           )}
     </div>
   );
@@ -68,6 +96,7 @@ function renderBlock(
   agents: Agent[],
   streaming: boolean,
   conversationId?: string,
+  artifactManifestByPath?: Map<string, WorkspaceArtifact>,
 ) {
   if (block.type === 'text') {
     return (
@@ -143,18 +172,27 @@ function renderBlock(
     );
   }
   if (block.type === 'file') {
+    const fileBlock = block as FileContentBlock;
+    const model = buildRichArtifactViewModel(
+      fileBlock,
+      fileBlock.path ? artifactManifestByPath?.get(fileBlock.path) : null,
+    );
     return (
       <FileBlock
         key={`${block.type}-${index}`}
-        filename={block.filename}
-        path={'path' in block ? block.path : undefined}
-        url={block.url}
-        size={block.size}
-        mimeType={block.mime_type}
-        artifactKind={'artifact_kind' in block ? block.artifact_kind : undefined}
-        previewText={'preview_text' in block ? block.preview_text : undefined}
-        previewTruncated={'preview_truncated' in block ? block.preview_truncated : undefined}
-        metadata={'metadata' in block ? block.metadata : undefined}
+        filename={model.filename}
+        path={model.path}
+        url={model.url}
+        size={model.size}
+        mimeType={model.mimeType}
+        artifactKind={model.artifactKind}
+        previewText={model.previewText}
+        previewTruncated={model.previewTruncated}
+        metadata={model.metadata}
+        evaluationStatus={model.evaluationStatus}
+        evaluationResults={model.evaluationResults}
+        taskId={model.taskId}
+        runId={model.runId}
       />
     );
   }
