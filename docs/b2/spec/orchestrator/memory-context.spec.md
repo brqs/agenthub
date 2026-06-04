@@ -480,6 +480,24 @@ preferences: artifact_preferences document=2, other=1
 
 follow-up 用户请求未点名具体执行 Agent；planner 通过 v2 profile 和 user preference memory 选择 `opencode-helper`。最新 run detail 中唯一 task Agent 和全部实际 attempt Agent 均为 `opencode-helper`，并成功创建 `p2-capability-v2-followup.md`。该证据验证 v2 user-scope API、空新 conversation 的 memory 注入、planner 白名单读取 v2/preference sections，以及“不用历史偏好覆盖本轮明确指令”的软选择边界。
 
+#### 4.3.5 Memory service 内部模块边界
+
+2026-06-05 将原单文件 memory service 拆为 `backend/app/services/_orchestrator_memory/` 内部 package。`backend/app/services/orchestrator_memory.py` 保留为唯一稳定公共导入门面，现有 API、stream context 和测试调用方无需迁移。
+
+内部职责：
+
+- `types.py`：公共 profile/preference dataclass、内部 accumulator/event insight 与常量。
+- `store.py`：run、task、attempt、event 持久化生命周期。
+- `queries.py`：terminal runs、owned user runs、tasks、attempts、events 的共享查询和排序规则。
+- `capability_v1.py`：conversation-scope v1 聚合，以及 v1/v2 共用的实际参与 Agent、artifact、failure insight 与 confidence 规则。
+- `capability_v2.py`：user-scope v2 聚合、时间衰减、taxonomy、timeout、score 与 score reasons。
+- `preferences.py`：deterministic User Preference Memory 提取。
+- `context.py`：固定 section 顺序的 memory context 构建、格式化与注入。
+- `run_reader.py`：run list/detail 读取和 structured run 格式化。
+- `serialization.py`：payload sanitization、文本截断、去重和 payload helper。
+
+本次拆分不改变 v1/v2 统计、评分、衰减、排序、关键词、summary 文案、section 顺序、字符预算、API wire shape、数据库模型或 planner 行为；它不是 Capability Profile v3，也不需要更新历史公网 E2E acceptance。
+
 ### 4.4 配置字段
 
 新增 builtin/orchestrator config：
@@ -633,7 +651,8 @@ uv run python -m mypy app/agents app/services app/schemas/agent.py
 建议新增或修改：
 
 - `backend/app/models/orchestrator_memory.py`
-- `backend/app/services/orchestrator_memory.py`
+- `backend/app/services/orchestrator_memory.py`（稳定公共门面）
+- `backend/app/services/_orchestrator_memory/`（内部实现）
 - `backend/app/api/v1/conversations.py`
 - `backend/app/api/v1/stream.py`
 - `backend/app/api/v1/stream_orchestrator_context.py`

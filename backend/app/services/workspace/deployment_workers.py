@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import SessionFactory
 from app.models.workspace import Workspace, WorkspaceDeployment
-from app.services.workspace_container_release import (
+from app.services.workspace.container_release import (
     ContainerDeploymentCancelledError,
     ContainerDeploymentError,
     ContainerDeployWorker,

@@ -90,8 +90,8 @@ pgrep -af 'uvicorn app.main:app.*--port 8000'
 ```bash
 cd /home/ubuntu/agenthub/backend
 uv run pytest tests/test_agent_config_validation.py tests/test_orchestrator.py tests/test_orchestrator_tool_calling.py tests/test_orchestrator_platform_tools.py -q
-uv run ruff check app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/browser_preview_verifier.py app/core/config.py app/schemas/agent.py
-uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/browser_preview_verifier.py app/core/config.py app/schemas/agent.py
+uv run ruff check app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/workspace/preview_verifier.py app/core/config.py app/schemas/agent.py
+uv run mypy app/agents app/services/orchestrator_platform_tools.py app/services/orchestrator_memory.py app/services/workspace/preview_verifier.py app/core/config.py app/schemas/agent.py
 ```
 
 若是小改动，可先跑相关单测；正式交付前再跑更大范围回归。
@@ -112,9 +112,9 @@ uv run python -m ruff check \
   app/models/workspace.py \
   app/schemas/workspace.py \
   app/services/workspace_deployment.py \
-  app/services/workspace_container_release.py \
-  app/services/workspace_deployment_workers.py \
-  app/services/workspace_janitor.py \
+  app/services/workspace/container_release.py \
+  app/services/workspace/deployment_workers.py \
+  app/services/workspace/janitor.py \
   app/services/orchestrator_platform_tools.py \
   app/agents/orchestrator \
   tests
@@ -123,9 +123,9 @@ uv run python -m mypy \
   app/models/workspace.py \
   app/schemas/workspace.py \
   app/services/workspace_deployment.py \
-  app/services/workspace_container_release.py \
-  app/services/workspace_deployment_workers.py \
-  app/services/workspace_janitor.py \
+  app/services/workspace/container_release.py \
+  app/services/workspace/deployment_workers.py \
+  app/services/workspace/janitor.py \
   app/services/orchestrator_platform_tools.py \
   app/agents/orchestrator
 ```

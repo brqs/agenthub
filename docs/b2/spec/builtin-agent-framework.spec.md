@@ -182,7 +182,7 @@ class ToolResult:
 
 ### 4.1 ContextManager（复用现有）
 
-- 直接复用 [backend/app/services/context_builder.py](../../../backend/app/services/context_builder.py) 与 [backend/app/services/context_compression.py](../../../backend/app/services/context_compression.py)
+- 直接复用 [backend/app/services/context_builder.py](../../../backend/app/services/context_builder.py) 与 [backend/app/services/context/compression.py](../../../backend/app/services/context/compression.py)
 - BuiltinAgent 在 loop 开始前调一次：拿到压缩后的 `messages`
 - **不重新设计**
 

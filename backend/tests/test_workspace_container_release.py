@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.config import settings
-from app.services.workspace_container_release import (
+from app.services.workspace.container_release import (
     ContainerDeploymentError,
     ContainerDeployWorker,
     ContainerPolicyError,

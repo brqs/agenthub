@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
 from app.models.message import Message
-from app.services.context_compression import (
+from app.services.context.compression import (
     ALGORITHM_VERSION,
     COMPRESS_MESSAGE_THRESHOLD,
     COMPRESS_TOKEN_THRESHOLD,

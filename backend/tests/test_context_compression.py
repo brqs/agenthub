@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.context_compression import blocks_to_text
+from app.services.context.compression import blocks_to_text
 
 
 def test_blocks_to_text_flattens_tool_call_ok_block() -> None:

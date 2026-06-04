@@ -19,8 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.workspace import WorkspacePreviewSession
+from app.services.workspace.static_snapshot import WorkspaceStaticSnapshotService
 from app.services.workspace_service import WorkspaceService, WorkspaceViolation
-from app.services.workspace_static_snapshot import WorkspaceStaticSnapshotService
 
 
 class WorkspacePreviewDisabledError(RuntimeError):
@@ -215,7 +215,7 @@ class WorkspacePreviewService:
             [
                 sys.executable,
                 "-m",
-                "app.services.workspace_static_server",
+                "app.services.workspace.static_server",
                 "--root",
                 str(root),
                 "--entry",

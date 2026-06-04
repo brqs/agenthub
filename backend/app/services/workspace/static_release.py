@@ -8,7 +8,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from app.core.config import settings
-from app.services.workspace_static_snapshot import StaticSnapshot, WorkspaceStaticSnapshotService
+from app.services.workspace.static_snapshot import StaticSnapshot, WorkspaceStaticSnapshotService
 
 
 class WorkspaceStaticReleaseService:

@@ -232,8 +232,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 验证：
 
 - `uv run pytest tests/test_artifact_parser.py tests/test_stream_content_blocks.py tests/test_stream_tool_calls.py::test_openapi_includes_tool_call_block -q`
-- `uv run ruff check app/agents/types.py app/agents/artifact_parser.py app/api/v1/stream_accumulator.py app/schemas/message.py app/services/context_compression.py tests/test_artifact_parser.py tests/test_stream_content_blocks.py tests/test_stream_tool_calls.py`
-- `uv run mypy app/agents/types.py app/agents/artifact_parser.py app/api/v1/stream_accumulator.py app/schemas/message.py app/services/context_compression.py`
+- `uv run ruff check app/agents/types.py app/agents/artifact_parser.py app/api/v1/stream_accumulator.py app/schemas/message.py app/services/context/compression.py tests/test_artifact_parser.py tests/test_stream_content_blocks.py tests/test_stream_tool_calls.py`
+- `uv run mypy app/agents/types.py app/agents/artifact_parser.py app/api/v1/stream_accumulator.py app/schemas/message.py app/services/context/compression.py`
 - `pnpm test -- --run src/components/blocks/ContentRenderer.test.tsx src/stores/chatStore.test.ts`
 - `pnpm exec tsc --noEmit`
 - Live E2E：`AGENTHUB_E2E_SCENARIO=p1_workflow uv run python scripts/orchestrator_live_e2e.py`

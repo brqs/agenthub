@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.releases import router as releases_router
 from app.api.v1 import api_router
 from app.core.config import settings
-from app.services.workspace_janitor import WorkspaceResourceJanitor
+from app.services.workspace.janitor import WorkspaceResourceJanitor
 
 
 @asynccontextmanager

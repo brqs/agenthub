@@ -3,61 +3,72 @@
 from __future__ import annotations
 
 import json
-import re
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.orchestrator.adapters import (
+from app.agents.orchestrator._internal.execution.adapters import (
     ensure_adapter_source as _ensure_adapter_source,
 )
-from app.agents.orchestrator.adapters import (
+from app.agents.orchestrator._internal.execution.adapters import (
     has_fallback as _has_fallback,
 )
-from app.agents.orchestrator.adapters import (
+from app.agents.orchestrator._internal.execution.adapters import (
     run_fallback as _run_fallback,
 )
-from app.agents.orchestrator.direct_answer import (
+from app.agents.orchestrator._internal.execution.attempts import (
+    positive_int_config as _positive_int_config,
+)
+from app.agents.orchestrator._internal.execution.events import error_code as _error_code
+from app.agents.orchestrator._internal.execution.events import error_reason as _error_reason
+from app.agents.orchestrator._internal.execution.summary import (
+    fallback_summary_text as _fallback_summary_text,
+)
+from app.agents.orchestrator._internal.execution.summary import (
+    format_task_result_context as _format_task_result_context,
+)
+from app.agents.orchestrator._internal.execution.summary import (
+    plan_source as _plan_source,
+)
+from app.agents.orchestrator._internal.execution.summary import (
+    planning_text as _planning_text,
+)
+from app.agents.orchestrator._internal.execution.summary import (
+    summary_text as _summary_text,
+)
+from app.agents.orchestrator._internal.memory import (
+    start_run as _memory_start_run,
+)
+from app.agents.orchestrator._internal.react import react_enabled, run_react_loop
+from app.agents.orchestrator._internal.routing.custom_agent import (
+    custom_agent_result_text as _custom_agent_result_text,
+)
+from app.agents.orchestrator._internal.routing.custom_agent import (
+    custom_agent_tool_arguments as _custom_agent_tool_arguments,
+)
+from app.agents.orchestrator._internal.routing.direct_answer import (
     run_direct_answer as _run_direct_answer,
 )
-from app.agents.orchestrator.direct_answer import (
+from app.agents.orchestrator._internal.routing.direct_answer import (
     should_direct_answer as _should_direct_answer,
 )
+from app.agents.orchestrator._internal.routing.platform_facts import (
+    platform_fact_intent,
+    platform_fact_text,
+)
+from app.agents.orchestrator._internal.tools.loop import (
+    run_orchestrator_tool_loop,
+    tool_calling_enabled,
+)
 from app.agents.orchestrator.execution import (
-    _error_code,
-    _error_reason,
-    _positive_int_config,
     _run_static_tasks,
     _run_task,
     _task_card_block,
     _text_block,
     _text_block_with_next,
 )
-from app.agents.orchestrator.memory_hooks import (
-    start_run as _memory_start_run,
-)
-from app.agents.orchestrator.platform_facts import (
-    platform_fact_intent,
-    platform_fact_text,
-)
 from app.agents.orchestrator.quality import run_quality_gate
-from app.agents.orchestrator.react import react_enabled, run_react_loop
-from app.agents.orchestrator.summary import (
-    fallback_summary_text as _fallback_summary_text,
-)
-from app.agents.orchestrator.summary import (
-    format_task_result_context as _format_task_result_context,
-)
-from app.agents.orchestrator.summary import (
-    plan_source as _plan_source,
-)
-from app.agents.orchestrator.summary import (
-    planning_text as _planning_text,
-)
-from app.agents.orchestrator.summary import (
-    summary_text as _summary_text,
-)
 from app.agents.orchestrator.task_planning import (
     PlannerResolutionError,
 )
@@ -84,10 +95,6 @@ from app.agents.orchestrator.task_planning import (
 )
 from app.agents.orchestrator.task_planning import (
     strip_orchestrator_mention as _strip_orchestrator_mention,
-)
-from app.agents.orchestrator.tool_loop import (
-    run_orchestrator_tool_loop,
-    tool_calling_enabled,
 )
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
@@ -402,146 +409,3 @@ class OrchestratorAdapter(BaseAgentAdapter):
         yield StreamChunk(
             event_type="done", agent_id=self.agent_id, total_blocks=next_block_index
         )
-
-
-def _custom_agent_tool_arguments(user_request: str) -> dict[str, Any] | None:
-    if not _looks_like_custom_agent_request(user_request):
-        return None
-    name = _extract_named_value(
-        user_request,
-        (
-            r"(?:名字|名称|name)\s*(?:为|是|叫|=|:)\s*[\"'“”‘’]?([^，,。；;\n\"'“”‘’]+)",
-        ),
-    )
-    provider = _extract_named_value(
-        user_request,
-        (
-            r"provider\s*(?:使用|为|是|=|:)\s*[\"'“”‘’]?([A-Za-z0-9_-]+)",
-            r"(?:提供商|类型)\s*(?:使用|为|是|=|:)\s*[\"'“”‘’]?([A-Za-z0-9_-]+)",
-        ),
-    )
-    system_prompt = _extract_named_value(
-        user_request,
-        (
-            r"system_prompt\s*(?:为|是|=|:)\s*[\"“](.+?)[\"”]",
-            r"(?:系统提示词|角色设定)\s*(?:为|是|=|:)\s*[\"“](.+?)[\"”]",
-        ),
-    )
-    if not name or not provider or not system_prompt:
-        return None
-
-    capabilities = _extract_capabilities(user_request)
-    result: dict[str, Any] = {
-        "name": name,
-        "provider": provider,
-        "system_prompt": system_prompt,
-        "capabilities": capabilities,
-        "config": {},
-        "add_to_conversation": _should_add_custom_agent_to_conversation(user_request),
-    }
-    allowed_tools = _extract_allowed_tools(user_request)
-    if allowed_tools is not None:
-        result["allowed_tools"] = allowed_tools
-    return result
-
-
-def _looks_like_custom_agent_request(user_request: str) -> bool:
-    lowered = user_request.lower()
-    return (
-        ("agent" in lowered or "智能体" in user_request or "代理" in user_request)
-        and any(marker in user_request for marker in ("创建", "新建", "新增", "create"))
-    )
-
-
-def _extract_named_value(text: str, patterns: tuple[str, ...]) -> str | None:
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I | re.S)
-        if not match:
-            continue
-        value = match.group(1).strip()
-        value = value.strip(" \t\r\n\"'“”‘’")
-        if value:
-            return value
-    return None
-
-
-def _extract_capabilities(user_request: str) -> list[str]:
-    match = re.search(
-        r"(?:capabilities|能力标签|能力)\s*(?:设置为|为|是|=|:)\s*([^。；;\n]+)",
-        user_request,
-        re.I,
-    )
-    if not match:
-        return []
-    raw = match.group(1)
-    parts = re.split(r"[,，、/]\s*", raw)
-    capabilities: list[str] = []
-    seen: set[str] = set()
-    for part in parts:
-        value = part.strip().strip("\"'“”‘’")
-        if not value or value in seen:
-            continue
-        if any(stop in value for stop in ("并", "然后", "加入")):
-            value = re.split(r"并|然后|加入", value, maxsplit=1)[0].strip()
-        if value:
-            seen.add(value)
-            capabilities.append(value)
-    return capabilities
-
-
-def _extract_allowed_tools(user_request: str) -> list[str] | None:
-    match = re.search(
-        r"(?:allowed_tools|工具白名单|允许工具|工具)\s*(?:设置为|为|是|=|:)\s*([^。；;\n]+)",
-        user_request,
-        re.I,
-    )
-    if not match:
-        return None
-    raw = match.group(1)
-    parts = re.split(r"[,，、/]\s*", raw)
-    tools: list[str] = []
-    for part in parts:
-        value = part.strip().strip("\"'“”‘’")
-        if any(stop in value for stop in ("并", "然后", "加入")):
-            value = re.split(r"并|然后|加入", value, maxsplit=1)[0].strip()
-        if value:
-            tools.append(value)
-    return tools
-
-
-def _should_add_custom_agent_to_conversation(user_request: str) -> bool:
-    if "不加入" in user_request:
-        return False
-    return "加入" in user_request and ("群聊" in user_request or "当前" in user_request)
-
-
-def _custom_agent_result_text(status: str, output: str | None) -> str:
-    payload: Mapping[str, Any] = {}
-    if output:
-        try:
-            parsed = json.loads(output)
-            if isinstance(parsed, Mapping):
-                payload = parsed
-        except json.JSONDecodeError:
-            payload = {}
-    if status == "ok":
-        agent = payload.get("agent")
-        if isinstance(agent, Mapping):
-            capabilities = ", ".join(str(item) for item in agent.get("capabilities", []))
-            allowed_tools = ", ".join(
-                str(item) for item in agent.get("allowed_tools") or []
-            )
-            return (
-                "已创建自建 Agent 并加入当前群聊。\n"
-                f"- id: {agent.get('id')}\n"
-                f"- name: {agent.get('name')}\n"
-                f"- provider: {agent.get('provider')}\n"
-                f"- capabilities: {capabilities}\n"
-                f"- allowed_tools: {allowed_tools}"
-            )
-        return "已创建自建 Agent。"
-    missing = payload.get("missing_fields")
-    if isinstance(missing, list) and missing:
-        return "创建自建 Agent 还缺少信息：" + ", ".join(str(item) for item in missing)
-    error = payload.get("error") if isinstance(payload.get("error"), str) else None
-    return f"创建自建 Agent 失败：{error or output or 'unknown error'}"

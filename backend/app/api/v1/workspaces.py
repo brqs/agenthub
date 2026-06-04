@@ -32,8 +32,8 @@ from app.schemas.workspace import (
     WorkspaceWorkflowRunRequest,
     WorkspaceWorkflowRunResponse,
 )
-from app.services.artifact_manifest import ArtifactManifestService
-from app.services.browser_preview_verifier import (
+from app.services.artifacts.manifest import ArtifactManifestService
+from app.services.workspace.preview_verifier import (
     BrowserPreviewVerifier,
     BrowserPreviewVerifyDisabledError,
     BrowserPreviewVerifyError,

@@ -22,8 +22,8 @@ from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
 from app.models.workspace import Workspace
-from app.services.artifact_manifest import ArtifactManifestError, ArtifactManifestService
-from app.services.workspace_container_release import ContainerDeploymentResult
+from app.services.artifacts.manifest import ArtifactManifestError, ArtifactManifestService
+from app.services.workspace.container_release import ContainerDeploymentResult
 from app.services.workspace_deployment import WorkspaceDeploymentService
 from app.services.workspace_service import WorkspaceService
 
