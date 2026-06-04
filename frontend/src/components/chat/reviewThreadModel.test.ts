@@ -1,0 +1,140 @@
+import { buildReviewThreadItems } from './reviewThreadModel';
+import type { OrchestratorRunDetail } from '@/lib/types';
+
+const detail: OrchestratorRunDetail = {
+  run: {
+    id: 'run-1',
+    conversation_id: 'conv-1',
+    agent_message_id: 'msg-1',
+    user_message_id: 'user-1',
+    status: 'done',
+    user_request: 'build',
+    plan_source: 'planner',
+    final_summary: '',
+    created_at: '2026-06-03T12:00:00Z',
+    updated_at: '2026-06-03T12:01:00Z',
+    completed_at: '2026-06-03T12:01:00Z',
+  },
+  tasks: [
+    {
+      id: 'row-impl',
+      run_id: 'run-1',
+      task_id: 'task-impl',
+      agent_id: 'claude-code',
+      title: '实现页面',
+      instruction: '',
+      depends_on: [],
+      priority: 1,
+      expected_output: null,
+      include_history: true,
+      task_type: 'implementation',
+      review_of: [],
+      handoff_reason: null,
+      final_state: 'succeeded',
+      created_at: '2026-06-03T12:00:00Z',
+      updated_at: '2026-06-03T12:00:00Z',
+    },
+    {
+      id: 'row-review',
+      run_id: 'run-1',
+      task_id: 'task-review',
+      agent_id: 'opencode-helper',
+      title: '复审页面',
+      instruction: '',
+      depends_on: ['task-impl'],
+      priority: 2,
+      expected_output: null,
+      include_history: true,
+      task_type: 'review',
+      review_of: ['task-impl'],
+      handoff_reason: null,
+      final_state: 'failed',
+      created_at: '2026-06-03T12:00:01Z',
+      updated_at: '2026-06-03T12:00:01Z',
+    },
+    {
+      id: 'row-repair',
+      run_id: 'run-1',
+      task_id: 'task-repair',
+      agent_id: 'claude-code',
+      title: '修复页面',
+      instruction: '',
+      depends_on: ['task-review'],
+      priority: 3,
+      expected_output: null,
+      include_history: true,
+      task_type: 'repair',
+      review_of: ['task-review'],
+      handoff_reason: 'review needs repair',
+      final_state: 'succeeded',
+      created_at: '2026-06-03T12:00:02Z',
+      updated_at: '2026-06-03T12:00:02Z',
+    },
+  ],
+  attempts: [
+    {
+      id: 'attempt-impl',
+      run_id: 'run-1',
+      task_row_id: 'row-impl',
+      task_id: 'task-impl',
+      attempt_index: 1,
+      agent_id: 'claude-code',
+      state: 'succeeded',
+      text_preview: 'created docs/report.md',
+      tool_summaries: [],
+      artifact_paths: ['docs/report.md'],
+      missing_artifact_paths: [],
+      review_outcome: null,
+      error: null,
+      created_at: '2026-06-03T12:00:00Z',
+      completed_at: '2026-06-03T12:00:10Z',
+    },
+    {
+      id: 'attempt-review',
+      run_id: 'run-1',
+      task_row_id: 'row-review',
+      task_id: 'task-review',
+      attempt_index: 1,
+      agent_id: 'opencode-helper',
+      state: 'failed',
+      text_preview: '缺少可访问性说明',
+      tool_summaries: [],
+      artifact_paths: [],
+      missing_artifact_paths: [],
+      review_outcome: 'needs_repair',
+      error: null,
+      created_at: '2026-06-03T12:00:11Z',
+      completed_at: '2026-06-03T12:00:20Z',
+    },
+  ],
+  events: [],
+};
+
+describe('reviewThreadModel', () => {
+  it('builds implementation review repair items with outcome and handoff metadata', () => {
+    expect(buildReviewThreadItems(detail)).toMatchObject([
+      {
+        kind: 'implementation',
+        taskId: 'task-impl',
+        artifactPaths: ['docs/report.md'],
+      },
+      {
+        kind: 'review',
+        taskId: 'task-review',
+        reviewOf: ['task-impl'],
+        outcome: 'needs_repair',
+        summary: '缺少可访问性说明',
+      },
+      {
+        kind: 'repair',
+        taskId: 'task-repair',
+        reviewOf: ['task-review'],
+        handoffReason: 'review needs repair',
+      },
+    ]);
+  });
+
+  it('returns an empty list without run detail', () => {
+    expect(buildReviewThreadItems(null)).toEqual([]);
+  });
+});

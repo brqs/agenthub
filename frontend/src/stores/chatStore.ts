@@ -8,6 +8,8 @@ import {
 } from '@/lib/mockData';
 import type { Conversation, Message, StreamEvent } from '@/lib/types';
 
+type SortableMessage = Pick<Message, 'id' | 'role' | 'reply_to_id' | 'created_at'>;
+
 interface ChatState {
   conversations: DemoConversation[];
   messagesByConversation: Record<string, DemoMessage[]>;
@@ -38,6 +40,65 @@ interface ChatState {
   updateMessageLocal: (message: Message) => void;
   replaceMessageLocal: (oldMessageId: string, message: Message) => void;
   clearChat: () => void;
+}
+
+function roleRank(role: SortableMessage['role']): number {
+  if (role === 'user') return 0;
+  if (role === 'agent') return 1;
+  return 2;
+}
+
+function messageTime(message: SortableMessage): number {
+  const time = Date.parse(message.created_at);
+  return Number.isFinite(time) ? time : 0;
+}
+
+function compareMessages(a: SortableMessage, b: SortableMessage): number {
+  if (a.reply_to_id === b.id) return 1;
+  if (b.reply_to_id === a.id) return -1;
+
+  const timeDiff = messageTime(a) - messageTime(b);
+  if (timeDiff !== 0) return timeDiff;
+
+  const roleDiff = roleRank(a.role) - roleRank(b.role);
+  if (roleDiff !== 0) return roleDiff;
+
+  return a.id.localeCompare(b.id);
+}
+
+export function sortMessagesForDisplay<T extends SortableMessage>(messages: T[]): T[] {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  const childrenByParent = new Map<string, T[]>();
+  const baseSorted = [...messages].sort(compareMessages);
+
+  for (const message of baseSorted) {
+    if (!message.reply_to_id || !byId.has(message.reply_to_id)) continue;
+    const siblings = childrenByParent.get(message.reply_to_id) ?? [];
+    siblings.push(message);
+    childrenByParent.set(message.reply_to_id, siblings);
+  }
+
+  const ordered: T[] = [];
+  const visited = new Set<string>();
+
+  const pushMessage = (message: T) => {
+    if (visited.has(message.id)) return;
+    visited.add(message.id);
+    ordered.push(message);
+    for (const child of childrenByParent.get(message.id) ?? []) {
+      pushMessage(child);
+    }
+  };
+
+  for (const message of baseSorted) {
+    if (message.reply_to_id && byId.has(message.reply_to_id)) continue;
+    pushMessage(message);
+  }
+  for (const message of baseSorted) {
+    pushMessage(message);
+  }
+
+  return ordered;
 }
 
 function appendText(blocks: DemoContentBlock[], text: string): DemoContentBlock[] {
@@ -411,7 +472,7 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByConversation: {
         ...state.messagesByConversation,
-        [conversationId]: messages as DemoMessage[],
+        [conversationId]: sortMessagesForDisplay(messages) as DemoMessage[],
       },
     }));
   },
@@ -419,11 +480,11 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByConversation: {
         ...state.messagesByConversation,
-        [conversationId]: [
+        [conversationId]: sortMessagesForDisplay([
           ...(state.messagesByConversation[conversationId] ?? []),
           userMessage as DemoMessage,
           agentMessage as DemoMessage,
-        ],
+        ]),
       },
       conversations: state.conversations.map((item) =>
         item.id === conversationId
@@ -463,9 +524,11 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByConversation: {
         ...state.messagesByConversation,
-        [message.conversation_id]: (
-          state.messagesByConversation[message.conversation_id] ?? []
-        ).map((item) => (item.id === message.id ? (message as DemoMessage) : item)),
+        [message.conversation_id]: sortMessagesForDisplay(
+          (state.messagesByConversation[message.conversation_id] ?? []).map((item) =>
+            item.id === message.id ? (message as DemoMessage) : item,
+          ),
+        ),
       },
     }));
   },
@@ -479,7 +542,7 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         messagesByConversation: {
           ...state.messagesByConversation,
-          [message.conversation_id]: next,
+          [message.conversation_id]: sortMessagesForDisplay(next),
         },
       };
     });
