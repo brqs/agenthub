@@ -12,12 +12,23 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 TASK_PLAN_TOOL_NAME = "submit_task_plan"
 DEFAULT_PLANNER_MAX_TOKENS = 2048
+AGENT_CAPABILITY_PROFILE_HEADER = (
+    "Agent capability profile from recent Orchestrator runs:"
+)
+ORCHESTRATOR_MEMORY_HEADER = "Previous Orchestrator structured memory:"
 
 PLANNER_SYSTEM_PROMPT = """You are AgentHub's Orchestrator planner.
 Create a concise task plan for the available agents only.
 You must call submit_task_plan exactly once when the tool is available.
 If tools are unavailable, output only JSON in the same shape as the tool input.
-Each task must target exactly one available agent_id.
+Each task must target exactly one available agent_id. Do not assign tasks to agent ids
+outside the available agents list, even if memory mentions them.
+When assigning tasks, prefer agents whose capability profile shows stronger recent
+success for the requested task type, artifact kind, review, or repair pattern.
+When the profile clearly shows one available agent recently succeeded and another
+failed for the matching work, assign the clearly stronger agent unless the user
+explicitly selects an agent or task constraints require otherwise. Do not probe a
+weaker agent first and rely on fallback when the profile already provides clear evidence.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
 Preserve every explicit deliverable and acceptance requirement from the user request in
@@ -173,11 +184,18 @@ def _planner_messages(
     user_request: str,
     allowed_agent_ids: list[str],
 ) -> list[ChatMessage]:
-    _ = messages
     agents = _available_agents_description(config, allowed_agent_ids)
+    capability_profile = _agent_capability_profile_context(messages)
+    capability_profile_section = (
+        "Agent capability profile available to planner:\n"
+        f"{capability_profile}\n\n"
+        if capability_profile
+        else ""
+    )
     content = (
         "User request:\n"
         f"{user_request}\n\n"
+        f"{capability_profile_section}"
         "Available agents:\n"
         f"{agents}\n\n"
         "Port preview/deploy requests must not become sub-agent execution tasks. "
@@ -188,6 +206,24 @@ def _planner_messages(
         "Return tasks as {\"tasks\": [...]} using only these agent ids."
     )
     return [ChatMessage(role="user", content=content)]
+
+
+def _agent_capability_profile_context(messages: list[ChatMessage]) -> str:
+    sections: list[str] = []
+    for message in messages:
+        if message.role != "system":
+            continue
+        start = message.content.find(AGENT_CAPABILITY_PROFILE_HEADER)
+        if start < 0:
+            continue
+        end = message.content.find(
+            f"\n\n{ORCHESTRATOR_MEMORY_HEADER}",
+            start,
+        )
+        section = message.content[start : end if end >= 0 else None].strip()
+        if section and section not in sections:
+            sections.append(section)
+    return "\n\n".join(sections)
 
 
 def _task_plan_tool() -> ToolSpec:

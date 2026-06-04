@@ -365,6 +365,62 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
   - conversation_id: `12ac1864-0158-48ca-a9f3-6640da9ab6ab`
   - passed: true
 
+### B2-DONE-06 Agent Capability Profile v1
+
+优先级：P1；B2 后端实现、本地回归与公网 E2E 已完成。
+
+目标：
+
+- 在现有 Orchestrator structured memory 基础上，为当前 conversation 聚合近期 Agent 能力画像。
+- 聚合不跨用户、不跨 workspace，不引入复杂推荐系统。
+- Planner 在后续任务规划时能参考每个 Agent 的近期成功率、失败类型、擅长产物类型、review/repair 表现，并在 summary 或 memory 中体现选择依据。
+
+当前实现范围：
+
+- 新增 `build_agent_capability_profile()`，数据来源为 `orchestrator_runs`、`orchestrator_tasks`、`orchestrator_task_attempts`、`orchestrator_run_events`。
+- 聚合当前 conversation 最近 `20` 个 terminal runs，API 参数最大 `100`。
+- 每个 agent 输出 `runs_considered`、`task_count`、`success_count`、`failure_count`、`artifact_missing_count`、`evaluation_failed_count`、`avg_attempts`、`artifact_kinds`、`review_outcomes`、`repair_success_count`、`recent_failure_reasons`、`confidence`。
+- `build_orchestrator_memory_context()` 在 `Previous Orchestrator structured memory` 前注入 `Agent capability profile from recent Orchestrator runs`，共同受 `orchestrator_memory_context_max_chars` 控制；没有历史数据时不注入。
+- Planner system prompt 已要求按 requested task type、artifact kind、review、repair pattern 参考 capability profile，同时不得选择 available/managed agent ids 之外的 Agent。
+- Planner 输入现在会从当前 conversation 的 memory system message 中提取 capability profile 段；不会把无关的 `Previous Orchestrator structured memory` 历史整体传给 planner。
+- 新增只读 API：`GET /api/v1/conversations/{conversation_id}/agent-capability-profile`，复用 conversation ownership check。
+- live E2E 脚本新增 scenario `p1_agent_capability_profile`：种子轮验证 `claude-code` evaluation failure 与 `opencode-helper` fallback success 的画像差异；follow-up 从最新 run detail 验证实际 task/attempt Agent 均为 `opencode-helper`。
+- 统计语义已按实际参与 Agent 收口：同 Agent retry 只计一个逻辑任务、fallback 成败分别归属实际 Agent、repair success 归属实际成功 Agent、artifact kind 按 agent + task + kind 去重、旧 task 无 attempt 时兼容降级。
+- `shared/openapi.yaml` 已同步 profile API 和 response schemas；前端类型生成与画像 UI 留给前端后续工作。
+
+建议影响文件：
+
+- `backend/app/services/orchestrator_memory.py`
+- `backend/app/api/v1/conversations.py`
+- `backend/app/schemas/conversation.py`
+- `backend/app/agents/orchestrator/planner.py`
+- `backend/scripts/orchestrator_live_e2e.py`
+- `backend/tests/test_orchestrator_memory.py`
+- `backend/tests/test_conversation_api.py`
+- `backend/tests/test_orchestrator_planning.py`
+
+本地验证：
+
+```bash
+cd backend
+uv run python -m pytest tests/test_orchestrator_memory.py tests/test_orchestrator.py tests/test_conversation_api.py tests/test_orchestrator_planning.py tests/test_orchestrator_live_e2e_script.py -q
+uv run python -m ruff check app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py scripts/orchestrator_live_e2e.py tests
+uv run python -m mypy app/services/orchestrator_memory.py app/api/v1/conversations.py app/schemas/conversation.py app/agents/orchestrator/planner.py
+```
+
+公网 E2E：
+
+```text
+report: /tmp/agenthub_p1_agent_capability_profile_report.json
+sse: /tmp/agenthub_p1_agent_capability_profile_sse.jsonl
+conversation_id: 8dd905aa-e51a-4f68-b869-2cc4c6278a3d
+passed: true
+claude-code: success_count=0, failure_count=1, evaluation_failed_count=1
+opencode-helper: success_count=1, failure_count=0
+followup_task_agents: [opencode-helper]
+followup_attempt_agents: [opencode-helper]
+```
+
 ### B2-DONE-09 Agent-to-Agent Review Thread MVP
 
 优先级：P1。
@@ -484,20 +540,21 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 - Worker 可队列化执行并隔离 API 进程。
 - 部署失败路径有稳定、可审计、可恢复的状态流。
 
-### B2-TODO-06 长期记忆与 Agent 能力画像
+### B2-TODO-08 Capability Profile v2 / User Preference Memory
 
 优先级：P2。
 
 当前状态：
 
 - 有 `orchestrator_runs` / `tasks` / `attempts` / `events`。
-- 当前更像 run log，不是长期经验系统。
+- Capability Profile v1 已在当前 conversation 内按实际参与 Agent 聚合，并通过 memory context 供 planner 软选择。
+- v1 不跨 conversation，不做时间衰减，也不记录用户偏好。
 
 待办：
 
-- 从历史 run 中聚合 agent success rate、timeout rate、artifact missing rate。
-- 形成 Agent capability profile。
-- Planner 调度时参考能力画像。
+- 跨 conversation 的用户级或 workspace 级长期画像。
+- 时间衰减、样本权重、timeout rate 和更细粒度 task taxonomy。
+- 可解释但更稳定的软评分/推荐策略。
 - 记录用户偏好，例如常用主题、代码风格、部署偏好。
 
 验收标准：
@@ -581,7 +638,7 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
    PDF 第五点已达演示 MVP，后续以生产安全和稳定性为主。
 
-4. B2-TODO-06 长期记忆与 Agent 能力画像
+4. B2-TODO-08 Capability Profile v2 / User Preference Memory
 
    提升 planner 选择 Agent 的智能度和可解释性。
 

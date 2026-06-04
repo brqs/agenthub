@@ -1,10 +1,16 @@
 from scripts.orchestrator_live_e2e import (
+    DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
+    DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
     DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH,
     DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH,
     DEFAULT_P1_RICH_ARTIFACTS_REPORT_PATH,
     DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH,
+    P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
+    P1_AGENT_CAPABILITY_PROFILE_PROMPT,
+    P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
     P1_RICH_ARTIFACTS_PROMPT,
     SERVER_COMMAND_RE,
+    evaluate_p1_agent_capability_profile,
     evaluate_p1_evaluation_repair,
     evaluate_p1_rich_artifacts,
 )
@@ -52,6 +58,12 @@ def test_p1_rich_artifacts_defaults_are_registered() -> None:
     assert DEFAULT_P1_EVALUATION_REPAIR_SSE_PATH == (
         "/tmp/agenthub_p1_evaluation_repair_sse.jsonl"
     )
+    assert DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH == (
+        "/tmp/agenthub_p1_agent_capability_profile_report.json"
+    )
+    assert DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH == (
+        "/tmp/agenthub_p1_agent_capability_profile_sse.jsonl"
+    )
 
 
 def test_p1_rich_artifacts_archive_task_uses_shell_capable_agent() -> None:
@@ -60,6 +72,124 @@ def test_p1_rich_artifacts_archive_task_uses_shell_capable_agent() -> None:
     )
     assert "tar -cf packages/rich-export.tar" in P1_RICH_ARTIFACTS_PROMPT
     assert "tar -tf packages/rich-export.tar" in P1_RICH_ARTIFACTS_PROMPT
+
+
+def test_p1_agent_capability_profile_scenario_has_strong_seed_difference() -> None:
+    assert P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS == [
+        "orchestrator",
+        "claude-code",
+        "opencode-helper",
+    ]
+    assert "claude-code" in P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT
+    assert "evaluation_failed" in P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT
+    assert "整个 seed run 必须只有一个 task" in P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT
+    assert "禁止为 repair 另建任务" in P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT
+    assert "不得继续解释、再次 Write、自行评估、自行修复或模拟 fallback" in (
+        P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT
+    )
+    assert "只能由 Orchestrator runtime" in P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT
+    assert "具体执行 Agent" in P1_AGENT_CAPABILITY_PROFILE_PROMPT
+    assert "只规划一个逻辑文档任务" in P1_AGENT_CAPABILITY_PROFILE_PROMPT
+    assert "所有实际 attempt" in P1_AGENT_CAPABILITY_PROFILE_PROMPT
+
+
+def test_evaluate_p1_agent_capability_profile_checks_actual_selected_agent() -> None:
+    report = _agent_capability_profile_report(
+        task_agent="opencode-helper",
+        attempt_agent="opencode-helper",
+    )
+
+    evaluate_p1_agent_capability_profile(report)
+
+    assert report["acceptance"]["p1_agent_capability_seed_claude_failed"] is True
+    assert report["acceptance"]["p1_agent_capability_seed_opencode_succeeded"] is True
+    assert (
+        report["acceptance"]["p1_agent_capability_followup_task_agent_opencode"] is True
+    )
+    assert (
+        report["acceptance"]["p1_agent_capability_followup_attempt_agent_opencode"] is True
+    )
+    assert report["acceptance"]["passed"] is True
+
+
+def test_evaluate_p1_agent_capability_profile_rejects_summary_only_claim() -> None:
+    report = _agent_capability_profile_report(
+        task_agent="claude-code",
+        attempt_agent="claude-code",
+    )
+
+    evaluate_p1_agent_capability_profile(report)
+
+    assert (
+        report["acceptance"]["p1_agent_capability_followup_task_agent_opencode"]
+        is False
+    )
+    assert (
+        report["acceptance"]["p1_agent_capability_followup_attempt_agent_opencode"]
+        is False
+    )
+    assert report["acceptance"]["passed"] is False
+
+
+def _agent_capability_profile_report(
+    *,
+    task_agent: str,
+    attempt_agent: str,
+) -> dict[str, object]:
+    return {
+        "agent_capability_profile_before_followup": {
+            "items": [
+                {
+                    "agent_id": "claude-code",
+                    "task_count": 1,
+                    "success_count": 0,
+                    "failure_count": 1,
+                    "evaluation_failed_count": 1,
+                },
+                {
+                    "agent_id": "opencode-helper",
+                    "task_count": 1,
+                    "success_count": 1,
+                    "failure_count": 0,
+                    "evaluation_failed_count": 0,
+                },
+            ]
+        },
+        "agent_capability_profile": {
+            "items": [
+                {"agent_id": "claude-code"},
+                {"agent_id": "opencode-helper"},
+            ]
+        },
+        "orchestrator_runs": [
+            {
+                "final_summary": (
+                    "Agent capability profile from recent Orchestrator runs; "
+                    "recent success 选择依据: opencode-helper"
+                )
+            }
+        ],
+        "orchestrator_run_detail": {
+            "tasks": [
+                {
+                    "task_id": "followup",
+                    "agent_id": task_agent,
+                    "title": "Create capability-followup.md",
+                    "instruction": "Create capability-followup.md",
+                    "expected_output": "capability-followup.md",
+                }
+            ],
+            "attempts": [
+                {
+                    "task_id": "followup",
+                    "agent_id": attempt_agent,
+                    "state": "succeeded",
+                }
+            ],
+        },
+        "target_agent_message": {"content": []},
+        "workspace_files": [{"path": "capability-followup.md"}],
+    }
 
 
 def test_evaluate_p1_rich_artifacts_acceptance_uses_artifacts_api() -> None:

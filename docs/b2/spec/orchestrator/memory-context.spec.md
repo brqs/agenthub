@@ -317,10 +317,17 @@ stream_config["user_message_id"] = message.reply_to_id
 默认策略：
 
 - `orchestrator_memory_enabled=true`。
-- 查询最近 `3` 个 terminal runs。
-- 总预算 `6000` chars。
-- 按时间从旧到新注入，便于模型理解延续。
-- system message 标题固定：
+- structured memory 查询最近 `3` 个 terminal runs。
+- Agent capability profile 查询当前 conversation 最近 `20` 个 terminal runs，最大 `100`；不跨用户、不跨 workspace。
+- 总预算 `6000` chars，capability profile 和 structured memory 共用该预算。
+- structured memory 按时间从旧到新注入，便于模型理解延续。
+- 有历史 terminal run 且能聚合出画像时，system message 先包含：
+
+```text
+Agent capability profile from recent Orchestrator runs:
+```
+
+- 随后包含 structured memory 标题：
 
 ```text
 Previous Orchestrator structured memory:
@@ -329,6 +336,12 @@ Previous Orchestrator structured memory:
 注入内容示例：
 
 ```text
+Agent capability profile from recent Orchestrator runs:
+- @codex-helper: runs_considered=4; task_count=5; success_count=4; failure_count=1; artifact_missing_count=0; evaluation_failed_count=1; avg_attempts=1.2; repair_success_count=1; confidence=medium
+  artifact_kinds: document=3, code=2
+  review_outcomes: needs_repair=1
+  recent_failure_reasons: document_quality: Replace placeholders with complete content.
+
 Previous Orchestrator structured memory:
 
 Run 2026-05-30 23:10 done
@@ -344,15 +357,60 @@ Summary: 2 succeeded, 1 artifact_missing
   Text: VERIFIED_OK
 ```
 
+#### 4.3.1 Agent Capability Profile v1 统计语义
+
+Capability Profile v1 以“实际参与逻辑任务的 Agent”为统计对象：
+
+- `task_count`：同一 Agent 在同一逻辑任务中无论重试多少次只计一次；全部 attempt 为 `skipped/pending` 时不进入画像。
+- `avg_attempts`：该 Agent 的实际 attempt row 数除以其参与任务数。
+- `success_count` / `failure_count`：由该 Agent 在该任务中的最后一次 attempt 判定；`succeeded` 计成功，`failed/artifact_missing/evaluation_failed` 计失败，`skipped/pending` 不计成功或失败。
+- 同一 Agent 首次失败、重试后成功时，最终计一次成功、不计最终失败；此前的 `artifact_missing/evaluation_failed` 仍作为失败事件累计。
+- 原 Agent 失败、fallback Agent 成功时，原 Agent 计失败，fallback Agent 计成功。
+- repair task 经 fallback 成功时，`repair_success_count` 归属实际成功的 Agent。
+- `artifact_kinds` 按 `(agent_id, task_row_id, artifact_kind)` 去重；attempt row、task result event、evaluation checked artifacts 不得重复累计同一任务同一 Agent 的同类产物。
+- 对缺少 attempt row 的旧 task，使用 task row 的 `agent_id/final_state/task_type` 兼容降级；`avg_attempts=0`。
+
+Profile 仍只查询当前 `conversation_id` 的 terminal runs；API ownership check 保证不跨用户，conversation/workspace 一一关联保证不跨 workspace。
+
+Planner 使用规则：
+
+- stream context 仍把完整 capability profile + structured memory 注入 Orchestrator 消息历史。
+- planner 只从当前 conversation 的 system memory message 中提取 `Agent capability profile from recent Orchestrator runs` 段，不接收后续的 `Previous Orchestrator structured memory` 详情。
+- 没有 capability profile 时不增加 planner profile section，不影响现有规划流程。
+- capability profile 是 planner 的结构化软选择依据；不新增硬编码评分器，同时仍严格限制在 available/managed agent ids 内。
+- 当画像对匹配 task/artifact kind 呈现清晰强弱差异时，planner 应直接选择近期成功 Agent，不应先探测弱 Agent 再依赖 fallback。
+
 注入位置：
 
 ```text
 ContextBuilder summary / critical facts / pinned
+-> Agent capability profile from recent Orchestrator runs
 -> Previous Orchestrator structured memory
 -> recent messages
 ```
 
 如果实现上不方便插入中间位置，可以先在 `build_context()` 返回后、调用 adapter 前插入到第一个 latest user message 之前；不得放在最新 user request 之后。
+
+#### 4.3.2 Agent Capability Profile v1 公网 E2E
+
+2026-06-04 公网后端 API/SSE 验收已通过：
+
+```text
+scenario: p1_agent_capability_profile
+report: /tmp/agenthub_p1_agent_capability_profile_report.json
+sse: /tmp/agenthub_p1_agent_capability_profile_sse.jsonl
+conversation_id: 8dd905aa-e51a-4f68-b869-2cc4c6278a3d
+passed: true
+```
+
+种子 run 的真实 attempt 统计：
+
+```text
+claude-code: task_count=1, success_count=0, failure_count=1, evaluation_failed_count=1
+opencode-helper: task_count=1, success_count=1, failure_count=0, evaluation_failed_count=0
+```
+
+follow-up 用户请求没有点名执行 Agent；planner 看到 profile 后，最新 run detail 中唯一 task Agent 和全部实际 attempt Agent 均为 `opencode-helper`，并成功创建 `capability-followup.md`。该证据同时验证 memory context 出现 capability profile、选择依据可见、profile API 返回至少两个 Agent。
 
 ### 4.4 配置字段
 
@@ -375,7 +433,15 @@ ContextBuilder summary / critical facts / pinned
 
 ## 5. Debug API
 
-新增 dev-only API，生产环境返回 404，与现有 conversation memory debug API 保持一致。
+新增 dev-only Orchestrator run list/detail API，生产环境返回 404，与现有 conversation memory debug API 保持一致。
+
+新增只读 Agent capability profile API，供 debug、E2E 和后续前端展示使用：
+
+```text
+GET /api/v1/conversations/{conversation_id}/agent-capability-profile
+```
+
+返回当前用户拥有的当前 conversation 内画像 items。聚合字段包括 `runs_considered`、`task_count`、`success_count`、`failure_count`、`artifact_missing_count`、`evaluation_failed_count`、`avg_attempts`、`artifact_kinds`、`review_outcomes`、`repair_success_count`、`recent_failure_reasons` 和 `confidence`。该 API 不新增 mutation，必须复用 conversation ownership check。
 
 ```text
 GET /api/v1/conversations/{conv_id}/orchestrator-runs?limit=20
@@ -458,7 +524,9 @@ Orchestrator 的 memory 是“项目经理记忆”：
 ### 8.2 Context 注入测试
 
 - 最近 terminal runs 被格式化成 `Previous Orchestrator structured memory`。
-- 超预算时保留 request、state、artifact、error。
+- 有历史 terminal runs 时，memory context 在 structured memory 前包含 `Agent capability profile from recent Orchestrator runs`。
+- planner 输入包含 capability profile 段，但不包含无关的 structured memory 历史详情。
+- 超预算时 profile + structured memory 共同受 `max_chars` 控制。
 - 没有 run 时不注入空 system message。
 - 只对 Orchestrator 目标注入，不对 external agent 注入。
 - 注入后最新用户请求仍是最后的 active request。
@@ -467,6 +535,7 @@ Orchestrator 的 memory 是“项目经理记忆”：
 
 - Alembic migration 创建四张表和关键索引。
 - dev list/detail API 返回 run/task/attempt/event。
+- Agent capability profile API 返回当前 conversation 的 profile items。
 - production mode debug API 返回 404。
 - ownership check 防止跨用户读取。
 
@@ -505,10 +574,11 @@ uv run python -m mypy app/agents app/services app/schemas/agent.py
 
 1. DB model + migration + schema。
 2. Memory store + formatter。
-3. stream 层注入 writer 和 structured memory context。
-4. Orchestrator 写入 hooks。
-5. Debug API。
-6. 测试和 OpenAPI/config/seed 回归。
+3. Agent capability profile 聚合 service。
+4. stream 层注入 writer、capability profile 和 structured memory context。
+5. Orchestrator 写入 hooks。
+6. Debug/API。
+7. 测试和 OpenAPI/config/seed 回归。
 
 ---
 
