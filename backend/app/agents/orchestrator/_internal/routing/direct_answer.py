@@ -21,6 +21,11 @@ and dispatch specialist agents instead.
 """
 
 META_QUESTION_MARKERS = (
+    "你好",
+    "您好",
+    "hello",
+    "hi",
+    "hey",
     "你是谁",
     "你是什么",
     "什么模型",

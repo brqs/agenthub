@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from app.agents.external.cli_runtime import cli_env
 from app.core.config import settings
@@ -35,7 +37,24 @@ def runtime_context_value(config: dict[str, Any] | None, key: str) -> str:
 
 def isolated_session_id(config: dict[str, Any] | None, fallback: str) -> str:
     message_id = runtime_context_value(config, "agent_message_id")
-    return f"agenthub-{_safe_segment(message_id or fallback)}"
+    task_id = runtime_context_value(config, "orchestrator_task_id")
+    attempt_index = runtime_context_value(config, "orchestrator_attempt_index")
+    agent_id = runtime_context_value(config, "agent_id")
+    if task_id or attempt_index:
+        return str(
+            uuid5(
+                NAMESPACE_URL,
+                "agenthub-runtime:"
+                f"{fallback}:{message_id or fallback}:"
+                f"{agent_id}:{task_id}:{attempt_index}",
+            )
+        )
+    if message_id:
+        try:
+            return str(UUID(message_id))
+        except ValueError:
+            pass
+    return str(uuid5(NAMESPACE_URL, f"agenthub-runtime:{fallback}:{message_id or fallback}"))
 
 
 def isolated_runtime_env(
@@ -68,13 +87,22 @@ def isolated_runtime_home(
 ) -> Path:
     conversation_id = runtime_context_value(config, "conversation_id") or workspace_path.name
     message_id = runtime_context_value(config, "agent_message_id") or "unknown-message"
+    task_id = runtime_context_value(config, "orchestrator_task_id")
+    attempt_index = runtime_context_value(config, "orchestrator_attempt_index")
     base = Path(settings.external_runtime_state_dir).expanduser()
-    return (
+    runtime_home = (
         base
         / _safe_segment(conversation_id)
         / _safe_segment(agent_id)
         / _safe_segment(message_id)
     )
+    if task_id or attempt_index:
+        runtime_home = (
+            runtime_home
+            / _safe_segment(task_id or "unknown-task")
+            / _safe_segment(attempt_index or "unknown-attempt")
+        )
+    return runtime_home
 
 
 def _initialize_runtime_home(home: Path) -> None:
@@ -86,12 +114,32 @@ def _initialize_runtime_home(home: Path) -> None:
         home / ".local" / "share",
     ):
         path.mkdir(parents=True, exist_ok=True)
+    _copy_claude_credentials(home)
     claude_json = home / ".claude.json"
     if not claude_json.exists():
         claude_json.write_text(
             json.dumps({"hasCompletedOnboarding": True}, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
+
+
+def _copy_claude_credentials(home: Path) -> None:
+    source_home = Path(os.environ.get("HOME", "")).expanduser()
+    if not source_home or source_home == home:
+        return
+    _copy_file_if_present(source_home / ".claude.json", home / ".claude.json")
+    for filename in ("settings.json", "settings.local.json"):
+        _copy_file_if_present(source_home / ".claude" / filename, home / ".claude" / filename)
+
+
+def _copy_file_if_present(source: Path, target: Path) -> None:
+    try:
+        if not source.is_file():
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+    except OSError:
+        return
 
 
 def _safe_segment(value: str) -> str:

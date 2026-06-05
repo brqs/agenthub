@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -520,12 +521,114 @@ class TestClaudeCodeAdapterStream:
         options = fake_sdk.last_options.kwargs
         assert options["continue_conversation"] is False
         assert options["resume"] is None
-        assert options["session_id"] == "agenthub-msg-a"
+        assert str(UUID(options["session_id"])) == options["session_id"]
         assert options["env"]["HOME"].endswith("conv-a/agent-claude-code/msg-a")
         assert options["env"]["XDG_CONFIG_HOME"].endswith(
             "conv-a/agent-claude-code/msg-a/.config"
         )
         assert (Path(options["env"]["HOME"]) / ".claude.json").exists()
+
+    async def test_sdk_uses_agent_message_uuid_as_session_id(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+        agent_message_id = "8f7fdcef-f533-4744-b751-0c6a09b3c91b"
+
+        await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={"runtime_context": {"agent_message_id": agent_message_id}},
+        )
+
+        assert fake_sdk.last_options is not None
+        assert fake_sdk.last_options.kwargs["session_id"] == agent_message_id
+
+    async def test_sdk_uses_task_scoped_session_for_orchestrator_attempts(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+        state_dir = tmp_path / "runtime-state"
+        monkeypatch.setattr(
+            runtime_isolation_module.settings,
+            "external_runtime_state_dir",
+            str(state_dir),
+        )
+        agent_message_id = "8f7fdcef-f533-4744-b751-0c6a09b3c91b"
+
+        await _collect(
+            adapter,
+            workspace_path=tmp_path / "workspaces" / "conv-a",
+            config={
+                "runtime_context": {
+                    "conversation_id": "conv-a",
+                    "agent_message_id": agent_message_id,
+                    "agent_id": "agent-claude-code",
+                    "orchestrator_task_id": "frontend_impl",
+                    "orchestrator_attempt_index": "1",
+                }
+            },
+        )
+
+        assert fake_sdk.last_options is not None
+        options = fake_sdk.last_options.kwargs
+        assert str(UUID(options["session_id"])) == options["session_id"]
+        assert options["session_id"] != agent_message_id
+        assert options["env"]["HOME"].endswith(
+            "conv-a/agent-claude-code/"
+            f"{agent_message_id}/frontend_impl/1"
+        )
+
+    async def test_sdk_runtime_home_bootstraps_claude_credentials(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+        source_home = tmp_path / "source-home"
+        source_claude = source_home / ".claude"
+        source_claude.mkdir(parents=True)
+        (source_home / ".claude.json").write_text(
+            '{"hasCompletedOnboarding":true,"auth":"test"}',
+            encoding="utf-8",
+        )
+        (source_claude / "settings.json").write_text('{"theme":"test"}', encoding="utf-8")
+        (source_claude / "settings.local.json").write_text(
+            '{"permissions":{"allow":["Edit"]}}',
+            encoding="utf-8",
+        )
+        (source_claude / "history.jsonl").write_text("do not copy\n", encoding="utf-8")
+        state_dir = tmp_path / "runtime-state"
+        monkeypatch.setenv("HOME", str(source_home))
+        monkeypatch.setattr(
+            runtime_isolation_module.settings,
+            "external_runtime_state_dir",
+            str(state_dir),
+        )
+
+        await _collect(
+            adapter,
+            workspace_path=tmp_path / "workspaces" / "conv-a",
+            config={"runtime_context": {"agent_message_id": "msg-a"}},
+        )
+
+        assert fake_sdk.last_options is not None
+        runtime_home = Path(fake_sdk.last_options.kwargs["env"]["HOME"])
+        assert (runtime_home / ".claude.json").read_text(encoding="utf-8") == (
+            '{"hasCompletedOnboarding":true,"auth":"test"}'
+        )
+        assert (runtime_home / ".claude" / "settings.json").exists()
+        assert (runtime_home / ".claude" / "settings.local.json").exists()
+        assert not (runtime_home / ".claude" / "history.jsonl").exists()
 
     async def test_sdk_exception_maps_to_external_runtime_error(
         self,
