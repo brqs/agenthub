@@ -8,11 +8,16 @@ import {
   PanelRight,
   PanelRightClose,
   Pin,
+  RefreshCw,
 } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact/ArtifactPreview';
 import { DeploymentHistory } from '@/components/artifact/DeploymentHistory';
-import { DEPLOYMENT_ACTIONS, type DeploymentKind } from '@/components/artifact/deploymentPresentation';
+import {
+  DEPLOYMENT_ACTIONS,
+  DEPLOYMENT_KIND_LABELS,
+  type DeploymentKind,
+} from '@/components/artifact/deploymentPresentation';
 import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/WorkspaceFileTree';
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
@@ -20,6 +25,7 @@ import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
 import { useCreateDeployment } from '@/hooks/useDeployments';
 import { useWorkspaceFile, useWorkspaceTree, useWriteWorkspaceFile } from '@/hooks/useWorkspace';
 import type { Agent, WorkspaceDeploymentRequest } from '@/lib/types';
+import { extractApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
 
@@ -48,6 +54,18 @@ const STATUS_CLASS: Record<AgentWorkStatus, string> = {
 };
 
 type RightPanelTab = 'context' | 'workspace';
+type DeploymentNoticeTone = 'success' | 'warning' | 'error';
+type DeploymentNotice = {
+  kind: DeploymentKind;
+  tone: DeploymentNoticeTone;
+  text: string;
+};
+type DeploymentActionIntent = {
+  payload: WorkspaceDeploymentRequest;
+  detail: string;
+  disabledReason: string | null;
+};
+type DeploymentActionIntents = Record<DeploymentKind, DeploymentActionIntent>;
 
 const TAB_META: Record<RightPanelTab, { label: string; icon: typeof Activity }> = {
   context: { label: 'Context', icon: Activity },
@@ -285,35 +303,91 @@ function WorkspacePanel({
   workspace,
   conversationId,
   isLoading,
-  error,
+  workspaceError,
   artifactError,
   touchedFilesCount,
   selectedArtifactPath,
   selectedArtifact,
   onSelectArtifact,
+  onRetryWorkspace,
+  onRetryArtifact,
   onSaveArtifact,
   isSavingArtifact = false,
 }: {
   workspace: { root: string; tree: WorkspaceNode[] } | null;
   conversationId: string;
   isLoading: boolean;
-  error: unknown;
+  workspaceError: unknown;
   artifactError?: unknown;
   touchedFilesCount: number;
   selectedArtifactPath: string | null;
   selectedArtifact: PreviewArtifactFile | null;
   onSelectArtifact: (path: string) => void;
+  onRetryWorkspace: () => void;
+  onRetryArtifact: () => void;
   onSaveArtifact?: (path: string, content: string | Blob, mimeType: string) => Promise<void> | void;
   isSavingArtifact?: boolean;
 }) {
   const createDeployment = useCreateDeployment(conversationId);
+  const [activeDeploymentKind, setActiveDeploymentKind] = useState<DeploymentKind | null>(null);
+  const [deploymentNotice, setDeploymentNotice] = useState<DeploymentNotice | null>(null);
+  const actionIntents = useMemo(
+    () => buildDeploymentActionIntents(workspace?.tree ?? [], selectedArtifactPath),
+    [workspace?.tree, selectedArtifactPath],
+  );
+
+  useEffect(() => {
+    if (deploymentNotice?.tone !== 'success') return undefined;
+    const timeoutId = window.setTimeout(() => setDeploymentNotice(null), 4_000);
+    return () => window.clearTimeout(timeoutId);
+  }, [deploymentNotice]);
 
   function createRelease(kind: DeploymentKind) {
-    const payload: WorkspaceDeploymentRequest = { kind };
-    if (kind === 'static_site' && selectedArtifactPath?.endsWith('.html')) {
-      payload.entry_path = selectedArtifactPath;
+    const intent = actionIntents[kind];
+    if (intent.disabledReason) {
+      setDeploymentNotice({
+        kind,
+        tone: 'warning',
+        text: `${DEPLOYMENT_KIND_LABELS[kind]}：${intent.disabledReason}`,
+      });
+      return;
     }
-    void createDeployment.mutate(payload);
+    createDeployment.reset();
+    setDeploymentNotice(null);
+    setActiveDeploymentKind(kind);
+    createDeployment.mutate(intent.payload, {
+      onSuccess: (deployment) => {
+        if (deployment.status === 'failed' || deployment.status === 'not_supported') {
+          setDeploymentNotice({
+            kind,
+            tone: 'warning',
+            text: `${DEPLOYMENT_KIND_LABELS[kind]}请求已创建，但未发布成功：${deployment.error || deployment.status}`,
+          });
+          return;
+        }
+        const target =
+          deployment.kind === 'source_zip'
+            ? '可在发布历史下载'
+            : deployment.url
+              ? `已生成 URL：${deployment.url}`
+              : '可在发布历史查看';
+        setDeploymentNotice({
+          kind,
+          tone: 'success',
+          text: `${DEPLOYMENT_KIND_LABELS[kind]}已完成，${target}`,
+        });
+      },
+      onError: (error) => {
+        setDeploymentNotice({
+          kind,
+          tone: 'error',
+          text: `${DEPLOYMENT_KIND_LABELS[kind]}请求失败：${extractApiError(error)}`,
+        });
+      },
+      onSettled: () => {
+        setActiveDeploymentKind(null);
+      },
+    });
   }
 
   return (
@@ -325,9 +399,17 @@ function WorkspacePanel({
         <div className="rounded-md border border-slate-800 p-4 text-sm text-slate-500">
           正在加载 workspace...
         </div>
-      ) : error ? (
-        <div className="rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
-          Workspace 加载失败，请稍后重试。
+      ) : workspaceError ? (
+        <div className="space-y-3 rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
+          <p>Workspace 加载失败，请稍后重试。</p>
+          <button
+            type="button"
+            onClick={onRetryWorkspace}
+            className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1.5 text-xs font-medium text-red-50 transition hover:bg-red-400/10"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            重试
+          </button>
         </div>
       ) : workspace ? (
         <div className="space-y-3">
@@ -342,8 +424,16 @@ function WorkspacePanel({
             />
           </div>
           {artifactError ? (
-            <div className="rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
-              文件预览加载失败，请稍后重试。
+            <div className="space-y-3 rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
+              <p>文件预览加载失败，请稍后重试。</p>
+              <button
+                type="button"
+                onClick={onRetryArtifact}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1.5 text-xs font-medium text-red-50 transition hover:bg-red-400/10"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                重试
+              </button>
             </div>
           ) : (
             <ArtifactPreview
@@ -353,13 +443,22 @@ function WorkspacePanel({
             />
           )}
           <DeploymentReleaseActions
-            selectedPath={selectedArtifactPath}
-            disabled={createDeployment.isPending}
+            intents={actionIntents}
+            pendingKind={activeDeploymentKind}
             onCreate={createRelease}
           />
-          {createDeployment.isError && (
-            <p className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700 dark:border-rose-400/25 dark:bg-rose-950/20 dark:text-rose-200">
-              发布请求创建失败，请稍后重试。
+          {deploymentNotice && (
+            <p
+              className={cn(
+                'rounded-md border px-3 py-2 text-xs leading-5',
+                deploymentNotice.tone === 'success'
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-950/20 dark:text-emerald-200'
+                  : deploymentNotice.tone === 'warning'
+                    ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/25 dark:bg-amber-950/20 dark:text-amber-200'
+                    : 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-950/20 dark:text-rose-200',
+              )}
+            >
+              {deploymentNotice.text}
             </p>
           )}
         </div>
@@ -375,14 +474,15 @@ function WorkspacePanel({
 }
 
 function DeploymentReleaseActions({
-  selectedPath,
-  disabled,
+  intents,
+  pendingKind,
   onCreate,
 }: {
-  selectedPath: string | null;
-  disabled: boolean;
+  intents: DeploymentActionIntents;
+  pendingKind: DeploymentKind | null;
   onCreate: (kind: DeploymentKind) => void;
 }) {
+  const staticDetail = intents.static_site.detail;
   return (
     <section className="rounded-md border border-slate-800 bg-slate-950/70 p-3">
       <div className="mb-3">
@@ -390,29 +490,31 @@ function DeploymentReleaseActions({
         <p className="mt-1 text-xs leading-5 text-slate-500">
           前端只创建发布请求，部署、打包和容器运行由后端平台 tool 完成。
         </p>
-        <p className="mt-1 truncate text-[11px] text-slate-600" title={selectedPath ?? undefined}>
-          {selectedPath?.endsWith('.html')
-            ? `静态发布入口：${selectedPath}`
-            : '静态发布默认使用 workspace 中的 index.html。'}
+        <p className="mt-1 truncate text-[11px] text-slate-600" title={staticDetail}>
+          {staticDetail}
         </p>
       </div>
       <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
         {DEPLOYMENT_ACTIONS.map((action) => {
           const Icon = action.icon;
+          const intent = intents[action.kind];
+          const isPending = pendingKind === action.kind;
+          const disabled = isPending || intent.disabledReason !== null;
           return (
             <button
               key={action.kind}
               type="button"
               onClick={() => onCreate(action.kind)}
               disabled={disabled}
-              className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-left transition hover:border-brand/40 hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+              title={intent.disabledReason ?? intent.detail}
+              className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-left transition hover:border-brand/40 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span className="flex items-center gap-2 text-xs font-medium text-slate-100">
-                <Icon className={cn('h-3.5 w-3.5 text-brand-light', disabled && 'animate-spin')} />
+                <Icon className={cn('h-3.5 w-3.5 text-brand-light', isPending && 'animate-spin')} />
                 {action.label}
               </span>
               <span className="mt-1 block text-[11px] leading-4 text-slate-500">
-                {action.description}
+                {intent.disabledReason ?? action.description}
               </span>
             </button>
           );
@@ -439,24 +541,49 @@ function RealWorkspacePanel({
     };
   }, [workspaceQuery.data]);
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
-  const artifactQuery = useWorkspaceFile(conversationId, selectedArtifactPath);
+  const workspaceFiles = useMemo(
+    () => (workspace ? flattenFiles(workspace.tree) : []),
+    [workspace],
+  );
+  const activeArtifactPath =
+    selectedArtifactPath && workspaceFiles.some((file) => file.path === selectedArtifactPath)
+      ? selectedArtifactPath
+      : null;
+  const artifactQuery = useWorkspaceFile(conversationId, activeArtifactPath);
   const writeWorkspaceFile = useWriteWorkspaceFile(conversationId);
-  const realTouchedFilesCount = workspace ? flattenFiles(workspace.tree).length : touchedFilesCount;
+  const realTouchedFilesCount = workspace ? workspaceFiles.length : touchedFilesCount;
 
   useEffect(() => {
-    setSelectedArtifactPath(getFirstWorkspacePath(workspace));
-  }, [workspace]);
+    setSelectedArtifactPath(null);
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (workspaceFiles.length === 0) {
+      if (selectedArtifactPath !== null) setSelectedArtifactPath(null);
+      return;
+    }
+    if (selectedArtifactPath && workspaceFiles.some((file) => file.path === selectedArtifactPath)) return;
+    setSelectedArtifactPath(workspaceFiles[0].path);
+  }, [workspaceFiles, selectedArtifactPath]);
 
   return (
     <WorkspacePanel
       workspace={workspace}
       conversationId={conversationId}
       isLoading={workspaceQuery.isLoading}
-      error={workspaceQuery.error ?? artifactQuery.error}
+      workspaceError={workspaceQuery.error}
+      artifactError={artifactQuery.error}
       touchedFilesCount={realTouchedFilesCount}
-      selectedArtifactPath={selectedArtifactPath}
+      selectedArtifactPath={activeArtifactPath}
       selectedArtifact={artifactQuery.data ?? null}
       onSelectArtifact={setSelectedArtifactPath}
+      onRetryWorkspace={() => {
+        setSelectedArtifactPath(null);
+        void workspaceQuery.refetch();
+      }}
+      onRetryArtifact={() => {
+        void artifactQuery.refetch();
+      }}
       onSaveArtifact={(path, content, mimeType) =>
         writeWorkspaceFile.mutateAsync({ path, content, mimeType })
       }
@@ -472,9 +599,49 @@ function flattenFiles(nodes: WorkspaceNode[]): Array<Extract<WorkspaceNode, { ty
   });
 }
 
-function getFirstWorkspacePath(workspace: { tree: WorkspaceNode[] } | null): string | null {
-  if (!workspace) return null;
-  return flattenFiles(workspace.tree)[0]?.path ?? null;
+function buildDeploymentActionIntents(
+  nodes: WorkspaceNode[],
+  selectedPath: string | null,
+): DeploymentActionIntents {
+  const files = flattenFiles(nodes);
+  const staticEntry = resolveStaticEntry(files, selectedPath);
+  const dockerfile = files.find((file) => file.path === 'Dockerfile');
+  return {
+    static_site: {
+      payload: staticEntry ? { kind: 'static_site', entry_path: staticEntry.path } : { kind: 'static_site' },
+      detail: staticEntry ? `静态入口：${staticEntry.path}` : '未找到 HTML 入口文件',
+      disabledReason: staticEntry ? null : '需要 index.html 或 HTML 入口文件',
+    },
+    source_zip: {
+      payload: { kind: 'source_zip' },
+      detail: files.length ? '导出当前 workspace 源码包' : 'workspace 暂无文件',
+      disabledReason: null,
+    },
+    container: {
+      payload: { kind: 'container' },
+      detail: dockerfile ? '容器入口：Dockerfile' : '缺少 Dockerfile',
+      disabledReason: dockerfile ? null : '需要 Dockerfile 才能容器部署',
+    },
+  };
+}
+
+function resolveStaticEntry(
+  files: Array<Extract<WorkspaceNode, { type: 'file' }>>,
+  selectedPath: string | null,
+) {
+  if (selectedPath && isHtmlPath(selectedPath)) {
+    const selected = files.find((file) => file.path === selectedPath);
+    if (selected) return selected;
+  }
+  return (
+    files.find((file) => file.path.toLowerCase() === 'index.html') ??
+    files.find((file) => isHtmlPath(file.path)) ??
+    null
+  );
+}
+
+function isHtmlPath(path: string): boolean {
+  return /\.html?$/i.test(path);
 }
 
 function ContextPanel({

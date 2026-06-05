@@ -55,6 +55,42 @@ open http://localhost:5173
 - 后端 API 文档：http://localhost:8000/docs
 - 后端健康检查：http://localhost:8000/health
 
+### External runtime smoke checks
+
+OpenCode is executed inside the backend container as a CLI runtime. After
+building and starting Docker, verify it with:
+
+```bash
+docker compose exec backend opencode --version
+docker compose exec backend opencode auth list
+docker compose exec backend env | grep OPENCODE
+```
+
+OpenCode credentials can be provided through backend `.env` provider keys, or by
+running `docker compose exec backend opencode auth login`. The compose file keeps
+that login state in the `opencode-state` volume.
+
+Claude Code is also executed inside the backend container. Verify the SDK and
+runtime auth surface with:
+
+```bash
+docker compose exec backend python -c "import claude_agent_sdk; print('sdk ok')"
+docker compose exec backend sh -lc 'ls -la $AGENTHUB_CLAUDE_AUTH_DIR'
+docker compose exec backend env | grep -E 'ANTHROPIC|CLAUDE|AGENTHUB_CLAUDE'
+docker compose exec backend sh -lc 'HOME=$AGENTHUB_CLAUDE_AUTH_DIR claude -p "只回复 OK" --output-format text'
+```
+
+Claude Code credentials can be provided through backend `.env` provider keys
+such as `ANTHROPIC_API_KEY`, or through persisted CLI login state in the
+`claude-state` volume. To populate that volume interactively, run Claude with
+`HOME=$AGENTHUB_CLAUDE_AUTH_DIR` inside the backend container so `.claude.json`
+and `.claude/` are stored in the shared auth directory.
+
+Simple direct-chat shortcut replies can use the configured QA model backend and
+do not prove that Claude SDK/CLI task execution is available. Artifact/build
+tasks use the Claude SDK runtime first, then the CLI fallback only if the SDK
+module is absent; both runtime paths must pass AgentHub's backend auth probe.
+
 ## 📁 项目结构
 
 ```

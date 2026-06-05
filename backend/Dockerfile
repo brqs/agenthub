@@ -7,22 +7,50 @@ ARG ALL_PROXY
 ARG http_proxy
 ARG https_proxy
 ARG all_proxy
+ARG NODE_MAJOR=22
+ARG OPENCODE_VERSION=latest
+ARG CLAUDE_CODE_VERSION=latest
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=120 \
-    PIP_RETRIES=10
+    PIP_RETRIES=10 \
+    PATH="/root/.local/bin:/usr/local/bin:${PATH}"
 
 WORKDIR /app
 
 # 系统依赖（asyncpg 编译需要）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    ca-certificates \
+    curl \
     docker-cli \
     docker.io \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# External runtimes. Keep these CLIs in the backend image because B2 invokes them
+# via subprocess inside the AgentHub workspace container.
+RUN HTTP_PROXY="${HTTP_PROXY:-$http_proxy}" \
+    HTTPS_PROXY="${HTTPS_PROXY:-$https_proxy}" \
+    ALL_PROXY="${ALL_PROXY:-$all_proxy}" \
+    http_proxy="${http_proxy:-$HTTP_PROXY}" \
+    https_proxy="${https_proxy:-$HTTPS_PROXY}" \
+    all_proxy="${all_proxy:-$ALL_PROXY}" \
+    install -d -m 0755 /etc/apt/keyrings \
+    && curl -fsSL "https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key" \
+        | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" \
+        > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && npm install -g "opencode-ai@${OPENCODE_VERSION}" \
+    && claude --version \
+    && opencode --version \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
 
 # 安装 Python 依赖
 COPY pyproject.toml ./

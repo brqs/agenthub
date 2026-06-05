@@ -1,5 +1,18 @@
 # Stream Error Status Spec
 
+## 2026-06-05 Update: Visible Error Content
+
+An error terminal state must always leave user-visible diagnostic content in
+`Message.content`. B1 must persist a short safe text block for every terminal
+`event:error`, including adapter errors, timeout errors, missing agent errors,
+and no-runnable-agent errors. If a `task_card` was already emitted, the same
+terminal error must also finalize that card as failed.
+
+Frontend rendering may keep a defensive fallback for historical
+`status=error && content=[]` messages, but new backend writes must not create an
+empty red error bubble. Duplicate equivalent error text should be avoided during
+retry, reconnect, and late terminal-event handling.
+
 > 状态：Implemented historical boundary
 > 最后更新：2026-06-03
 > Owner：B1（B2 Adapter error chunk 协同边界）

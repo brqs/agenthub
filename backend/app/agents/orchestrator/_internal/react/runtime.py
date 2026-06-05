@@ -167,9 +167,17 @@ async def run_react_loop(
             break
 
     final_summary = summary_text(task_graph, task_states, run_context)
-    await _finish_memory_run(config, run_context, final_summary)
+    run_status = _final_run_status(task_graph, task_states)
+    await _finish_memory_run(config, run_context, final_summary, status=run_status)
     for chunk, updated_block_index in text_block_with_next(next_block_index, final_summary):
         yield chunk, updated_block_index
+    if run_status == "error":
+        yield StreamChunk(
+            event_type="error",
+            error_code="orchestrator_task_failed",
+            error=_run_error_summary(task_graph, task_states, run_context),
+            agent_id="orchestrator",
+        ), next_block_index
 
 def react_enabled(config: Mapping[str, Any]) -> bool:
     return config.get("react_enabled") is True
@@ -195,7 +203,7 @@ def _all_tasks_terminal(task_states: Mapping[str, TaskState]) -> bool:
     return all(state != TaskState.PENDING for state in task_states.values())
 
 def react_trace_visible(config: Mapping[str, Any]) -> bool:
-    return config.get("react_trace_visible", True) is not False
+    return config.get("react_trace_visible", False) is True
 
 async def _record_react_decision_event(
     config: Mapping[str, Any],
@@ -228,6 +236,8 @@ async def _finish_memory_run(
     config: Mapping[str, Any],
     run_context: OrchestratorRunContext,
     final_summary: str,
+    *,
+    status: str,
 ) -> None:
     if run_context.memory_run_id is None:
         return
@@ -238,7 +248,7 @@ async def _finish_memory_run(
     try:
         await finish_run(
             run_id=run_context.memory_run_id,
-            status="done",
+            status=status,
             final_summary=final_summary,
         )
     except Exception:  # noqa: BLE001
@@ -268,6 +278,41 @@ def _react_trace_text(iteration: int, observation: str, action_summary: str) -> 
         f"Action: {action_summary}",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _final_run_status(
+    tasks: list[SubTask],
+    task_states: Mapping[str, TaskState],
+) -> str:
+    return "error" if _has_failed_required_task(tasks, task_states) else "done"
+
+
+def _has_failed_required_task(
+    tasks: list[SubTask],
+    task_states: Mapping[str, TaskState],
+) -> bool:
+    return any(
+        task.task_type == "implementation"
+        and task_states.get(task.task_id) == TaskState.FAILED
+        for task in tasks
+    )
+
+
+def _run_error_summary(
+    tasks: list[SubTask],
+    task_states: Mapping[str, TaskState],
+    run_context: OrchestratorRunContext,
+) -> str:
+    for task in tasks:
+        if task.task_type != "implementation":
+            continue
+        if task_states.get(task.task_id) != TaskState.FAILED:
+            continue
+        result = run_context.results.get(task.task_id)
+        if result is not None and result.attempts and result.attempts[-1].error:
+            return f"{task.title} failed: {result.attempts[-1].error}"
+        return f"{task.title} failed."
+    return "Orchestrator task failed."
 
 def _react_action_summary(decision: ReactDecision) -> str:
     summaries: list[str] = []

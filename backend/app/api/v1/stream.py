@@ -43,6 +43,8 @@ router = APIRouter()
 
 _ContentAccumulator = StreamContentAccumulator
 workflow_runtime_service = WorkspaceWorkflowRuntimeService()
+ERROR_TEXT_MAX_CHARS = 1200
+GENERIC_STREAM_ERROR_TEXT = "Agent stream failed. Please retry."
 
 
 @dataclass
@@ -250,16 +252,69 @@ async def _mark_stream_error(
     refreshed = await db.get(Message, message_id)
     if refreshed is None:
         return
-    accumulator.finalize_task_cards(success=False)
-    content = accumulator.to_list()
-    error_block = {"type": "text", "text": text}
-    refreshed.content = [*content, error_block] if content else [error_block]
+    refreshed.content = _error_content_blocks(accumulator, text)
     refreshed.status = "error"
     message.status = "error"
     try:
         await db.commit()
     except Exception:
         await db.rollback()
+
+
+async def _persist_stream_error(
+    db: AsyncSession,
+    message: Message,
+    accumulator: _ContentAccumulator,
+    chunk: StreamChunk,
+) -> None:
+    message.content = _error_content_blocks(
+        accumulator,
+        _chunk_error_text(chunk),
+        agent_id=chunk.agent_id,
+    )
+    message.status = "error"
+    await db.commit()
+
+
+def _error_content_blocks(
+    accumulator: _ContentAccumulator,
+    text: str,
+    *,
+    agent_id: str | None = None,
+) -> list[dict[str, Any]]:
+    accumulator.finalize_task_cards(success=False)
+    content = accumulator.to_list()
+    error_text = _safe_error_text(text)
+    if _content_has_error_text(content, error_text):
+        return content
+    error_block: dict[str, Any] = {"type": "text", "text": error_text}
+    if agent_id:
+        error_block["agent_id"] = agent_id
+    return [*content, error_block]
+
+
+def _chunk_error_text(chunk: StreamChunk) -> str:
+    error = _safe_error_text(chunk.error or "")
+    if chunk.error_code and chunk.error_code not in error:
+        return f"{chunk.error_code}: {error}"
+    return error
+
+
+def _safe_error_text(text: str) -> str:
+    cleaned = " ".join(str(text or "").replace("\x00", "").split())
+    if not cleaned:
+        return GENERIC_STREAM_ERROR_TEXT
+    if len(cleaned) > ERROR_TEXT_MAX_CHARS:
+        return f"{cleaned[:ERROR_TEXT_MAX_CHARS]}..."
+    return cleaned
+
+
+def _content_has_error_text(content: list[dict[str, Any]], error_text: str) -> bool:
+    normalized = _safe_error_text(error_text)
+    return any(
+        block.get("type") == "text" and normalized in str(block.get("text") or "")
+        for block in content
+    )
 
 
 async def _mark_orphaned_stream_error(db: AsyncSession, message: Message) -> None:
@@ -316,13 +371,13 @@ async def _runtime_event_generator(
     stream_config: dict[str, Any] | None = None
     try:
         if not message.agent_id:
-            message.status = "error"
-            await db.commit()
-            yield StreamChunk(
+            chunk = StreamChunk(
                 event_type="error",
                 error_code="missing_agent",
                 error="Message has no agent_id",
-            ).to_sse()
+            )
+            await _persist_stream_error(db, message, accumulator, chunk)
+            yield chunk.to_sse()
             return
 
         adapter = await get_adapter(message.agent_id, db)
@@ -384,16 +439,12 @@ async def _runtime_event_generator(
                 break
             accumulator_error = accumulator.feed(chunk)
             if accumulator_error is not None:
-                message.content = accumulator.to_list()
-                message.status = "error"
-                await db.commit()
+                await _persist_stream_error(db, message, accumulator, accumulator_error)
                 yield accumulator_error.to_sse()
                 return
             yield chunk.to_sse()
             if chunk.event_type == "error":
-                message.content = accumulator.to_list()
-                message.status = "error"
-                await db.commit()
+                await _persist_stream_error(db, message, accumulator, chunk)
                 return
 
         # Persist
@@ -409,9 +460,7 @@ async def _runtime_event_generator(
             for preview_chunk in preview_chunks:
                 accumulator_error = accumulator.feed(preview_chunk)
                 if accumulator_error is not None:
-                    message.content = accumulator.to_list()
-                    message.status = "error"
-                    await db.commit()
+                    await _persist_stream_error(db, message, accumulator, accumulator_error)
                     yield accumulator_error.to_sse()
                     return
                 yield preview_chunk.to_sse()
@@ -446,11 +495,11 @@ async def _runtime_event_generator(
         )
         raise
     except AgentNotFoundError as e:
-        message.status = "error"
-        await db.commit()
-        yield StreamChunk(
+        chunk = StreamChunk(
             event_type="error", error_code="agent_not_found", error=str(e)
-        ).to_sse()
+        )
+        await _persist_stream_error(db, message, accumulator, chunk)
+        yield chunk.to_sse()
     except Exception as e:  # noqa: BLE001
         await _mark_stream_error(db, message, accumulator, str(e))
         yield StreamChunk(

@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator.availability import (
+    is_runnable_agent_context,
+    runnable_agent_id,
+    runnable_agent_ids,
+    scoped_runnable_agent_ids,
+)
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 TASK_PLAN_TOOL_NAME = "submit_task_plan"
@@ -301,29 +307,14 @@ def _task_plan_tool() -> ToolSpec:
 
 
 def _available_agent_ids(config: Mapping[str, Any]) -> list[str]:
-    ids = _agent_ids_from_available_agents(config.get("available_agents"))
-    if ids:
-        return ids
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return scoped_ids
     return _agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))
 
 
 def _agent_ids_from_available_agents(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    ids: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, Mapping):
-            continue
-        raw_id = item.get("agent_id", item.get("id"))
-        if not isinstance(raw_id, str):
-            continue
-        agent_id = raw_id.strip()
-        if not agent_id or agent_id == "orchestrator" or agent_id in seen:
-            continue
-        seen.add(agent_id)
-        ids.append(agent_id)
-    return ids
+    return runnable_agent_ids(value)
 
 
 def _agent_id_list(value: object) -> list[str]:
@@ -357,12 +348,12 @@ def _available_agents_description(
 def _available_agent_lines(available_agents: list[object]) -> list[str]:
     lines: list[str] = []
     for item in available_agents:
-        if not isinstance(item, Mapping):
+        if not isinstance(item, Mapping) or not is_runnable_agent_context(item):
             continue
-        raw_id = item.get("agent_id", item.get("id"))
-        if not isinstance(raw_id, str) or not raw_id.strip():
+        agent_id = runnable_agent_id(item)
+        if agent_id is None:
             continue
-        line = _available_agent_line(raw_id.strip(), item)
+        line = _available_agent_line(agent_id, item)
         if line:
             lines.append(line)
     return lines

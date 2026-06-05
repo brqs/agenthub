@@ -356,6 +356,36 @@ describe('chatStore', () => {
     });
   });
 
+  it('replaces streaming conversation preview when a stream finishes', () => {
+    useChatStore.getState().hydrateConversations([
+      {
+        ...structuredClone(mockConversations[0]!),
+        id: 'conv-preview-done',
+        last_message_preview: null,
+      },
+    ]);
+    const messageId = addStreamingMessage('conv-preview-done');
+    const store = useChatStore.getState();
+
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: { block_index: 0, block_type: 'text' },
+    });
+    expect(useChatStore.getState().conversations[0].last_message_preview).toBe(
+      'Agent 正在流式回复...',
+    );
+
+    store.applyStreamEvent(messageId, {
+      event: 'delta',
+      data: { block_index: 0, text_delta: 'finished output' },
+    });
+    store.applyStreamEvent(messageId, { event: 'done', data: { total_blocks: 1 } });
+
+    expect(useChatStore.getState().conversations[0].last_message_preview).toBe(
+      'finished output',
+    );
+  });
+
   it('lets hydrated done snapshots recover a locally errored message', () => {
     const messageId = addStreamingMessage('conv-hydrate-done');
     const store = useChatStore.getState();

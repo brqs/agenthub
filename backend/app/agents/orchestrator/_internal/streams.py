@@ -55,7 +55,10 @@ async def remapped_sub_stream(
                         agent_id=agent_id,
                     ), next_block_index, False
                     open_block_index = None
-                attempt.error = error_reason(chunk)
+                reason = error_reason(chunk)
+                if attempt.error and chunk.error_code == "runtime_idle_timeout":
+                    reason = attempt.error
+                attempt.error = reason
                 attempt.state = TaskState.FAILED
                 text = failure_text(task, attempt.error, agent_id)
                 for failure_chunk in text_block(

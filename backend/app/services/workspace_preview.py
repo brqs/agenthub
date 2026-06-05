@@ -343,15 +343,14 @@ class WorkspacePreviewService:
         for session in sessions:
             if session.snapshot_path is None or session.last_accessed_at < cutoff:
                 await self._stop_process(session)
-                remove_error: str | None = None
                 try:
                     self._remove_snapshot(session)
-                except WorkspaceViolation as exc:
+                    session.error = None
+                except (OSError, WorkspaceViolation) as exc:
                     session.snapshot_path = None
                     session.artifact_digest = None
-                    remove_error = str(exc)
+                    session.error = f"preview cleanup failed: {exc}"
                 session.status = "stopped"
-                session.error = remove_error
                 self._touch(session)
                 cleaned += 1
         if cleaned:

@@ -4,11 +4,16 @@ import { indexArtifactsByPath } from '@/components/artifact/richArtifactModel';
 import { ReviewThreadTimeline } from '@/components/chat/ReviewThreadTimeline';
 import { useOrchestratorRunForMessage } from '@/hooks/useOrchestratorRuns';
 import { useWorkspaceArtifacts } from '@/hooks/useWorkspace';
-import type { DemoMessage } from '@/lib/mockData';
+import type { DemoContentBlock, DemoMessage } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
 import { AtSign, Pin, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
+
+const EMPTY_ERROR_FALLBACK_BLOCK: DemoContentBlock = {
+  type: 'text',
+  text: '调用失败：后端未返回错误详情，请重试。',
+};
 
 export function MessageBubble({
   message,
@@ -164,33 +169,58 @@ export function MessageBubble({
 }
 
 function MessageContent({ message, agents }: { message: DemoMessage; agents: Agent[] }) {
-  const hasFileBlock = message.content.some((block) => block.type === 'file');
+  const visibleBlocks = visibleMessageBlocks(message);
+  const hasFileBlock = visibleBlocks.some((block) => block.type === 'file');
   if (!hasFileBlock) {
     return (
       <ContentRenderer
-        blocks={message.content}
+        blocks={visibleBlocks}
         agents={agents}
         streaming={message.status === 'streaming'}
         conversationId={message.conversation_id}
       />
     );
   }
-  return <ManifestAwareMessageContent message={message} agents={agents} />;
+  return <ManifestAwareMessageContent message={message} agents={agents} blocks={visibleBlocks} />;
 }
 
-function ManifestAwareMessageContent({ message, agents }: { message: DemoMessage; agents: Agent[] }) {
+function ManifestAwareMessageContent({
+  message,
+  agents,
+  blocks,
+}: {
+  message: DemoMessage;
+  agents: Agent[];
+  blocks: DemoContentBlock[];
+}) {
   const artifactsQuery = useWorkspaceArtifacts(message.conversation_id, true);
   const artifactManifestByPath = indexArtifactsByPath(artifactsQuery.data);
 
   return (
     <ContentRenderer
-      blocks={message.content}
+      blocks={blocks}
       agents={agents}
       streaming={message.status === 'streaming'}
       conversationId={message.conversation_id}
       artifactManifestByPath={artifactManifestByPath}
     />
   );
+}
+
+export function visibleMessageBlocks(message: DemoMessage): DemoContentBlock[] {
+  if (message.status === 'error' && message.content.length === 0) {
+    return [EMPTY_ERROR_FALLBACK_BLOCK];
+  }
+  if (message.agent_id !== 'orchestrator' || message.status !== 'done') {
+    return message.content;
+  }
+  return message.content.filter((block) => !isLegacyOrchestratorTraceBlock(block));
+}
+
+function isLegacyOrchestratorTraceBlock(block: DemoContentBlock): boolean {
+  if (block.type !== 'text') return false;
+  const text = block.text.trim();
+  return text.startsWith('ReAct step ') || text.startsWith('Execution summary');
 }
 
 function ReviewThreadForMessage({ message, agents }: { message: DemoMessage; agents: Agent[] }) {

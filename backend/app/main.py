@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
@@ -12,13 +13,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.releases import router as releases_router
 from app.api.v1 import api_router
 from app.core.config import settings
+from app.core.database import SessionFactory
+from app.services.builtin_agent_config import upgrade_builtin_orchestrator_config
 from app.services.workspace.janitor import WorkspaceResourceJanitor
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown hooks."""
     _ = app
+    await _upgrade_builtin_agent_configs()
     janitor = WorkspaceResourceJanitor()
     await janitor.cleanup_once()
     task = asyncio.create_task(janitor.run_forever())
@@ -28,6 +34,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+
+
+async def _upgrade_builtin_agent_configs() -> None:
+    try:
+        async with SessionFactory() as db:
+            changed = await upgrade_builtin_orchestrator_config(db)
+            if changed:
+                await db.commit()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to upgrade built-in agent configs: %s", exc)
 
 
 app = FastAPI(

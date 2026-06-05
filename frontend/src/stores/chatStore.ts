@@ -182,6 +182,43 @@ function completeRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
   });
 }
 
+function failRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
+  return blocks.map((block) => {
+    if (block.type !== 'task_card') return block;
+    return {
+      ...block,
+      tasks: block.tasks.map((task) =>
+        task.status === 'running' ? { ...task, status: 'error' as const } : task,
+      ),
+    };
+  });
+}
+
+function previewFromMessage(message: DemoMessage): string | null {
+  for (const block of message.content) {
+    if (block.type === 'text' && block.text.trim()) {
+      return block.text.trim();
+    }
+    if (block.type === 'code' && block.code.trim()) {
+      return `Code: ${block.language || 'text'}`;
+    }
+    if (block.type === 'task_card') {
+      return `${block.title}: ${block.tasks.length} tasks`;
+    }
+    if (block.type === 'agent_switch') {
+      return `${block.to_agent}: ${block.task}`;
+    }
+    if (block.type === 'tool_call') {
+      return `${block.tool_name}: ${block.status}`;
+    }
+    if (block.type === 'file') {
+      return block.path || block.filename;
+    }
+  }
+  if (message.status === 'error') return 'Agent response failed';
+  return null;
+}
+
 function applyToolCall(
   blocks: DemoContentBlock[],
   event: Extract<StreamEvent, { event: 'tool_call' }>,
@@ -392,37 +429,50 @@ export const useChatStore = create<ChatState>((set) => ({
   applyStreamEvent: (messageId, event) => {
     set((state) => {
       let touchedConversationId: string | null = null;
+      let touchedMessage: DemoMessage | null = null;
       const nextMessagesByConversation = Object.fromEntries(
         Object.entries(state.messagesByConversation).map(([conversationId, messages]) => {
           const nextMessages = messages.map((message) => {
             if (message.id !== messageId) return message;
             touchedConversationId = conversationId;
             if (message.status === 'done' && event.event === 'error') {
+              touchedMessage = message;
               return message;
             }
             if (event.event === 'start') {
               if (message.status === 'done') return message;
-              return { ...message, status: 'streaming' as const };
+              const nextMessage = { ...message, status: 'streaming' as const };
+              touchedMessage = nextMessage;
+              return nextMessage;
             }
             if (event.event === 'done') {
-              return {
+              const nextMessage = {
                 ...message,
                 status: 'done' as const,
                 content: completeRunningTasks(message.content),
               };
+              touchedMessage = nextMessage;
+              return nextMessage;
             }
             if (event.event === 'error') {
               const errorMessage = event.data.error ?? event.data.error_code ?? 'unknown error';
-              return {
+              const nextMessage = {
                 ...message,
                 status: 'error' as const,
-                content: appendText(message.content, `\n\n调用失败：${errorMessage}`),
+                content: appendText(
+                  failRunningTasks(message.content),
+                  `\n\n调用失败：${errorMessage}`,
+                ),
               };
+              touchedMessage = nextMessage;
+              return nextMessage;
             }
-            return {
+            const nextMessage = {
               ...message,
               content: applyDelta(message.content, event),
             };
+            touchedMessage = nextMessage;
+            return nextMessage;
           });
           return [conversationId, nextMessages];
         }),
@@ -434,7 +484,14 @@ export const useChatStore = create<ChatState>((set) => ({
               ? {
                   ...conversation,
                   last_message_at: new Date().toISOString(),
-                  last_message_preview: 'Agent 正在流式回复...',
+                  last_message_preview:
+                    touchedMessage?.status === 'streaming'
+                      ? 'Agent 正在流式回复...'
+                      : touchedMessage
+                        ? (previewFromMessage(touchedMessage) ??
+                          conversation.last_message_preview ??
+                          null)
+                        : conversation.last_message_preview,
                 }
               : conversation,
           )
