@@ -6,6 +6,9 @@ from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from app.agents.orchestrator._internal.execution.presentation import (
+    presented_response_text,
+)
 from app.agents.orchestrator._internal.react.decision import _react_decision
 from app.agents.orchestrator._internal.react.graph import _apply_react_decision
 from app.agents.orchestrator._internal.react.types import ReactDecision, ReactDecisionError
@@ -115,19 +118,19 @@ async def run_react_loop(
                 agent_id_list=agent_id_list,
                 error_reason=error_reason,
             )
-            task_graph, task_states, finish_reason = _apply_react_decision(
-                decision,
-                task_graph,
-                task_states,
-                config,
-                agent_id_list,
-            )
             await _record_react_decision_event(
                 config,
                 run_context,
                 iteration,
                 observation,
                 decision,
+            )
+            task_graph, task_states, finish_reason = _apply_react_decision(
+                decision,
+                task_graph,
+                task_states,
+                config,
+                agent_id_list,
             )
         except ReactDecisionError as exc:
             can_continue = _next_runnable_task(task_graph, task_states) is not None
@@ -167,17 +170,17 @@ async def run_react_loop(
             break
 
     final_summary = summary_text(task_graph, task_states, run_context)
-    run_status = _final_run_status(task_graph, task_states)
-    await _finish_memory_run(config, run_context, final_summary, status=run_status)
-    for chunk, updated_block_index in text_block_with_next(next_block_index, final_summary):
+    await _finish_memory_run(config, run_context, final_summary)
+    presented_summary = await presented_response_text(
+        config,
+        messages,
+        task_graph,
+        task_states,
+        run_context,
+        final_summary,
+    )
+    for chunk, updated_block_index in text_block_with_next(next_block_index, presented_summary):
         yield chunk, updated_block_index
-    if run_status == "error":
-        yield StreamChunk(
-            event_type="error",
-            error_code="orchestrator_task_failed",
-            error=_run_error_summary(task_graph, task_states, run_context),
-            agent_id="orchestrator",
-        ), next_block_index
 
 def react_enabled(config: Mapping[str, Any]) -> bool:
     return config.get("react_enabled") is True
@@ -236,8 +239,6 @@ async def _finish_memory_run(
     config: Mapping[str, Any],
     run_context: OrchestratorRunContext,
     final_summary: str,
-    *,
-    status: str,
 ) -> None:
     if run_context.memory_run_id is None:
         return
@@ -248,7 +249,7 @@ async def _finish_memory_run(
     try:
         await finish_run(
             run_id=run_context.memory_run_id,
-            status=status,
+            status="done",
             final_summary=final_summary,
         )
     except Exception:  # noqa: BLE001
@@ -278,41 +279,6 @@ def _react_trace_text(iteration: int, observation: str, action_summary: str) -> 
         f"Action: {action_summary}",
     ]
     return "\n".join(lines) + "\n"
-
-
-def _final_run_status(
-    tasks: list[SubTask],
-    task_states: Mapping[str, TaskState],
-) -> str:
-    return "error" if _has_failed_required_task(tasks, task_states) else "done"
-
-
-def _has_failed_required_task(
-    tasks: list[SubTask],
-    task_states: Mapping[str, TaskState],
-) -> bool:
-    return any(
-        task.task_type == "implementation"
-        and task_states.get(task.task_id) == TaskState.FAILED
-        for task in tasks
-    )
-
-
-def _run_error_summary(
-    tasks: list[SubTask],
-    task_states: Mapping[str, TaskState],
-    run_context: OrchestratorRunContext,
-) -> str:
-    for task in tasks:
-        if task.task_type != "implementation":
-            continue
-        if task_states.get(task.task_id) != TaskState.FAILED:
-            continue
-        result = run_context.results.get(task.task_id)
-        if result is not None and result.attempts and result.attempts[-1].error:
-            return f"{task.title} failed: {result.attempts[-1].error}"
-        return f"{task.title} failed."
-    return "Orchestrator task failed."
 
 def _react_action_summary(decision: ReactDecision) -> str:
     summaries: list[str] = []

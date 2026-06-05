@@ -52,10 +52,10 @@ from app.agents.orchestrator._internal.execution.events import (
     error_reason as _error_reason,
 )
 from app.agents.orchestrator._internal.execution.events import (
-    is_read_before_write_error as _is_read_before_write_error,
-)
-from app.agents.orchestrator._internal.execution.events import (
     refresh_and_record_workspace_conflicts as _refresh_and_record_workspace_conflicts,
+)
+from app.agents.orchestrator._internal.execution.presentation import (
+    presented_response_text as _presented_response_text,
 )
 from app.agents.orchestrator._internal.execution.review import (
     review_outcome as _review_outcome,
@@ -200,52 +200,8 @@ def _task_card_block(
 def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> str:
     _ = task
     _ = agent_id
-    return f"failed: {_display_error(reason)}\n"
-
-
-def _final_run_status(
-    tasks: list[SubTask],
-    task_states: Mapping[str, TaskState],
-) -> str:
-    return "error" if _has_failed_required_task(tasks, task_states) else "done"
-
-
-def _has_failed_required_task(
-    tasks: list[SubTask],
-    task_states: Mapping[str, TaskState],
-) -> bool:
-    return any(
-        _is_required_task(task) and task_states.get(task.task_id) == TaskState.FAILED
-        for task in tasks
-    )
-
-
-def _is_required_task(task: SubTask) -> bool:
-    return task.task_type == "implementation"
-
-
-def _run_error_summary(
-    tasks: list[SubTask],
-    task_states: Mapping[str, TaskState],
-    run_context: OrchestratorRunContext,
-) -> str:
-    for task in tasks:
-        if not _is_required_task(task):
-            continue
-        if task_states.get(task.task_id) != TaskState.FAILED:
-            continue
-        result = run_context.results.get(task.task_id)
-        if result is not None and result.attempts:
-            error = result.attempts[-1].error
-            if error:
-                return f"{task.title} failed: {_display_error(error)}"
-        return f"{task.title} failed."
-    return "Orchestrator task failed."
-
-
-def _display_error(reason: str) -> str:
-    text = " ".join(str(reason).split())
-    return text[:500] if len(text) > 500 else text
+    _ = reason
+    return "The delegated task did not complete successfully.\n"
 
 
 @dataclass(slots=True)
@@ -329,20 +285,20 @@ async def _run_static_tasks(
 
     refresh_workspace_conflicts(run_context)
     final_summary = _summary_text(task_sequence, task_states, run_context)
-    run_status = _final_run_status(task_sequence, task_states)
-    await _memory_finish_run(config, run_context, run_status, final_summary)
+    await _memory_finish_run(config, run_context, "done", final_summary)
+    presented_summary = await _presented_response_text(
+        config,
+        messages,
+        task_sequence,
+        task_states,
+        run_context,
+        final_summary,
+    )
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
-        final_summary,
+        presented_summary,
     ):
         yield chunk, updated_block_index
-    if run_status == "error":
-        yield StreamChunk(
-            event_type="error",
-            error_code="orchestrator_task_failed",
-            error=_run_error_summary(task_sequence, task_states, run_context),
-            agent_id="orchestrator",
-        ), next_block_index
 
 
 
@@ -411,7 +367,6 @@ async def _run_task(
                 messages,
                 run_context,
                 config,
-                workspace_path=workspace_path,
                 previous_attempt=task_result.attempts[-2]
                 if len(task_result.attempts) > 1
                 else None,
@@ -523,9 +478,6 @@ async def _run_task(
         task_result.final_state = attempt.state
         if attempt.state == TaskState.SUCCEEDED:
             break
-        if _should_retry_read_before_write(task_result, attempt, agent_id):
-            attempted_agents.discard(agent_id)
-            continue
         if not _can_retry_task(task_result, fallback_agents, max_attempts):
             break
 
@@ -570,22 +522,6 @@ def _sub_agent_stream_config(
     )
     stream_config["runtime_context"] = runtime_context
     return stream_config
-
-
-def _should_retry_read_before_write(
-    result: TaskResult,
-    attempt: TaskAttempt,
-    agent_id: str,
-) -> bool:
-    if len(result.attempts) != 1:
-        return False
-    if attempt.state != TaskState.FAILED:
-        return False
-    if agent_id != "claude-code":
-        return False
-    return _is_read_before_write_error(attempt.error) or any(
-        _is_read_before_write_error(summary) for summary in attempt.tool_summaries
-    )
 
 
 async def _run_parallel_tasks(
@@ -662,20 +598,20 @@ async def _run_parallel_tasks(
 
     refresh_workspace_conflicts(run_context)
     final_summary = _summary_text(task_sequence, task_states, run_context)
-    run_status = _final_run_status(task_sequence, task_states)
-    await _memory_finish_run(config, run_context, run_status, final_summary)
+    await _memory_finish_run(config, run_context, "done", final_summary)
+    presented_summary = await _presented_response_text(
+        config,
+        messages,
+        task_sequence,
+        task_states,
+        run_context,
+        final_summary,
+    )
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
-        final_summary,
+        presented_summary,
     ):
         yield chunk, updated_block_index
-    if run_status == "error":
-        yield StreamChunk(
-            event_type="error",
-            error_code="orchestrator_task_failed",
-            error=_run_error_summary(task_sequence, task_states, run_context),
-            agent_id="orchestrator",
-        ), next_block_index
 
 
 async def _stream_parallel_batch(

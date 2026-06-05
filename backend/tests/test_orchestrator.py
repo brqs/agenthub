@@ -8,6 +8,9 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
+
+import app.agents.orchestrator.execution as orchestrator_execution
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.orchestrator.artifacts import (
@@ -15,7 +18,12 @@ from app.agents.orchestrator.artifacts import (
     extract_artifact_paths_from_text,
     finalize_artifact_candidates,
 )
-from app.agents.orchestrator.types import SubTask, TaskAttempt, TaskState
+from app.agents.orchestrator.types import (
+    OrchestratorRunContext,
+    SubTask,
+    TaskAttempt,
+    TaskState,
+)
 from app.agents.orchestrator.workspace_changes import (
     diff_workspace_snapshots,
     snapshot_workspace,
@@ -106,79 +114,6 @@ class BlockingAfterStartAdapter(BaseAgentAdapter):
         )
         yield StreamChunk(event_type="block_end", block_index=0)
         yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
-
-
-class ReadBeforeWriteRetryAdapter(BaseAgentAdapter):
-    provider = "fake"
-
-    def __init__(self, agent_id: str, *, succeed_on_retry: bool = True) -> None:
-        super().__init__(agent_id=agent_id)
-        self.calls: list[list[ChatMessage]] = []
-        self.succeed_on_retry = succeed_on_retry
-
-    async def stream(
-        self,
-        messages: list[ChatMessage],
-        *,
-        system_prompt: str | None = None,
-        config: dict[str, Any] | None = None,
-        workspace_path: Path | None = None,
-        tool_specs: list[Any] | None = None,
-    ):
-        _ = system_prompt, config, tool_specs
-        self.calls.append(messages)
-        yield StreamChunk(event_type="start", agent_id=self.agent_id)
-        if len(self.calls) == 1 or not self.succeed_on_retry:
-            yield StreamChunk(
-                event_type="tool_call",
-                call_id="write-1",
-                tool_name="Write",
-                tool_arguments={"path": "index.html"},
-            )
-            yield StreamChunk(
-                event_type="tool_result",
-                call_id="write-1",
-                tool_status="error",
-                tool_output=(
-                    "<tool_use_error>File has not been read yet. "
-                    "Read it first before writing to it.</tool_use_error>"
-                ),
-            )
-            yield StreamChunk(
-                event_type="error",
-                agent_id=self.agent_id,
-                error_code="runtime_idle_timeout",
-                error="External runtime exceeded idle_timeout_seconds",
-            )
-            return
-
-        assert workspace_path is not None
-        (workspace_path / "index.html").write_text("<html>fixed</html>", encoding="utf-8")
-        yield StreamChunk(
-            event_type="tool_call",
-            call_id="read-1",
-            tool_name="Read",
-            tool_arguments={"path": "index.html"},
-        )
-        yield StreamChunk(
-            event_type="tool_result",
-            call_id="read-1",
-            tool_status="ok",
-            tool_output="old index",
-        )
-        yield StreamChunk(
-            event_type="tool_call",
-            call_id="write-2",
-            tool_name="Write",
-            tool_arguments={"path": "index.html"},
-        )
-        yield StreamChunk(
-            event_type="tool_result",
-            call_id="write-2",
-            tool_status="ok",
-            tool_output="wrote index.html",
-        )
-        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=0)
 
 
 class FakeMemoryWriter:
@@ -396,7 +331,8 @@ async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -
     assert [chunk.event_type for chunk in chunks].count("start") == 1
     assert [chunk.event_type for chunk in chunks].count("done") == 1
     assert any(
-        chunk.event_type == "delta" and "Planned 2 sub-task(s)" in (chunk.text_delta or "")
+        chunk.event_type == "delta"
+        and "I'll handle this in 2 step(s):" in (chunk.text_delta or "")
         for chunk in chunks
     )
     task_cards = [
@@ -432,7 +368,10 @@ async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -
     ]
     assert any(chunk.text_delta == "backend done" for chunk in chunks)
     assert any(chunk.text_delta == "frontend done" for chunk in chunks)
-    assert any("Execution summary" in (chunk.text_delta or "") for chunk in chunks)
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "Completed:" in text
+    assert "- Backend API" in text
+    assert "- Frontend UI" in text
     assert not any(
         chunk.event_type == "delta" and (chunk.text_delta or "").startswith("@agent-")
         for chunk in chunks
@@ -488,9 +427,9 @@ async def test_orchestrator_agent_review_thread_auto_reviews_artifact_task(
     assert "Agent-to-Agent Review Thread" in reviewer.received_messages[-1].content
     assert "review_outcome: passed" in reviewer.received_messages[-1].content
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert "@agent-b [review] - Review Write report" in summary
-    assert "review_of: task-a" in summary
-    assert "review outcome: passed" in summary
+    assert "Review Write report" in summary
+    assert "Review passed." in summary
+    assert "report.md" in summary
 
 
 async def test_orchestrator_rich_artifact_updates_manifest(
@@ -639,9 +578,9 @@ async def test_orchestrator_agent_review_thread_schedules_repair_on_failed_revie
     assert "Agent-to-Agent Repair Thread" in implementation.received_messages[-1].content
     assert "review_outcome: needs_repair" in implementation.received_messages[-1].content
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert "review outcome: needs_repair" in summary
-    assert "- succeeded: @agent-a - Repair Write report after review" in summary
-    assert "handoff: Repair requested by @agent-b review (needs_repair)" in summary
+    assert "Review found changes to address." in summary
+    assert "Repair Write report after review" in summary
+    assert "Review feedback was captured for follow-up or repair." in summary
 
 
 async def test_orchestrator_parallel_review_thread_schedules_one_repair_task(
@@ -693,9 +632,9 @@ async def test_orchestrator_parallel_review_thread_schedules_one_repair_task(
         ("agent-a", "Repair Write report after review"),
     ]
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert "review outcome: needs_repair" in summary
-    assert "- succeeded: @agent-a - Repair Write report after review" in summary
-    assert "handoff: Repair requested by @agent-b review (needs_repair)" in summary
+    assert "Review found changes to address." in summary
+    assert "Repair Write report after review" in summary
+    assert "Review feedback was captured for follow-up or repair." in summary
 
 
 async def test_review_thread_parses_fenced_outcome_without_artifact_evaluation(
@@ -740,8 +679,8 @@ async def test_review_thread_parses_fenced_outcome_without_artifact_evaluation(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
 
-    assert "- succeeded: @agent-b - Review Write report" in summary
-    assert "review outcome: needs_repair" in summary
+    assert "Review Write report" in summary
+    assert "Review found changes to address." in summary
     assert "Repair Write report after review" in summary
     assert "evaluation_failed: @agent-b - Review Write report" not in summary
 
@@ -764,7 +703,7 @@ async def test_orchestrator_hides_subagent_text_by_default() -> None:
     assert chunks[-1].event_type == "done"
     assert any(chunk.event_type == "agent_switch" for chunk in chunks)
     assert not any(chunk.text_delta == "large sub-agent output" for chunk in chunks)
-    assert any("Execution summary" in (chunk.text_delta or "") for chunk in chunks)
+    assert any("Completed:" in (chunk.text_delta or "") for chunk in chunks)
 
 
 async def test_orchestrator_parallel_executes_independent_tasks_concurrently() -> None:
@@ -832,6 +771,161 @@ async def test_orchestrator_parallel_streams_before_batch_completion() -> None:
     _assert_blocks_balanced(chunks)
 
 
+async def test_orchestrator_parallel_worker_exception_cancels_remaining_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    worker_started = asyncio.Event()
+    cancelled_task_ids: set[str] = set()
+    original_cancel = orchestrator_execution._cancel_parallel_workers
+    cancelled_worker_batches: list[list[asyncio.Task[None]]] = []
+
+    async def spy_cancel_parallel_workers(
+        workers: list[asyncio.Task[None]],
+    ) -> None:
+        cancelled_worker_batches.append(workers)
+        await original_cancel(workers)
+
+    async def fake_run_task(
+        config,
+        task: SubTask,
+        messages,
+        next_block_index,
+        run_context,
+        workspace_path,
+        tool_specs,
+    ):
+        _ = config, messages, run_context, workspace_path, tool_specs
+        yield (
+            StreamChunk(
+                event_type="agent_switch",
+                from_agent="orchestrator",
+                to_agent=task.agent_id,
+                task=task.title,
+            ),
+            next_block_index,
+        )
+        if task.task_id == "task-a":
+            await worker_started.wait()
+            raise RuntimeError("parallel worker boom")
+        worker_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled_task_ids.add(task.task_id)
+            raise
+
+    monkeypatch.setattr(
+        orchestrator_execution,
+        "_cancel_parallel_workers",
+        spy_cancel_parallel_workers,
+    )
+    monkeypatch.setattr(orchestrator_execution, "_run_task", fake_run_task)
+
+    stream = orchestrator_execution._stream_parallel_batch(
+        {},
+        [
+            SubTask.from_mapping(
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1)
+            ),
+            SubTask.from_mapping(
+                _task("task-b", "agent-b", "Task B", "Do B", priority=1)
+            ),
+        ],
+        [ChatMessage(role="user", content="Run two tasks in parallel")],
+        OrchestratorRunContext(),
+        None,
+        None,
+        0,
+    )
+
+    with pytest.raises(RuntimeError, match="parallel worker boom"):
+        async for _chunk, _updated_block_index in stream:
+            pass
+
+    assert cancelled_worker_batches
+    assert all(worker.done() for worker in cancelled_worker_batches[0])
+    assert cancelled_task_ids == {"task-b"}
+
+
+async def test_orchestrator_parallel_stream_consumer_cancel_cleans_up_workers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cancelled_task_ids: set[str] = set()
+    original_cancel = orchestrator_execution._cancel_parallel_workers
+    cancelled_worker_batches: list[list[asyncio.Task[None]]] = []
+
+    async def spy_cancel_parallel_workers(
+        workers: list[asyncio.Task[None]],
+    ) -> None:
+        cancelled_worker_batches.append(workers)
+        await original_cancel(workers)
+
+    async def fake_run_task(
+        config,
+        task: SubTask,
+        messages,
+        next_block_index,
+        run_context,
+        workspace_path,
+        tool_specs,
+    ):
+        _ = config, messages, run_context, workspace_path, tool_specs
+        try:
+            yield (
+                StreamChunk(
+                    event_type="agent_switch",
+                    from_agent="orchestrator",
+                    to_agent=task.agent_id,
+                    task=task.title,
+                ),
+                next_block_index,
+            )
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled_task_ids.add(task.task_id)
+            raise
+
+    monkeypatch.setattr(
+        orchestrator_execution,
+        "_cancel_parallel_workers",
+        spy_cancel_parallel_workers,
+    )
+    monkeypatch.setattr(orchestrator_execution, "_run_task", fake_run_task)
+
+    stream = orchestrator_execution._stream_parallel_batch(
+        {},
+        [
+            SubTask.from_mapping(
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1)
+            ),
+            SubTask.from_mapping(
+                _task("task-b", "agent-b", "Task B", "Do B", priority=1)
+            ),
+        ],
+        [ChatMessage(role="user", content="Run two tasks in parallel")],
+        OrchestratorRunContext(),
+        None,
+        None,
+        0,
+    )
+    iterator = stream.__aiter__()
+    seen_agent_ids: set[str] = set()
+    try:
+        while seen_agent_ids != {"agent-a", "agent-b"}:
+            chunk, _updated_block_index = await asyncio.wait_for(
+                anext(iterator),
+                timeout=1,
+            )
+            if chunk.event_type == "agent_switch" and chunk.to_agent is not None:
+                seen_agent_ids.add(chunk.to_agent)
+    finally:
+        await iterator.aclose()
+
+    assert cancelled_worker_batches
+    assert all(worker.done() for worker in cancelled_worker_batches[0])
+    assert cancelled_task_ids == {"task-a", "task-b"}
+
+
 async def test_orchestrator_parallel_takes_precedence_over_react_for_multi_task() -> None:
     started: set[str] = set()
     all_started = asyncio.Event()
@@ -896,8 +990,8 @@ async def test_orchestrator_parallel_skips_failed_dependency() -> None:
 
     assert not dependent.received_messages
     summary = "\n".join(chunk.text_delta or "" for chunk in chunks)
-    assert "failed: @agent-a - Task A" in summary
-    assert "skipped: @agent-b - Task B" in summary
+    assert "Task A: did not complete successfully" in summary
+    assert "Task B: skipped because an earlier step did not complete" in summary
 
 
 async def test_orchestrator_records_workspace_conflicts_in_summary(
@@ -930,10 +1024,9 @@ async def test_orchestrator_records_workspace_conflicts_in_summary(
     )
 
     summary = "\n".join(chunk.text_delta or "" for chunk in chunks)
-    assert "conflicts: shared.txt" in summary
-    assert "Workspace conflicts:" in summary
-    assert "@agent-a/task-a" in summary
-    assert "@agent-b/task-b" in summary
+    assert "shared.txt: concurrent workspace edits may need review" in summary
+    assert "@agent-a/task-a" not in summary
+    assert "@agent-b/task-b" not in summary
 
 
 async def test_orchestrator_remaps_block_indices_without_collisions() -> None:
@@ -1048,10 +1141,15 @@ async def test_orchestrator_attribution_marks_subagent_tool_failure_and_summary(
     tool_result = next(chunk for chunk in chunks if chunk.event_type == "tool_result")
     output_delta = next(chunk for chunk in chunks if chunk.text_delta == "agent output")
     failure_delta = next(
-        chunk for chunk in chunks if chunk.text_delta == "failed: boom\n"
+        chunk
+        for chunk in chunks
+        if chunk.text_delta == "The delegated task did not complete successfully.\n"
     )
     summary_delta = next(
-        chunk for chunk in chunks if "Execution summary" in (chunk.text_delta or "")
+        chunk
+        for chunk in chunks
+        if chunk.agent_id == "orchestrator"
+        and "Work: did not complete successfully" in (chunk.text_delta or "")
     )
 
     assert tool_call.call_id == "task-a.c-1"
@@ -1060,121 +1158,6 @@ async def test_orchestrator_attribution_marks_subagent_tool_failure_and_summary(
     assert output_delta.agent_id == "agent-a"
     assert failure_delta.agent_id == "agent-a"
     assert summary_delta.agent_id == "orchestrator"
-
-
-async def test_orchestrator_injects_workspace_inventory_without_history(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "index.html").write_text("<html>old</html>", encoding="utf-8")
-    (tmp_path / "styles.css").write_text("body {}", encoding="utf-8")
-    adapter_a = FakeSubAdapter("agent-a", _text_chunks("done"))
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    await _collect(
-        orchestrator,
-        workspace_path=tmp_path,
-        config={
-            "tasks": [
-                _task(
-                    "task-a",
-                    "agent-a",
-                    "Build",
-                    "Create index.html",
-                    expected_output="index.html\nstyles.css\napp.js",
-                    include_history=False,
-                )
-            ],
-            "sub_adapters": {"agent-a": adapter_a},
-        },
-    )
-
-    system_messages = [
-        message.content for message in adapter_a.received_messages if message.role == "system"
-    ]
-    joined = "\n".join(system_messages)
-    assert "Workspace inventory for this task" in joined
-    assert "Current root entries: index.html, styles.css" in joined
-    assert "Existing expected artifacts: index.html, styles.css" in joined
-    assert "read or inspect that file first" in joined
-    assert not any(
-        message.role == "user" and message.content == "Build a todo app"
-        for message in adapter_a.received_messages
-    )
-
-
-async def test_orchestrator_retries_claude_read_before_write_once(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "index.html").write_text("<html>old</html>", encoding="utf-8")
-    adapter_a = ReadBeforeWriteRetryAdapter("claude-code")
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        workspace_path=tmp_path,
-        config={
-            "tasks": [
-                _task(
-                    "task-a",
-                    "claude-code",
-                    "Build",
-                    "Create index.html",
-                    expected_output="index.html",
-                    include_history=False,
-                )
-            ],
-            "sub_adapters": {"claude-code": adapter_a},
-        },
-    )
-
-    assert len(adapter_a.calls) == 2
-    assert (tmp_path / "index.html").read_text(encoding="utf-8") == "<html>fixed</html>"
-    agent_switches = [chunk for chunk in chunks if chunk.event_type == "agent_switch"]
-    assert [chunk.to_agent for chunk in agent_switches] == ["claude-code", "claude-code"]
-    assert not any(chunk.event_type == "error" for chunk in chunks)
-    assert any(
-        chunk.event_type == "tool_result"
-        and chunk.call_id == "task-a.write-1"
-        and chunk.tool_status == "error"
-        for chunk in chunks
-    )
-    second_call_context = "\n".join(
-        message.content for message in adapter_a.calls[1] if message.role == "system"
-    )
-    assert "Previous attempt failure" in second_call_context
-    assert "Read the existing file before writing" in second_call_context
-
-
-async def test_orchestrator_read_before_write_retry_failure_keeps_clear_error(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "index.html").write_text("<html>old</html>", encoding="utf-8")
-    adapter_a = ReadBeforeWriteRetryAdapter("claude-code", succeed_on_retry=False)
-    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
-
-    chunks = await _collect(
-        orchestrator,
-        workspace_path=tmp_path,
-        config={
-            "tasks": [
-                _task(
-                    "task-a",
-                    "claude-code",
-                    "Build",
-                    "Create index.html",
-                    expected_output="index.html",
-                    include_history=False,
-                )
-            ],
-            "sub_adapters": {"claude-code": adapter_a},
-        },
-    )
-
-    assert len(adapter_a.calls) == 2
-    error_chunk = next(chunk for chunk in chunks if chunk.event_type == "error")
-    assert error_chunk.error_code == "orchestrator_task_failed"
-    assert "Read the existing file before writing" in (error_chunk.error or "")
-    assert "idle_timeout_seconds" not in (error_chunk.error or "")
 
 
 async def test_orchestrator_does_not_require_database() -> None:
@@ -1520,7 +1503,7 @@ async def test_orchestrator_derives_workspace_conflict_plan_without_llm(
     assert chunks[-1].event_type == "done"
     assert planner.calls == []
     assert (tmp_path / "shared-conflict.md").exists()
-    assert "Workspace conflicts" in text
+    assert "concurrent workspace edits may need review" in text
     assert "shared-conflict.md" in text
 
 
@@ -1652,10 +1635,9 @@ async def test_orchestrator_smoke_flows_create_then_verify_html(
     verifier_system_messages = [
         message for message in verifier.received_messages if message.role == "system"
     ]
-    summary = planning_text.split("Execution summary", 1)[1]
 
     assert chunks[-1].event_type == "done"
-    assert "Planned 2 sub-task(s) via LLM planner/config" in planning_text
+    assert "I'll handle this in 2 step(s):" in planning_text
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["codex-helper", "opencode-helper"]
@@ -1664,9 +1646,9 @@ async def test_orchestrator_smoke_flows_create_then_verify_html(
     assert "create-html @codex-helper succeeded" in verifier_system_messages[0].content
     assert html_path in verifier_system_messages[0].content
     assert "Created orchestrator-flow-smoke.html" in verifier_system_messages[0].content
-    assert "- succeeded: @codex-helper - Create smoke HTML" in summary
-    assert "- succeeded: @opencode-helper - Verify smoke HTML" in summary
-    assert f"artifacts: {html_path}" in summary
+    assert "Create smoke HTML" in planning_text
+    assert "Verify smoke HTML" in planning_text
+    assert html_path in planning_text
     assert "Checked orchestrator-flow-smoke.html" in planning_text
     assert "title=True" in planning_text
     assert "input=True" in planning_text
@@ -1804,8 +1786,8 @@ async def test_orchestrator_marks_missing_expected_artifact(tmp_path: Path) -> N
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- artifact_missing: @agent-a - Create HTML" in summary
-    assert "missing: snake.html" in summary
+    assert "Create HTML: expected file output was not found" in summary
+    assert "snake.html" in summary
 
 
 async def test_orchestrator_does_not_treat_future_text_mentions_as_artifacts(
@@ -1853,8 +1835,9 @@ async def test_orchestrator_does_not_treat_future_text_mentions_as_artifacts(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- succeeded: @agent-a - Write plan" in summary
-    assert "missing:" not in summary
+    assert "Write plan" in summary
+    assert "TASK_BREAKDOWN.md" in summary
+    assert "expected file output was not found" not in summary
 
 
 async def test_orchestrator_artifact_missing_triggers_per_task_fallback(
@@ -1909,9 +1892,9 @@ async def test_orchestrator_artifact_missing_triggers_per_task_fallback(
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b"]
     assert tool_call.call_id == "task-a.attempt-2.c-1"
-    assert "- succeeded: @agent-b - Create HTML" in summary
-    assert "attempt 1 @agent-a: artifact_missing" in summary
-    assert "artifacts: snake.html" in summary
+    assert "Create HTML" in summary
+    assert "A retry/repair completed successfully." in summary
+    assert "snake.html" in summary
 
 
 async def test_orchestrator_evaluation_repairs_empty_document(
@@ -1955,9 +1938,9 @@ async def test_orchestrator_evaluation_repairs_empty_document(
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b"]
-    assert "- succeeded: @agent-b - Write report" in summary
-    assert "attempt 1 @agent-a: evaluation_failed" in summary
-    assert "document_quality/empty_document" in summary
+    assert "Write report" in summary
+    assert "An earlier validation failed; the repair passed afterward." in summary
+    assert "A retry/repair completed successfully." in summary
     assert "Previous attempt failure" in adapter_b.received_messages[-2].content
     assert "Revise the workspace artifacts" in adapter_b.received_messages[-2].content
     assert "This is a repair attempt" in adapter_b.received_messages[-2].content
@@ -2040,9 +2023,8 @@ async def test_orchestrator_evaluation_fails_invalid_python_without_fatal(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- evaluation_failed: @agent-a - Write Python" in summary
-    assert "code_static_quality/parse_error" in summary
-    assert "Fix the syntax in app.py" in summary
+    assert "Write Python: validation did not pass" in summary
+    assert "1 need attention" in summary
 
 
 async def test_orchestrator_evaluation_can_be_disabled(tmp_path: Path) -> None:
@@ -2074,7 +2056,7 @@ async def test_orchestrator_evaluation_can_be_disabled(tmp_path: Path) -> None:
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- succeeded: @agent-a - Write Python" in summary
+    assert "Write Python" in summary
     assert "evaluation_failed" not in summary
 
 
@@ -2107,7 +2089,7 @@ async def test_orchestrator_evaluation_skips_over_read_budget(tmp_path: Path) ->
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- succeeded: @agent-a - Write report" in summary
+    assert "Write report" in summary
     assert "document_quality" not in summary
 
 
@@ -2142,7 +2124,7 @@ async def test_orchestrator_evaluation_ignores_sensitive_expected_output(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- succeeded: @agent-a - Write sensitive report" in summary
+    assert "Write sensitive report" in summary
     assert "evaluation_failed" not in summary
 
 
@@ -2178,9 +2160,8 @@ async def test_orchestrator_test_runner_allowlist_reports_failure(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- evaluation_failed: @agent-a - Run tests" in summary
-    assert "test_report_quality/test_runner_failed" in summary
-    assert "py_compile" in summary
+    assert "Run tests: validation did not pass" in summary
+    assert "need attention" in summary
 
 
 async def test_orchestrator_workflow_validation_rejects_dangling_edge(
@@ -2216,8 +2197,8 @@ async def test_orchestrator_workflow_validation_rejects_dangling_edge(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- evaluation_failed: @agent-a - Create workflow" in summary
-    assert "workflow_validation/workflow_dangling_edge_target" in summary
+    assert "Create workflow: validation did not pass" in summary
+    assert "need attention" in summary
 
 
 async def test_orchestrator_workflow_validation_triggers_dry_run(
@@ -2291,8 +2272,8 @@ async def test_orchestrator_workflow_validation_triggers_dry_run(
     assert workflow_starts[0].metadata is not None
     assert workflow_starts[0].metadata["path"] == "workflow.json"
     assert chunks[-1].event_type == "done"
-    assert "- succeeded: @agent-a - Create workflow" in summary
-    assert "workflow dry-run: workflow.json passed" in summary
+    assert "Create workflow" in summary
+    assert "Workflow dry-run for workflow.json passed." in summary
 
 
 async def test_orchestrator_ppt_validation_rejects_empty_slides(
@@ -2325,8 +2306,8 @@ async def test_orchestrator_ppt_validation_rejects_empty_slides(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- evaluation_failed: @agent-a - Create PPT" in summary
-    assert "ppt_validation/ppt_no_slides" in summary
+    assert "Create PPT: validation did not pass" in summary
+    assert "need attention" in summary
 
 
 async def test_orchestrator_pptx_validation_rejects_corrupt_binary(
@@ -2359,8 +2340,8 @@ async def test_orchestrator_pptx_validation_rejects_corrupt_binary(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- evaluation_failed: @agent-a - Create PPT" in summary
-    assert "ppt_validation/pptx_parse_error" in summary
+    assert "Create PPT: validation did not pass" in summary
+    assert "need attention" in summary
 
 
 async def test_orchestrator_parallel_evaluation_failure_skips_dependency(
@@ -2408,8 +2389,8 @@ async def test_orchestrator_parallel_evaluation_failure_skips_dependency(
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "- evaluation_failed: @agent-a - Write report" in summary
-    assert "- skipped: @agent-b - Review report" in summary
+    assert "Write report: validation did not pass" in summary
+    assert "Review report: skipped because an earlier step did not complete" in summary
     assert not (tmp_path / "review.md").exists()
 
 
@@ -2446,8 +2427,8 @@ async def test_orchestrator_subagent_error_triggers_per_task_fallback() -> None:
     ] == ["agent-a", "agent-b"]
     assert "Previous attempt failure" in adapter_b.received_messages[-2].content
     assert "idle timeout" in adapter_b.received_messages[-2].content
-    assert "- succeeded: @agent-b - Work" in summary
-    assert "attempt 1 @agent-a: failed - idle timeout" in summary
+    assert "Work" in summary
+    assert "A retry/repair completed successfully." in summary
 
 
 async def test_orchestrator_fallbacks_are_limited_to_current_agents() -> None:
@@ -2481,10 +2462,11 @@ async def test_orchestrator_fallbacks_are_limited_to_current_agents() -> None:
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b"]
     assert "web-designer" not in summary
-    assert "- succeeded: @agent-b - Work" in summary
+    assert "Work" in summary
+    assert "A retry/repair completed successfully." in summary
 
 
-async def test_orchestrator_all_fallback_attempts_fail_terminal_error() -> None:
+async def test_orchestrator_all_fallback_attempts_fail_still_done() -> None:
     adapter_a = FakeSubAdapter(
         "agent-a",
         [StreamChunk(event_type="error", error_code="boom", error="first failed")],
@@ -2506,11 +2488,9 @@ async def test_orchestrator_all_fallback_attempts_fail_terminal_error() -> None:
     )
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
-    assert "- failed: @agent-b - Work" in summary
-    assert "attempt 1 @agent-a: failed - first failed" in summary
-    assert "attempt 2 @agent-b: failed - second failed" in summary
+    assert chunks[-1].event_type == "done"
+    assert "Work: did not complete successfully" in summary
+    assert "I could not complete the request successfully yet." in summary
 
 
 async def test_orchestrator_requires_task_plan_or_emits_clear_error() -> None:
@@ -2551,15 +2531,18 @@ async def test_orchestrator_intercepts_subagent_error_chunk() -> None:
         },
     )
 
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "failed: too many requests\n"
+        and chunk.text_delta == "The delegated task did not complete successfully.\n"
         for chunk in chunks
     )
-    assert any("- failed: @agent-a - Backend API" in (chunk.text_delta or "") for chunk in chunks)
+    assert any(
+        "Backend API: did not complete successfully" in (chunk.text_delta or "")
+        for chunk in chunks
+    )
 
 
 async def test_orchestrator_continues_after_subagent_stream_exception() -> None:
@@ -2589,24 +2572,21 @@ async def test_orchestrator_continues_after_subagent_stream_exception() -> None:
         },
     )
 
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
     assert any(chunk.text_delta == "partial from a" for chunk in chunks)
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "failed: upstream connection lost\n"
+        and chunk.text_delta == "The delegated task did not complete successfully.\n"
         for chunk in chunks
     )
     assert any(chunk.text_delta == "from b" for chunk in chunks)
     assert any(
-        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        "Backend API: did not complete successfully" in (chunk.text_delta or "")
         for chunk in chunks
     )
-    assert any(
-        "- succeeded: @agent-b - Frontend UI" in (chunk.text_delta or "")
-        for chunk in chunks
-    )
+    assert any("- Frontend UI" in (chunk.text_delta or "") for chunk in chunks)
     _assert_blocks_balanced(chunks)
 
 
@@ -2637,23 +2617,20 @@ async def test_orchestrator_continues_after_subagent_error_chunk() -> None:
         },
     )
 
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "failed: too many requests\n"
+        and chunk.text_delta == "The delegated task did not complete successfully.\n"
         for chunk in chunks
     )
     assert any(chunk.text_delta == "from b" for chunk in chunks)
     assert any(
-        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        "Backend API: did not complete successfully" in (chunk.text_delta or "")
         for chunk in chunks
     )
-    assert any(
-        "- succeeded: @agent-b - Frontend UI" in (chunk.text_delta or "")
-        for chunk in chunks
-    )
+    assert any("- Frontend UI" in (chunk.text_delta or "") for chunk in chunks)
 
 
 async def test_orchestrator_skips_tasks_with_failed_dependencies() -> None:
@@ -2689,24 +2666,25 @@ async def test_orchestrator_skips_tasks_with_failed_dependencies() -> None:
         },
     )
 
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
     assert not any(
         chunk.event_type == "agent_switch" and chunk.to_agent == "agent-b"
         for chunk in chunks
     )
     assert not any(chunk.text_delta == "from b" for chunk in chunks)
     assert any(
-        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        "Backend API: did not complete successfully" in (chunk.text_delta or "")
         for chunk in chunks
     )
     assert any(
-        "- skipped: @agent-b - Frontend UI" in (chunk.text_delta or "")
+        "Frontend UI: skipped because an earlier step did not complete"
+        in (chunk.text_delta or "")
         for chunk in chunks
     )
 
 
-async def test_orchestrator_all_tasks_fail_terminal_error() -> None:
+async def test_orchestrator_all_tasks_fail_still_done() -> None:
     adapter_a = FakeSubAdapter(
         "agent-a",
         [
@@ -2744,14 +2722,14 @@ async def test_orchestrator_all_tasks_fail_terminal_error() -> None:
         },
     )
 
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
     assert any(
-        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        "Backend API: did not complete successfully" in (chunk.text_delta or "")
         for chunk in chunks
     )
     assert any(
-        "- failed: @agent-b - Frontend UI" in (chunk.text_delta or "")
+        "Frontend UI: did not complete successfully" in (chunk.text_delta or "")
         for chunk in chunks
     )
 
@@ -2777,23 +2755,20 @@ async def test_orchestrator_adapter_factory_exception_is_task_failure() -> None:
         },
     )
 
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert not any(chunk.event_type == "error" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "failed: factory broken\n"
+        and chunk.text_delta == "The delegated task did not complete successfully.\n"
         for chunk in chunks
     )
     assert any(chunk.text_delta == "from b" for chunk in chunks)
     assert any(
-        "- failed: @agent-a - Backend API" in (chunk.text_delta or "")
+        "Backend API: did not complete successfully" in (chunk.text_delta or "")
         for chunk in chunks
     )
-    assert any(
-        "- succeeded: @agent-b - Frontend UI" in (chunk.text_delta or "")
-        for chunk in chunks
-    )
+    assert any("- Frontend UI" in (chunk.text_delta or "") for chunk in chunks)
 
 
 async def test_orchestrator_fallback_adapter_handles_invalid_task_plan() -> None:
@@ -2824,7 +2799,7 @@ async def test_orchestrator_fallback_adapter_handles_invalid_task_plan() -> None
     )
     assert any(chunk.text_delta == "fallback result" for chunk in chunks)
     assert any(
-        "- fallback: single agent mode" in (chunk.text_delta or "")
+        "routed it to one available agent" in (chunk.text_delta or "")
         for chunk in chunks
     )
 
@@ -2899,7 +2874,7 @@ async def test_orchestrator_fallback_closes_open_block_on_exception() -> None:
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "claude-code"
-        and chunk.text_delta == "failed: fallback crashed\n"
+        and chunk.text_delta == "The fallback agent did not complete successfully.\n"
         for chunk in chunks
     )
     _assert_blocks_balanced(chunks)
@@ -2931,4 +2906,6 @@ async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() 
     assert adapter.default_config["llm_planning"] is True
     assert adapter.default_config["orchestrator_parallel_enabled"] is True
     assert adapter.default_config["react_enabled"] is True
-    assert adapter.default_config["planner_model_backend"] == "deepseek"
+    assert adapter.default_config["react_trace_visible"] is False
+    assert adapter.default_config["orchestrator_response_polish_enabled"] is True
+    assert adapter.default_config["planner_model_backend"] == "claude"

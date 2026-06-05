@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator._internal.execution.presentation import (
+    ToolResultFact,
+    presented_response_text,
+)
 from app.agents.orchestrator._internal.streams import attach_agent_id
 from app.agents.orchestrator._internal.tools.catalog import (
     available_agent_ids,
@@ -19,7 +23,6 @@ from app.agents.orchestrator._internal.tools.dispatch import (
 from app.agents.orchestrator._internal.tools.streaming import (
     _deployment_status_card,
     _normalize_tool_call,
-    _remap_block_index,
     _tool_call_chunk,
     _tool_result_chunk,
     _tool_result_message,
@@ -100,11 +103,11 @@ async def run_orchestrator_tool_loop(
     read_max_bytes = _read_max_bytes(config, positive_int_config)
     visible_trace = tool_trace_visible(config)
     final_text_parts: list[str] = []
+    dispatched_tasks: list[SubTask] = []
+    tool_result_facts: list[ToolResultFact] = []
 
     for iteration in range(1, max_iterations + 1):
         tool_calls: list[OrchestratorToolCall] = []
-        open_block_index: int | None = None
-        index_map: dict[int, int] = {}
         try:
             async for chunk in gateway.stream(
                 _tool_messages(config, current_messages),
@@ -121,12 +124,6 @@ async def run_orchestrator_tool_loop(
                         yield _tool_call_chunk(call), next_block_index
                     continue
                 if chunk.event_type == "error":
-                    if open_block_index is not None:
-                        yield StreamChunk(
-                            event_type="block_end",
-                            block_index=open_block_index,
-                            agent_id="orchestrator",
-                        ), next_block_index
                     await _finish_memory_run(
                         config,
                         run_context,
@@ -138,27 +135,9 @@ async def run_orchestrator_tool_loop(
                 if chunk.event_type == "heartbeat":
                     yield attach_agent_id(chunk, "orchestrator"), next_block_index
                     continue
-                if chunk.event_type not in {"block_start", "delta", "block_end"}:
-                    continue
                 if chunk.text_delta:
                     final_text_parts.append(chunk.text_delta)
-                remapped, next_block_index = _remap_block_index(
-                    chunk,
-                    index_map,
-                    next_block_index,
-                )
-                if remapped.event_type == "block_start":
-                    open_block_index = remapped.block_index
-                elif remapped.event_type == "block_end":
-                    open_block_index = None
-                yield attach_agent_id(remapped, "orchestrator"), next_block_index
         except Exception as exc:
-            if open_block_index is not None:
-                yield StreamChunk(
-                    event_type="block_end",
-                    block_index=open_block_index,
-                    agent_id="orchestrator",
-                ), next_block_index
             await _finish_memory_run(config, run_context, "error", str(exc))
             yield StreamChunk(
                 event_type="error",
@@ -170,13 +149,21 @@ async def run_orchestrator_tool_loop(
 
         if not tool_calls:
             final_summary = "".join(final_text_parts).strip() or "Tool calling completed."
-            if not final_text_parts:
-                for chunk, updated_block_index in text_block_with_next(
-                    next_block_index,
-                    final_summary,
-                ):
-                    next_block_index = updated_block_index
-                    yield chunk, updated_block_index
+            presented_summary = await presented_response_text(
+                config,
+                messages,
+                dispatched_tasks,
+                {},
+                run_context,
+                final_summary,
+                tool_results=tool_result_facts,
+            )
+            for chunk, updated_block_index in text_block_with_next(
+                next_block_index,
+                presented_summary,
+            ):
+                next_block_index = updated_block_index
+                yield chunk, updated_block_index
             await _finish_memory_run(config, run_context, "done", final_summary)
             return
 
@@ -187,6 +174,7 @@ async def run_orchestrator_tool_loop(
                 if isinstance(task_or_result, OrchestratorToolResult):
                     result = task_or_result
                 else:
+                    dispatched_tasks.append(task_or_result)
                     async for chunk, updated_block_index in run_task(
                         config,
                         task_or_result,
@@ -213,6 +201,14 @@ async def run_orchestrator_tool_loop(
                     result_max_chars=result_max_chars,
                     read_max_bytes=read_max_bytes,
                 )
+            tool_result_facts.append(
+                ToolResultFact(
+                    tool_name=call.name,
+                    status=result.status,
+                    output=result.output,
+                    arguments=call.arguments,
+                )
+            )
             await _record_tool_event(config, run_context, call, result)
             result_lines.append(_tool_result_message(call, result))
             if visible_trace:

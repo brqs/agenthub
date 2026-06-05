@@ -315,6 +315,7 @@ def _not_supported_reason(definition: Mapping[str, Any]) -> str | None:
     for node in nodes:
         assert isinstance(node, Mapping)
         if str(node["type"]) == "action":
+            # not_supported means external-runtime-required, not deterministic failure.
             return "workflow action nodes require a non-local runtime"
     return None
 

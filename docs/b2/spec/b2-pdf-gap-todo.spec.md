@@ -38,6 +38,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-05 更新：Orchestrator / services / memory / live E2E 脚本重构后已完成全功能前后端联调与 API fallback 回归。前端 UI smoke、deployment direct API、P1 attribution/workflow/workflow runtime/review/rich artifact/evaluation repair、quality/fullstack preview、Capability Profile v1/v2 均为 `passed=true`。本轮发现并修复并行 executor 延迟转发子 Agent stream、Claude SDK session 复用冲突、evaluation repair prompt 被原始 TODO expected output 覆盖三项问题。
 
+2026-06-05 追加更新：Orchestrator 用户可见最终回复已接入 response presentation 层，普通聊天流默认不再输出 `ReAct step` / `Observation` / raw tool result / planner debug 文案；raw execution summary 与 review/evaluation/workflow/deployment 证据仍保留在 memory、run detail 和结构化 block 中。`react_trace_visible` seed/default 已改为 `false`，并新增可选 LLM response polish 配置及 deterministic fallback。本轮完成本地回归、`seed_agents`、本机/公网 `/health` 和轻量公网 smoke；未执行全功能公网 E2E。
+
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
 
 ---

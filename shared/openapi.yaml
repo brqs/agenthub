@@ -1824,6 +1824,29 @@ components:
           nullable: true
           default: null
           title: Orchestrator Tool Read Max Bytes
+        orchestrator_response_polish_enabled:
+          type: boolean
+          nullable: true
+          default: null
+          title: Orchestrator Response Polish Enabled
+        orchestrator_response_polish_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          default: null
+          description: ModelGateway backend for Orchestrator final response polish.
+          title: Orchestrator Response Polish Model Backend
+        orchestrator_response_polish_max_tokens:
+          type: integer
+          minimum: 1
+          maximum: 4096
+          nullable: true
+          default: null
+          title: Orchestrator Response Polish Max Tokens
         orchestrator_parallel_enabled:
           type: boolean
           nullable: true
@@ -4743,6 +4766,33 @@ components:
           title: Orchestrator Tool Read Max Bytes
           minimum: 1
           maximum: 1048576
+        orchestrator_response_polish_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Orchestrator Response Polish Enabled
+        orchestrator_response_polish_model_backend:
+          anyOf:
+          - enum:
+            - claude
+            - deepseek
+            - openai
+            type: string
+          - type: 'null'
+          default: null
+          description: ModelGateway backend for Orchestrator final response polish.
+          title: Orchestrator Response Polish Model Backend
+        orchestrator_response_polish_max_tokens:
+          anyOf:
+          - maximum: 4096
+            minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          title: Orchestrator Response Polish Max Tokens
+          minimum: 1
+          maximum: 4096
         orchestrator_parallel_enabled:
           anyOf:
           - type: boolean

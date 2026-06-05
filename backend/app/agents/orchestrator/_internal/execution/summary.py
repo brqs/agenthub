@@ -22,10 +22,9 @@ from app.agents.types import ChatMessage
 
 
 def planning_text(tasks: list[SubTask]) -> str:
-    lines = [f"Planned {len(tasks)} sub-task(s) via {plan_source(tasks)}:"]
+    lines = [f"I'll handle this in {len(tasks)} step(s):"]
     for index, task in enumerate(tasks, 1):
-        label = "" if task.task_type == "implementation" else f" [{task.task_type}]"
-        lines.append(f"{index}. @{task.agent_id}{label} - {task.title}")
+        lines.append(f"{index}. {task.title}")
     return "\n".join(lines) + "\n"
 
 
@@ -40,7 +39,10 @@ def plan_source(tasks: list[SubTask]) -> str:
 
 
 def fallback_summary_text() -> str:
-    return "Execution summary\n\n- fallback: single agent mode\n"
+    return (
+        "I could not build a full task plan for this request, so I routed it to "
+        "one available agent and returned its result.\n"
+    )
 
 
 def summary_text(
