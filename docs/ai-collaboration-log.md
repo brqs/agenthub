@@ -1509,3 +1509,39 @@ live E2E 脚本也需要稳定 facade：环境与路径契约集中管理，runn
 
 ### 经验
 service 根目录适合保留跨领域主要入口，领域内部协作模块应进入 package。路径迁移时除 Python imports 外，还必须检查 `python -m` 字符串、文档命令和部署 Skill。
+
+## 2026-06-05 — Codex 执行重构后全功能 E2E 与 repair loop
+
+### 任务
+在 Orchestrator、Memory / Capability Profile、services 和 live E2E 脚本重构后，按设计文档和 Skill 重新执行全功能前后端联调；前端不可覆盖的部分使用公网后端 API/SSE fallback 验收。
+
+### 关键 Prompt
+> 请执行计划
+
+### AI 输出摘要
+1. 先跑前端 UI smoke，验证公网前端 `http://154.44.25.94:1573` 可登录、进入群聊并收到 Orchestrator 回复；随后以公网后端 API/SSE 覆盖 B2 后端核心能力。
+2. 修复并行 executor 等待 batch 完成后才转发子 Agent chunk 的问题，改为 queue-based streaming，避免 fullstack 场景 SSE idle timeout。
+3. 修复 Claude SDK session 复用问题：Orchestrator 子任务使用 task/attempt scoped session id 和 runtime home，direct 单 Agent 保持原 session 语义。
+4. 修复 evaluation repair loop 中 repair instruction 太弱的问题：reflection 现在明确覆盖故意失败、TODO-only、placeholder-only 产物要求，并列出失败 artifact target，确保 fallback/repair attempt 能真正改正产物。
+5. 本地回归：Orchestrator / evaluation / memory / workflow / stream targeted pytest `124 passed`；Ruff、Mypy、`git diff --check` passed。
+6. 按 backend deploy Skill 重启后端，PID `247387 -> 268246`；Alembic `7e8f9012abcd (head)`；本机与公网 `/health` 均返回 `{"status":"ok"}`；Orchestrator config API 断言仍为 `llm_planning=true`、并行 enabled、concurrency 3、ReAct enabled。
+7. 公网 E2E reports 均为 `passed=true`：
+   - `/tmp/agenthub_frontend_ui_smoke_report.json`
+   - `/tmp/agenthub_deployment_release_api_e2e_report.json`
+   - `/tmp/agenthub_p1_attribution_report.json`
+   - `/tmp/agenthub_custom_agent_tools_report.json`
+   - `/tmp/agenthub_p1_workflow_report.json`
+   - `/tmp/agenthub_p1_workflow_runtime_report.json`
+   - `/tmp/agenthub_orchestrator_quality_report.json`
+   - `/tmp/agenthub_fullstack_flow_report.json`
+   - `/tmp/agenthub_p1_review_thread_report.json`
+   - `/tmp/agenthub_p1_rich_artifacts_report.json`
+   - `/tmp/agenthub_p1_evaluation_repair_report.json`
+   - `/tmp/agenthub_p1_agent_capability_profile_report.json`
+   - `/tmp/agenthub_p2_agent_capability_profile_v2_report.json`
+
+### 人工调整
+本轮修改后端 runtime、相关单测和 B2 证据文档；未修改数据库 migration、seed 默认值或前端部署。
+
+### 经验
+重构后的全功能 E2E 最容易暴露“单测不覆盖的真实时序”问题：并行 stream 的首包时机、外部 SDK session 生命周期、以及 LLM repair prompt 与原始失败指令的优先级。repair loop 的价值就在于把这些真实失败变成可回归的后端契约。

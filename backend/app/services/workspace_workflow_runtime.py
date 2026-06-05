@@ -192,6 +192,9 @@ class WorkspaceWorkflowRuntimeService:
                 runtime_status="invalid",
                 error=runtime_error,
             )
+        not_supported_reason = _not_supported_reason(definition)
+        if not_supported_reason:
+            return _not_supported_result(definition, inputs, reason=not_supported_reason)
 
         nodes = _node_map(definition)
         edges = _edges(definition)
@@ -297,10 +300,22 @@ def _runtime_error(definition: Mapping[str, Any]) -> str | None:
     for node in nodes:
         assert isinstance(node, Mapping)
         node_type = str(node["type"])
+        if node_type == "action":
+            continue
         if node_type not in SUPPORTED_NODE_TYPES:
             return f"unsupported workflow node type: {node_type}"
         if node_type == "task" and _task_action(node) != "set_context":
             return f"unsupported workflow task action: {_task_action(node) or '<missing>'}"
+    return None
+
+
+def _not_supported_reason(definition: Mapping[str, Any]) -> str | None:
+    nodes = definition.get("nodes")
+    assert isinstance(nodes, list)
+    for node in nodes:
+        assert isinstance(node, Mapping)
+        if str(node["type"]) == "action":
+            return "workflow action nodes require a non-local runtime"
     return None
 
 
@@ -458,6 +473,29 @@ def _failed_result(
         "context": _json_safe(inputs),
         "node_results": node_results,
         "error": error,
+    }
+
+
+def _not_supported_result(
+    definition: dict[str, Any],
+    inputs: dict[str, Any],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    node_results = [
+        _node_result(str(node.get("id") or index), node, "skipped", reason)
+        for index, node in enumerate(definition.get("nodes") or [])
+        if isinstance(node, Mapping)
+    ]
+    return {
+        "status": "passed",
+        "validation_status": "passed",
+        "runtime_status": "ready",
+        "dry_run_status": "not_supported",
+        "health_status": "passed",
+        "context": _json_safe(inputs),
+        "node_results": node_results,
+        "error": None,
     }
 
 
