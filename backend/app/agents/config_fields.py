@@ -91,10 +91,10 @@ EXTERNAL_DIRECT_CHAT_DEFAULTS: dict[str, object] = {
 ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "model_backend": "claude",
     "answer_model_backend": "deepseek",
-    "planner_model_backend": "claude",
+    "planner_model_backend": "deepseek",
     "llm_planning": settings.orchestrator_llm_planning_default,
     "react_enabled": True,
-    "react_trace_visible": True,
+    "react_trace_visible": False,
     "direct_answer_on_planner_failure": True,
     "task_fallback_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
     "max_task_attempts": 2,

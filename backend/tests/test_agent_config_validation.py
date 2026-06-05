@@ -21,6 +21,7 @@ from app.agents.config_validation import (
 )
 from app.schemas.agent import AgentConfig, AgentOut, CreateAgentRequest
 from app.seeds.seed_agents import BUILTIN_AGENTS
+from app.services.builtin_agent_config import upgraded_orchestrator_config
 
 
 class TestValidConfigs:
@@ -85,7 +86,7 @@ class TestValidConfigs:
         config = {
             "model_backend": "claude",
             "answer_model_backend": "deepseek",
-            "planner_model_backend": "claude",
+            "planner_model_backend": "deepseek",
             "llm_planning": True,
             "planner_fallback_to_template": False,
             "orchestrator_llm_config": {"max_tokens": 1024},
@@ -120,6 +121,22 @@ class TestValidConfigs:
             system_prompt=None,
         )
         assert result == config
+
+    def test_stale_builtin_orchestrator_config_is_upgraded(self) -> None:
+        result = upgraded_orchestrator_config(
+            {
+                "model_backend": "claude",
+                "answer_model_backend": "claude",
+                "planner_model_backend": "claude",
+                "react_trace_visible": True,
+                "managed_agent_ids": ["claude-code", "opencode-helper"],
+            }
+        )
+
+        assert result["answer_model_backend"] == "deepseek"
+        assert result["planner_model_backend"] == "deepseek"
+        assert result["react_trace_visible"] is False
+        assert result["managed_agent_ids"] == ["claude-code", "opencode-helper"]
 
     def test_valid_builtin_mcp_allowed_tool(self) -> None:
         config = {

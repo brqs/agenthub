@@ -818,6 +818,9 @@ async def test_stream_error_marks_agent_message_error(client: AsyncClient) -> No
     assert "event: error" in body
     assert message is not None
     assert message.status == "error"
+    assert message.content
+    assert message.content[0]["type"] == "text"
+    assert "agent_not_found" in message.content[0]["text"]
 
 
 async def test_stream_adapter_error_chunk_marks_message_error(
@@ -877,9 +880,67 @@ async def test_stream_adapter_error_chunk_marks_message_error(
     assert "rate_limit" in body
     assert message is not None
     assert message.status == "error"
-    assert len(message.content) >= 1
+    assert len(message.content) == 2
     assert message.content[0]["type"] == "text"
     assert message.content[0]["text"] == "partial"
+    assert "rate_limit" in message.content[1]["text"]
+    assert "Rate limited" in message.content[1]["text"]
+
+
+async def test_stream_adapter_error_chunk_without_content_persists_visible_text(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    class FakeAdapter:
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[Any]:
+            _ = messages, system_prompt, config, workspace_path, tool_specs
+            yield StreamChunk(event_type="start")
+            yield StreamChunk(
+                event_type="error",
+                error_code="no_runnable_agent",
+                error="当前会话没有可用执行 Agent：@claude-code 未认证",
+            )
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeAdapter:
+        _ = agent_id, db
+        return FakeAdapter()
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        body = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+
+    assert response.status_code == 200
+    assert "event: error" in body
+    assert message is not None
+    assert message.status == "error"
+    assert message.content == [
+        {
+            "type": "text",
+            "text": "no_runnable_agent: 当前会话没有可用执行 Agent：@claude-code 未认证",
+        }
+    ]
 
 
 async def test_stream_adapter_exception_marks_message_error_and_preserves_partial_content(

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from app.agents.orchestrator.availability import scoped_runnable_agent_ids
 from app.agents.types import ToolSpec
 
 
@@ -208,6 +209,10 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
     ]
 
 def available_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return scoped_ids
+
     ids = _agent_ids_from_available_agents(config.get("available_agents"))
     if ids:
         return ids

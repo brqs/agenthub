@@ -255,7 +255,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 self.effective_system_prompt(system_prompt),
             )
         except PlannerResolutionError as exc:
-            if _should_direct_answer_after_planner_error(merged_config, exc):
+            if _should_direct_answer_after_planner_error(
+                merged_config,
+                exc,
+                _latest_user_request(messages),
+            ):
                 async for chunk, updated_block_index, failed in _run_direct_answer(
                     merged_config,
                     messages,
@@ -379,6 +383,8 @@ class OrchestratorAdapter(BaseAgentAdapter):
             ):
                 next_block_index = updated_block_index
                 yield chunk
+                if chunk.event_type == "error":
+                    return
         else:
             async for chunk, updated_block_index in _run_static_tasks(
                 merged_config,
@@ -391,6 +397,8 @@ class OrchestratorAdapter(BaseAgentAdapter):
             ):
                 next_block_index = updated_block_index
                 yield chunk
+                if chunk.event_type == "error":
+                    return
         async for chunk, updated_block_index in run_quality_gate(
             merged_config,
             messages,

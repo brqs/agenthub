@@ -1,5 +1,20 @@
 # Orchestrator Task Planning Spec
 
+## 2026-06-05 Update: Conversation-Scoped Planning
+
+In group conversations, `available_agents` is the authoritative dispatch
+boundary. If the field is present, even as an empty list, planner, ReAct,
+fallback, tools, and execution code must not fall back to global
+`managed_agent_ids` or seed defaults. An empty authoritative list means the
+conversation has no runnable implementation agent, and artifact/build requests
+must terminate with a clear retryable error instead of silently calling an agent
+outside the group.
+
+Artifact/build/design requests must not use direct-answer fallback after planner
+failure. They must either create real tasks for runnable conversation members or
+return an explicit error. Direct answers that discuss recent task state must use
+same-conversation structured Orchestrator memory before model-generated prose.
+
 > 定义 Orchestrator 的任务规划、任务分配和 planner 降级规则。子任务执行流转、事件聚合和失败状态汇总见 [core.spec.md](core.spec.md)。
 >
 > 版本：v1.1

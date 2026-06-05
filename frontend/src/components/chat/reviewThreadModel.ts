@@ -13,6 +13,7 @@ export type ReviewThreadItem =
       state: string;
       artifactPaths: string[];
       summary: string;
+      error: string | null;
     }
   | {
       kind: 'review';
@@ -23,6 +24,7 @@ export type ReviewThreadItem =
       reviewOf: string[];
       outcome: string;
       summary: string;
+      error: string | null;
     }
   | {
       kind: 'repair';
@@ -33,6 +35,7 @@ export type ReviewThreadItem =
       reviewOf: string[];
       handoffReason?: string | null;
       summary: string;
+      error: string | null;
     };
 
 export function buildReviewThreadItems(detail: OrchestratorRunDetail | null | undefined) {
@@ -54,6 +57,7 @@ export function buildReviewThreadItems(detail: OrchestratorRunDetail | null | un
           reviewOf: task.review_of ?? [],
           outcome: attempt?.review_outcome ?? 'unknown',
           summary: attempt?.text_preview ?? '',
+          error: attempt?.error ?? null,
         };
       }
       if (task.task_type === 'repair') {
@@ -66,6 +70,7 @@ export function buildReviewThreadItems(detail: OrchestratorRunDetail | null | un
           reviewOf: task.review_of ?? [],
           handoffReason: task.handoff_reason ?? null,
           summary: attempt?.text_preview ?? '',
+          error: attempt?.error ?? null,
         };
       }
       return {
@@ -76,6 +81,7 @@ export function buildReviewThreadItems(detail: OrchestratorRunDetail | null | un
         state: attempt?.state ?? task.final_state,
         artifactPaths: attempt?.artifact_paths ?? [],
         summary: attempt?.text_preview ?? '',
+        error: attempt?.error ?? null,
       };
     });
 }

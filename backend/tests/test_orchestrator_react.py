@@ -73,6 +73,7 @@ async def test_orchestrator_react_adds_fix_task_after_failure_and_finishes() -> 
         messages=[ChatMessage(role="user", content="Fix and verify an HTML file")],
         config={
             "react_enabled": True,
+            "react_trace_visible": True,
             "react_gateway": react_gateway,
             "tasks": [
                 _task(
@@ -91,7 +92,8 @@ async def test_orchestrator_react_adds_fix_task_after_failure_and_finishes() -> 
     )
 
     text = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert chunks[-1].event_type == "done"
+    assert chunks[-1].event_type == "error"
+    assert chunks[-1].error_code == "orchestrator_task_failed"
     assert len(react_gateway.calls) == 2
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
@@ -141,8 +143,9 @@ async def test_orchestrator_react_rejects_add_task_outside_allowed_agents() -> N
     )
 
     text = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert chunks[-1].event_type == "done"
-    assert "unknown agent_id 'web-designer'" in text
+    assert chunks[-1].event_type == "error"
+    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert "unknown agent_id 'web-designer'" not in text
     assert not any(chunk.to_agent == "web-designer" for chunk in chunks)
 
 
@@ -171,7 +174,7 @@ async def test_orchestrator_react_cannot_update_succeeded_task() -> None:
 
     text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "cannot update completed task 'task-a'" in text
+    assert "cannot update completed task 'task-a'" not in text
     assert adapter.received_messages[-1].content == "Original"
 
 
@@ -249,7 +252,7 @@ async def test_orchestrator_react_empty_decision_continues_existing_tasks() -> N
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b"]
-    assert "continuing existing task graph" in text
+    assert "continuing existing task graph" not in text
     assert "- succeeded: @agent-a - First" in text
     assert "- succeeded: @agent-b - Second" in text
     assert "pending" not in text.rsplit("Execution summary", 1)[-1]
@@ -277,7 +280,7 @@ async def test_orchestrator_react_max_iterations_stops_without_replanner() -> No
     text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
     assert react_gateway.calls == []
-    assert "max_iterations reached (1)" in text
+    assert "max_iterations reached (1)" not in text
 
 
 async def test_orchestrator_react_added_task_receives_previous_results() -> None:

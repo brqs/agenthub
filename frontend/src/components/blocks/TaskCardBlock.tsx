@@ -28,11 +28,11 @@ export function TaskCardBlock({
   const runningTask = block.tasks.find((task) => task.status === 'running');
   const hasError = block.tasks.some((task) => task.status === 'error');
   const stage = hasError
-    ? '有任务失败'
+    ? '执行失败'
     : runningTask
       ? `正在调度 @${agents.find((item) => item.id === runningTask.agent_id)?.name ?? runningTask.agent_id}`
       : doneCount === block.tasks.length && block.tasks.length > 0
-        ? '调度完成'
+        ? '执行结果已汇总'
         : '等待调度';
 
   return (
