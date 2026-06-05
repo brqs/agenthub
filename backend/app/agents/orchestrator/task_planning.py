@@ -41,6 +41,7 @@ from app.agents.orchestrator._internal.planning.templates import (
 from app.agents.orchestrator._internal.planning.templates import (
     workspace_conflict_tasks_from_request as _workspace_conflict_tasks_from_request,
 )
+from app.agents.orchestrator.availability import scoped_runnable_agent_ids
 from app.agents.orchestrator.planner import llm_planning_enabled, plan_task_payload
 from app.agents.orchestrator.types import SubTask
 from app.agents.types import ChatMessage
@@ -91,6 +92,12 @@ async def resolve_tasks(
 ) -> list[SubTask]:
     raw_tasks = config.get("tasks")
     if raw_tasks is None:
+        user_request = latest_user_request(messages)
+        scoped_ids = scoped_runnable_agent_ids(config)
+        if scoped_ids == [] and has_task_intent(user_request):
+            raise PlannerResolutionError(
+                "no_runnable_agent: no executable agent is available in current conversation"
+            )
         direct_tasks = _direct_tasks_from_request(config, messages)
         if direct_tasks:
             return direct_tasks
@@ -100,13 +107,18 @@ async def resolve_tasks(
         fullstack_tasks = _fullstack_delivery_tasks_from_request(config, messages)
         if fullstack_tasks:
             return fullstack_tasks
+        if not llm_planning_enabled(config):
+            frontend_tasks = _frontend_deploy_tasks_from_request(config, messages)
+            if frontend_tasks:
+                return frontend_tasks
         if llm_planning_enabled(config):
             try:
                 return await _plan_tasks_with_model(config, messages, system_prompt)
             except ValueError as exc:
-                frontend_tasks = _frontend_deploy_tasks_from_request(config, messages)
-                if frontend_tasks:
-                    return frontend_tasks
+                if _is_planner_protocol_error(exc):
+                    frontend_tasks = _frontend_deploy_tasks_from_request(config, messages)
+                    if frontend_tasks:
+                        return frontend_tasks
                 if planner_fallback_to_template(config):
                     return _derive_tasks(config, messages)
                 raise PlannerResolutionError(str(exc)) from exc
@@ -118,9 +130,17 @@ async def resolve_tasks(
 def should_direct_answer_after_planner_error(
     config: Mapping[str, Any],
     exc: PlannerResolutionError,
+    user_request: str | None = None,
 ) -> bool:
     if not _direct_answer_on_planner_failure(config):
         return False
+    if user_request and has_task_intent(user_request):
+        return False
+    message = str(exc)
+    return any(marker in message for marker in PLANNER_PROTOCOL_ERROR_MARKERS)
+
+
+def _is_planner_protocol_error(exc: ValueError) -> bool:
     message = str(exc)
     return any(marker in message for marker in PLANNER_PROTOCOL_ERROR_MARKERS)
 

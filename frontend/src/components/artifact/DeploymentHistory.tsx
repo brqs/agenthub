@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, History, Loader2, Square, Trash2 } from 'lucide-react';
+import { Check, Copy, Download, ExternalLink, History, Loader2, Square, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import {
   DEPLOYMENT_KIND_LABELS,
@@ -8,6 +8,7 @@ import {
   isDeploymentInProgress,
 } from './deploymentPresentation';
 import { useDeployments, useStopDeployment } from '@/hooks/useDeployments';
+import * as deploymentsAdapter from '@/lib/adapters/deployments';
 import type { WorkspaceDeploymentResponse } from '@/lib/types';
 import { handleExternalLink } from '@/lib/nativeShell';
 
@@ -53,6 +54,7 @@ export function DeploymentHistory({ conversationId }: { conversationId: string }
           {deployments.map((deployment) => (
             <DeploymentHistoryItem
               key={deployment.id}
+              conversationId={conversationId}
               deployment={deployment}
               copied={copiedDeploymentId === deployment.id}
               stopping={stopDeployment.isPending && stopDeployment.variables === deployment.id}
@@ -77,12 +79,14 @@ export function DeploymentHistory({ conversationId }: { conversationId: string }
 }
 
 function DeploymentHistoryItem({
+  conversationId,
   deployment,
   copied,
   stopping,
   onCopy,
   onStop,
 }: {
+  conversationId: string;
   deployment: WorkspaceDeploymentResponse;
   copied: boolean;
   stopping: boolean;
@@ -90,9 +94,34 @@ function DeploymentHistoryItem({
   onStop: () => void;
 }) {
   const canStop = ['publishing', 'published'].includes(deployment.status);
+  const canDownloadSource = deployment.kind === 'source_zip' && deployment.status === 'published';
   const statusMeta = DEPLOYMENT_STATUS_META[deployment.status];
   const updatedAt = formatDateTime(deployment.updated_at);
   const sizeLabel = formatBytes(deployment.size_bytes);
+  const [downloadState, setDownloadState] = useState<'idle' | 'loading' | 'error'>('idle');
+
+  async function downloadSource() {
+    if (!canDownloadSource || downloadState === 'loading') return;
+    setDownloadState('loading');
+    try {
+      const archive = await deploymentsAdapter.downloadSourceArchive(
+        conversationId,
+        deployment.id,
+        deployment.download_url,
+      );
+      const href = URL.createObjectURL(archive);
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.download = `agenthub-source-${deployment.id}.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+      setDownloadState('idle');
+    } catch {
+      setDownloadState('error');
+    }
+  }
 
   return (
     <div className="rounded-md border border-slate-300 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/60">
@@ -125,6 +154,28 @@ function DeploymentHistoryItem({
             <p className="mt-2 truncate text-[11px] leading-5 text-slate-500">
               {deployment.runtime_status ? `运行状态：${deployment.runtime_status}` : '容器运行中'}
               {deployment.host_port ? ` · 端口 ${deployment.host_port}` : ''}
+            </p>
+          )}
+          {canDownloadSource && (
+            <button
+              type="button"
+              onClick={() => void downloadSource()}
+              disabled={downloadState === 'loading'}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 transition hover:border-brand/40 hover:bg-slate-50 hover:text-slate-950 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+              title="下载源码包"
+              aria-label="下载源码包"
+            >
+              {downloadState === 'loading' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              下载源码包
+            </button>
+          )}
+          {downloadState === 'error' && (
+            <p className="mt-2 text-[11px] leading-5 text-rose-600 dark:text-rose-300">
+              源码下载失败，请稍后重试。
             </p>
           )}
         </div>

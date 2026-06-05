@@ -71,6 +71,8 @@ function TimelineNode({ item, agents }: { item: ReviewThreadItem; agents: Agent[
 
 function TimelineMetadata({ item }: { item: ReviewThreadItem }) {
   const chips: string[] = [];
+  const errorSummary = failureSummary(item);
+  const summary = timelineSummary(item);
   if (item.kind === 'implementation') {
     chips.push(...item.artifactPaths.slice(0, 3));
   }
@@ -96,13 +98,40 @@ function TimelineMetadata({ item }: { item: ReviewThreadItem }) {
           ))}
         </div>
       )}
-      {item.summary && (
+      {errorSummary && (
+        <p className="mt-2 line-clamp-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs leading-5 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+          {errorSummary}
+        </p>
+      )}
+      {summary && (
         <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-600 dark:text-slate-400">
-          {item.summary}
+          {summary}
         </p>
       )}
     </>
   );
+}
+
+function timelineSummary(item: ReviewThreadItem): string {
+  if (!item.summary || isFailureState(item.state)) return '';
+  if (item.kind === 'implementation') return '';
+  return item.summary;
+}
+
+function failureSummary(item: ReviewThreadItem): string {
+  if (!isFailureState(item.state)) return '';
+  const text = item.error || item.summary;
+  return truncateOneLine(text, 220);
+}
+
+function isFailureState(state: string | null | undefined): boolean {
+  return state === 'failed' || state === 'error';
+}
+
+function truncateOneLine(value: string | null | undefined, maxLength: number): string {
+  const text = (value ?? '').replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
 }
 
 function kindLabel(kind: ReviewThreadItem['kind']) {

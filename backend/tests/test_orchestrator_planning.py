@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator._internal.planning.routing import (
+    is_artifact_build_request,
+)
+from app.agents.orchestrator._internal.routing.direct_answer import _answer_messages
 from app.agents.orchestrator.planner import PLANNER_SYSTEM_PROMPT
+from app.agents.orchestrator.task_planning import has_task_intent
 from app.agents.types import ChatMessage, StreamChunk
 from tests.orchestrator_fakes import (
     FakeAnswerGateway,
@@ -89,6 +94,23 @@ async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -
     assert "language_style_hints: chinese=2" in planner_message
     assert "private historical details" not in planner_message
 
+
+def test_artifact_design_requests_are_task_intent_not_direct_answer() -> None:
+    snake_request = (
+        "\u8bf7\u4f60\u8bbe\u8ba1\u4e00\u4e2a\u7f51\u9875\u7248\u7684"
+        "\u8d2a\u5403\u86c7\u6e38\u620f\uff0c\u8981\u6c42\u5185\u5bb9\u7cbe\u81f4"
+    )
+    campus_request = (
+        "\u8bbe\u8ba1\u4e00\u4e2a\u4e2d\u56fd\u79d1\u5b66\u6280\u672f"
+        "\u5927\u5b66\u6821\u56ed\u5c55\u793a\u7f51\u9875"
+    )
+
+    assert is_artifact_build_request(snake_request)
+    assert is_artifact_build_request(campus_request)
+    assert has_task_intent(snake_request)
+    assert has_task_intent(campus_request)
+    assert not is_artifact_build_request("\u4f60\u597d")
+    assert not is_artifact_build_request("Build just a launch plan")
 
 
 async def test_orchestrator_planner_cannot_select_agent_outside_available_agents() -> None:
@@ -620,6 +642,227 @@ async def test_orchestrator_planner_invalid_json_can_fallback_to_direct_answer()
     assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
     assert any(chunk.text_delta == "Direct answer fallback." for chunk in chunks)
     assert adapter_a.received_messages == []
+
+
+async def test_artifact_planner_invalid_json_uses_frontend_task_not_direct_answer() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("created snake game"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+            StreamChunk(event_type="delta", block_index=0, text_delta="not a task plan"),
+            StreamChunk(event_type="block_end", block_index=0),
+        ]
+    )
+    answer = FakeAnswerGateway(_text_chunks("I will delegate this to a specialist."))
+    request = (
+        "\u8bf7\u4f60\u8bbe\u8ba1\u4e00\u4e2a\u7f51\u9875\u7248\u7684"
+        "\u8d2a\u5403\u86c7\u6e38\u620f\uff0c\u8981\u6c42\u5185\u5bb9\u7cbe\u81f4"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "direct_answer_on_planner_failure": True,
+            "managed_agent_ids": ["claude-code"],
+            "available_agents": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files"],
+                    "is_builtin": True,
+                }
+            ],
+            "sub_adapters": {"claude-code": claude},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(planner.calls) == 1
+    assert answer.calls == []
+    assert any(
+        chunk.event_type == "block_start" and chunk.block_type == "task_card"
+        for chunk in chunks
+    )
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code"]
+    assert "index.html, styles.css, app.js" in claude.received_messages[-1].content
+
+
+async def test_artifact_fallback_skips_unavailable_opencode_runtime() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("created snake game"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("should not run"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+            StreamChunk(event_type="delta", block_index=0, text_delta="not a task plan"),
+            StreamChunk(event_type="block_end", block_index=0),
+        ]
+    )
+    request = (
+        "\u8bf7\u4f60\u8bbe\u8ba1\u4e00\u4e2a\u7f51\u9875\u7248\u7684"
+        "\u8d2a\u5403\u86c7\u6e38\u620f\uff0c\u8981\u6c42\u5185\u5bb9\u7cbe\u81f4"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "direct_answer_on_planner_failure": True,
+            "managed_agent_ids": ["opencode-helper", "claude-code"],
+            "available_agents": [
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "runtime_status": "unavailable",
+                    "runtime_available": False,
+                },
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files"],
+                },
+            ],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code"]
+    assert claude.received_messages
+    assert opencode.received_messages == []
+
+
+async def test_artifact_planner_failure_without_available_agent_is_error() -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="block_start", block_index=0, block_type="text"),
+            StreamChunk(event_type="delta", block_index=0, text_delta="not a task plan"),
+            StreamChunk(event_type="block_end", block_index=0),
+        ]
+    )
+    answer = FakeAnswerGateway(_text_chunks("I will delegate this to a specialist."))
+    request = (
+        "\u8bf7\u4f60\u8bbe\u8ba1\u4e00\u4e2a\u7f51\u9875\u7248\u7684"
+        "\u8d2a\u5403\u86c7\u6e38\u620f"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "answer_gateway": answer,
+            "direct_answer_on_planner_failure": True,
+            "managed_agent_ids": [],
+            "available_agents": [],
+            "sub_adapters": {},
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[1].error_code == "no_runnable_agent"
+    assert "no executable agent is available" in (chunks[1].error or "")
+    assert answer.calls == []
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_scoped_empty_available_agents_do_not_fall_back_to_global_managed_agents() -> None:
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("should not run"))
+    request = (
+        "\u8bf7\u4f60\u8bbe\u8ba1\u4e00\u4e2a\u7f51\u9875\u7248\u7684"
+        "\u8d2a\u5403\u86c7\u6e38\u620f"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "managed_agent_ids": ["opencode-helper", "claude-code"],
+            "available_agents": [],
+            "available_agents_authoritative": True,
+            "conversation_scoped_agents": True,
+            "sub_adapters": {"opencode-helper": opencode},
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[1].error_code == "no_runnable_agent"
+    assert "no executable agent is available" in (chunks[1].error or "")
+    assert opencode.received_messages == []
+
+
+async def test_scoped_available_agents_allow_opencode_only_when_in_current_scope() -> None:
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("created snake game"))
+    request = (
+        "\u8bf7\u4f60\u8bbe\u8ba1\u4e00\u4e2a\u7f51\u9875\u7248\u7684"
+        "\u8d2a\u5403\u86c7\u6e38\u620f"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "managed_agent_ids": ["claude-code"],
+            "available_agents": [
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "capabilities": ["coding", "files"],
+                    "runtime_available": True,
+                    "runtime_status": "ready",
+                }
+            ],
+            "available_agents_authoritative": True,
+            "conversation_scoped_agents": True,
+            "sub_adapters": {"opencode-helper": opencode},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["opencode-helper"]
+    assert opencode.received_messages
+
+
+def test_direct_answer_preserves_structured_memory_context() -> None:
+    messages = [
+        ChatMessage(
+            role="system",
+            content="Previous Orchestrator structured memory:\n- done @claude-code build",
+        ),
+        ChatMessage(role="user", content="\u4f60\u4e4b\u524d\u6709\u4ec0\u4e48\u4efb\u52a1"),
+    ]
+
+    answer_messages = _answer_messages(
+        messages,
+        latest_user_request=lambda items: items[-1].content,
+    )
+
+    assert answer_messages[0].role == "system"
+    assert answer_messages[0].content.startswith(
+        "Previous Orchestrator structured memory"
+    )
+    assert "structured memory above" in answer_messages[1].content
 
 
 async def test_orchestrator_planner_template_fallback_requires_flag() -> None:

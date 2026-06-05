@@ -30,6 +30,43 @@
 | Orchestrator platform tools | `orchestrator/tools.py`、`orchestrator/tool_loop.py`、`services/orchestrator_platform_tools.py` | `start_workspace_preview`、`verify_web_preview`、`create_custom_agent` |
 | Live E2E report | `backend/scripts/orchestrator_live_e2e.py` | 真实部署链路报告脚本，断言 Orchestrator 完成后自动触发平台 `start_workspace_preview`，输出 `/tmp/agenthub_orchestrator_8082_{sse,report}` |
 
+## External runtime contract
+
+- OpenCode is a backend-container CLI dependency, not a Python package. The
+  adapter launches `opencode run --format json --dir <workspace> <prompt>` and
+  consumes JSONL events from stdout.
+- Local Docker images must include Node.js/npm and `opencode-ai`; check with
+  `docker compose exec backend opencode --version`.
+- Credentials must be available to the backend runtime through `.env` provider
+  keys or through `docker compose exec backend opencode auth login`. The
+  `opencode-state` compose volume persists `~/.local/share/opencode/auth.json`.
+- If OpenCode is absent or unauthenticated, Orchestrator must treat
+  `opencode-helper` as unavailable for task dispatch and surface a retryable
+  runtime error instead of completing successfully.
+- Claude Code is a backend-container runtime too. The adapter uses
+  `claude_agent_sdk` when installed and falls back to the `claude` CLI only when
+  the SDK module is absent.
+- Claude Code auth may come from backend `.env` provider keys (`ANTHROPIC_*` /
+  `CLAUDE_*`) or from persisted CLI login state in the `claude-state` compose
+  volume. The shared auth directory is `$AGENTHUB_CLAUDE_AUTH_DIR` and should
+  contain `.claude.json` and/or `.claude/`.
+- Per-message runtime HOME isolation remains required. The adapter copies only
+  Claude auth files from the shared auth directory into the isolated HOME before
+  launching SDK/CLI work.
+- Runtime availability is active, not file-existence based: shared auth files or
+  `.env` credentials only make Claude Code a candidate. AgentHub runs a short
+  backend-container probe with the same isolated HOME/auth-copy contract, caches
+  the result briefly, and marks `claude-code` runnable only when the probe
+  succeeds.
+- Manual CLI smoke tests must set `HOME=$AGENTHUB_CLAUDE_AUTH_DIR`, for example
+  `docker compose exec backend sh -lc 'HOME=$AGENTHUB_CLAUDE_AUTH_DIR claude -p "只回复 OK" --output-format text'`.
+- The direct-chat shortcut is separate: simple Q&A may use `qa_model_backend`
+  without launching Claude SDK/CLI, so a successful "你好" answer does not prove
+  artifact/build runtime availability.
+- If Claude Code is unauthenticated, Orchestrator must mark `claude-code`
+  unavailable for dispatch and surface a retryable runtime error. Do not expose
+  SDK wrapper text such as `Claude Code returned an error result: success`.
+
 ## 重构状态
 
 | 阶段 | 状态 | 说明 |

@@ -374,6 +374,18 @@ error
 
 Never leave a conversation permanently locked by stale `pending` or `streaming`.
 
+### Orchestrator delegation truth contract
+
+Orchestrator must not claim delegation unless the stream contains the matching execution facts.
+
+```text
+delegation language -> task_card or agent_switch in the same message stream
+```
+
+Artifact/design/build requests such as "design a web snake game" must enter task dispatch. If LLM planner output is invalid, empty, or unavailable, B2 should use deterministic task fallback before considering any direct-answer path. If no current conversation agent can execute the request, return an explicit retryable `error`; never finish as `done` with text that promises future delegation.
+
+Direct answer remains only for greeting, identity, capability, and simple meta questions. Group Orchestrator dispatch is conversation-scoped: it may only schedule agents present in the current conversation unless a future public product change explicitly adds cross-conversation/global dispatch.
+
 ### ContentBlock attribution
 
 B1 persists attribution, B2 produces attribution, F consumes attribution.
@@ -410,6 +422,33 @@ DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL=http://127.0.0.1
 
 or another address appropriate to the server network.
 
+2026-06-04 Workspace reliability update:
+
+- The Workspace tab and deployment history are separate facts. Deployment
+  history reads `workspace_deployments`; the Workspace file browser reads the
+  live filesystem tree under `/workspaces/{conversation_id}`.
+- Frontend must keep tree errors and file-preview errors separate. A failed
+  `GET /workspaces/{conversation_id}/files/{path}` should only show a file
+  preview error and retry action; it must not hide the tree or deployment
+  history behind "Workspace failed to load".
+- `WorkspaceService.get_or_create` is expected to repair stale DB roots by
+  resetting `workspaces.root_path` to the current
+  `settings.workspace_base_dir / conversation_id` and initializing the
+  directory.
+- Local dev DB was found with many test rows whose `root_path` pointed at
+  `/tmp/pytest-of-root/...`; those are pytest pollution, not lost user
+  workspaces. Do not delete real user conversations or `/workspaces/...`
+  directories when cleaning this up.
+- Pytest now refuses to run against the default development database
+  `agenthub` unless `AGENTHUB_ALLOW_DEV_DB_TESTS=1` is explicitly set. The
+  preferred path is an isolated test database/schema.
+- Useful diagnostics:
+  `GET /api/v1/workspaces/{id}/tree`,
+  `GET /api/v1/workspaces/{id}/files/{path}`,
+  `select conversation_id, root_path from workspaces where conversation_id='<id>';`,
+  and
+  `select kind, status, download_url, error from workspace_deployments where conversation_id='<id>';`.
+
 ### Orchestrator behavior
 
 Desired UX:
@@ -436,6 +475,10 @@ docker compose exec -T backend python -m app.seeds.seed_agents
 docker compose exec -T backend pytest -q
 docker compose exec -T backend ruff check
 ```
+
+Backend pytest must use an isolated test database/schema. If a maintainer
+intentionally runs a one-off targeted test against the local dev DB, set
+`AGENTHUB_ALLOW_DEV_DB_TESTS=1` for that command and inspect any created rows.
 
 B1/B2 stream and workspace targeted:
 
@@ -507,17 +550,145 @@ GET http://localhost:8081 -> ok
    - If `@orchestrator 浣犲ソ` triggers planning, B2 intent classification is too aggressive.
    - Simple Q&A should use direct answer.
 
-4. Container deployment:
+4. Orchestrator false delegation:
+   - If Orchestrator says it will delegate/call a specialist but there is no `task_card`, no `agent_switch`, and no `orchestrator_runs` row, inspect task intent detection and planner-failure fallback.
+   - Artifact/design requests must not fall back to direct-answer text.
+
+5. Container deployment:
    - If backend says `[Errno 2] No such file or directory`, check `docker` exists inside backend.
    - If image builds but deployment fails healthcheck, check `DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL`.
    - If frontend sees server IP in local dev, check `DEPLOYMENT_CONTAINER_PUBLIC_BASE_URL`.
 
-5. Frontend auth/session cache:
+6. Frontend auth/session cache:
    - Logout must clear auth, agents, conversations, messages, and query cache.
    - If OpenCode Helper appears only for one user, check both frontend cache and seed data.
 
-6. Handoff files:
+7. Handoff files:
    - Keep local unless explicitly requested.
+
+8. OpenCode runtime availability:
+   - Orchestrator can now genuinely dispatch artifact tasks to sub-agents, so
+     `[Errno 2] No such file or directory` on `opencode-helper` means the
+     backend container lacks the `opencode` CLI, not a fake-delegation bug.
+   - Backend Docker must install Node.js/npm and `opencode-ai`; verify with
+     `docker compose exec backend opencode --version`.
+   - OpenCode credentials must come from backend `.env` provider keys or from
+     `docker compose exec backend opencode auth login`; compose persists login
+     state in the `opencode-state` volume.
+   - Orchestrator stream context marks unavailable OpenCode runtime as
+     `runtime_status=unavailable`, and task planning must skip it instead of
+     selecting it as a fallback agent.
+9. Claude Code runtime availability:
+   - Claude Code runs inside the backend container through `claude_agent_sdk`
+     when present, not through the user's host-side interactive chat session.
+   - Auth may come from backend `.env` provider keys (`ANTHROPIC_*` /
+     `CLAUDE_*`) or from persisted CLI login state in the `claude-state`
+     compose volume.
+   - Shared auth state lives at `$AGENTHUB_CLAUDE_AUTH_DIR` and should contain
+     `.claude.json` and/or `.claude/`; the adapter copies only those files into
+     each per-message isolated runtime HOME.
+   - Verify with:
+     `docker compose exec backend python -c "import claude_agent_sdk; print('sdk ok')"`,
+     `docker compose exec backend sh -lc 'ls -la $AGENTHUB_CLAUDE_AUTH_DIR'`,
+     and `docker compose exec backend env | grep -E 'ANTHROPIC|CLAUDE|AGENTHUB_CLAUDE'`.
+   - If Claude Code is unauthenticated, Orchestrator should treat
+     `claude-code` as unavailable for dispatch and show a retryable runtime
+     error. The UI should not expose `Claude Code returned an error result:
+     success`.
+
+### 12.6 Orchestrator Group Scope And Structured Memory Fix
+
+2026-06-05 update:
+
+1. Group conversation dispatch is now a hard scope boundary.
+   - `conversation.agent_ids` is the only source of schedulable sub-agents for
+     group Orchestrator streams.
+   - `available_agents=[]` is authoritative. It means there are no runnable
+     current-conversation implementation agents and must not fall back to global
+     `managed_agent_ids` or `default_sub_agents`.
+   - The stream context always passes scoped `available_agents`,
+     `managed_agent_ids`, `available_agents_authoritative=true`, and
+     `conversation_scoped_agents=true`.
+   - Planner, ReAct, tool-loop, and static fallback code must all use the same
+     scoped candidate rule. This prevents a group containing only
+     `orchestrator + claude-code` from silently calling `opencode-helper`.
+
+2. Existing built-in Orchestrator config is self-healed on backend startup.
+   - Stale local DB rows may still contain `planner_model_backend=claude` and
+     `react_trace_visible=true` from older seeds.
+   - Backend startup upgrades the built-in `orchestrator` row to
+     `planner_model_backend=deepseek`, `answer_model_backend=deepseek`, and
+     `react_trace_visible=false` without changing user-created agents.
+
+3. Direct-answer must preserve Orchestrator structured memory.
+   - The memory context message beginning with
+     `Previous Orchestrator structured memory:` must remain in direct-answer
+     model input.
+   - Queries such as "执行完成了吗", "刚刚的任务", "上一个任务", and "我指刚刚"
+     are answered deterministically from the latest `orchestrator_runs`,
+     `orchestrator_tasks`, and `orchestrator_task_attempts` in the same
+     conversation.
+
+### 12.7 Empty Error Blocks And Claude Runtime Probe
+
+2026-06-05 update:
+
+1. SSE `event:error` must persist visible content.
+   - A terminal error is not only a transient SSE event. B1 must append a safe
+     text block to `message.content` before setting `status=error`, even when
+     the adapter failed before producing any normal block.
+   - The same helper is used for adapter `event:error`, accumulator errors,
+     timeout/cancel/internal errors, missing agents, and no-runnable-agent
+     failures.
+   - Existing `task_card` blocks are finalized as failed before the error text
+     is appended. Equivalent error text should not be duplicated.
+   - Frontend keeps a legacy fallback for `status=error && content=[]` so old
+     polluted rows no longer render as an empty red box.
+
+2. Claude Code runtime availability is actively probed.
+   - `.env` credentials or `$AGENTHUB_CLAUDE_AUTH_DIR/.claude.json` /
+     `.claude/` only make the runtime a candidate. File presence alone is not
+     proof of login.
+   - `claude_code_runtime_status` now runs a short backend-container probe with
+     the same isolated HOME and shared-auth-copy contract used by real adapter
+     execution. Results are cached briefly and invalidated by auth/env
+     fingerprint changes.
+   - Auth failures such as `Not logged in`, `Please run /login`, and
+     `Claude Code returned an error result: success` normalize to the same
+     retryable authentication message.
+   - Manual CLI smoke must set the shared auth HOME:
+     `docker compose exec backend sh -lc 'HOME=$AGENTHUB_CLAUDE_AUTH_DIR claude -p "只回复 OK" --output-format text'`.
+
+### 12.8 Claude Code Read-Before-Write Workspace Contract
+
+2026-06-05 update:
+
+1. Conversation workspaces are persistent product state.
+   - Do not clear or recreate a workspace for each new artifact task.
+   - A later task may overwrite `index.html`, `styles.css`, `app.js`, or other
+     files produced by an earlier task in the same conversation.
+
+2. Claude Code requires read-before-write for existing files.
+   - External runtime prompts must say that existing target files should be
+     read or inspected before they are overwritten.
+   - Sub-agent task messages include a lightweight workspace inventory with
+     root-relative filenames and expected artifact paths. This context is
+     injected even when `include_history=false` because it is execution
+     environment state, not chat history.
+   - The inventory must not include host paths or large file contents.
+
+3. Read-before-write failures are recoverable once.
+   - Tool output containing `File has not been read yet. Read it first before
+     writing to it.` is classified as `read_before_write_required`.
+   - If the first Claude Code attempt fails for this reason, Orchestrator
+     retries the same task once with the same Agent and previous-attempt
+     context. It must not use a non-conversation fallback Agent.
+   - If retry succeeds, the run can finish `done`. If retry fails, the run and
+     message remain `error`, with the user-facing summary preferring the
+     read-before-write explanation over a later idle-timeout wrapper.
+   - A direct-chat shortcut success only proves the QA/direct-answer path. It
+     does not prove Claude SDK/CLI artifact runtime availability.
+   - These status answers must not create a new task plan or promise delegation.
 
 ## 13. Suggested Next Agent Startup Checklist
 

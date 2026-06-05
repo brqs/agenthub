@@ -40,6 +40,10 @@ def workspace_guard_prompt(workspace_path: Path) -> str:
             "you to.",
             "- Create, edit, read, and reference project files only inside the "
             "workspace root. Prefer relative paths from the workspace root.",
+            "- Before overwriting or editing an existing file, read or inspect that "
+            "file first. If you are not sure whether a target file exists, inspect "
+            "the workspace or read the target before writing. This is required by "
+            "the runtime file tools.",
             "- When the active request asks you to create or edit files, do the "
             "file work directly. Do not enter a read-only planning mode, ask for "
             "plan approval, or wait for user approval before writing the requested "

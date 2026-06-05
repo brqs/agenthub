@@ -2,6 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RightAgentPanel } from './RightAgentPanel';
 import * as deploymentsAdapter from '@/lib/adapters/deployments';
+import * as workspacesAdapter from '@/lib/adapters/workspaces';
+import type { WorkspaceTreeResponse } from '@/lib/adapters/workspaces';
+import { DEPLOYMENT_ACTIONS } from '@/components/artifact/deploymentPresentation';
 import { mockAgents, type DemoConversation, type DemoMessage } from '@/lib/mockData';
 
 vi.mock('@/lib/adapters/workspaces', () => ({
@@ -43,6 +46,26 @@ vi.mock('@/lib/adapters/deployments', () => ({
   downloadSourceArchive: vi.fn(),
 }));
 
+const defaultWorkspaceTree: WorkspaceTreeResponse = {
+  root: '/workspaces/conv-panel',
+  tree: {
+    type: 'directory',
+    name: 'conv-panel',
+    path: '',
+    children: [
+      { type: 'file', name: 'demo.html', path: 'demo.html', size: 10, mime_type: 'text/html' },
+    ],
+  },
+};
+
+function actionLabel(kind: 'static_site' | 'source_zip' | 'container') {
+  return DEPLOYMENT_ACTIONS.find((action) => action.kind === kind)?.label ?? kind;
+}
+
+function actionButtonName(kind: 'static_site' | 'source_zip' | 'container') {
+  return new RegExp(actionLabel(kind));
+}
+
 const conversation: DemoConversation = {
   id: 'conv-panel',
   title: '右栏状态测试',
@@ -80,6 +103,29 @@ const messages: DemoMessage[] = [
 ];
 
 describe('RightAgentPanel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockResolvedValue(defaultWorkspaceTree);
+    vi.mocked(workspacesAdapter.readWorkspaceFile).mockResolvedValue({
+      path: 'demo.html',
+      name: 'demo.html',
+      size: 10,
+      mime_type: 'text/html',
+      content: '<h1>Demo</h1>',
+    });
+    vi.mocked(deploymentsAdapter.listDeployments).mockResolvedValue({ items: [] });
+    vi.mocked(deploymentsAdapter.createDeployment).mockResolvedValue({
+      id: 'deployment-created',
+      conversation_id: 'conv-demo-flow',
+      workspace_id: 'workspace-1',
+      kind: 'static_site',
+      status: 'queued',
+      logs: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  });
+
   function renderPanel(panel: React.ReactNode) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(<QueryClientProvider client={queryClient}>{panel}</QueryClientProvider>);
@@ -134,6 +180,76 @@ describe('RightAgentPanel', () => {
     expect(screen.getByText('1 outputs')).toBeInTheDocument();
   });
 
+  it('keeps the workspace tree visible when only file preview loading fails', async () => {
+    vi.mocked(workspacesAdapter.readWorkspaceFile).mockRejectedValue(new Error('file missing'));
+
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
+    expect(await screen.findByText('文件预览加载失败，请稍后重试。', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.queryByText('Workspace 加载失败，请稍后重试。')).not.toBeInTheDocument();
+    expect(screen.getByText('发布历史')).toBeInTheDocument();
+  });
+
+  it('does not reuse the selected file path after switching conversations', async () => {
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockImplementation(async (conversationId) => ({
+      root: `/workspaces/${conversationId}`,
+      tree: {
+        type: 'directory',
+        name: conversationId,
+        path: '',
+        children:
+          conversationId === 'conv-a'
+            ? [{ type: 'file', name: 'a.html', path: 'a.html', size: 10, mime_type: 'text/html' }]
+            : [{ type: 'file', name: 'b.html', path: 'b.html', size: 10, mime_type: 'text/html' }],
+      },
+    }));
+    vi.mocked(workspacesAdapter.readWorkspaceFile).mockImplementation(async (conversationId, path) => ({
+      path,
+      name: path,
+      size: 10,
+      mime_type: 'text/html',
+      content: `<h1>${conversationId}:${path}</h1>`,
+    }));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <RightAgentPanel
+          conversation={{ ...conversation, id: 'conv-a' }}
+          agents={mockAgents}
+          messages={messages}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findAllByText('a.html')).not.toHaveLength(0);
+    await waitFor(() => {
+      expect(workspacesAdapter.readWorkspaceFile).toHaveBeenCalledWith('conv-a', 'a.html');
+    });
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <RightAgentPanel
+          conversation={{ ...conversation, id: 'conv-b' }}
+          agents={mockAgents}
+          messages={messages}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findAllByText('b.html')).not.toHaveLength(0);
+    await waitFor(() => {
+      expect(workspacesAdapter.readWorkspaceFile).toHaveBeenCalledWith('conv-b', 'b.html');
+    });
+    expect(workspacesAdapter.readWorkspaceFile).not.toHaveBeenCalledWith('conv-b', 'a.html');
+  });
+
   it('creates a static deployment from the selected workspace HTML file', async () => {
     renderPanel(
       <RightAgentPanel
@@ -144,12 +260,213 @@ describe('RightAgentPanel', () => {
     );
 
     expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: /发布静态站点/ }));
+    fireEvent.click(screen.getByRole('button', { name: actionButtonName('static_site') }));
 
     await waitFor(() => {
       expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
         kind: 'static_site',
         entry_path: 'demo.html',
+      });
+    });
+  });
+
+  it('uses root index.html for static deployment when a non-html file is selected', async () => {
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockResolvedValue({
+      root: '/workspaces/conv-panel',
+      tree: {
+        type: 'directory',
+        name: 'conv-panel',
+        path: '',
+        children: [
+          { type: 'file', name: 'README.md', path: 'README.md', size: 75, mime_type: 'text/markdown' },
+          { type: 'file', name: 'index.html', path: 'index.html', size: 20, mime_type: 'text/html' },
+          { type: 'file', name: 'app.js', path: 'app.js', size: 30, mime_type: 'text/javascript' },
+        ],
+      },
+    });
+    vi.mocked(workspacesAdapter.readWorkspaceFile).mockResolvedValue({
+      path: 'README.md',
+      name: 'README.md',
+      size: 75,
+      mime_type: 'text/markdown',
+      content: '# README',
+    });
+
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(await screen.findAllByText('README.md')).not.toHaveLength(0);
+    expect(screen.getByRole('button', { name: actionButtonName('static_site') })).toHaveAttribute(
+      'title',
+      '静态入口：index.html',
+    );
+    fireEvent.click(screen.getByRole('button', { name: actionButtonName('static_site') }));
+
+    await waitFor(() => {
+      expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
+        kind: 'static_site',
+        entry_path: 'index.html',
+      });
+    });
+  });
+
+  it('disables static deployment when no html entry exists', async () => {
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockResolvedValue({
+      root: '/workspaces/conv-panel',
+      tree: {
+        type: 'directory',
+        name: 'conv-panel',
+        path: '',
+        children: [
+          { type: 'file', name: 'README.md', path: 'README.md', size: 75, mime_type: 'text/markdown' },
+        ],
+      },
+    });
+
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(await screen.findAllByText('README.md')).not.toHaveLength(0);
+    const staticButton = screen.getByRole('button', { name: actionButtonName('static_site') });
+
+    expect(staticButton).toBeDisabled();
+    expect(staticButton).toHaveAttribute('title', '需要 index.html 或 HTML 入口文件');
+  });
+
+  it('creates a source zip and shows success feedback', async () => {
+    vi.mocked(deploymentsAdapter.createDeployment).mockResolvedValue({
+      id: 'source-created',
+      conversation_id: 'conv-demo-flow',
+      workspace_id: 'workspace-1',
+      kind: 'source_zip',
+      status: 'published',
+      download_url: '/api/v1/workspaces/conv-demo-flow/deployments/source-created/download',
+      logs: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: actionButtonName('source_zip') }));
+
+    await waitFor(() => {
+      expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
+        kind: 'source_zip',
+      });
+    });
+    expect(await screen.findByText(/可在发布历史下载/)).toBeInTheDocument();
+  });
+
+  it('shows a download button for published source zip history items', async () => {
+    const createObjectUrl = vi.fn().mockReturnValue('blob:source-zip');
+    const revokeObjectUrl = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectUrl,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectUrl,
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    vi.mocked(deploymentsAdapter.downloadSourceArchive).mockResolvedValue(new Blob(['zip']));
+    vi.mocked(deploymentsAdapter.listDeployments).mockResolvedValue({
+      items: [
+        {
+          id: 'source-created',
+          conversation_id: 'conv-demo-flow',
+          workspace_id: 'workspace-1',
+          kind: 'source_zip',
+          status: 'published',
+          download_url: '/api/v1/workspaces/conv-demo-flow/deployments/source-created/download',
+          size_bytes: 191,
+          logs: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+    });
+
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    const downloadButton = await screen.findByRole('button', { name: '下载源码包' });
+    fireEvent.click(downloadButton);
+
+    await waitFor(() => {
+      expect(deploymentsAdapter.downloadSourceArchive).toHaveBeenCalledWith(
+        'conv-demo-flow',
+        'source-created',
+        '/api/v1/workspaces/conv-demo-flow/deployments/source-created/download',
+      );
+    });
+  });
+
+  it('disables container deployment until Dockerfile exists', async () => {
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
+    const containerButton = screen.getByRole('button', { name: actionButtonName('container') });
+
+    expect(containerButton).toBeDisabled();
+    expect(containerButton).toHaveAttribute('title', '需要 Dockerfile 才能容器部署');
+  });
+
+  it('creates a container deployment when Dockerfile exists', async () => {
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockResolvedValue({
+      root: '/workspaces/conv-panel',
+      tree: {
+        type: 'directory',
+        name: 'conv-panel',
+        path: '',
+        children: [
+          { type: 'file', name: 'Dockerfile', path: 'Dockerfile', size: 25, mime_type: 'text/plain' },
+          { type: 'file', name: 'index.html', path: 'index.html', size: 20, mime_type: 'text/html' },
+        ],
+      },
+    });
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(await screen.findAllByText('Dockerfile')).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: actionButtonName('container') }));
+
+    await waitFor(() => {
+      expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
+        kind: 'container',
       });
     });
   });

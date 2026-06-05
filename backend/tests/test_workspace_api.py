@@ -6,6 +6,7 @@ import asyncio
 import json
 import socket
 import zipfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -21,10 +22,11 @@ from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
-from app.models.workspace import Workspace
+from app.models.workspace import Workspace, WorkspacePreviewSession
 from app.services.artifacts.manifest import ArtifactManifestError, ArtifactManifestService
 from app.services.workspace.container_release import ContainerDeploymentResult
 from app.services.workspace_deployment import WorkspaceDeploymentService
+from app.services.workspace_preview import WorkspacePreviewService
 from app.services.workspace_service import WorkspaceService
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -772,6 +774,42 @@ async def test_delete_conversation_cleans_workspace_preview_and_deployment_resou
     assert not export_dir.exists()
     assert not workspace_dir.exists()
     assert (await client.get(release_path)).status_code == 404
+
+
+async def test_preview_cleanup_tolerates_snapshot_outside_current_root(
+    client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = UUID(conversation["id"])
+    outside_snapshot = tmp_path / "old-test-root" / "preview-snapshots" / str(conversation_id)
+    outside_snapshot.mkdir(parents=True)
+
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, conversation_id)
+        session = WorkspacePreviewSession(
+            conversation_id=conversation_id,
+            workspace_id=workspace.id,
+            entry_path="index.html",
+            port=8999,
+            pid=None,
+            url="http://127.0.0.1:8999",
+            status="running",
+            snapshot_path=str(outside_snapshot),
+            last_accessed_at=datetime(2000, 1, 1, tzinfo=UTC),
+        )
+        db.add(session)
+        await db.commit()
+
+        cleaned = await WorkspacePreviewService().cleanup_stale(db)
+        await db.refresh(session)
+
+        assert cleaned >= 1
+        assert session.status == "stopped"
+        assert session.snapshot_path is None
+        assert session.error is not None
+        assert "preview cleanup failed" in session.error
 
 
 async def test_workspace_source_zip_deployment_excludes_sensitive_paths(

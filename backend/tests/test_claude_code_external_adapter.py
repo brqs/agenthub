@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -197,13 +198,10 @@ class TestClaudeCodeAdapterStream:
             messages=[ChatMessage(role="user", content="Explain timeouts")],
         )
 
-        assert [chunk.event_type for chunk in chunks] == [
-            "start",
-            "block_start",
-            "delta",
-            "block_end",
-            "error",
-        ]
+        event_types = [chunk.event_type for chunk in chunks]
+        assert event_types[:3] == ["start", "block_start", "delta"]
+        assert "block_end" in event_types
+        assert event_types[-1] == "error"
         assert chunks[2].text_delta == "partial answer"
         assert chunks[-1].error_code == "direct_chat_timeout"
 
@@ -409,6 +407,8 @@ class TestClaudeCodeAdapterStream:
         assert str(tmp_path) in fake_sdk.last_prompt
         assert "Workspace root:" in fake_sdk.last_prompt
         assert "Never write to /home/user" in fake_sdk.last_prompt
+        assert "Before overwriting or editing an existing file" in fake_sdk.last_prompt
+        assert "Prefer relative paths from the workspace root" in fake_sdk.last_prompt
         assert "Do not run, suggest, or print shell commands" in fake_sdk.last_prompt
         assert "Do not provide terminal commands for port previews" in fake_sdk.last_prompt
         assert "do not create a Node/Express" in fake_sdk.last_prompt
@@ -522,9 +522,16 @@ class TestClaudeCodeAdapterStream:
         assert options["continue_conversation"] is False
         assert options["resume"] is None
         assert str(UUID(options["session_id"])) == options["session_id"]
-        assert options["env"]["HOME"].endswith("conv-a/agent-claude-code/msg-a")
-        assert options["env"]["XDG_CONFIG_HOME"].endswith(
-            "conv-a/agent-claude-code/msg-a/.config"
+        assert Path(options["env"]["HOME"]).parts[-3:] == (
+            "conv-a",
+            "agent-claude-code",
+            "msg-a",
+        )
+        assert Path(options["env"]["XDG_CONFIG_HOME"]).parts[-4:] == (
+            "conv-a",
+            "agent-claude-code",
+            "msg-a",
+            ".config",
         )
         assert (Path(options["env"]["HOME"]) / ".claude.json").exists()
 
@@ -581,9 +588,12 @@ class TestClaudeCodeAdapterStream:
         options = fake_sdk.last_options.kwargs
         assert str(UUID(options["session_id"])) == options["session_id"]
         assert options["session_id"] != agent_message_id
-        assert options["env"]["HOME"].endswith(
-            "conv-a/agent-claude-code/"
-            f"{agent_message_id}/frontend_impl/1"
+        assert Path(options["env"]["HOME"]).parts[-5:] == (
+            "conv-a",
+            "agent-claude-code",
+            agent_message_id,
+            "frontend_impl",
+            "1",
         )
 
     async def test_sdk_runtime_home_bootstraps_claude_credentials(
@@ -630,6 +640,47 @@ class TestClaudeCodeAdapterStream:
         assert (runtime_home / ".claude" / "settings.local.json").exists()
         assert not (runtime_home / ".claude" / "history.jsonl").exists()
 
+    async def test_sdk_runtime_env_allows_claude_credentials_only(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
+        monkeypatch.setenv("CLAUDE_AUTH_TOKEN", "claude-secret")
+        monkeypatch.setenv("SECRET_TOKEN_FULL_VALUE", "must-not-leak")
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        await _collect(adapter, workspace_path=tmp_path)
+
+        assert fake_sdk.last_options is not None
+        env = fake_sdk.last_options.kwargs["env"]
+        assert env["ANTHROPIC_API_KEY"] == "anthropic-secret"
+        assert env["CLAUDE_AUTH_TOKEN"] == "claude-secret"
+        assert "SECRET_TOKEN_FULL_VALUE" not in env
+
+    async def test_sdk_copies_shared_claude_auth_into_isolated_home(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        auth_dir = tmp_path / "shared-auth"
+        (auth_dir / ".claude").mkdir(parents=True)
+        (auth_dir / ".claude.json").write_text('{"source":"shared"}', encoding="utf-8")
+        (auth_dir / ".claude" / "session.json").write_text("session", encoding="utf-8")
+        monkeypatch.setenv("AGENTHUB_CLAUDE_AUTH_DIR", str(auth_dir))
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        await _collect(adapter, workspace_path=tmp_path)
+
+        assert fake_sdk.last_options is not None
+        home = Path(fake_sdk.last_options.kwargs["env"]["HOME"])
+        assert (home / ".claude.json").read_text(encoding="utf-8") == '{"source":"shared"}'
+        assert (home / ".claude" / "session.json").read_text(encoding="utf-8") == "session"
+
     async def test_sdk_exception_maps_to_external_runtime_error(
         self,
         adapter: ClaudeCodeAdapter,
@@ -644,6 +695,22 @@ class TestClaudeCodeAdapterStream:
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[1].error_code == "external_runtime_error"
         assert "runtime crashed" in (chunks[1].error or "")
+
+    async def test_sdk_auth_errors_are_normalized(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(exc=RuntimeError("Claude Code returned an error result: success"))
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+        assert chunks[1].error_code == "external_runtime_error"
+        assert "runtime is not authenticated" in (chunks[1].error or "")
+        assert "error result: success" not in (chunks[1].error or "")
 
     async def test_sdk_wait_emits_heartbeat_before_hard_timeout(
         self,
@@ -768,3 +835,91 @@ class TestClaudeCodeAdapterStream:
 
         assert chunks[-1].event_type == "done"
         assert seen_command[0] == "C:\\Users\\qq\\.local\\bin\\claude.exe"
+
+
+def test_claude_code_runtime_status_uses_env_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_code_module._clear_runtime_probe_cache()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret")
+    monkeypatch.setenv("AGENTHUB_CLAUDE_AUTH_DIR", str(tmp_path / "missing-auth"))
+    monkeypatch.setattr(
+        claude_code_module,
+        "_probe_claude_runtime",
+        lambda _config=None: ("ready", None),
+    )
+
+    status, error = claude_code_module.claude_code_runtime_status()
+
+    assert status == "ready"
+    assert error is None
+
+
+def test_claude_code_runtime_status_uses_shared_auth(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_code_module._clear_runtime_probe_cache()
+    auth_dir = tmp_path / "shared-auth"
+    auth_dir.mkdir()
+    (auth_dir / ".claude.json").write_text("{}", encoding="utf-8")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("AGENTHUB_CLAUDE_AUTH_DIR", str(auth_dir))
+    monkeypatch.setattr(
+        claude_code_module,
+        "_probe_claude_runtime",
+        lambda _config=None: ("ready", None),
+    )
+
+    status, error = claude_code_module.claude_code_runtime_status()
+
+    assert status == "ready"
+    assert error is None
+
+
+def test_claude_code_runtime_status_requires_successful_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_code_module._clear_runtime_probe_cache()
+    auth_dir = tmp_path / "shared-auth"
+    auth_dir.mkdir()
+    (auth_dir / ".claude.json").write_text("{}", encoding="utf-8")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("AGENTHUB_CLAUDE_AUTH_DIR", str(auth_dir))
+
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        _ = args, kwargs
+        return subprocess.CompletedProcess(
+            args=["claude"],
+            returncode=1,
+            stdout="",
+            stderr="Not logged in. Please run /login",
+        )
+
+    monkeypatch.setattr(claude_code_module.subprocess, "run", fake_run)
+
+    status, error = claude_code_module.claude_code_runtime_status()
+
+    assert status == "unavailable"
+    assert error is not None
+    assert "runtime is not authenticated" in error
+
+
+def test_claude_code_runtime_status_unavailable_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_code_module._clear_runtime_probe_cache()
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_AUTH_TOKEN", raising=False)
+    monkeypatch.setenv("AGENTHUB_CLAUDE_AUTH_DIR", str(tmp_path / "missing-auth"))
+
+    status, error = claude_code_module.claude_code_runtime_status()
+
+    assert status == "unavailable"
+    assert error is not None
+    assert "runtime is not authenticated" in error

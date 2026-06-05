@@ -10,6 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.external.claude_code import claude_code_runtime_status
+from app.agents.external.opencode import opencode_runtime_status
+from app.agents.orchestrator.availability import is_runnable_agent_context
 from app.agents.registry import ORCHESTRATOR_AGENT_ID
 from app.agents.types import ChatMessage
 from app.models.agent import Agent
@@ -47,6 +50,22 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
             value = agent.config.get(key)
             if isinstance(value, str) and value.strip():
                 context[key] = value.strip()
+    if agent.provider == "opencode":
+        status, error = opencode_runtime_status(
+            agent.config if isinstance(agent.config, dict) else None
+        )
+        context["runtime_status"] = status
+        context["runtime_available"] = status == "ready"
+        if error:
+            context["runtime_error"] = error
+    if agent.provider == "claude_code":
+        status, error = claude_code_runtime_status(
+            agent.config if isinstance(agent.config, dict) else None
+        )
+        context["runtime_status"] = status
+        context["runtime_available"] = status == "ready"
+        if error:
+            context["runtime_error"] = error
     return context
 
 
@@ -79,15 +98,17 @@ async def _orchestrator_conversation_config(
         agent
         for agent in conversation_agents
         if agent.get("id") != ORCHESTRATOR_AGENT_ID
+        and is_runnable_agent_context(agent)
     ]
     config: dict[str, Any] = {
         "conversation_agents": conversation_agents,
         "available_agents": available_agents,
-    }
-    if available_agents:
-        config["managed_agent_ids"] = [
+        "available_agents_authoritative": True,
+        "conversation_scoped_agents": True,
+        "managed_agent_ids": [
             agent["id"] for agent in available_agents if isinstance(agent.get("id"), str)
-        ]
+        ],
+    }
     return config
 
 

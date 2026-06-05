@@ -96,6 +96,30 @@ async def test_get_or_create_workspace_is_idempotent() -> None:
     assert count == 1
 
 
+async def test_get_or_create_repairs_workspace_root_from_old_base(tmp_path: Path) -> None:
+    conversation_id = await _create_conversation()
+    stale_root = tmp_path / "pytest-of-root" / "old-workspaces" / str(conversation_id)
+    expected_root = Path(settings.workspace_base_dir) / str(conversation_id)
+    async with SessionFactory() as db:
+        db.add(Workspace(conversation_id=conversation_id, root_path=str(stale_root)))
+        await db.commit()
+
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, conversation_id)
+        await db.commit()
+
+    assert Path(workspace.root_path) == expected_root
+    assert expected_root.exists()
+    assert (expected_root / "README.md").exists()
+    async with SessionFactory() as db:
+        stored = (
+            await db.execute(
+                select(Workspace).where(Workspace.conversation_id == conversation_id)
+            )
+        ).scalar_one()
+    assert stored.root_path == str(expected_root)
+
+
 async def test_get_or_create_workspace_is_concurrency_safe() -> None:
     conversation_id = await _create_conversation()
 
