@@ -7,11 +7,16 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.agents.orchestrator._internal.planning.routing import agent_id_list
+from app.agents.orchestrator.availability import scoped_runnable_agent_ids
 
 PORT_NUMBER_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
 
 
 def available_orchestrator_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return scoped_ids
+
     available_agents = config.get("available_agents")
     if isinstance(available_agents, list):
         ids: list[str] = []

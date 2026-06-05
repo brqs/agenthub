@@ -1,5 +1,24 @@
 # External Runtime Adapters Spec
 
+## 2026-06-05 Update: Runtime Availability And Auth
+
+An external runtime is runnable only when its actual execution path can be
+probed successfully. Static configuration, installed packages, or auth files on
+disk are candidates, not proof of availability.
+
+For Claude Code, AgentHub supports provider credentials from backend
+environment variables and shared auth state at `$AGENTHUB_CLAUDE_AUTH_DIR`.
+Availability checks must use the same auth source as the adapter execution path:
+copy shared Claude auth into an isolated runtime HOME, or run CLI smoke commands
+with `HOME=$AGENTHUB_CLAUDE_AUTH_DIR`. A present `.claude.json` file or
+`hasCompletedOnboarding=true` does not by itself prove that SDK/CLI execution is
+authenticated.
+
+Runtime probes may use a short TTL cache, but cache entries must become invalid
+when relevant auth files or provider environment values change. Authentication
+failures must be normalized into clear runtime errors and must not expose
+contradictory SDK wrapper text such as `error result: success`.
+
 ## 目标
 
 补齐 `claude-code`、`codex-helper`、`opencode-helper` 的 provider-specific 运行契约。通用 `BaseAgentAdapter` 只定义接口，本 Spec 定义每个 external runtime 如何启动、如何映射事件、如何清理、如何诊断。

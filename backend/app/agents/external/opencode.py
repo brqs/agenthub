@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shutil
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Literal
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.cli_runtime import (
-    cli_env,
     kill_process_tree,
     process_kwargs,
     resolve_command,
@@ -22,11 +23,13 @@ from app.agents.external.runtime_budget import (
     RuntimeTimeoutError,
     runtime_budget_config,
 )
+from app.agents.external.runtime_isolation import isolated_runtime_env
 from app.agents.external.runtime_prelude import external_runtime_prelude
 from app.agents.external.runtime_utils import (
     argv,
     external_error_chunk,
     safe_exception_message,
+    safe_runtime_output,
     truncate,
 )
 from app.agents.external.workspace_prompt import (
@@ -38,6 +41,28 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_COMMAND = "opencode"
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+DEFAULT_SHARED_AUTH_DIR = "/root/.local/share/opencode"
+OPENCODE_AUTH_DIR_ENV = "AGENTHUB_OPENCODE_AUTH_DIR"
+OPENCODE_CLI_MISSING_ERROR = (
+    "OpenCode CLI command 'opencode' was not found in backend container PATH. "
+    "Install OpenCode in the backend Docker image or update opencode-helper "
+    "config.command to an executable command."
+)
+OPENCODE_MISSING_CREDENTIALS_ERROR = (
+    "OpenCode CLI is installed but no usable model credentials are configured. "
+    "Set provider keys in backend .env or run `docker compose exec backend "
+    "opencode auth login` and keep the opencode-state volume."
+)
+AUTH_ERROR_MARKERS = (
+    "api key",
+    "api_key",
+    "auth",
+    "credential",
+    "login",
+    "no provider",
+    "not configured",
+    "unauthorized",
+)
 TEXT_EVENT_TYPES = {"text", "text_delta", "reasoning"}
 TOOL_CALL_EVENT_TYPES = {"tool_call"}
 TOOL_RESULT_EVENT_TYPES = {"tool_result"}
@@ -46,18 +71,27 @@ TOOL_EVENT_TYPES = TOOL_CALL_EVENT_TYPES | TOOL_RESULT_EVENT_TYPES | TOOL_USE_EV
 TOOL_USE_OK_STATUSES = {"completed", "done", "success", "ok"}
 TOOL_USE_ERROR_STATUSES = {"error", "failed"}
 TOOL_USE_NON_TERMINAL_STATUSES = {"running", "pending", "started"}
-ENV_ALLOWLIST = {
-    "PATH",
-    "LANG",
-    "LC_ALL",
-    "HOME",
-    "USERPROFILE",
-    "SYSTEMROOT",
-    "COMSPEC",
-    "PATHEXT",
-    "TEMP",
-    "TMP",
-}
+def opencode_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str | None]:
+    command = argv((config or {}).get("command", DEFAULT_COMMAND))
+    if not command:
+        return "invalid", "OpenCode command is empty"
+    if _command_available(command):
+        return "ready", None
+    return "unavailable", OPENCODE_CLI_MISSING_ERROR
+
+
+def _command_available(command: list[str]) -> bool:
+    resolved = resolve_command(command)
+    executable = resolved[0]
+    if executable != command[0]:
+        return True
+    if _looks_like_path(executable):
+        return Path(executable).exists()
+    return shutil.which(executable, path=os.environ.get("PATH")) is not None
+
+
+def _looks_like_path(value: str) -> bool:
+    return "/" in value or "\\" in value or value.startswith(".")
 
 
 class OpenCodeAdapter(BaseAgentAdapter):
@@ -120,6 +154,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
             yield self._error("external_runtime_error", "OpenCode command is empty")
             return
 
+        runtime_env = self._runtime_env(merged, workspace_path)
         try:
             process = await asyncio.create_subprocess_exec(
                 *resolve_command(command),
@@ -128,9 +163,12 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(workspace_path),
-                env=cli_env(),
+                env=runtime_env,
                 **process_kwargs(),
             )
+        except FileNotFoundError:
+            yield self._error("external_runtime_error", OPENCODE_CLI_MISSING_ERROR)
+            return
         except Exception as exc:
             yield self._error("external_runtime_error", self._safe_message(exc))
             return
@@ -251,7 +289,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     await self._terminate_process(process)
                     yield self._error(
                         self._string_field(event, "error_code") or "external_runtime_error",
-                        self._string_field(event, "error") or "OpenCode runtime error",
+                        self._normalize_runtime_error(
+                            self._string_field(event, "error") or "OpenCode runtime error"
+                        ),
                     )
                     return
 
@@ -612,9 +652,55 @@ class OpenCodeAdapter(BaseAgentAdapter):
     def _exit_error(self, return_code: int, stderr: str) -> StreamChunk:
         return self._error(
             "external_runtime_error",
-            f"OpenCode exited with code {return_code}: {stderr}",
+            f"OpenCode exited with code {return_code}: "
+            f"{self._normalize_runtime_error(stderr)}",
         )
+
+    def _runtime_env(self, config: dict[str, Any], workspace_path: Path) -> dict[str, str]:
+        env = isolated_runtime_env(
+            config,
+            workspace_path=workspace_path,
+            agent_id=self.agent_id,
+        )
+        self._copy_shared_auth(env)
+        return env
+
+    @staticmethod
+    def _copy_shared_auth(env: dict[str, str]) -> None:
+        source_dir = Path(
+            os.environ.get(OPENCODE_AUTH_DIR_ENV)
+            or os.environ.get("OPENCODE_AUTH_DIR", "")
+            or DEFAULT_SHARED_AUTH_DIR
+        ).expanduser()
+        source = source_dir / "auth.json"
+        if not source.exists():
+            return
+        xdg_data_home = env.get("XDG_DATA_HOME")
+        home = env.get("HOME")
+        if xdg_data_home:
+            destination_dir = Path(xdg_data_home) / "opencode"
+        elif home:
+            destination_dir = Path(home) / ".local" / "share" / "opencode"
+        else:
+            return
+        destination = destination_dir / "auth.json"
+        if source.resolve() == destination.resolve():
+            return
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+    @staticmethod
+    def _normalize_runtime_error(output: str) -> str:
+        safe_output = safe_runtime_output(output, max_chars=500)
+        if _looks_like_auth_error(safe_output):
+            return OPENCODE_MISSING_CREDENTIALS_ERROR
+        return safe_output
 
     @staticmethod
     def _safe_message(exc: Exception) -> str:
         return safe_exception_message(exc)
+
+
+def _looks_like_auth_error(output: str) -> bool:
+    lowered = output.lower()
+    return any(marker in lowered for marker in AUTH_ERROR_MARKERS)

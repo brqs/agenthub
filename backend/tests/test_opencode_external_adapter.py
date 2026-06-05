@@ -438,6 +438,7 @@ class TestOpenCodeAdapterStream:
         tmp_path: Path,
     ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "secret-key")
+        monkeypatch.setenv("SECRET_TOKEN_FULL_VALUE", "must-not-leak")
         monkeypatch.setenv("PATH", "fake-path")
         process = FakeProcess([_json_line({"type": "done"})])
         factory = _patch_subprocess(monkeypatch, process)
@@ -453,7 +454,8 @@ class TestOpenCodeAdapterStream:
         assert call["cwd"] == str(tmp_path)
         assert call["env"]["PATH"].endswith("fake-path")
         assert ".local" in call["env"]["PATH"]
-        assert "OPENAI_API_KEY" not in call["env"]
+        assert call["env"]["OPENAI_API_KEY"] == "secret-key"
+        assert "SECRET_TOKEN_FULL_VALUE" not in call["env"]
         assert process.stdin.closed is True
 
     async def test_default_prompt_includes_workspace_rules(
@@ -569,6 +571,29 @@ class TestOpenCodeAdapterErrors:
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[-1].error_code == "workspace_violation"
 
+    async def test_missing_cli_yields_actionable_runtime_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        async def raise_file_not_found(*_args: Any, **_kwargs: Any) -> Any:
+            raise FileNotFoundError("opencode")
+
+        monkeypatch.setattr(
+            opencode_module.asyncio,
+            "create_subprocess_exec",
+            raise_file_not_found,
+        )
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+        assert chunks[-1].error_code == "external_runtime_error"
+        assert "OpenCode CLI command 'opencode' was not found" in (
+            chunks[-1].error or ""
+        )
+        assert "[Errno 2]" not in (chunks[-1].error or "")
+
     async def test_nonzero_exit_without_error_event_maps_external_runtime_error(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -582,6 +607,20 @@ class TestOpenCodeAdapterErrors:
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[-1].error_code == "external_runtime_error"
         assert "runtime failed" in (chunks[-1].error or "")
+
+    async def test_auth_failure_is_normalized(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess([], returncode=1, stderr=b"No API key configured")
+        _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+        assert chunks[-1].error_code == "external_runtime_error"
+        assert "no usable model credentials are configured" in (chunks[-1].error or "")
 
     async def test_done_then_nonzero_exit_completes(
         self,

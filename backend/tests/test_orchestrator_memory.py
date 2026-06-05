@@ -313,6 +313,7 @@ async def test_orchestrator_writer_receives_run_task_and_summary() -> None:
     assert writer.finished is not None
     assert writer.finished[0] == "done"
     assert "Execution summary" in writer.finished[1]
+    assert "Execution summary" not in "".join(chunk.text_delta or "" for chunk in chunks)
 
 
 async def test_orchestrator_writer_receives_evaluation_events(tmp_path: Path) -> None:
@@ -427,6 +428,79 @@ async def test_memory_store_formats_recent_runs_before_latest_user_request() -> 
     )
     assert "Agent capability profile from recent Orchestrator runs" in injected[-2].content
     assert "Previous Orchestrator structured memory" in injected[-2].content
+
+
+async def test_orchestrator_direct_answer_reports_latest_run_status() -> None:
+    conversation_id, agent_message_id = await _create_conversation()
+    async with SessionFactory() as db:
+        store = OrchestratorMemoryStore(
+            db,
+            conversation_id=conversation_id,
+            agent_message_id=agent_message_id,
+            user_message_id=None,
+        )
+        task = SubTask(
+            task_id="frontend-build",
+            agent_id="claude-code",
+            title="Build static frontend demo artifacts",
+            instruction="Create index.html",
+            expected_output="index.html",
+        )
+        run_id = await store.start_run(
+            user_request="Create a snake game",
+            plan_source="frontend quality plan",
+            tasks=[task],
+        )
+        result = TaskResult(
+            task_id=task.task_id,
+            title=task.title,
+            final_state=TaskState.SUCCEEDED,
+        )
+        result.attempts.append(
+            TaskAttempt(
+                attempt_index=1,
+                agent_id="claude-code",
+                state=TaskState.SUCCEEDED,
+                text_preview="Created index.html",
+                artifact_paths=["index.html", "styles.css", "app.js"],
+            )
+        )
+        await store.record_task_result(run_id=run_id, task=task, result=result)
+        await store.finish_run(
+            run_id=run_id,
+            status="done",
+            final_summary="Execution summary\n- succeeded",
+        )
+        await db.commit()
+
+        orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+        chunks = [
+            chunk
+            async for chunk in orchestrator.stream(
+                messages=[
+                    ChatMessage(
+                        role="user",
+                        content="\u4f60\u6267\u884c\u5b8c\u6210\u4e86\u5417",
+                    )
+                ],
+                config={
+                    "orchestrator_db_session": db,
+                    "conversation_id": conversation_id,
+                    "managed_agent_ids": ["claude-code"],
+                },
+            )
+        ]
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    expected_status = (
+        "\u6700\u8fd1\u4e00\u6b21 Orchestrator "
+        "\u4efb\u52a1\u72b6\u6001\uff1a\u5df2\u5b8c\u6210"
+    )
+    assert expected_status in text
+    assert "Create a snake game" in text
+    assert "@claude-code" in text
+    assert "index.html" in text
 
 
 async def test_memory_store_persists_review_thread_metadata() -> None:

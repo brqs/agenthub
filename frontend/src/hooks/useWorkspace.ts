@@ -8,7 +8,8 @@ export function useWorkspaceTree(conversationId: string | null | undefined) {
     queryKey: ['workspace-tree', conversationId],
     queryFn: () => workspacesAdapter.getWorkspaceTree(conversationId as string),
     enabled: Boolean(conversationId),
-    retry: false,
+    retry: 2,
+    retryDelay: 500,
   });
 }
 
@@ -20,7 +21,8 @@ export function useWorkspaceFile(
     queryKey: ['workspace-file', conversationId, path],
     queryFn: () => workspacesAdapter.readWorkspaceFile(conversationId as string, path as string),
     enabled: Boolean(conversationId) && Boolean(path),
-    retry: false,
+    retry: 2,
+    retryDelay: 500,
   });
 }
 

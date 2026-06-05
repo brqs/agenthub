@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import inspect
+import os
+import shutil
+import subprocess
+import tempfile
+import time
 from collections.abc import AsyncIterator, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -41,10 +47,50 @@ from app.agents.runtime_guard import (
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "claude_agent_sdk"
+DEFAULT_SHARED_AUTH_DIR = "/root/.agenthub/claude-auth"
+CLAUDE_AUTH_DIR_ENV = "AGENTHUB_CLAUDE_AUTH_DIR"
+CLAUDE_MISSING_CREDENTIALS_ERROR = (
+    "Claude Code runtime is not authenticated. Provide backend .env credentials "
+    "or complete Claude Code login in the claude-state volume."
+)
+AUTH_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_")
+AUTH_ERROR_MARKERS = (
+    "api key",
+    "api_key",
+    "auth",
+    "credential",
+    "login",
+    "not logged in",
+    "please run /login",
+    "returned an error result: success",
+    "unauthorized",
+)
+RUNTIME_PROBE_TTL_SECONDS = 120.0
+RUNTIME_PROBE_TIMEOUT_SECONDS = 60.0
+RUNTIME_PROBE_PROMPT = "只回复 OK"
 TEXT_EVENT_NAMES = {"text", "text_block", "text_delta", "content_block_delta"}
 TOOL_CALL_EVENT_NAMES = {"tool_call", "tool_use", "tool_start", "tooluseblock"}
 TOOL_RESULT_EVENT_NAMES = {"tool_result", "tool_finish", "tool_end", "toolresultblock"}
 SKIP_EVENT_NAMES = {"start", "done", "result", "system", "assistantmessage"}
+_RUNTIME_PROBE_CACHE: dict[
+    tuple[Any, ...],
+    tuple[float, tuple[str, str | None]],
+] = {}
+
+
+def claude_code_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str | None]:
+    if not (_has_provider_credentials() or _has_shared_auth()):
+        return "unavailable", CLAUDE_MISSING_CREDENTIALS_ERROR
+
+    key = _runtime_probe_cache_key(config)
+    now = time.monotonic()
+    cached = _RUNTIME_PROBE_CACHE.get(key)
+    if cached is not None and now - cached[0] < RUNTIME_PROBE_TTL_SECONDS:
+        return cached[1]
+
+    status = _probe_claude_runtime(config)
+    _RUNTIME_PROBE_CACHE[key] = (now, status)
+    return status
 
 
 class ClaudeCodeAdapter(BaseAgentAdapter):
@@ -152,6 +198,12 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             "--no-session-persistence",
             prompt,
         ]
+        runtime_env = isolated_runtime_env(
+            config,
+            workspace_path=workspace_path,
+            agent_id=self.agent_id,
+        )
+        self._copy_shared_auth(runtime_env)
         result = None
         try:
             async for event in stream_cli_text(
@@ -160,11 +212,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
                 budget_config=budget_config,
                 agent_id=self.agent_id,
                 provider=self.provider,
-                env=isolated_runtime_env(
-                    config,
-                    workspace_path=workspace_path,
-                    agent_id=self.agent_id,
-                ),
+                env=runtime_env,
             ):
                 if isinstance(event, StreamChunk):
                     yield event
@@ -233,6 +281,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             workspace_path=workspace_path,
             agent_id=self.agent_id,
         )
+        self._copy_shared_auth(option_kwargs["env"])
 
         option_cls = getattr(sdk, "ClaudeAgentOptions", None) or getattr(
             sdk,
@@ -380,8 +429,190 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         return classify_external_exception(exc)
 
     def _safe_error_message(self, exc: BaseException) -> str:
-        return str(exc) or exc.__class__.__name__
+        return self._normalize_runtime_error(str(exc) or exc.__class__.__name__)
 
     @staticmethod
     def _safe_runtime_output(output: str) -> str:
-        return safe_runtime_output(output, max_chars=500)
+        return ClaudeCodeAdapter._normalize_runtime_error(
+            safe_runtime_output(output, max_chars=500)
+        )
+
+    @staticmethod
+    def _copy_shared_auth(env: dict[str, str]) -> None:
+        source_dir = _shared_auth_dir()
+        if not source_dir.exists():
+            return
+        home = env.get("HOME")
+        if not home:
+            return
+        destination_home = Path(home)
+        _copy_if_present(source_dir / ".claude.json", destination_home / ".claude.json")
+        _copy_if_present(source_dir / ".claude", destination_home / ".claude")
+
+    @staticmethod
+    def _normalize_runtime_error(output: str) -> str:
+        safe_output = safe_runtime_output(output, max_chars=500)
+        if _looks_like_auth_error(safe_output):
+            return CLAUDE_MISSING_CREDENTIALS_ERROR
+        return safe_output
+
+
+def _has_provider_credentials() -> bool:
+    return any(
+        value
+        for key, value in os.environ.items()
+        if key.startswith(AUTH_ENV_PREFIXES) and key.endswith(("API_KEY", "AUTH_TOKEN", "TOKEN"))
+    )
+
+
+def _has_shared_auth() -> bool:
+    source_dir = _shared_auth_dir()
+    return (source_dir / ".claude.json").exists() or (source_dir / ".claude").exists()
+
+
+def _probe_claude_runtime(config: dict[str, Any] | None) -> tuple[str, str | None]:
+    merged_config = dict(config or {})
+    command = [
+        *argv(merged_config.get("command", "claude"), default=("claude",), drop_empty=True),
+        "-p",
+        RUNTIME_PROBE_PROMPT,
+        "--output-format",
+        "text",
+        "--permission-mode",
+        "acceptEdits",
+        "--no-session-persistence",
+    ]
+    with tempfile.TemporaryDirectory(prefix="agenthub-claude-probe-") as temp_dir:
+        workspace_path = Path(temp_dir)
+        probe_config = {
+            **merged_config,
+            "runtime_context": {
+                "conversation_id": "claude-runtime-probe",
+                "agent_message_id": "claude-runtime-probe",
+                "agent_id": "claude-code",
+            },
+        }
+        runtime_env = isolated_runtime_env(
+            probe_config,
+            workspace_path=workspace_path,
+            agent_id="claude-code",
+        )
+        ClaudeCodeAdapter._copy_shared_auth(runtime_env)
+        try:
+            completed = subprocess.run(  # noqa: S603
+                command,
+                cwd=workspace_path,
+                env=runtime_env,
+                capture_output=True,
+                text=True,
+                timeout=RUNTIME_PROBE_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except FileNotFoundError:
+            return (
+                "unavailable",
+                "Claude Code CLI command 'claude' was not found in backend container PATH.",
+            )
+        except subprocess.TimeoutExpired as exc:
+            output = _completed_output(exc.stdout, exc.stderr)
+            suffix = f": {output}" if output else ""
+            return "unavailable", f"Claude Code runtime probe timed out{suffix}"
+        except Exception as exc:  # noqa: BLE001
+            return "unavailable", ClaudeCodeAdapter._normalize_runtime_error(str(exc))
+
+    output = _completed_output(completed.stdout, completed.stderr)
+    normalized = ClaudeCodeAdapter._normalize_runtime_error(output)
+    if completed.returncode == 0 and not _looks_like_auth_error(output):
+        return "ready", None
+    if _looks_like_auth_error(output):
+        return "unavailable", CLAUDE_MISSING_CREDENTIALS_ERROR
+    return "unavailable", f"Claude Code runtime probe failed: {normalized}"
+
+
+def _runtime_probe_cache_key(config: dict[str, Any] | None) -> tuple[Any, ...]:
+    command = tuple(
+        argv((config or {}).get("command", "claude"), default=("claude",), drop_empty=True)
+    )
+    return (
+        command,
+        _auth_env_fingerprint(),
+        _shared_auth_fingerprint(),
+    )
+
+
+def _auth_env_fingerprint() -> tuple[tuple[str, int], ...]:
+    return tuple(
+        sorted(
+            (key, len(value))
+            for key, value in os.environ.items()
+            if key.startswith(AUTH_ENV_PREFIXES)
+            and key.endswith(("API_KEY", "AUTH_TOKEN", "TOKEN"))
+            and value
+        )
+    )
+
+
+def _shared_auth_fingerprint() -> tuple[Any, ...]:
+    source_dir = _shared_auth_dir()
+    claude_json = source_dir / ".claude.json"
+    claude_dir = source_dir / ".claude"
+    json_stat = _path_signature(claude_json)
+    if not claude_dir.exists():
+        return (str(source_dir), json_stat, None)
+    file_count = 0
+    total_size = 0
+    newest_mtime_ns = 0
+    for path in claude_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        with contextlib.suppress(OSError):
+            stat = path.stat()
+            file_count += 1
+            total_size += stat.st_size
+            newest_mtime_ns = max(newest_mtime_ns, stat.st_mtime_ns)
+    return (str(source_dir), json_stat, (file_count, total_size, newest_mtime_ns))
+
+
+def _path_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _completed_output(stdout: object, stderr: object) -> str:
+    parts: list[str] = []
+    for value in (stderr, stdout):
+        if value is None:
+            continue
+        if isinstance(value, bytes):
+            parts.append(value.decode(errors="replace"))
+        else:
+            parts.append(str(value))
+    return "\n".join(part for part in parts if part).strip()
+
+
+def _clear_runtime_probe_cache() -> None:
+    _RUNTIME_PROBE_CACHE.clear()
+
+
+def _shared_auth_dir() -> Path:
+    return Path(os.environ.get(CLAUDE_AUTH_DIR_ENV, DEFAULT_SHARED_AUTH_DIR)).expanduser()
+
+
+def _copy_if_present(source: Path, destination: Path) -> None:
+    if not source.exists():
+        return
+    if source.is_dir():
+        if destination.exists():
+            shutil.rmtree(destination)
+        shutil.copytree(source, destination)
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+
+def _looks_like_auth_error(output: str) -> bool:
+    lowered = output.lower()
+    return any(marker in lowered for marker in AUTH_ERROR_MARKERS)

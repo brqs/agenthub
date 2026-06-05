@@ -6,7 +6,10 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-from app.agents.orchestrator._internal.planning.routing import latest_user_request
+from app.agents.orchestrator._internal.planning.routing import (
+    is_artifact_build_request,
+    latest_user_request,
+)
 from app.agents.orchestrator._internal.planning.templates.common import (
     available_orchestrator_agent_ids,
     preferred_agent,
@@ -124,6 +127,8 @@ def stabilize_frontend_deploy_tasks(
 ) -> list[SubTask]:
     """Prefer a known-good file generation/review shape for preview quality gates."""
 
+    if not _is_frontend_quality_or_preview_request(user_request):
+        return tasks
     fullstack_tasks = derive_fullstack_delivery_tasks(allowed_agent_ids, user_request)
     if fullstack_tasks:
         return fullstack_tasks
@@ -380,6 +385,21 @@ def derive_frontend_deploy_tasks(
 
 
 def _is_frontend_deploy_or_quality_request(user_request: str) -> bool:
+    if not user_request:
+        return False
+    normalized = user_request.lower()
+    if is_artifact_build_request(normalized):
+        return True
+    is_frontend = any(marker in normalized for marker in FRONTEND_DEMO_MARKERS)
+    wants_preview = any(marker in normalized for marker in PREVIEW_DEPLOY_MARKERS)
+    wants_quality = any(marker in normalized for marker in QUALITY_MARKERS)
+    has_demo_requirements = any(
+        marker in normalized for marker in FRONTEND_QUALITY_PLAN_MARKERS
+    )
+    return is_frontend and (wants_quality or (wants_preview and has_demo_requirements))
+
+
+def _is_frontend_quality_or_preview_request(user_request: str) -> bool:
     if not user_request:
         return False
     normalized = user_request.lower()

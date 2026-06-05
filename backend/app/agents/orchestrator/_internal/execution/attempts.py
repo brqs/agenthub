@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from app.agents.orchestrator._internal.execution.summary import (
     task_result_context_message as _task_result_context_message,
 )
+from app.agents.orchestrator.availability import scoped_runnable_agent_ids
 from app.agents.orchestrator.types import (
     DEFAULT_MAX_TASK_ATTEMPTS,
     DEFAULT_TASK_RESULT_CONTEXT_MAX_CHARS,
@@ -28,6 +30,7 @@ def task_messages(
     run_context: OrchestratorRunContext,
     config: Mapping[str, Any],
     *,
+    workspace_path: Path | None = None,
     previous_attempt: TaskAttempt | None = None,
 ) -> list[ChatMessage]:
     task_message = ChatMessage(role="user", content=task.instruction)
@@ -40,9 +43,66 @@ def task_messages(
     )
     base_messages = [*messages] if task.include_history else []
     if context_message is not None:
+        if previous_attempt is None:
+            base_messages.append(context_message)
+    inventory_message = _workspace_inventory_message(task, workspace_path)
+    if inventory_message is not None:
+        base_messages.append(inventory_message)
+    if context_message is not None and previous_attempt is not None:
         base_messages.append(context_message)
     base_messages.append(task_message)
     return base_messages
+
+
+def _workspace_inventory_message(
+    task: SubTask,
+    workspace_path: Path | None,
+) -> ChatMessage | None:
+    if workspace_path is None:
+        return None
+    root_entries = _root_entries(workspace_path)
+    expected_paths = _expected_paths(task)
+    existing_expected = [
+        path for path in expected_paths if (workspace_path / path).is_file()
+    ]
+    if not root_entries and not expected_paths:
+        return None
+    lines = ["Workspace inventory for this task:"]
+    if root_entries:
+        lines.append(f"Current root entries: {', '.join(root_entries[:40])}")
+    if existing_expected:
+        lines.append(
+            f"Existing expected artifacts: {', '.join(existing_expected[:20])}"
+        )
+    if expected_paths:
+        lines.append(
+            "If you edit an existing expected artifact, read or inspect that file "
+            "first before writing to it."
+        )
+    return ChatMessage(role="system", content="\n".join(lines))
+
+
+def _root_entries(workspace_path: Path) -> list[str]:
+    try:
+        return sorted(
+            item.name
+            for item in workspace_path.iterdir()
+            if item.name and not item.name.startswith(".")
+        )
+    except OSError:
+        return []
+
+
+def _expected_paths(task: SubTask) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for line in (task.expected_output or "").splitlines():
+        path = line.strip().strip("-* ")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        paths.append(path)
+    return paths
 
 
 def task_fallback_agent_ids(config: Mapping[str, Any]) -> list[str]:
@@ -61,6 +121,10 @@ def task_fallback_agent_ids(config: Mapping[str, Any]) -> list[str]:
 
 
 def allowed_fallback_agent_ids(config: Mapping[str, Any]) -> set[str]:
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return set(scoped_ids)
+
     available_agents = config.get("available_agents")
     if isinstance(available_agents, list):
         ids = {

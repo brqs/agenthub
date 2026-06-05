@@ -32,6 +32,14 @@ ARTIFACT_OUTPUT_TOOL_NAMES = {
     "write",
     "write_file",
 }
+READ_BEFORE_WRITE_MARKERS = (
+    "file has not been read yet",
+    "read it first before writing",
+)
+READ_BEFORE_WRITE_USER_MESSAGE = (
+    "Claude Code attempted to overwrite an existing file before reading it. "
+    "Read the existing file before writing, then retry the file update."
+)
 
 
 def accumulate_text_event(attempt: TaskAttempt, chunk: StreamChunk) -> None:
@@ -68,6 +76,10 @@ def accumulate_tool_event(attempt: TaskAttempt, chunk: StreamChunk) -> None:
             attempt.artifact_paths.extend(
                 _extract_artifact_paths_from_text(chunk.tool_output)
             )
+        if chunk.tool_status == "error" and _is_read_before_write_tool_output(
+            chunk.tool_output
+        ):
+            attempt.error = READ_BEFORE_WRITE_USER_MESSAGE
 
 
 def tool_call_summary(chunk: StreamChunk) -> str:
@@ -99,6 +111,20 @@ def append_limited(existing: str, addition: str, max_chars: int) -> str:
 
 def error_reason(chunk: StreamChunk) -> str:
     return chunk.error or chunk.error_code or "unknown error"
+
+
+def is_read_before_write_error(text: str | None) -> bool:
+    if not text:
+        return False
+    normalized = text.lower()
+    return READ_BEFORE_WRITE_USER_MESSAGE.lower() in normalized or all(
+        marker in normalized for marker in READ_BEFORE_WRITE_MARKERS
+    )
+
+
+def _is_read_before_write_tool_output(output: str | None) -> bool:
+    normalized = (output or "").lower()
+    return all(marker in normalized for marker in READ_BEFORE_WRITE_MARKERS)
 
 
 def error_code(exc: ValueError) -> str:
