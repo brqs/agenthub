@@ -1545,3 +1545,46 @@ service 根目录适合保留跨领域主要入口，领域内部协作模块应
 
 ### 经验
 重构后的全功能 E2E 最容易暴露“单测不覆盖的真实时序”问题：并行 stream 的首包时机、外部 SDK session 生命周期、以及 LLM repair prompt 与原始失败指令的优先级。repair loop 的价值就在于把这些真实失败变成可回归的后端契约。
+
+## 2026-06-05 — Codex 整理 Orchestrator 用户可见最终回复
+
+### 任务
+将 Orchestrator 聊天窗口里的最终可见回复从内部执行日志改为自然、简洁、面向结果的回答，同时保留 run detail / memory / tool block / artifact block 中的审计证据。
+
+### 关键 Prompt
+> Orchestrator 用户可见消息整理计划
+
+### AI 输出摘要
+1. 新增 Orchestrator response presentation 层，基于结构化 facts 生成最终用户可见 text，并禁止输出 `ReAct step`、`Observation:`、`Action:`、`Tools:`、`result ok`、`call_`、planner/debug prompt 和 raw tool output。
+2. static / parallel / ReAct / tool-loop 收尾路径均接入 presentation；`summary_text()` 继续生成 raw execution summary，用于 memory final_summary、run detail 和既有调试断言。
+3. 新增可选 LLM response polish 配置：`orchestrator_response_polish_enabled`、`orchestrator_response_polish_model_backend`、`orchestrator_response_polish_max_tokens`；模型不可用、空输出或输出包含内部 trace 词时回退 deterministic summary。
+4. 将 seed/default `react_trace_visible` 改为 `false`，同时保留显式开启 trace 的测试路径和 run detail 中的 `react_decision` event。
+5. 收敛 fallback、planning、delegated task failure 等用户可见文本，不再暴露 `fallback: single agent mode`、`LLM planner`、`@agent` 分派头、外部 runtime stderr 或 prompt 上下文。
+6. 更新 config validation、schema 和 OpenAPI 中的新增配置字段；未改数据库 migration 或前端代码。
+7. 本地回归通过：Orchestrator targeted pytest、response presentation / tool calling / config validation 单测、Ruff、Mypy、`git diff --check`。
+8. 已执行 `uv run python -m app.seeds.seed_agents`；Alembic 为 `7e8f9012abcd (head)`；后端已重启，本机与公网 `/health` 均正常；公网普通问答与轻量任务 smoke 的最终可见 text 均不含内部 trace。
+
+### 人工调整
+本轮只执行轻量公网 smoke，不跑全功能公网 E2E；轻量任务中的子 Agent 执行在当前环境可能失败，但用户可见失败说明已被整理为自然文本，内部错误细节留在调试证据中。
+
+### 经验
+多 Agent 编排需要把“执行证据”和“给人的回答”分层：前者要完整、可审计、可回归，后者要少内部术语、少重复、明确结果。把 raw summary 继续写 memory，同时只把结构化 facts 交给最终展示层，可以同时守住调试能力和用户体验。
+
+## 2026-06-05 — Codex 回修 Orchestrator Response Presentation 复审问题
+
+### 任务
+根据复审结果收口两个问题：完整后端 pytest 中旧 planning 文案断言未同步，以及 ReAct 达到 `max_iterations` 后仍有 pending task 时最终回复误报完成。
+
+### AI 输出摘要
+1. 同步 `test_orchestrator_planning.py` 中旧 `Planned ... via ...` / `via LLM planner/config` / `via legacy template` 断言，改为验证新的用户可见 step/title 文案，同时保留 planner 过滤和 agent dispatch 行为断言。
+2. `presentation.py` 对 `TaskState.PENDING` 生成自然的 needs-attention 文案：后续步骤在编排停止前未执行。
+3. `_overall_status()` 将 pending task 计入状态：已有成功任务时为 `partial`，没有成功任务时为 `failed`，避免最终回复说 “Done”。
+4. 新增 response presentation 单测，覆盖 completed + pending task 的 partial summary。
+5. 完整后端 pytest 已绿：`650 passed, 7 skipped`；Ruff、Mypy、`git diff --check` passed。
+6. 已重启后端，PID `687089`；Alembic `7e8f9012abcd (head)`；本机与公网 `/health` 正常；公网普通问答与轻量 Orchestrator task smoke 均为 `done`，最终可见 text 不含内部 trace / planner source / tool debug 词。
+
+### 人工调整
+本轮未执行全功能公网 E2E；只补轻量公网 smoke。未修改数据库 migration 或前端代码。
+
+### 经验
+最终展示层不能只过滤内部术语，也要忠实表达未完成状态。尤其是 ReAct 这类动态调度路径，`pending` 不是无害默认值，而是用户必须知道的“后续步骤未执行”。

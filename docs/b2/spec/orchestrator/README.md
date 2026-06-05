@@ -3,7 +3,7 @@
 > 目的：作为 Orchestrator 相关 spec 的包级入口，区分当前契约和当前验证报告。
 >
 > 状态：Current package index
-> 最后更新：2026-06-03
+> 最后更新：2026-06-05
 
 ---
 
@@ -21,6 +21,7 @@
 | [native-deployment.execution.spec.md](native-deployment.execution.spec.md) | Implemented hardening MVP | Orchestrator 原生部署 tool、container E2E、deployment repair/redeploy |
 | [live-e2e-report.spec.md](live-e2e-report.spec.md) | Implemented report | 真实部署链路、deployment repair/redeploy、自建 Agent 工具白名单 E2E 证据 |
 | [evaluation-reflection.spec.md](evaluation-reflection.spec.md) | Current contract | 通用 Evaluation / Reflection：“生成 -> 验证 -> 修复 -> 再验证”闭环 |
+| [markdown-preservation-feedback.spec.md](markdown-preservation-feedback.spec.md) | Backend MVP implemented | 用户可见 Orchestrator trace / observation / final summary 展示边界 |
 
 ---
 
@@ -51,6 +52,12 @@
 2. [core.spec.md](core.spec.md)
 3. [../agent-runtime-adapter.spec.md](../agent-runtime-adapter.spec.md)
 
+修改 Orchestrator 用户可见回复：
+
+1. [markdown-preservation-feedback.spec.md](markdown-preservation-feedback.spec.md)
+2. [message-attribution.spec.md](message-attribution.spec.md)
+3. [memory-context.spec.md](memory-context.spec.md)
+
 修改 Orchestrator 原生部署：
 
 1. [native-deployment.execution.spec.md](native-deployment.execution.spec.md)
@@ -69,6 +76,9 @@
 - 自建 Agent 的显式 `allowed_tools` 已进入 tool schema；builtin native/MCP 最小权限 MVP 已实现并通过 live E2E，external runtime 权限映射仍属后续 hardening。
 - Agent-to-Agent review thread MVP 已实现：关键 implementation task 可自动 handoff 给其他 Agent review，并在 failed / needs_repair outcome 下顺序或并行追加 repair task；前端 handoff timeline 交接见 [../../../frontend/agent-review-thread-handoff.md](../../../frontend/agent-review-thread-handoff.md)。
 - Workspace conflict detection 当前只记录和展示，不做自动 merge、rollback 或文件级 lock。
+- Orchestrator 最终用户可见 text block 已通过 response presentation 层生成：raw execution summary 继续写入 memory / run detail，聊天最终回复只暴露自然、简洁、面向结果的摘要。
+- ReAct trace 默认不再进入普通聊天流；调试证据仍记录在 run detail / memory event。需要调试可显式开启 `react_trace_visible=true`。
+- 可选 LLM response polish 只接收结构化事实，失败、空输出或包含内部 trace 词时回退 deterministic summary。
 
 ---
 
@@ -111,3 +121,21 @@
 - 本轮不是 Capability Profile v3；不改统计、score、decay、taxonomy、preference、section 文本/顺序/预算、API wire shape、数据库或 planner 行为。
 - Memory targeted pytest `102 passed`；Ruff、Mypy、`git diff --check` passed。
 - 未执行公网 E2E；历史 Capability Profile acceptance 不做适配。
+
+## 6. 用户可见 Response Presentation 记录
+
+2026-06-05 完成 Orchestrator 用户可见消息整理：
+
+- 新增内部 response presentation 层，输入 task graph、task results、artifact / preview / deployment / evaluation / review / workflow 状态和 raw summary，输出最终聊天 text。
+- 最终聊天 text 禁止输出 `ReAct step`、`Observation:`、`Action:`、`Tools:`、`result ok`、`call_`、planner/debug prompt、raw tool result 和长日志。
+- `summary_text()` 仍保留 raw execution summary，用于 Orchestrator structured memory、run detail 和既有调试证据；ContentBlock 类型不变。
+- 新增配置 `orchestrator_response_polish_enabled`、`orchestrator_response_polish_model_backend`、`orchestrator_response_polish_max_tokens`，默认使用 answer/planner/model backend 做最终回复润色，并带 deterministic fallback。
+- seed/default config 将 `react_trace_visible` 默认改为 `false`；需要显示 trace 的测试或调试场景可显式开启。
+- 已执行 `seed_agents`，本机与公网 `/health` 正常；公网轻量 smoke 验证普通问答和轻量任务最终可见 text 不含内部 trace。
+- 本轮未修改数据库 migration 或前端代码；未执行全功能公网 E2E。
+
+复审回修：
+
+- 完整后端 pytest 中旧 planning 文案断言已同步为新的用户可见 step/title 文案。
+- Response presentation 将 `TaskState.PENDING` 计入 `needs_attention`，ReAct 达到 `max_iterations` 且仍有 pending task 时最终回复为 partial/failed，不再误报 “Done”。
+- 完整后端 pytest `650 passed, 7 skipped`；Ruff、Mypy、`git diff --check` passed。后端已重启，PID `687089`；本机与公网 `/health` 正常；轻量公网 smoke passed。

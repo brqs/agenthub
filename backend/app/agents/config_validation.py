@@ -275,6 +275,21 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             message=f"Unsupported planner_model_backend '{planner_model_backend}'",
             details={"planner_model_backend": planner_model_backend},
         )
+    response_polish_backend = config.get("orchestrator_response_polish_model_backend")
+    if response_polish_backend is not None and (
+        not isinstance(response_polish_backend, str)
+        or response_polish_backend not in SUPPORTED_UPSTREAM_PROVIDERS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=(
+                "Unsupported orchestrator_response_polish_model_backend "
+                f"'{response_polish_backend}'"
+            ),
+            details={
+                "orchestrator_response_polish_model_backend": response_polish_backend
+            },
+        )
     answer_config = config.get("orchestrator_answer_config")
     if answer_config is not None and not isinstance(answer_config, dict):
         raise AgentConfigValidationError(
@@ -305,6 +320,7 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "orchestrator_memory_enabled")
     _validate_bool(config, "orchestrator_tool_calling_enabled")
     _validate_bool(config, "orchestrator_tool_trace_visible")
+    _validate_bool(config, "orchestrator_response_polish_enabled")
     _validate_bool(config, "orchestrator_parallel_enabled")
     _validate_bool(config, "orchestrator_evaluation_enabled")
     _validate_bool(config, "orchestrator_test_runner_enabled")

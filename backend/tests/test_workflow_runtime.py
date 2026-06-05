@@ -295,6 +295,12 @@ edges:
     assert body["dry_run_status"] == "not_supported"
     assert body["health_status"] == "passed"
     assert {item["status"] for item in body["node_results"]} == {"skipped"}
+    assert {item["node_id"] for item in body["node_results"]} == {
+        "start",
+        "review",
+        "publish",
+    }
+    assert all("non-local runtime" in item["message"] for item in body["node_results"])
 
 
 async def test_workflow_block_enrichment_uses_latest_run(client: AsyncClient) -> None:

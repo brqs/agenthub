@@ -108,6 +108,9 @@ class TestValidConfigs:
             "orchestrator_tool_max_iterations": 12,
             "orchestrator_tool_result_max_chars": 4000,
             "orchestrator_tool_read_max_bytes": 65536,
+            "orchestrator_response_polish_enabled": True,
+            "orchestrator_response_polish_model_backend": "deepseek",
+            "orchestrator_response_polish_max_tokens": 900,
             "orchestrator_parallel_enabled": True,
             "orchestrator_parallel_max_concurrency": 3,
             "orchestrator_evaluation_enabled": True,
@@ -342,6 +345,25 @@ class TestNumericValidation:
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+
+    def test_invalid_response_polish_model_backend_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_response_polish_model_backend": "local"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+
+    def test_invalid_response_polish_bool_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_response_polish_enabled": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_response_polish_enabled" in exc_info.value.message
 
     def test_invalid_orchestrator_llm_config_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
@@ -641,6 +663,8 @@ class TestBuiltinAgents:
         for key, value in ORCHESTRATOR_DEFAULTS.items():
             assert config[key] == value
         assert config["llm_planning"] is True
+        assert config["react_trace_visible"] is False
+        assert config["orchestrator_response_polish_enabled"] is True
 
     def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
         for agent_id in ("claude-code", "codex-helper", "opencode-helper"):

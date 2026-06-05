@@ -66,10 +66,10 @@ async def run_fallback(
 
     try:
         fallback_adapter = await _get_fallback_adapter(config)
-    except Exception as exc:
+    except Exception:
         for chunk, updated_block_index in _text_block_with_next(
             next_block_index,
-            f"failed: {exc}",
+            "The fallback agent did not complete successfully.\n",
             agent_id=fallback_agent_id,
         ):
             yield chunk, updated_block_index
@@ -109,7 +109,7 @@ async def run_fallback(
                         agent_id=fallback_agent_id,
                     ), next_block_index
                     open_block_index = None
-                failure_text = f"failed: {_error_reason(chunk)}\n"
+                failure_text = "The fallback agent did not complete successfully.\n"
                 for failure_chunk in _text_block(
                     next_block_index,
                     failure_text,
@@ -136,7 +136,7 @@ async def run_fallback(
             elif remapped.event_type == "block_end":
                 open_block_index = None
             yield attach_agent_id(remapped, fallback_agent_id), next_block_index
-    except Exception as exc:
+    except Exception:
         if open_block_index is not None:
             yield StreamChunk(
                 event_type="block_end",
@@ -146,7 +146,7 @@ async def run_fallback(
             open_block_index = None
         for chunk, updated_block_index in _text_block_with_next(
             next_block_index,
-            f"failed: {exc}\n",
+            "The fallback agent did not complete successfully.\n",
             agent_id=fallback_agent_id,
         ):
             yield chunk, updated_block_index

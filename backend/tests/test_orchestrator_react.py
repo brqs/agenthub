@@ -39,6 +39,31 @@ async def test_orchestrator_react_disabled_preserves_static_flow() -> None:
     assert not any("ReAct step" in (chunk.text_delta or "") for chunk in chunks)
 
 
+async def test_orchestrator_react_trace_can_be_explicitly_shown() -> None:
+    adapter = FakeSubAdapter("agent-a", _text_chunks("done"))
+    react_gateway = SequencedGateway(
+        [_react_decision_chunks('{"actions":[{"type":"finish","reason":"done"}]}')]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "react_enabled": True,
+            "react_trace_visible": True,
+            "react_gateway": react_gateway,
+            "tasks": [_task("task-a", "agent-a", "One", "Run one")],
+            "managed_agent_ids": ["agent-a"],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "ReAct step 1" in text
+    assert "Action: finish: done" in text
+
+
 async def test_orchestrator_react_adds_fix_task_after_failure_and_finishes() -> None:
     verify = FakeSubAdapter(
         "opencode-helper",
@@ -73,7 +98,6 @@ async def test_orchestrator_react_adds_fix_task_after_failure_and_finishes() -> 
         messages=[ChatMessage(role="user", content="Fix and verify an HTML file")],
         config={
             "react_enabled": True,
-            "react_trace_visible": True,
             "react_gateway": react_gateway,
             "tasks": [
                 _task(
@@ -92,18 +116,15 @@ async def test_orchestrator_react_adds_fix_task_after_failure_and_finishes() -> 
     )
 
     text = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert chunks[-1].event_type == "done"
     assert len(react_gateway.calls) == 2
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["opencode-helper", "codex-helper"]
-    assert "ReAct step 1" in text
-    assert "Action: add_task fix-html -> @codex-helper" in text
-    assert "ReAct step 2" in text
-    assert "Action: finish: Fixed and verified" in text
-    assert "- failed: @opencode-helper - Verify HTML" in text
-    assert "- succeeded: @codex-helper - Fix HTML behavior" in text
+    assert "ReAct step" not in text
+    assert "Action:" not in text
+    assert "Verify HTML: did not complete successfully" in text
+    assert "Fix HTML behavior" in text
     assert "thought" not in text
     assert "chain_of_thought" not in text
 
@@ -143,8 +164,8 @@ async def test_orchestrator_react_rejects_add_task_outside_allowed_agents() -> N
     )
 
     text = "".join(chunk.text_delta or "" for chunk in chunks)
-    assert chunks[-1].event_type == "error"
-    assert chunks[-1].error_code == "orchestrator_task_failed"
+    assert chunks[-1].event_type == "done"
+    assert "Verify: did not complete successfully" in text
     assert "unknown agent_id 'web-designer'" not in text
     assert not any(chunk.to_agent == "web-designer" for chunk in chunks)
 
@@ -174,7 +195,8 @@ async def test_orchestrator_react_cannot_update_succeeded_task() -> None:
 
     text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "cannot update completed task 'task-a'" not in text
+    assert "Done" in text
+    assert "cannot update completed task" not in text
     assert adapter.received_messages[-1].content == "Original"
 
 
@@ -212,7 +234,7 @@ async def test_orchestrator_react_skip_task_prevents_execution() -> None:
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a"]
     assert skipped.received_messages == []
-    assert "- skipped: @agent-b - Second" in text
+    assert "Second: skipped because an earlier step did not complete" in text
 
 
 async def test_orchestrator_react_empty_decision_continues_existing_tasks() -> None:
@@ -253,9 +275,9 @@ async def test_orchestrator_react_empty_decision_continues_existing_tasks() -> N
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b"]
     assert "continuing existing task graph" not in text
-    assert "- succeeded: @agent-a - First" in text
-    assert "- succeeded: @agent-b - Second" in text
-    assert "pending" not in text.rsplit("Execution summary", 1)[-1]
+    assert "- First" in text
+    assert "- Second" in text
+    assert "pending" not in text
 
 
 async def test_orchestrator_react_max_iterations_stops_without_replanner() -> None:
@@ -281,6 +303,7 @@ async def test_orchestrator_react_max_iterations_stops_without_replanner() -> No
     assert chunks[-1].event_type == "done"
     assert react_gateway.calls == []
     assert "max_iterations reached (1)" not in text
+    assert "- One" in text
 
 
 async def test_orchestrator_react_added_task_receives_previous_results() -> None:
@@ -344,4 +367,4 @@ async def test_orchestrator_react_trace_can_be_hidden() -> None:
     assert chunks[-1].event_type == "done"
     assert len(react_gateway.calls) == 1
     assert "ReAct step" not in text
-    assert "- succeeded: @agent-a - One" in text
+    assert "- One" in text
