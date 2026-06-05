@@ -352,7 +352,10 @@ async def test_frontend_deploy_planner_output_is_stabilized_for_quality_gate() -
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["opencode-helper"]
     assert any(
-        "via frontend quality plan" in (chunk.text_delta or "") for chunk in chunks
+        "I'll handle this in 1 step(s)" in (chunk.text_delta or "") for chunk in chunks
+    )
+    assert any(
+        "Build static frontend demo artifacts" in (chunk.text_delta or "") for chunk in chunks
     )
     assert claude.received_messages == []
     assert codex.received_messages == []
@@ -393,7 +396,7 @@ async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["claude-code", "claude-code", "opencode-helper", "codex-helper"]
-    assert any("Planned 4 sub-task" in (chunk.text_delta or "") for chunk in chunks)
+    assert any("I'll handle this in 4 step(s)" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Implement frontend artifacts" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Implement backend artifacts" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Review fullstack delivery" in (chunk.text_delta or "") for chunk in chunks)
@@ -453,7 +456,9 @@ async def test_orchestrator_filters_planner_port_service_tasks() -> None:
 
     planning_text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
-    assert "via LLM planner/config" in planning_text
+    assert "I'll handle this in 1 step(s)" in planning_text
+    assert "Create snake.html" in planning_text
+    assert "via LLM planner/config" not in planning_text
     assert "Start 8082 preview service" not in planning_text
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
@@ -894,7 +899,6 @@ async def test_orchestrator_planner_template_fallback_requires_flag() -> None:
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b"]
-    assert any(
-        "via legacy template" in (chunk.text_delta or "") for chunk in chunks
-    )
+    assert any("I'll handle this in 2 step(s)" in (chunk.text_delta or "") for chunk in chunks)
+    assert all("via legacy template" not in (chunk.text_delta or "") for chunk in chunks)
     assert adapter_a.received_messages[-1].content.startswith("Analyze the user's request")

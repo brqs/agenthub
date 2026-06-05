@@ -57,6 +57,12 @@ BUILTIN_ORCHESTRATOR_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("orchestrator_tool_read_max_bytes", 1, 1048576, allow_float=False),
     NumericConfigField("orchestrator_parallel_max_concurrency", 1, 10, allow_float=False),
     NumericConfigField(
+        "orchestrator_response_polish_max_tokens",
+        1,
+        4096,
+        allow_float=False,
+    ),
+    NumericConfigField(
         "orchestrator_evaluation_read_max_bytes",
         1,
         1048576,
@@ -107,6 +113,9 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "orchestrator_tool_max_iterations": 12,
     "orchestrator_tool_result_max_chars": 4000,
     "orchestrator_tool_read_max_bytes": 65536,
+    "orchestrator_response_polish_enabled": True,
+    "orchestrator_response_polish_model_backend": None,
+    "orchestrator_response_polish_max_tokens": 900,
     "orchestrator_parallel_enabled": settings.orchestrator_parallel_enabled_default,
     "orchestrator_parallel_max_concurrency": (
         settings.orchestrator_parallel_max_concurrency_default

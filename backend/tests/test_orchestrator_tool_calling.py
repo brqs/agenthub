@@ -370,7 +370,9 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
         "orch.1.1.child.write-1",
         "orch.2.1",
     ]
-    assert "完成" in text
+    assert "Create HTML" in text
+    assert html_path in text
+    assert "validation check(s) passed" in text
     assert len(gateway.calls) == 3
     assert {tool.name for tool in gateway.calls[0]["tools"]} == {
         "dispatch_agent",
@@ -400,6 +402,50 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
         "validate_html",
     ]
     assert memory.finished[-1]["status"] == "done"
+
+
+async def test_tool_calling_final_summary_filters_internal_tool_output(
+    tmp_path: Path,
+) -> None:
+    html_path = "tool-loop-clean.html"
+    gateway = FakeGateway(
+        [
+            _tool_call(
+                "dispatch_agent",
+                {
+                    "task_id": "create-html",
+                    "agent_id": "codex-helper",
+                    "title": "Create HTML",
+                    "instruction": f"Create {html_path}.",
+                    "expected_output": html_path,
+                },
+            ),
+            _text_response(
+                "Tools: Read(tool-loop-clean.html) result ok call_123 raw output"
+            ),
+        ]
+    )
+    writer = FakeWriterAdapter("codex-helper", html_path, "<html></html>")
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "orchestrator_tool_calling_enabled": True,
+            "orchestrator_tool_gateway": gateway,
+            "managed_agent_ids": ["codex-helper"],
+            "sub_adapters": {"codex-helper": writer},
+        },
+    )
+
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert "Tools:" not in text
+    assert "result ok" not in text
+    assert "call_" not in text
+    assert "Create HTML" in text
+    assert html_path in text
 
 
 async def test_tool_calling_rejects_group_external_agent() -> None:

@@ -154,6 +154,16 @@ class AgentConfig(BaseModel):
         ge=numeric_field("orchestrator_tool_read_max_bytes").minimum,
         le=numeric_field("orchestrator_tool_read_max_bytes").maximum,
     )
+    orchestrator_response_polish_enabled: bool | None = None
+    orchestrator_response_polish_model_backend: ModelBackend | None = Field(
+        default=None,
+        description="ModelGateway backend for Orchestrator final response polish.",
+    )
+    orchestrator_response_polish_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_response_polish_max_tokens").minimum,
+        le=numeric_field("orchestrator_response_polish_max_tokens").maximum,
+    )
     orchestrator_parallel_enabled: bool | None = None
     orchestrator_parallel_max_concurrency: int | None = Field(
         default=None,
