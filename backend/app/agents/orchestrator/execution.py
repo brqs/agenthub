@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -199,6 +200,14 @@ def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> st
     return f"failed: {reason}\n"
 
 
+@dataclass(slots=True)
+class _ParallelTaskEvent:
+    task_id: str
+    chunk: StreamChunk | None = None
+    error: Exception | None = None
+    done: bool = False
+
+
 
 async def _run_static_tasks(
     config: Mapping[str, Any],
@@ -350,6 +359,12 @@ async def _run_task(
                 if len(task_result.attempts) > 1
                 else None,
             )
+            stream_config = _sub_agent_stream_config(
+                config,
+                task,
+                agent_id,
+                attempt_index,
+            )
             task_failed = False
             async for chunk, updated_block_index, subtask_failed in _remapped_sub_stream(
                 sub_adapter,
@@ -370,6 +385,8 @@ async def _run_task(
                 error_reason=_error_reason,
                 accumulate_text_event=_accumulate_text_event,
                 accumulate_tool_event=_accumulate_tool_event,
+                stream_config=stream_config,
+                text_visible=config.get("orchestrator_subagent_text_visible") is True,
             ):
                 next_block_index = updated_block_index
                 task_failed = subtask_failed
@@ -468,6 +485,33 @@ async def _run_task(
     await _memory_record_task_result(config, run_context, task, task_result)
 
 
+def _sub_agent_stream_config(
+    config: Mapping[str, Any],
+    task: SubTask,
+    agent_id: str,
+    attempt_index: int,
+) -> dict[str, Any]:
+    stream_config = dict(config)
+    raw_runtime_context = stream_config.get("runtime_context")
+    runtime_context = (
+        dict(raw_runtime_context) if isinstance(raw_runtime_context, Mapping) else {}
+    )
+    for key in ("conversation_id", "agent_message_id"):
+        value = stream_config.get(key)
+        if value is not None and key not in runtime_context:
+            runtime_context[key] = str(value)
+    runtime_context.update(
+        {
+            "agent_id": agent_id,
+            "orchestrator_task_id": task.task_id,
+            "orchestrator_task_title": task.title,
+            "orchestrator_attempt_index": str(attempt_index),
+        }
+    )
+    stream_config["runtime_context"] = runtime_context
+    return stream_config
+
+
 async def _run_parallel_tasks(
     config: Mapping[str, Any],
     tasks: list[SubTask],
@@ -507,20 +551,19 @@ async def _run_parallel_tasks(
         batch = sorted(runnable, key=lambda task: (task.priority, task.task_id))[
             :max_concurrency
         ]
-        collected = await asyncio.gather(
-            *[
-                _collect_task_chunks(
-                    config,
-                    task,
-                    messages,
-                    run_context,
-                    workspace_path,
-                    tool_specs,
-                )
-                for task in batch
-            ]
-        )
-        for task, chunks in collected:
+        async for chunk, updated_block_index in _stream_parallel_batch(
+            config,
+            batch,
+            messages,
+            run_context,
+            workspace_path,
+            tool_specs,
+            next_block_index,
+        ):
+            next_block_index = updated_block_index
+            yield chunk, updated_block_index
+
+        for task in batch:
             pending.discard(task.task_id)
             task_result = run_context.results[task.task_id]
             task_states[task.task_id] = task_result.final_state
@@ -539,9 +582,6 @@ async def _run_parallel_tasks(
                 task_by_id[repair_task.task_id] = repair_task
                 task_states[repair_task.task_id] = TaskState.PENDING
                 pending.add(repair_task.task_id)
-            remapped, next_block_index = _remap_collected_chunks(chunks, next_block_index)
-            for chunk in remapped:
-                yield chunk, next_block_index
         await _refresh_and_record_workspace_conflicts(config, run_context)
 
     refresh_workspace_conflicts(run_context)
@@ -554,41 +594,98 @@ async def _run_parallel_tasks(
         yield chunk, updated_block_index
 
 
-async def _collect_task_chunks(
+async def _stream_parallel_batch(
+    config: Mapping[str, Any],
+    batch: list[SubTask],
+    messages: list[ChatMessage],
+    run_context: OrchestratorRunContext,
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
+    next_block_index: int,
+) -> AsyncIterator[tuple[StreamChunk, int]]:
+    queue: asyncio.Queue[_ParallelTaskEvent] = asyncio.Queue()
+    workers = [
+        asyncio.create_task(
+            _produce_parallel_task_events(
+                queue,
+                config,
+                task,
+                messages,
+                run_context,
+                workspace_path,
+                tool_specs,
+            )
+        )
+        for task in batch
+    ]
+    index_maps: dict[str, dict[int, int]] = {}
+    active_workers = len(workers)
+    try:
+        while active_workers:
+            event = await queue.get()
+            if event.error is not None:
+                raise event.error
+            if event.done:
+                active_workers -= 1
+                continue
+            if event.chunk is None:
+                continue
+            remapped, next_block_index = _remap_parallel_chunk(
+                event.task_id,
+                event.chunk,
+                next_block_index,
+                index_maps,
+            )
+            yield remapped, next_block_index
+    finally:
+        await _cancel_parallel_workers(workers)
+
+
+async def _produce_parallel_task_events(
+    queue: asyncio.Queue[_ParallelTaskEvent],
     config: Mapping[str, Any],
     task: SubTask,
     messages: list[ChatMessage],
     run_context: OrchestratorRunContext,
     workspace_path: Path | None,
     tool_specs: list[ToolSpec] | None,
-) -> tuple[SubTask, list[StreamChunk]]:
-    chunks: list[StreamChunk] = []
-    async for chunk, _updated_block_index in _run_task(
-        config,
-        task,
-        messages,
-        0,
-        run_context,
-        workspace_path,
-        tool_specs,
-    ):
-        chunks.append(chunk)
-    return task, chunks
+) -> None:
+    try:
+        async for chunk, _updated_block_index in _run_task(
+            config,
+            task,
+            messages,
+            0,
+            run_context,
+            workspace_path,
+            tool_specs,
+        ):
+            await queue.put(_ParallelTaskEvent(task_id=task.task_id, chunk=chunk))
+    except Exception as exc:
+        await queue.put(_ParallelTaskEvent(task_id=task.task_id, error=exc))
+        return
+    await queue.put(_ParallelTaskEvent(task_id=task.task_id, done=True))
 
 
-def _remap_collected_chunks(
-    chunks: list[StreamChunk],
+def _remap_parallel_chunk(
+    task_id: str,
+    chunk: StreamChunk,
     next_block_index: int,
-) -> tuple[list[StreamChunk], int]:
-    index_map: dict[int, int] = {}
-    remapped: list[StreamChunk] = []
-    for chunk in chunks:
-        if chunk.block_index is None:
-            remapped.append(chunk)
-            continue
-        source_index = chunk.block_index
-        if source_index not in index_map:
-            index_map[source_index] = next_block_index
-            next_block_index += 1
-        remapped.append(chunk.model_copy(update={"block_index": index_map[source_index]}))
-    return remapped, next_block_index
+    index_maps: dict[str, dict[int, int]],
+) -> tuple[StreamChunk, int]:
+    if chunk.block_index is None:
+        return chunk, next_block_index
+    index_map = index_maps.setdefault(task_id, {})
+    source_index = chunk.block_index
+    if source_index not in index_map:
+        index_map[source_index] = next_block_index
+        next_block_index += 1
+    return chunk.model_copy(update={"block_index": index_map[source_index]}), next_block_index
+
+
+async def _cancel_parallel_workers(workers: list[asyncio.Task[None]]) -> None:
+    pending_workers = [worker for worker in workers if not worker.done()]
+    for worker in pending_workers:
+        worker.cancel()
+    if pending_workers:
+        await asyncio.gather(*pending_workers, return_exceptions=True)

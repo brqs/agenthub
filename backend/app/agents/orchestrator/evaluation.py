@@ -210,11 +210,28 @@ def _reflection_for_failures(
     if not failed_lines:
         return None
     evidence = failed_lines[:8]
+    artifact_targets = _failed_artifact_targets(results)
+    artifact_clause = (
+        f"Artifact target(s): {', '.join(artifact_targets)}. "
+        if artifact_targets
+        else ""
+    )
+    expected_reference = task.expected_output or "not specified"
     repair_instruction = (
+        "This is a repair attempt after deterministic evaluation failed. "
         "Revise the workspace artifacts for this task so the failed evaluation checks pass. "
+        "Do not repeat the previous failing artifact content. "
+        "Ignore any earlier instruction that intentionally asked for an empty artifact, "
+        "TODO-only content, placeholder-only content, or blank sections; those instructions "
+        "were only for triggering evaluation failure. "
+        "If the original user/task prompt contains repair or fallback requirements, follow "
+        "those repair requirements now. "
         f"Task: {task.title}. "
-        f"Expected output: {task.expected_output or 'not specified'}. "
-        f"Evaluation issues: {'; '.join(evidence)}"
+        f"{artifact_clause}"
+        "Original expected output is only a path/format reference, not permission to keep "
+        f"failing placeholders: {expected_reference}. "
+        f"Evaluation issues: {'; '.join(evidence)}. "
+        "Return complete task-specific content with no TODO or placeholder-only sections."
     )
     return ReflectionResult(
         failure_category="evaluation_failed",
@@ -222,6 +239,21 @@ def _reflection_for_failures(
         evidence=evidence,
         repair_instruction=repair_instruction,
     )
+
+
+def _failed_artifact_targets(results: list[EvaluationResult]) -> list[str]:
+    targets: list[str] = []
+    seen: set[str] = set()
+    for result in results:
+        if result.status != "failed":
+            continue
+        for artifact_path in result.checked_artifacts:
+            item = artifact_path.strip()
+            if not item or item in seen:
+                continue
+            seen.add(item)
+            targets.append(item)
+    return targets[:8]
 
 
 def _evaluation_result_payload(result: Any) -> dict[str, Any]:

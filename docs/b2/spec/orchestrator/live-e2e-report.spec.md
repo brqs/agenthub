@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
 > 状态：Passed
-> 最后更新：2026-06-04
+> 最后更新：2026-06-05
 
 ---
 
@@ -42,12 +42,22 @@
 - `/tmp/agenthub_p1_attribution_report.json`
 - `/tmp/agenthub_p1_evaluation_repair_report.json`
 - `/tmp/agenthub_p1_review_thread_report.json`
+- `/tmp/agenthub_p1_rich_artifacts_report.json`
+- `/tmp/agenthub_fullstack_flow_report.json`
+- `/tmp/agenthub_frontend_ui_smoke_report.json`
 
 最终结论：`passed=true`。
 
 第五点部署发布后端直连 E2E 结论：`passed=true`。2026-06-03 已补跑 deployment
 repair/redeploy 与自建 builtin Agent `allowed_tools` 白名单 live E2E。前端未完成期间，这些结果只验收
 API/SSE 数据、运行时权限和公网 URL，不验收远端前端 UI 卡片渲染。
+
+2026-06-05 重构后全功能回归结论：前端登录/群聊 smoke、后端 direct API、Orchestrator
+API/SSE、workflow、rich artifacts、evaluation repair、review repair、fullstack preview/deploy、
+Capability Profile v1/v2 均为 `passed=true`。本轮按 repair loop 修复了 3 个后端问题：
+并行 executor 真实流式转发、Claude SDK task-scoped session isolation、evaluation repair
+instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`，Alembic
+`7e8f9012abcd (head)`，本机与公网 `/health` 均正常。
 
 ---
 
@@ -503,6 +513,75 @@ quality:
   conversation_id: 5bf3d175-e0ed-49cd-a659-c0d9b3cfb99f
   duration_seconds: 536.104
   preview_url: http://111.229.151.159:8082/index.html
+  passed: true
+```
+
+2026-06-05 重构后全功能前后端联调 / API fallback 回归证据：
+
+```text
+frontend_ui_smoke:
+  report: /tmp/agenthub_frontend_ui_smoke_report.json
+  screenshot: /tmp/agenthub_frontend_ui_smoke.png
+  frontend_url: http://154.44.25.94:1573
+  passed: true
+deployment_release_api:
+  report: /tmp/agenthub_deployment_release_api_e2e_report.json
+  passed: true
+p1_attribution:
+  report: /tmp/agenthub_p1_attribution_report.json
+  sse: /tmp/agenthub_p1_attribution_sse.jsonl
+  passed: true
+p1_workflow:
+  report: /tmp/agenthub_p1_workflow_report.json
+  sse: /tmp/agenthub_p1_workflow_sse.jsonl
+  passed: true
+p1_workflow_runtime:
+  report: /tmp/agenthub_p1_workflow_runtime_report.json
+  sse: /tmp/agenthub_p1_workflow_runtime_sse.jsonl
+  passed: true
+custom_agent_tools:
+  report: /tmp/agenthub_custom_agent_tools_report.json
+  passed: true
+quality:
+  report: /tmp/agenthub_orchestrator_quality_report.json
+  browser_report: /tmp/agenthub_orchestrator_quality_browser.json
+  sse: /tmp/agenthub_orchestrator_quality_sse.jsonl
+  conversation_id: 715bb73d-8d6e-4889-b6bf-1335a6bba6d2
+  passed: true
+fullstack:
+  report: /tmp/agenthub_fullstack_flow_report.json
+  browser_report: /tmp/agenthub_fullstack_flow_browser.json
+  sse: /tmp/agenthub_fullstack_flow_sse.jsonl
+  conversation_id: 214f08b4-c23b-4279-89d3-d8a6beda6264
+  preview_url: http://111.229.151.159:8082/index.html
+  static_release_url: http://111.229.151.159:8000/releases/M0deVgY7XtEU7pMMNnOt4lJdi4DEYHUL/index.html
+  passed: true
+p1_review_thread_repair:
+  report: /tmp/agenthub_p1_review_thread_report.json
+  sse: /tmp/agenthub_p1_review_thread_sse.jsonl
+  conversation_id: a0c92979-d5b1-4bc2-a770-7fe26bcaf93b
+  passed: true
+p1_rich_artifacts:
+  report: /tmp/agenthub_p1_rich_artifacts_report.json
+  sse: /tmp/agenthub_p1_rich_artifacts_sse.jsonl
+  conversation_id: b9ec8187-fb1c-4fc5-ab7a-1d1574021922
+  passed: true
+p1_evaluation_repair:
+  report: /tmp/agenthub_p1_evaluation_repair_report.json
+  sse: /tmp/agenthub_p1_evaluation_repair_sse.jsonl
+  conversation_id: 5d2f2e16-ca5f-4b4d-91c6-6c1fcba8f35b
+  passed: true
+p1_agent_capability_profile:
+  report: /tmp/agenthub_p1_agent_capability_profile_report.json
+  sse: /tmp/agenthub_p1_agent_capability_profile_sse.jsonl
+  conversation_id: 4c304168-ae27-477d-ab29-5d172dd06c0d
+  passed: true
+p2_agent_capability_profile_v2:
+  report: /tmp/agenthub_p2_agent_capability_profile_v2_report.json
+  sse: /tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl
+  seed_conversation_id: 7f573b3e-45a2-4016-9701-0eb6f73c7f16
+  followup_conversation_id: 064c551a-a3d7-448b-944e-8c57975c526c
+  followup_runs_before_count: 0
   passed: true
 ```
 

@@ -159,7 +159,9 @@ async def _next_chunk_or_disconnect(
     timeout_seconds: float | None = None,
     timeout_error_code: str = "stream_timeout",
 ) -> StreamChunk:
-    next_task = asyncio.create_task(anext(iterator))
+    next_task: asyncio.Task[StreamChunk] = asyncio.create_task(
+        _anext_stream_chunk(iterator)
+    )
     disconnect_task = asyncio.create_task(_wait_for_disconnect(request))
     try:
         done, _ = await asyncio.wait(
@@ -199,7 +201,9 @@ async def _next_chunk_with_timeout(
     timeout_seconds: float | None = None,
     timeout_error_code: str = "stream_timeout",
 ) -> StreamChunk:
-    next_task = asyncio.create_task(anext(iterator))
+    next_task: asyncio.Task[StreamChunk] = asyncio.create_task(
+        _anext_stream_chunk(iterator)
+    )
     try:
         done, _ = await asyncio.wait(
             {next_task},
@@ -220,6 +224,10 @@ async def _next_chunk_with_timeout(
     finally:
         if not next_task.done():
             next_task.cancel()
+
+
+async def _anext_stream_chunk(iterator: AsyncIterator[StreamChunk]) -> StreamChunk:
+    return await anext(iterator)
 
 
 async def _cancel_task_with_budget(task: asyncio.Task[Any]) -> None:
