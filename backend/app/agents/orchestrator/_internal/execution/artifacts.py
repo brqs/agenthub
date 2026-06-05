@@ -50,7 +50,7 @@ async def artifact_file_blocks(
         if target is None:
             continue
         metadata = build_artifact_metadata(target, artifact_path)
-        if metadata.artifact_kind not in {"document", "ppt", "image", "archive"}:
+        if metadata.artifact_kind not in {"document", "ppt", "image", "archive", "workflow"}:
             continue
         evaluation_payloads = _evaluation_results_payload(attempt.evaluation_results)
         artifact_evaluation_results = evaluation_results_for_artifact(
@@ -84,6 +84,17 @@ async def artifact_file_blocks(
             evaluation_status=evaluation_status,
             evaluation_results=artifact_evaluation_results,
         )
+        if metadata.artifact_kind == "workflow":
+            workflow_chunks = workflow_artifact_chunks(
+                target,
+                metadata.path,
+                next_block_index,
+                agent_id,
+            )
+            if workflow_chunks:
+                blocks.extend(workflow_chunks)
+                next_block_index += 1
+            continue
         blocks.extend(
             [
                 StreamChunk(
@@ -102,6 +113,45 @@ async def artifact_file_blocks(
         )
         next_block_index += 1
     return blocks, next_block_index
+
+
+def workflow_artifact_chunks(
+    target: Path,
+    artifact_path: str,
+    block_index: int,
+    agent_id: str,
+) -> list[StreamChunk]:
+    try:
+        raw_definition = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    workflow_format = "json" if target.suffix.lower() == ".json" else "yaml"
+    return [
+        StreamChunk(
+            event_type="block_start",
+            block_index=block_index,
+            block_type="workflow",
+            metadata={
+                "path": artifact_path,
+                "format": workflow_format,
+                "validation_status": "unknown",
+                "runtime_status": "not_supported",
+                "dry_run_status": "not_supported",
+            },
+            agent_id=agent_id,
+        ),
+        StreamChunk(
+            event_type="delta",
+            block_index=block_index,
+            text_delta=raw_definition,
+            agent_id=agent_id,
+        ),
+        StreamChunk(
+            event_type="block_end",
+            block_index=block_index,
+            agent_id=agent_id,
+        ),
+    ]
 
 
 async def upsert_artifact_manifest_entry(

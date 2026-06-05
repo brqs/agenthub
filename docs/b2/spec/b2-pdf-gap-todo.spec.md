@@ -3,7 +3,7 @@
 > 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，维护 B2 当前完成度、剩余缺口和建议执行顺序。
 >
 > 状态：P1 complete / P2 active backlog / B2-TODO-08 backend E2E passed
-> 最后更新：2026-06-04
+> 最后更新：2026-06-05
 >
 > Spec 整理入口：当前契约、验证报告和剩余 backlog 见 [README.md](README.md)。
 
@@ -35,6 +35,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 - **F-P1 Rich artifact 前端产品化**：B2 后端已提供 `file` ContentBlock、`artifact_kind`、preview metadata、artifact manifest 只读 API 和 evaluation status；前端 rich card、manifest 消费、版本历史和局部编辑入口已交接，见 [../../frontend/rich-artifact-preview-handoff.md](../../frontend/rich-artifact-preview-handoff.md)。该项不再作为 B2 后端阻塞项。
 
 2026-06-03 更新：原最高优先级 **Orchestrator 合流消息归属** 已完成公网 live E2E；B2 会给 Orchestrator plan/summary、子 Agent text/code/tool/failure/fallback chunk 写入结构化 `agent_id`，前端可按 block `agent_id` 分段展示。Workflow 产物产品化也已完成 MVP 和公网 live E2E：正式 `workflow` ContentBlock、parser / accumulator、OpenAPI 和前端 workflow card 已接入。Workflow runtime / dry-run 也已完成本地无副作用 MVP 和公网 live E2E：支持 allowlist DAG dry-run、run history / health API、Orchestrator 自动 dry-run 和 persisted workflow block 状态回填。Agent-to-Agent Review Thread 也已完成后端 MVP 和公网 live E2E：关键 implementation task 可自动 handoff 给其他 Agent review，review outcome 会进入 summary / memory，并能在 needs_repair / failed outcome 下追加 repair task。Rich Artifact manifest 和 Evaluation repair loop 也已完成公网 API/SSE E2E：`p1_rich_artifacts` 覆盖 document / ppt / image / archive file block、manifest API 和 path/kind/agent 对齐；`p1_evaluation_repair` 覆盖 document_quality failed -> reflection -> repair/fallback -> final passed，且 manifest 无 false passed。
+
+2026-06-05 更新：Orchestrator / services / memory / live E2E 脚本重构后已完成全功能前后端联调与 API fallback 回归。前端 UI smoke、deployment direct API、P1 attribution/workflow/workflow runtime/review/rich artifact/evaluation repair、quality/fullstack preview、Capability Profile v1/v2 均为 `passed=true`。本轮发现并修复并行 executor 延迟转发子 Agent stream、Claude SDK session 复用冲突、evaluation repair prompt 被原始 TODO expected output 覆盖三项问题。
 
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
 

@@ -79,6 +79,35 @@ class BarrierAdapter(BaseAgentAdapter):
         yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
 
 
+class BlockingAfterStartAdapter(BaseAgentAdapter):
+    provider = "fake"
+
+    def __init__(self, agent_id: str, release: asyncio.Event) -> None:
+        super().__init__(agent_id=agent_id)
+        self.release = release
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ):
+        _ = messages, system_prompt, config, workspace_path, tool_specs
+        yield StreamChunk(event_type="start", agent_id=self.agent_id)
+        await self.release.wait()
+        yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+        yield StreamChunk(
+            event_type="delta",
+            block_index=0,
+            text_delta=f"{self.agent_id} done",
+        )
+        yield StreamChunk(event_type="block_end", block_index=0)
+        yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+
 class FakeMemoryWriter:
     def __init__(self) -> None:
         self.run_id = uuid4()
@@ -690,6 +719,43 @@ async def test_orchestrator_parallel_executes_independent_tasks_concurrently() -
     ] == ["agent-a", "agent-b"]
     assert any(chunk.text_delta == "agent-a done" for chunk in chunks)
     assert any(chunk.text_delta == "agent-b done" for chunk in chunks)
+    _assert_blocks_balanced(chunks)
+
+
+async def test_orchestrator_parallel_streams_before_batch_completion() -> None:
+    release = asyncio.Event()
+    adapter_a = BlockingAfterStartAdapter("agent-a", release)
+    adapter_b = BlockingAfterStartAdapter("agent-b", release)
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    iterator = orchestrator.stream(
+        messages=[ChatMessage(role="user", content="Run two tasks in parallel")],
+        config={
+            "orchestrator_parallel_enabled": True,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task("task-b", "agent-b", "Task B", "Do B", priority=1),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    ).__aiter__()
+    chunks: list[StreamChunk] = []
+    try:
+        for _ in range(10):
+            chunk = await asyncio.wait_for(anext(iterator), timeout=0.5)
+            chunks.append(chunk)
+            if chunk.event_type == "agent_switch":
+                break
+        else:
+            raise AssertionError("parallel executor did not stream agent_switch")
+    finally:
+        release.set()
+
+    remaining = [chunk async for chunk in iterator]
+    chunks.extend(remaining)
+
+    assert any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
     _assert_blocks_balanced(chunks)
 
 
@@ -1687,7 +1753,7 @@ async def test_orchestrator_evaluation_repairs_empty_document(
                     "agent-a",
                     "Write report",
                     "Write report.md",
-                    expected_output="report.md",
+                    expected_output="report.md; first attempt may be TODO-only",
                 )
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
@@ -1706,6 +1772,12 @@ async def test_orchestrator_evaluation_repairs_empty_document(
     assert "document_quality/empty_document" in summary
     assert "Previous attempt failure" in adapter_b.received_messages[-2].content
     assert "Revise the workspace artifacts" in adapter_b.received_messages[-2].content
+    assert "This is a repair attempt" in adapter_b.received_messages[-2].content
+    assert "Ignore any earlier instruction" in adapter_b.received_messages[-2].content
+    assert "not permission to keep failing placeholders" in adapter_b.received_messages[
+        -2
+    ].content
+    assert "Artifact target(s): report.md" in adapter_b.received_messages[-2].content
 
 
 async def test_orchestrator_appends_file_block_for_rich_artifact(
@@ -2005,6 +2077,7 @@ async def test_orchestrator_workflow_validation_triggers_dry_run(
             "conversation_id": uuid4(),
             "orchestrator_db_session": object(),
             "orchestrator_workflow_runtime_service": workflow_runtime,
+            "orchestrator_subagent_text_visible": False,
             "tasks": [
                 _task(
                     "task-a",
@@ -2019,7 +2092,16 @@ async def test_orchestrator_workflow_validation_triggers_dry_run(
     )
 
     summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    workflow_starts = [
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "workflow"
+    ]
     assert workflow_runtime.paths == ["workflow.json"]
+    assert len(workflow_starts) == 1
+    assert workflow_starts[0].agent_id == "agent-a"
+    assert workflow_starts[0].metadata is not None
+    assert workflow_starts[0].metadata["path"] == "workflow.json"
     assert chunks[-1].event_type == "done"
     assert "- succeeded: @agent-a - Create workflow" in summary
     assert "workflow dry-run: workflow.json passed" in summary

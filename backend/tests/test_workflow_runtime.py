@@ -252,6 +252,51 @@ edges:
     assert "cycle" in cycle.json()["error"]
 
 
+async def test_workflow_action_nodes_are_preview_ready_but_dry_run_not_supported(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await _write_file(
+        client,
+        headers,
+        conversation_id,
+        "p1-workflow.yaml",
+        """
+version: "1"
+name: P1 Workflow E2E
+nodes:
+  - id: start
+    type: trigger
+  - id: review
+    type: action
+  - id: publish
+    type: action
+edges:
+  - source: start
+    target: review
+  - source: review
+    target: publish
+""",
+    )
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/workflow-runs",
+        headers=headers,
+        json={"path": "p1-workflow.yaml"},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["status"] == "passed"
+    assert body["validation_status"] == "passed"
+    assert body["runtime_status"] == "ready"
+    assert body["dry_run_status"] == "not_supported"
+    assert body["health_status"] == "passed"
+    assert {item["status"] for item in body["node_results"]} == {"skipped"}
+
+
 async def test_workflow_block_enrichment_uses_latest_run(client: AsyncClient) -> None:
     _, headers = await _register(client)
     conversation = await _create_conversation(client, headers)

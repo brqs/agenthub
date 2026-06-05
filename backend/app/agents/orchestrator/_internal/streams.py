@@ -32,6 +32,8 @@ async def remapped_sub_stream(
     error_reason: ErrorReason,
     accumulate_text_event: AccumulateText,
     accumulate_tool_event: AccumulateTool,
+    stream_config: dict[str, object] | None = None,
+    text_visible: bool = False,
 ) -> AsyncIterator[tuple[StreamChunk, int, bool]]:
     index_map: dict[int, int] = {}
     open_block_index: int | None = None
@@ -39,7 +41,7 @@ async def remapped_sub_stream(
         async for chunk in sub_adapter.stream(
             messages,
             system_prompt=None,
-            config=None,
+            config=stream_config,
             workspace_path=workspace_path,
             tool_specs=tool_specs,
         ):
@@ -74,6 +76,8 @@ async def remapped_sub_stream(
             if chunk.event_type not in {"block_start", "delta", "block_end"}:
                 continue
             accumulate_text_event(attempt, chunk)
+            if not text_visible:
+                continue
             remapped, next_block_index = remap_block_index(
                 chunk,
                 index_map,
