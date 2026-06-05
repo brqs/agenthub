@@ -3,12 +3,14 @@
 > Owner: B2
 > Related: [message-attribution.spec.md](message-attribution.spec.md), [core.spec.md](core.spec.md), [../../../b1/spec/message-content-block-attribution.spec.md](../../../b1/spec/message-content-block-attribution.spec.md)
 > Reporter: F
-> Status: Backend action required
-> Last updated: 2026-06-04
+> Status: Backend MVP implemented
+> Last updated: 2026-06-05
 
 ## 1. 结论
 
 当前聊天中仍然出现 Markdown 渲染异常，根因不是前端 Markdown renderer，而是 B2 Orchestrator 在输出 ReAct trace / observation 时，把子 Agent 的原始 Markdown 再次拼接成一个单行文本块。
+
+2026-06-05 后端更新：Orchestrator 普通聊天流默认不再输出 ReAct trace / observation；最终 text block 改由 response presentation 层基于结构化事实生成。raw execution summary、review/evaluation/workflow/tool 证据仍保留在 run detail、memory、tool block 和 artifact block 中。
 
 前端已经可以正常渲染子 Agent 原始 text block。异常只出现在 Orchestrator 额外生成的这类 block：
 
@@ -305,4 +307,3 @@ assert "\n|------|------|\n" in child_block_text
 - 用 HTML 字符串替代 Markdown。
 
 这些都会扩大问题面，且无法稳定处理代码块、表格、路径树和截断文本。
-

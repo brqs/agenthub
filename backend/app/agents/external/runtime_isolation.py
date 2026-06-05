@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -25,6 +26,8 @@ PROVIDER_ENV_NAMES = {
     "API_TIMEOUT_MS",
     "ENABLE_TOOL_SEARCH",
 }
+
+logger = logging.getLogger(__name__)
 
 
 def runtime_context_value(config: dict[str, Any] | None, key: str) -> str:
@@ -106,14 +109,18 @@ def isolated_runtime_home(
 
 
 def _initialize_runtime_home(home: Path) -> None:
-    for path in (
+    runtime_dirs = (
         home,
         home / ".claude",
         home / ".config",
         home / ".cache",
+        home / ".local",
         home / ".local" / "share",
-    ):
+    )
+    for path in runtime_dirs:
         path.mkdir(parents=True, exist_ok=True)
+    for path in runtime_dirs:
+        _chmod_owner_only(path, 0o700)
     _copy_claude_credentials(home)
     claude_json = home / ".claude.json"
     if not claude_json.exists():
@@ -121,6 +128,7 @@ def _initialize_runtime_home(home: Path) -> None:
             json.dumps({"hasCompletedOnboarding": True}, ensure_ascii=True, indent=2),
             encoding="utf-8",
         )
+        _chmod_owner_only(claude_json, 0o600)
 
 
 def _copy_claude_credentials(home: Path) -> None:
@@ -138,8 +146,16 @@ def _copy_file_if_present(source: Path, target: Path) -> None:
             return
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
+        _chmod_owner_only(target, 0o600)
     except OSError:
         return
+
+
+def _chmod_owner_only(path: Path, mode: int) -> None:
+    try:
+        path.chmod(mode)
+    except OSError as exc:
+        logger.debug("Failed to chmod runtime isolation path %s: %s", path, exc)
 
 
 def _safe_segment(value: str) -> str:
