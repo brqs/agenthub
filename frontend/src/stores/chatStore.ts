@@ -919,6 +919,18 @@ function mergeHydratedMessages(
 ): DemoMessage[] {
   const currentById = new Map(current.map((message) => [message.id, message]));
   const mergedById = new Map<string, DemoMessage>();
+  const protectedLocalMessageIds = new Set<string>();
+
+  for (const message of current) {
+    const activeStream = activeStreams[message.id];
+    if (activeStream?.conversationId !== conversationId) continue;
+    if (message.status !== 'streaming') continue;
+
+    protectedLocalMessageIds.add(message.id);
+    if (message.reply_to_id && currentById.has(message.reply_to_id)) {
+      protectedLocalMessageIds.add(message.reply_to_id);
+    }
+  }
 
   for (const message of incoming) {
     const currentMessage = currentById.get(message.id);
@@ -955,16 +967,12 @@ function mergeHydratedMessages(
   }
 
   for (const message of current) {
-    const activeStream = activeStreams[message.id];
-    if (activeStream?.conversationId !== conversationId) continue;
-    if (message.status !== 'streaming') continue;
+    if (!protectedLocalMessageIds.has(message.id)) continue;
+    if (mergedById.has(message.id)) continue;
     mergedById.set(message.id, message);
   }
 
-  return [...mergedById.values()].sort((a, b) => {
-    const byTime = a.created_at.localeCompare(b.created_at);
-    return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
-  });
+  return sortMessagesForDisplay([...mergedById.values()]);
 }
 
 function mergeHydratedActiveStreams(
