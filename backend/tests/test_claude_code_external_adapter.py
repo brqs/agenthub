@@ -130,6 +130,53 @@ class FakeSdk:
         return FakeEventStream(self.events)
 
 
+def test_runtime_status_treats_unreadable_shared_auth_as_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    claude_code_module._clear_runtime_probe_cache()
+    source_dir = tmp_path / "claude-auth"
+    source_dir.mkdir()
+    claude_json = source_dir / ".claude.json"
+    claude_json.write_text('{"auth":"test"}', encoding="utf-8")
+    claude_json.chmod(0)
+    monkeypatch.setattr(claude_code_module, "_shared_auth_dir", lambda: source_dir)
+    monkeypatch.setattr(claude_code_module, "_has_provider_credentials", lambda: False)
+
+    try:
+        status, error = claude_code_module.claude_code_runtime_status({})
+    finally:
+        claude_json.chmod(0o600)
+
+    assert status == "unavailable"
+    assert error == claude_code_module.CLAUDE_MISSING_CREDENTIALS_ERROR
+
+
+def test_runtime_status_normalizes_shared_auth_copy_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    claude_code_module._clear_runtime_probe_cache()
+    monkeypatch.setattr(claude_code_module, "_has_provider_credentials", lambda: False)
+    monkeypatch.setattr(claude_code_module, "_has_shared_auth", lambda: True)
+
+    def raise_permission(_env: dict[str, str]) -> None:
+        raise PermissionError(
+            "[Errno 13] Permission denied: "
+            "'/root/.agenthub/claude-auth/.claude.json'"
+        )
+
+    monkeypatch.setattr(
+        ClaudeCodeAdapter,
+        "_copy_shared_auth",
+        staticmethod(raise_permission),
+    )
+
+    status, error = claude_code_module.claude_code_runtime_status({})
+
+    assert status == "unavailable"
+    assert error == claude_code_module.CLAUDE_MISSING_CREDENTIALS_ERROR
+
+
 @pytest.fixture
 def adapter() -> ClaudeCodeAdapter:
     return ClaudeCodeAdapter(agent_id="agent-claude-code")
@@ -647,6 +694,34 @@ class TestClaudeCodeAdapterStream:
             runtime_home / ".claude" / "settings.local.json",
         ):
             assert stat.S_IMODE(credential_file.stat().st_mode) == 0o600
+
+    async def test_sdk_shared_auth_permission_error_is_sanitized(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        fake_sdk = FakeSdk(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: fake_sdk)
+
+        def raise_permission(_env: dict[str, str]) -> None:
+            raise PermissionError(
+                "[Errno 13] Permission denied: "
+                "'/root/.agenthub/claude-auth/.claude.json'"
+            )
+
+        monkeypatch.setattr(
+            ClaudeCodeAdapter,
+            "_copy_shared_auth",
+            staticmethod(raise_permission),
+        )
+
+        chunks = await _collect(adapter, workspace_path=tmp_path)
+
+        error = next(chunk for chunk in chunks if chunk.event_type == "error")
+        assert error.error_code == "missing_api_key"
+        assert error.error == claude_code_module.CLAUDE_MISSING_CREDENTIALS_ERROR
+        assert "/root/.agenthub" not in error.error
 
     async def test_sdk_exception_maps_to_external_runtime_error(
         self,

@@ -40,6 +40,18 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-05 追加更新：Orchestrator 用户可见最终回复已接入 response presentation 层，普通聊天流默认不再输出 `ReAct step` / `Observation` / raw tool result / planner debug 文案；raw execution summary 与 review/evaluation/workflow/deployment 证据仍保留在 memory、run detail 和结构化 block 中。`react_trace_visible` seed/default 已改为 `false`，并新增可选 LLM response polish 配置及 deterministic fallback。本轮完成本地回归、`seed_agents`、本机/公网 `/health` 和轻量公网 smoke；未执行全功能公网 E2E。
 
+2026-06-05 Response Presentation 公网验证：`/tmp/agenthub_response_presentation_report.json` 与 `/tmp/agenthub_response_presentation_sse.jsonl` 已生成，`direct_answer_identity`、`light_task_failure_readable`、`react_trace_hidden` 均 `passed=true`。SSE text 与 persisted text 均未出现内部 trace / planner debug / stderr / `call_`，run detail 证据仍保留；`process_block_present=false`，Process Block 仍保留为后续 TODO，不属于本轮验收。
+
+2026-06-05 Process Block MVP：正式 `process` ContentBlock 已落地到后端契约、stream accumulator、OpenAPI/shared types、前端基础 renderer 和 Orchestrator route/execution/ReAct/tool-loop 输出。该 block 只展示公开执行事实，不展示 hidden thinking、raw ReAct trace、prompt、stderr、call id 或完整 tool output；`orchestrator_process_block_enabled=false` 可关闭。本地 targeted gate 通过：backend `112 passed`、agent config validation `73 passed`、frontend process tests `28 passed`、backend Ruff/Mypy、frontend `tsc --noEmit` 和 `git diff --check`。部署后已执行 `seed_agents`，后端 PID `858990 -> 1037330`，本机/公网 `/health` 正常；公网 smoke report `/tmp/agenthub_process_block_smoke_report.json`、SSE `/tmp/agenthub_process_block_smoke_sse.jsonl` `passed=true`，覆盖 direct answer `process -> text` 与轻量任务既有 blocks 后追加 `process -> text`。
+
+2026-06-05 Process Block 流式后端升级：B2 将一次性最终 process 总结升级为后端流式公开过程流，不新增 SSE event，复用 `delta.metadata.process_delta` 发送 `upsert_step` / `set_summary`。`ProcessStep` 新增公开 `id` 字段用于前端原地更新；该 id 不使用内部 task id 或 tool call id。direct answer / platform fact 会先输出 process start + route delta；static / parallel / ReAct / native tool-loop 在执行中持续 upsert 公开步骤，最终 text 仍由 response presentation 输出。本轮不做前端 renderer / 折叠交互 / 前端部署。公网 smoke report `/tmp/agenthub_streaming_process_report.json`、SSE `/tmp/agenthub_streaming_process_sse.jsonl` `passed=true`，覆盖 direct answer `process_delta_count=1` 与轻量任务 `process_delta_count=7`。
+
+2026-06-05 真实 Agent 群聊后端契约：B2/API stream runner 已把 Orchestrator 子 Agent 输出从“父 Orchestrator message 内的 block attribution”升级为“独立 child `messages` 行”。新增 SSE lifecycle `message_start` / `message_done` / `message_error`，后续 block/tool event 通过子 `message_id` 归属到对应 Agent；`orchestrator_group_messages_enabled=false` 可回退旧合流模式。公网 deterministic smoke `/tmp/agenthub_group_messages_report.json` 与 `/tmp/agenthub_group_messages_sse.jsonl` `passed=true`：conversation `0948e3a6-1fc4-40a2-8cf7-3e348b2047ae`、run `34f5ef15-e649-4827-84e4-0808037f8cfe`，2 个 child message 均为 terminal 状态且无 `streaming` 残留；其中 `writer` 为业务级 `error` child message，`web-designer` 为 `done` child message。本轮不做前端消费，旧 UI 若未处理 message lifecycle，实时阶段仍可能把子 block 临时显示在父 Orchestrator 气泡内。
+
+2026-06-06 真实 Agent 群聊 + OpenCode 式过程展示 repair loop：B2 已完成后端调度、SSE/persistence 和前端 stream/store 消费修复。每个子 Agent 有独立 message、独立 `process` block 和流式 `process_delta`，父 Orchestrator 仅保留调度/平台工具/质量门/最终总结。公网 API/SSE E2E `architected_frontend_group_chat_repair` 已通过：report `/tmp/agenthub_architected_frontend_group_chat_report.json`、SSE `/tmp/agenthub_architected_frontend_group_chat_sse.jsonl`、browser `/tmp/agenthub_architected_frontend_group_chat_browser.json`，conversation `fbcd2fc5-ef65-4e0a-971a-6f700437a82c`，run `aa968e64-aeb4-4eca-b74b-ab51d26dff53`，`passed=true`。该 E2E 只保留为真实群聊、process delta、preview/browser verify 的集成证据；后续已按用户反馈撤销前端质量演示专用 planner override、`frontend-architecture` fallback 和 static demo scaffold，避免把示例 prompt 固化为产品模板。前端本地 targeted tests、`tsc --noEmit`、`pnpm build` 通过；公网 `154.44.25.94:1573` 静态资源不在当前后端主机，本轮未执行远端前端发布。
+
+2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
+
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
 
 ---
@@ -48,7 +60,7 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 | PDF 核心功能 | B2 当前状态 | 完成度 | 当前结论 |
 |---|---|---:|---|
-| 1. IM 聊天式交互 | 支撑消息流、群聊 Orchestrator、消息 block、deployment card；子 Agent block 归属和前端分段展示已完成 live E2E | 基本达标 | 保持回归 |
+| 1. IM 聊天式交互 | 支撑消息流、群聊 Orchestrator、消息 block、deployment card；真实 Agent 子消息、流式 process 和前端 stream/store 消费已完成本地验证 | 基本达标 | 远端前端静态发布后完成线上 UI 验收 |
 | 2. 主 Agent 协调器 | 任务拆解、DAG 并行、失败降级、冲突检测、summary、Evaluation MVP、Agent-to-Agent Review Thread / repair live E2E 已完成 | 基本达标 | 前端 handoff timeline 已交接给 F |
 | 3. 多 Agent 接入 | Claude Code / Codex / OpenCode 接入；自建 Agent 和 `allowed_tools` MVP 完成 | 基本达标 | external runtime 最小权限暂缓 |
 | 4. 产物预览与编辑 | HTML / Diff / preview / deployment card 强；Workflow card、runtime dry-run、run history / health API MVP 已完成；文档、PPT、图片、archive 后端 MVP 和公网 API/SSE E2E 已完成；版本历史、局部编辑弱 | 部分达标 | 前端产品化 |
@@ -189,6 +201,9 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 - 子 Agent 失败文本不再使用正文 `@<agent_id>` header，而是用 `agent_id=<failed_agent_id>` 的 text block 表示。
 - fallback attempt 输出使用 fallback agent id。
 - 前端 SSE 类型、流式 store 和 ContentRenderer 已能消费 block `agent_id`，并按连续 Agent 分段展示 Orchestrator 合流消息。
+- 2026-06-05 后端追加真实群聊消息行契约：group Orchestrator stream 会创建子 Agent 独立 `messages` 行，SSE 通过 `message_start` / `message_done` / `message_error` 和子 `message_id` 归属 block/tool events。
+- 新增 `orchestrator_group_messages_enabled=true` 默认开关；显式关闭时保留旧父消息合流模式。
+- 2026-06-06 前端 stream/store 已能消费 message lifecycle 事件并把子 block/tool/process delta 路由到独立 child message；本地前端 targeted tests、typecheck 和 build 已通过。远端 `154.44.25.94:1573` 静态发布不在当前后端主机，本轮未做线上 UI 静态资源发布。
 
 验证：
 
@@ -699,3 +714,36 @@ git diff --check
 | Agent-to-Agent review | 可以 | 后端 repair live E2E 已过，前端 timeline 已交接给 F |
 | 文档/PPT/图片/附件丰富产物 | 后端 API/SSE live E2E 可以 | 前端 rich card / manifest / 编辑入口已交接 |
 | External runtime 强隔离 | 暂缓 | 后续安全 hardening |
+
+---
+
+## 9. 2026-06-06 通用真实群聊 E2E 扩展记录
+
+本轮新增多场景 live E2E 脚本 case，用于避免只靠前端质量演示示例证明
+Orchestrator 真实群聊能力：
+
+- `group_process_document_strategy`
+- `group_process_data_analysis`
+- `group_process_workflow_delivery`
+- `group_process_failure_readable`
+- `group_process_frontend_preview`
+
+当前已完成：
+
+- E2E 脚本、默认 report/SSE 路径和 scenario registry 已补齐。
+- 新增脚本单测，确认 generic prompts 覆盖非前端任务，不要求
+  `index.html/styles.css/app.js`。
+- Planning 层新增通用 multi-agent balancing：明确“两个/多个 Agent”或真实群聊请求
+  不应退化成同一个 Agent 执行全部 implementation tasks。
+- 本地门禁通过：`tests/test_orchestrator_live_e2e_script.py`、
+  `tests/test_orchestrator_planning.py`、`tests/test_stream_content_blocks.py`
+  共 `72 passed`；相关 Ruff、Mypy passed。
+
+当前阻断：
+
+- Codex CLI 真实 smoke 返回额度限制，提示可在 `2026-06-11 17:54` 后再试；
+  因此当前环境不能把 Codex Helper 成功执行作为 live hard gate。
+- 公网 `http://111.229.151.159:8000` 请求未命中本机已重启 PID `1650213`
+  的 uvicorn access log；公网 `/health` 只能说明有服务存活，不能证明已加载本轮代码。
+- 本轮不将新增 live scenarios 标记为通过；后续需先处理公网落点与 Codex runtime
+  可用性，再重跑新增 case。

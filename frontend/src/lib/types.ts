@@ -107,6 +107,35 @@ export interface ToolCallBlock {
   output_truncated?: boolean;
   error_code?: string;
 }
+export interface ProcessStep {
+  id?: string;
+  label: string;
+  kind:
+    | 'routing'
+    | 'planning'
+    | 'dispatch'
+    | 'tool'
+    | 'review'
+    | 'evaluation'
+    | 'workflow'
+    | 'deployment'
+    | 'artifact'
+    | 'repair'
+    | 'summary';
+  status: 'done' | 'running' | 'error' | 'skipped';
+  detail?: string | null;
+  agent_id?: string | null;
+}
+export interface ProcessBlock {
+  type: 'process';
+  agent_id?: string | null;
+  title: string;
+  status: 'running' | 'done' | 'partial' | 'error';
+  default_collapsed: boolean;
+  steps: ProcessStep[];
+  summary?: string | null;
+  metadata?: Record<string, unknown>;
+}
 export interface WorkflowBlock {
   type: 'workflow';
   agent_id?: string | null;
@@ -146,6 +175,7 @@ export type ContentBlock =
   | DeploymentStatusBlock
   | WorkflowBlock
   | TaskCardBlock
+  | ProcessBlock
   | ToolCallBlock;
 
 // ─── Messages ───
@@ -183,19 +213,61 @@ export type UpdateAgentRequest = Schemas['UpdateAgentRequest'];
 export type StreamEvent =
   | { event: 'start'; data: { message_id?: string; agent_id?: string } }
   | {
+      event: 'message_start';
+      data: {
+        message_id: string;
+        conversation_id: string;
+        agent_id: string;
+        reply_to_id?: string | null;
+        created_at?: string;
+        status?: 'streaming';
+      };
+    }
+  | {
+      event: 'message_done';
+      data: {
+        message_id: string;
+        conversation_id?: string;
+        agent_id?: string;
+        reply_to_id?: string | null;
+        status?: 'done';
+        total_blocks?: number;
+      };
+    }
+  | {
+      event: 'message_error';
+      data: {
+        message_id: string;
+        conversation_id?: string;
+        agent_id?: string;
+        reply_to_id?: string | null;
+        status?: 'error';
+        error_code?: string;
+        error?: string;
+      };
+    }
+  | {
       event: 'block_start';
       data: {
         block_index: number;
         block_type: string;
         metadata?: Record<string, unknown>;
         agent_id?: string;
+        message_id?: string;
       };
     }
   | {
       event: 'delta';
-      data: { block_index: number; text_delta?: string; code_delta?: string; agent_id?: string };
+      data: {
+        block_index: number;
+        text_delta?: string;
+        code_delta?: string;
+        metadata?: Record<string, unknown>;
+        agent_id?: string;
+        message_id?: string;
+      };
     }
-  | { event: 'block_end'; data: { block_index: number; agent_id?: string } }
+  | { event: 'block_end'; data: { block_index: number; agent_id?: string; message_id?: string } }
   | { event: 'done'; data: { message_id?: string; total_blocks?: number; agent_id?: string } }
   | { event: 'error'; data: { error_code?: string; error?: string; agent_id?: string } }
   | { event: 'agent_switch'; data: { from_agent: string; to_agent: string; task?: string } }
@@ -206,6 +278,7 @@ export type StreamEvent =
         tool_name: string;
         tool_arguments: Record<string, unknown>;
         agent_id?: string;
+        message_id?: string;
       };
     }
   | {
@@ -217,6 +290,7 @@ export type StreamEvent =
         tool_output_truncated?: boolean;
         error_code?: string;
         agent_id?: string;
+        message_id?: string;
       };
     }
   | { event: 'heartbeat'; data: { agent_id?: string } };

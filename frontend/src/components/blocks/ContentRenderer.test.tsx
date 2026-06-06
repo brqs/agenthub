@@ -54,6 +54,29 @@ describe('ContentRenderer', () => {
         tasks: [{ id: 'task-1', agent_id: 'orchestrator', title: '拆解任务', status: 'done' }],
       },
       {
+        type: 'process',
+        agent_id: 'orchestrator',
+        title: '执行过程',
+        status: 'partial',
+        default_collapsed: true,
+        summary: '公开执行过程部分完成。',
+        metadata: {},
+        steps: [
+          {
+            label: '整理执行计划',
+            kind: 'planning',
+            status: 'done',
+            detail: '共 2 个公开执行步骤。',
+          },
+          {
+            label: '移动端验收',
+            kind: 'evaluation',
+            status: 'error',
+            detail: '1 项需要注意。',
+          },
+        ],
+      },
+      {
         type: 'tool_call',
         call_id: 'call-1',
         tool_name: 'write_file',
@@ -109,6 +132,10 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('demo.md')).toBeInTheDocument();
     expect(screen.getByText('文档')).toBeInTheDocument();
     expect(screen.getByText('任务卡')).toBeInTheDocument();
+    expect(screen.getByText('执行过程')).toBeInTheDocument();
+    expect(screen.getByText('部分完成')).toBeInTheDocument();
+    expect(screen.getByText('整理执行计划')).toBeInTheDocument();
+    expect(screen.getByText('移动端验收')).toBeInTheDocument();
     expect(screen.getByText('write_file')).toBeInTheDocument();
     expect(screen.getByText('call-1')).toBeInTheDocument();
     expect(screen.getByText('Static site deployment')).toBeInTheDocument();

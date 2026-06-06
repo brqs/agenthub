@@ -112,6 +112,7 @@ class WorkspacePreviewService:
 
         port = await self._allocate_port(
             db,
+            conversation_id=conversation_id,
             preferred=requested_port or session.port or None,
             allow_fallback=requested_port is None,
         )
@@ -176,9 +177,16 @@ class WorkspacePreviewService:
         self,
         db: AsyncSession,
         *,
+        conversation_id: UUID,
         preferred: int | None = None,
         allow_fallback: bool = True,
     ) -> int:
+        if preferred is not None:
+            await self._release_managed_port(
+                db,
+                preferred,
+                exclude_conversation_id=conversation_id,
+            )
         used_ports = set(
             (
                 await db.execute(
@@ -209,6 +217,39 @@ class WorkspacePreviewService:
                 f"requested preview port {preferred} is not available"
             )
         raise WorkspacePreviewStartError("no preview port is available")
+
+    async def _release_managed_port(
+        self,
+        db: AsyncSession,
+        port: int,
+        *,
+        exclude_conversation_id: UUID,
+    ) -> None:
+        stmt = select(WorkspacePreviewSession).where(
+            WorkspacePreviewSession.port == port,
+            WorkspacePreviewSession.status.in_(("starting", "running")),
+        )
+        sessions = list((await db.execute(stmt)).scalars().all())
+        released = False
+        for session in sessions:
+            if session.conversation_id == exclude_conversation_id:
+                continue
+            await self._refresh_session_status(session)
+            if session.status not in {"starting", "running"}:
+                continue
+            await self._stop_process(session)
+            try:
+                self._remove_snapshot(session)
+                session.error = "preview replaced by a newer explicit port request"
+            except (OSError, WorkspaceViolation) as exc:
+                session.snapshot_path = None
+                session.artifact_digest = None
+                session.error = f"preview replacement cleanup failed: {exc}"
+            session.status = "stopped"
+            self._touch(session)
+            released = True
+        if released:
+            await db.flush()
 
     def _start_process(self, root: Path, entry_path: str, port: int) -> subprocess.Popen[bytes]:
         return subprocess.Popen(  # noqa: S603 - static argv, workspace path is validated.

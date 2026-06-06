@@ -36,6 +36,17 @@ P1_AGENT_CAPABILITY_PROFILE_SCENARIO = SCENARIO == "p1_agent_capability_profile"
 P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO = (
     SCENARIO == "p2_agent_capability_profile_v2"
 )
+ARCHITECTED_FRONTEND_GROUP_CHAT_SCENARIO = (
+    SCENARIO == "architected_frontend_group_chat_repair"
+)
+GENERIC_GROUP_PROCESS_SCENARIOS = {
+    "group_process_document_strategy",
+    "group_process_data_analysis",
+    "group_process_workflow_delivery",
+    "group_process_failure_readable",
+}
+GENERIC_GROUP_PROCESS_SCENARIO = SCENARIO in GENERIC_GROUP_PROCESS_SCENARIOS
+GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO = SCENARIO == "group_process_frontend_preview"
 P1_SCENARIO = (
     P1_ATTRIBUTION_SCENARIO
     or P1_WORKFLOW_SCENARIO
@@ -72,6 +83,21 @@ DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH = (  # noqa: S108
 DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl"  # noqa: S108
 )
+DEFAULT_GROUP_PROCESS_DOCUMENT_STRATEGY_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_document_strategy_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_DATA_ANALYSIS_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_data_analysis_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_WORKFLOW_DELIVERY_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_workflow_delivery_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FAILURE_READABLE_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_failure_readable_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_frontend_preview_sse.jsonl"  # noqa: S108
+)
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
@@ -101,6 +127,21 @@ DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH = (  # noqa: S108
 DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_p2_agent_capability_profile_v2_report.json"  # noqa: S108
 )
+DEFAULT_GROUP_PROCESS_DOCUMENT_STRATEGY_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_document_strategy_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_DATA_ANALYSIS_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_data_analysis_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_WORKFLOW_DELIVERY_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_workflow_delivery_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FAILURE_READABLE_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_failure_readable_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_frontend_preview_report.json"  # noqa: S108
+)
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
@@ -122,9 +163,27 @@ DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = (  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_deployment_repair_flow_browser.json"  # noqa: S108
 )
+DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_frontend_preview_browser.json"  # noqa: S108
+)
 SSE_PATH = SETTINGS.sse_path
 REPORT_PATH = SETTINGS.report_path
 BROWSER_REPORT_PATH = SETTINGS.browser_report_path
+FRONTEND_UI_SMOKE_ENABLED = os.getenv("AGENTHUB_E2E_FRONTEND_UI_SMOKE", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+FRONTEND_BASE_URL = os.getenv(
+    "AGENTHUB_E2E_FRONTEND_BASE_URL",
+    "http://154.44.25.94:1573",
+)
+FRONTEND_HANDOFF_REPORT_PATH = Path(
+    os.getenv(
+        "AGENTHUB_E2E_FRONTEND_HANDOFF_REPORT_PATH",
+        "/tmp/agenthub_orchestrator_frontend_handoff_report.json",  # noqa: S108
+    )
+)
 FULLSTACK_PROMPT = "\n".join(
     (
         "@orchestrator 请完成一个前后端产品交付演示，主题是“团队 OKR 轻量看板”。",
@@ -276,6 +335,46 @@ P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT = (
     "唯一 task 及其所有实际 attempt 都应由 v2 画像显示近期成功的 Agent 执行。"
     "不要预览、不要部署。"
 )
+GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT = (
+    "@orchestrator 请进行通用真实 Agent 群聊与流式 process 验收，任务类型是文档策略，"
+    "不要预览、不要部署。请使用 Claude Code 和 OpenCode Helper 两个可用 Agent "
+    "按真实分工完成：先由一个 Agent 创建 strategy-architecture.md，说明目标、"
+    "结构和分工；再由另一个 Agent 创建 customer-journey.md，写出用户旅程和关键"
+    "触点；最后由可用 Agent 创建 risk-review.md，写出风险清单、验证建议和整合"
+    "意见。每个参与 Agent 都要在自己的独立消息中展示公开过程，最终由 Orchestrator "
+    "总结三份产物。"
+)
+GROUP_PROCESS_DATA_ANALYSIS_PROMPT = (
+    "@orchestrator 请进行通用真实 Agent 群聊与流式 process 验收，任务类型是数据分析，"
+    "不要预览、不要部署。请使用 Claude Code 和 OpenCode Helper 两个可用 Agent "
+    "按真实分工完成：一个 Agent 创建 data-plan.md，定义分析口径和字段；一个 Agent "
+    "创建 sample-metrics.csv，至少 6 行业务指标样本；一个 Agent 创建 "
+    "analysis-report.md，基于 CSV 给出趋势、异常点和下一步建议。最终由 Orchestrator "
+    "总结数据产物、负责 Agent 和验证结果。"
+)
+GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT = (
+    "@orchestrator 请进行通用真实 Agent 群聊与流式 process 验收，任务类型是 workflow "
+    "交付，不要预览、不要部署。请使用 Claude Code 和 OpenCode Helper 两个可用 "
+    "Agent 按真实分工完成：一个 Agent 创建 workflow-plan.md，说明 workflow 目标和"
+    "节点；一个 Agent 创建 "
+    "group-process-workflow.yaml，并在回复中输出同一份合法 workflow-yaml fenced block。"
+    "Workflow 必须包含 version、name、nodes、edges，name 为 Group Process Workflow "
+    "E2E。nodes 包含 start(trigger)、set_context(task，config.action=set_context，"
+    "config.values.group.status=ready)、check(assert，config.equals.group.status=ready)、"
+    "done(end)。edges 使用 source/target 依次连接 start -> set_context -> check -> done。"
+    "另一个可用 Agent 创建 workflow-review.md，检查 YAML、dry-run 风险和验收点。"
+    "最终总结必须确认 workflow validation 与 dry-run 状态。"
+)
+GROUP_PROCESS_FAILURE_READABLE_PROMPT = (
+    "@orchestrator 请进行通用真实 Agent 群聊与流式 process 验收，任务类型是可读失败处理，"
+    "不要预览、不要部署。请使用 Claude Code 和 OpenCode Helper 两个可用 Agent "
+    "按真实分工完成：一个 Agent 创建 failure-plan.md，说明为什么 workspace 只能写"
+    "相对安全路径；另一个 Agent 尝试执行一个应被平台安全策略拒绝的动作：创建 "
+    "../outside-workspace.txt 或写入 workspace 外部路径。"
+    "如果平台拒绝或 Agent 无法完成，必须用用户可读中文说明哪个阶段失败、原因是安全"
+    "路径限制、后续是否可重试；不要输出 raw stderr、stack trace、call id 或内部 prompt。"
+    "最终由 Orchestrator 总结可完成产物和失败归属。"
+)
 
 PROMPT = SETTINGS.prompt_override or (
     P1_ATTRIBUTION_PROMPT
@@ -294,6 +393,14 @@ PROMPT = SETTINGS.prompt_override or (
     if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
     else P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
     if P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
+    else GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT
+    if SCENARIO == "group_process_document_strategy"
+    else GROUP_PROCESS_DATA_ANALYSIS_PROMPT
+    if SCENARIO == "group_process_data_analysis"
+    else GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT
+    if SCENARIO == "group_process_workflow_delivery"
+    else GROUP_PROCESS_FAILURE_READABLE_PROMPT
+    if SCENARIO == "group_process_failure_readable"
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -325,6 +432,56 @@ REQUIRED_FULLSTACK_FILES = {
     "backend_tests.md",
     "review.md",
 }
+GENERIC_GROUP_PROCESS_CASES: dict[str, dict[str, Any]] = {
+    "group_process_document_strategy": {
+        "required_files": {
+            "strategy-architecture.md",
+            "customer-journey.md",
+            "risk-review.md",
+        },
+        "min_child_messages": 2,
+        "required_child_agents": {"claude-code", "opencode-helper"},
+    },
+    "group_process_data_analysis": {
+        "required_files": {
+            "data-plan.md",
+            "sample-metrics.csv",
+            "analysis-report.md",
+        },
+        "min_child_messages": 2,
+        "required_child_agents": {"claude-code", "opencode-helper"},
+    },
+    "group_process_workflow_delivery": {
+        "required_files": {
+            "workflow-plan.md",
+            "group-process-workflow.yaml",
+            "workflow-review.md",
+        },
+        "min_child_messages": 2,
+        "required_child_agents": {"claude-code", "opencode-helper"},
+        "require_workflow": True,
+    },
+    "group_process_failure_readable": {
+        "required_files": {"failure-plan.md"},
+        "min_child_messages": 2,
+        "required_child_agents": {"claude-code", "opencode-helper"},
+        "allow_child_error": True,
+        "require_failure_text": True,
+    },
+}
+FORBIDDEN_VISIBLE_TRACE_TERMS = (
+    "ReAct step",
+    "Observation:",
+    "Action:",
+    "Tools:",
+    "call_",
+    "Traceback (most recent call last)",
+    "Permission denied",
+    "[Errno",
+    "/root/.agenthub",
+    "claude-auth",
+    ".claude.json",
+)
 SERVER_COMMAND_RE = re.compile(
     r"npm\s+run\s+dev|pnpm\s+dev|vite\s+--host|python\d*\s+-m\s+http\.server|"
     r"http-server|next\s+dev|npm\s+(?:run\s+)?start|node\s+server\.js|"
@@ -1102,6 +1259,253 @@ def p1_common_evidence(
         block.get("type") for block in p1_content_blocks(report)
     ]
     return events, files
+
+
+def fetch_conversation_messages(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conv_id: str,
+    report: dict[str, Any],
+) -> list[dict[str, Any]]:
+    response = client.get(f"/api/v1/conversations/{conv_id}/messages", headers=headers)
+    report["conversation_messages_status_code"] = response.status_code
+    if response.status_code != 200:
+        report["conversation_messages_error"] = response.text
+        return []
+    items = response.json().get("items", [])
+    return items if isinstance(items, list) else []
+
+
+def message_blocks(message: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks = message.get("content")
+    return blocks if isinstance(blocks, list) else []
+
+
+def all_visible_message_text(messages: list[dict[str, Any]]) -> str:
+    return "\n".join(visible_agent_text(message_blocks(message)) for message in messages)
+
+
+def process_block_count(messages: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for message in messages
+        for block in message_blocks(message)
+        if isinstance(block, dict) and block.get("type") == "process"
+    )
+
+
+def workflow_blocks_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        block
+        for message in messages
+        for block in message_blocks(message)
+        if isinstance(block, dict) and block.get("type") == "workflow"
+    ]
+
+
+def forbidden_visible_terms(text: str) -> list[str]:
+    return [term for term in FORBIDDEN_VISIBLE_TRACE_TERMS if term in text]
+
+
+def child_messages_for_user(
+    messages: list[dict[str, Any]],
+    *,
+    parent_message_id: str,
+    user_message_id: str,
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in messages
+        if item.get("role") == "agent"
+        and item.get("id") != parent_message_id
+        and item.get("reply_to_id") == user_message_id
+        and item.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
+    ]
+
+
+def group_process_report(
+    events: list[dict[str, Any]],
+    parent_message: dict[str, Any],
+    child_messages: list[dict[str, Any]],
+) -> dict[str, Any]:
+    child_ids = {
+        str(item.get("id")) for item in child_messages if isinstance(item.get("id"), str)
+    }
+    child_agents = {
+        str(item.get("agent_id"))
+        for item in child_messages
+        if isinstance(item.get("agent_id"), str)
+    }
+    message_start_agents = [
+        str(event_data(event).get("agent_id"))
+        for event in events
+        if event.get("event") == "message_start"
+        and isinstance(event_data(event).get("agent_id"), str)
+    ]
+    terminal_agents = [
+        str(event_data(event).get("agent_id"))
+        for event in events
+        if event.get("event") in {"message_done", "message_error"}
+        and isinstance(event_data(event).get("agent_id"), str)
+    ]
+    child_process_delta_count = sum(
+        1
+        for event in events
+        if event.get("event") == "delta"
+        and event_data(event).get("message_id") in child_ids
+        and isinstance((event_data(event).get("metadata") or {}).get("process_delta"), dict)
+    )
+    child_process_agents = {
+        str(item.get("agent_id"))
+        for item in child_messages
+        if any(block.get("type") == "process" for block in message_blocks(item))
+        and isinstance(item.get("agent_id"), str)
+    }
+    parent_embedded_child_blocks = [
+        block
+        for block in message_blocks(parent_message)
+        if block.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
+    ]
+    return {
+        "message_start_agents": message_start_agents,
+        "terminal_agents": terminal_agents,
+        "child_agents": sorted(child_agents),
+        "child_message_count": len(child_messages),
+        "child_process_delta_count": child_process_delta_count,
+        "child_process_agents": sorted(child_process_agents),
+        "child_process_message_count": len(child_process_agents),
+        "parent_embedded_child_block_count": len(parent_embedded_child_blocks),
+    }
+
+
+def evaluate_generic_group_process(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    events: list[dict[str, Any]],
+    files: list[dict[str, Any]],
+) -> None:
+    case = GENERIC_GROUP_PROCESS_CASES[SCENARIO]
+    conv_id = str(report["conversation_id"])
+    parent_message_id = str(report["agent_message_id"])
+    user_message_id = str(report["user_message_id"])
+    messages = fetch_conversation_messages(client, headers, conv_id, report)
+    target = next((item for item in messages if item.get("id") == parent_message_id), {})
+    child_messages = child_messages_for_user(
+        messages,
+        parent_message_id=parent_message_id,
+        user_message_id=user_message_id,
+    )
+    report["child_agent_messages"] = child_messages
+    report["group_chat"] = group_process_report(events, target, child_messages)
+
+    file_names = {str(item.get("path", "")).rsplit("/", 1)[-1] for item in files}
+    required_files = set(case.get("required_files") or set())
+    missing_files = sorted(required_files - file_names)
+    child_statuses = {
+        str(item.get("id")): item.get("status") for item in child_messages
+    }
+    visible_text = all_visible_message_text([target, *child_messages])
+    forbidden_terms = forbidden_visible_terms(visible_text)
+    group_chat = report["group_chat"]
+    required_child_agents = set(case.get("required_child_agents") or set())
+    min_child_messages = int(case.get("min_child_messages") or 1)
+    allow_child_error = bool(case.get("allow_child_error"))
+    terminal_statuses = {"done", "error"} if allow_child_error else {"done"}
+    child_agent_set = set(group_chat["child_agents"])
+    message_start_agent_set = set(group_chat["message_start_agents"])
+    child_process_agent_set = set(group_chat["child_process_agents"])
+    required_child_agents_seen = (
+        required_child_agents <= child_agent_set
+        if required_child_agents
+        else len(child_agent_set) >= min_child_messages
+    )
+    required_message_start_seen = (
+        required_child_agents <= message_start_agent_set
+        if required_child_agents
+        else len(message_start_agent_set) >= min_child_messages
+    )
+    child_process_blocks_seen = (
+        required_child_agents <= child_process_agent_set
+        if required_child_agents
+        else len(child_process_agent_set) >= min_child_messages
+    )
+
+    checks = report["checks"]
+    checks["generic_group_message_done"] = target.get("status") == "done"
+    checks["generic_group_child_messages_present"] = (
+        len(child_messages) >= min_child_messages
+    )
+    checks["generic_group_required_child_agents_seen"] = required_child_agents_seen
+    checks["generic_group_message_start_seen"] = required_message_start_seen
+    checks["generic_group_child_terminal"] = all(
+        status in terminal_statuses for status in child_statuses.values()
+    ) and len(child_statuses) >= min_child_messages
+    checks["generic_group_child_process_blocks"] = child_process_blocks_seen
+    checks["generic_group_child_process_delta_seen"] = (
+        int(group_chat["child_process_delta_count"]) >= min_child_messages
+    )
+    checks["generic_group_parent_not_embedding_child_blocks"] = (
+        int(group_chat["parent_embedded_child_block_count"]) == 0
+    )
+    checks["generic_group_required_workspace_files"] = not missing_files
+    checks["generic_group_visible_text_no_forbidden_terms"] = not forbidden_terms
+    checks["generic_group_final_text_no_missing_or_pending"] = (
+        "artifact_missing" not in final_summary_from_report(report)
+        and "\n- pending:" not in final_summary_from_report(report)
+    )
+    if case.get("require_failure_text"):
+        checks["generic_group_failure_text_readable"] = bool(
+            re.search(r"失败|无法|不能|安全|限制|workspace|路径|重试", visible_text, re.I)
+        )
+    if case.get("require_workflow"):
+        workflow_blocks = workflow_blocks_from_messages([target, *child_messages])
+        report["generic_workflow_blocks"] = workflow_blocks
+        checks["generic_group_workflow_block_present"] = bool(workflow_blocks)
+        checks["generic_group_workflow_validation_passed"] = any(
+            block.get("validation_status") == "passed" for block in workflow_blocks
+        )
+        checks["generic_group_workflow_dry_run_passed"] = any(
+            block.get("dry_run_status") == "passed" for block in workflow_blocks
+        )
+
+    report["generic_group_process"] = {
+        "required_files": sorted(required_files),
+        "missing_files": missing_files,
+        "child_statuses": child_statuses,
+        "forbidden_visible_terms": forbidden_terms,
+    }
+    acceptance_keys = [
+        "target_agents_present",
+        "orchestrator_llm_planning_enabled",
+        "orchestrator_parallel_enabled",
+        "message_done",
+        "generic_group_message_done",
+        "generic_group_child_messages_present",
+        "generic_group_required_child_agents_seen",
+        "generic_group_message_start_seen",
+        "generic_group_child_terminal",
+        "generic_group_child_process_blocks",
+        "generic_group_child_process_delta_seen",
+        "generic_group_parent_not_embedding_child_blocks",
+        "generic_group_required_workspace_files",
+        "generic_group_visible_text_no_forbidden_terms",
+        "generic_group_final_text_no_missing_or_pending",
+    ]
+    if case.get("require_failure_text"):
+        acceptance_keys.append("generic_group_failure_text_readable")
+    if case.get("require_workflow"):
+        acceptance_keys.extend(
+            [
+                "generic_group_workflow_block_present",
+                "generic_group_workflow_validation_passed",
+                "generic_group_workflow_dry_run_passed",
+            ]
+        )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
 
 
 def p1_agent_id_report(
@@ -1996,6 +2400,23 @@ def run_p1_case(
             report["review_config_restore"] = restore
 
 
+def run_generic_group_process_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    events, files = p1_common_evidence(
+        client,
+        headers,
+        report,
+        started_at,
+        title=f"{SCENARIO} Live E2E {int(started_at)}",
+        agent_ids=AGENT_IDS,
+    )
+    evaluate_generic_group_process(client, headers, report, events, files)
+
+
 def run_custom_agent_tools_case(
     client: httpx.Client,
     headers: dict[str, str],
@@ -2159,6 +2580,78 @@ def auth_headers(
     return {"Authorization": f"Bearer {token}"}
 
 
+def maybe_run_frontend_ui_smoke(report: dict[str, Any]) -> None:
+    if not FRONTEND_UI_SMOKE_ENABLED:
+        report["frontend_ui_smoke"] = {"enabled": False}
+        return
+    conversation_id = report.get("conversation_id")
+    screenshot_path = Path(f"/tmp/agenthub_{SCENARIO}_frontend_ui.png")  # noqa: S108
+    handoff: dict[str, Any] = {
+        "enabled": True,
+        "frontend_base_url": FRONTEND_BASE_URL,
+        "backend_base_url": BASE_URL,
+        "scenario": SCENARIO,
+        "conversation_id": conversation_id,
+        "agent_message_id": report.get("agent_message_id"),
+        "run_id": (report.get("orchestrator_runs") or [{}])[0].get("id")
+        if isinstance(report.get("orchestrator_runs"), list)
+        else None,
+        "screenshot": str(screenshot_path),
+        "passed": False,
+        "issues": [],
+    }
+    try:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1100})
+            page.goto(f"{FRONTEND_BASE_URL}/login", wait_until="domcontentloaded", timeout=30000)
+            page.get_by_placeholder("用户名").fill(USERNAME, timeout=10000)
+            page.get_by_placeholder("密码").fill(PASSWORD, timeout=10000)
+            page.get_by_role("button", name=re.compile("登")).click(timeout=10000)
+            try:
+                page.wait_for_url(re.compile(r"/chat"), timeout=20000)
+            except PlaywrightTimeoutError:
+                handoff["issues"].append("login_did_not_reach_chat")
+            if isinstance(conversation_id, str) and conversation_id:
+                page.goto(
+                    f"{FRONTEND_BASE_URL}/chat/{conversation_id}",
+                    wait_until="networkidle",
+                    timeout=45000,
+                )
+            page.wait_for_timeout(3000)
+            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=str(screenshot_path), full_page=True)
+            body_text = page.locator("body").inner_text(timeout=10000)
+            handoff["checks"] = {
+                "page_loaded": "AgentHub" in body_text or "Orchestrator" in body_text,
+                "codex_visible": "Codex" in body_text or "codex" in body_text,
+                "claude_visible": "Claude" in body_text or "claude" in body_text,
+                "opencode_visible": "OpenCode" in body_text or "opencode" in body_text,
+                "process_visible": (
+                    "思考" in body_text
+                    or "执行" in body_text
+                    or "process" in body_text.lower()
+                ),
+                "unknown_block_absent": "不支持的消息块" not in body_text
+                and "UnknownBlock" not in body_text,
+                "rough_failure_absent": "The delegated task did not complete successfully"
+                not in body_text,
+            }
+            handoff["passed"] = all(handoff["checks"].values())
+            if not handoff["passed"]:
+                handoff["issues"].append("frontend_ui_rendering_needs_followup")
+            browser.close()
+    except Exception as exc:  # noqa: BLE001
+        handoff["issues"].append("frontend_ui_smoke_exception")
+        handoff["error"] = str(exc)
+    report["frontend_ui_smoke"] = handoff
+    if not handoff.get("passed"):
+        write_json(FRONTEND_HANDOFF_REPORT_PATH, handoff)
+
+
 def main() -> None:
     started_at = time.time()
     SSE_PATH.write_text("", encoding="utf-8")
@@ -2222,6 +2715,17 @@ def main() -> None:
         report["checks"]["orchestrator_parallel_concurrency_3"] = (
             orchestrator_config.get("orchestrator_parallel_max_concurrency") == 3
         )
+        if GENERIC_GROUP_PROCESS_SCENARIO:
+            run_generic_group_process_case(client, headers, report, started_at)
+            maybe_run_frontend_ui_smoke(report)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
         if P1_SCENARIO:
             run_p1_case(client, headers, report, started_at)
             report["finished_at"] = utc_now()
@@ -2357,6 +2861,105 @@ def main() -> None:
         target = next((item for item in items if item.get("id") == agent_message_id), None)
         report["target_agent_message"] = target
         report["checks"]["message_done"] = bool(target and target.get("status") == "done")
+        child_messages = [
+            item
+            for item in items
+            if item.get("role") == "agent"
+            and item.get("id") != agent_message_id
+            and item.get("reply_to_id") == report.get("user_message_id")
+            and item.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
+        ]
+        report["child_agent_messages"] = child_messages
+        child_agents = {
+            str(item.get("agent_id"))
+            for item in child_messages
+            if isinstance(item.get("agent_id"), str)
+        }
+        child_message_ids = {
+            str(item.get("id")) for item in child_messages if isinstance(item.get("id"), str)
+        }
+        message_start_agents = [
+            str((event.get("data") or {}).get("agent_id"))
+            for event in events
+            if event.get("event") == "message_start" and isinstance(event.get("data"), dict)
+        ]
+        child_process_delta_count = sum(
+            1
+            for event in events
+            if event.get("event") == "delta"
+            and isinstance(event.get("data"), dict)
+            and (event["data"].get("message_id") in child_message_ids)
+            and isinstance((event["data"].get("metadata") or {}).get("process_delta"), dict)
+        )
+        child_messages_with_process = [
+            item
+            for item in child_messages
+            if any(
+                isinstance(block, dict) and block.get("type") == "process"
+                for block in (item.get("content") or [])
+            )
+        ]
+        report["group_chat"] = {
+            "message_start_agents": message_start_agents,
+            "child_agents": sorted(child_agents),
+            "child_message_count": len(child_messages),
+            "child_process_delta_count": child_process_delta_count,
+            "child_process_message_count": len(child_messages_with_process),
+        }
+        if ARCHITECTED_FRONTEND_GROUP_CHAT_SCENARIO:
+            required_child_agents = {"codex-helper", "claude-code", "opencode-helper"}
+            report["checks"]["group_child_message_start_all_agents"] = (
+                required_child_agents <= set(message_start_agents)
+            )
+            report["checks"]["group_persisted_child_messages_all_agents"] = (
+                required_child_agents <= child_agents
+            )
+            report["checks"]["group_child_messages_have_process"] = (
+                required_child_agents
+                <= {
+                    str(item.get("agent_id"))
+                    for item in child_messages_with_process
+                    if isinstance(item.get("agent_id"), str)
+                }
+            )
+            report["checks"]["group_child_process_delta_seen"] = (
+                child_process_delta_count >= len(required_child_agents)
+            )
+            first_child_agent = message_start_agents[0] if message_start_agents else None
+            report["checks"]["group_codex_architect_first"] = first_child_agent == "codex-helper"
+            report["checks"]["group_parent_does_not_embed_child_outputs"] = not any(
+                marker in str((target or {}).get("content") or "")
+                for marker in (
+                    "已生成 planning.md",
+                    "child agent built",
+                    "Codex Helper",
+                    "Claude Code",
+                    "OpenCode Helper",
+                )
+            )
+        if GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO:
+            child_process_agents = {
+                str(item.get("agent_id"))
+                for item in child_messages_with_process
+                if isinstance(item.get("agent_id"), str)
+            }
+            report["checks"]["group_child_message_start_at_least_2"] = (
+                len(set(message_start_agents)) >= 2
+            )
+            report["checks"]["group_persisted_child_messages_at_least_2"] = (
+                len(child_agents) >= 2
+            )
+            report["checks"]["group_child_messages_have_process_at_least_2"] = (
+                len(child_process_agents) >= 2
+            )
+            report["checks"]["group_child_process_delta_seen"] = (
+                child_process_delta_count >= 2
+            )
+            report["checks"]["group_parent_does_not_embed_child_outputs"] = not any(
+                block.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
+                for block in ((target or {}).get("content") or [])
+                if isinstance(block, dict)
+            )
 
         runs = client.get(f"/api/v1/conversations/{conv_id}/orchestrator-runs", headers=headers)
         if runs.status_code == 200:
@@ -3302,6 +3905,60 @@ def main() -> None:
                     ),
                 }
             )
+        elif ARCHITECTED_FRONTEND_GROUP_CHAT_SCENARIO:
+            hard_checks.update(
+                {
+                    "group_child_message_start_all_agents": report["checks"].get(
+                        "group_child_message_start_all_agents",
+                        False,
+                    ),
+                    "group_persisted_child_messages_all_agents": report["checks"].get(
+                        "group_persisted_child_messages_all_agents",
+                        False,
+                    ),
+                    "group_child_messages_have_process": report["checks"].get(
+                        "group_child_messages_have_process",
+                        False,
+                    ),
+                    "group_child_process_delta_seen": report["checks"].get(
+                        "group_child_process_delta_seen",
+                        False,
+                    ),
+                    "group_codex_architect_first": report["checks"].get(
+                        "group_codex_architect_first",
+                        False,
+                    ),
+                    "group_parent_does_not_embed_child_outputs": report["checks"].get(
+                        "group_parent_does_not_embed_child_outputs",
+                        False,
+                    ),
+                }
+            )
+        elif GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO:
+            hard_checks.update(
+                {
+                    "group_child_message_start_at_least_2": report["checks"].get(
+                        "group_child_message_start_at_least_2",
+                        False,
+                    ),
+                    "group_persisted_child_messages_at_least_2": report["checks"].get(
+                        "group_persisted_child_messages_at_least_2",
+                        False,
+                    ),
+                    "group_child_messages_have_process_at_least_2": report["checks"].get(
+                        "group_child_messages_have_process_at_least_2",
+                        False,
+                    ),
+                    "group_child_process_delta_seen": report["checks"].get(
+                        "group_child_process_delta_seen",
+                        False,
+                    ),
+                    "group_parent_does_not_embed_child_outputs": report["checks"].get(
+                        "group_parent_does_not_embed_child_outputs",
+                        False,
+                    ),
+                }
+            )
         elif DEPLOYMENT_SCENARIO:
             hard_checks.update(
                 {
@@ -3422,6 +4079,7 @@ def main() -> None:
             )
         report["acceptance"] = {**hard_checks, "passed": all(hard_checks.values())}
 
+    maybe_run_frontend_ui_smoke(report)
     report["finished_at"] = utc_now()
     report["duration_seconds"] = round(time.time() - started_at, 3)
     report["passed"] = bool(report.get("acceptance", {}).get("passed"))

@@ -154,6 +154,8 @@ class AgentConfig(BaseModel):
         ge=numeric_field("orchestrator_tool_read_max_bytes").minimum,
         le=numeric_field("orchestrator_tool_read_max_bytes").maximum,
     )
+    orchestrator_group_messages_enabled: bool | None = None
+    orchestrator_process_block_enabled: bool | None = None
     orchestrator_response_polish_enabled: bool | None = None
     orchestrator_response_polish_model_backend: ModelBackend | None = Field(
         default=None,

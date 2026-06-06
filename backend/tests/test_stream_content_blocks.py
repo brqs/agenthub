@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import socket
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -12,8 +13,10 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
+from app.agents.base import BaseAgentAdapter
+from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.types import StreamChunk
 from app.api.v1.stream_accumulator import StreamContentAccumulator
 from app.core.config import settings
@@ -144,6 +147,79 @@ async def test_stream_accumulator_persists_task_card_block() -> None:
                     "status": "pending",
                 },
             ],
+        }
+    ]
+
+
+async def test_stream_chunk_and_accumulator_persist_process_block() -> None:
+    chunk = StreamChunk(
+        event_type="block_start",
+        block_index=0,
+        block_type="process",
+        agent_id="orchestrator",
+        metadata={
+            "title": "思考与执行",
+            "status": "running",
+            "default_collapsed": False,
+            "steps": [],
+            "metadata": {"source": "orchestrator_process"},
+        },
+    )
+    assert '"block_type":"process"' in chunk.model_dump_json(exclude_none=True)
+
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(chunk)
+    accumulator.feed(
+        StreamChunk(
+            event_type="delta",
+            block_index=0,
+            metadata={
+                "process_delta": {
+                    "op": "upsert_step",
+                    "step": {
+                        "id": "summary",
+                        "label": "整理公开摘要",
+                        "kind": "summary",
+                        "status": "done",
+                        "detail": "已整理。",
+                    },
+                }
+            },
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="delta",
+            block_index=0,
+            metadata={
+                "process_delta": {
+                    "op": "set_summary",
+                    "status": "partial",
+                    "summary": "过程部分完成，下面的回答包含需要注意的事项。",
+                }
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    assert accumulator.to_list() == [
+        {
+            "type": "process",
+            "agent_id": "orchestrator",
+            "title": "思考与执行",
+            "status": "partial",
+            "default_collapsed": False,
+            "summary": "过程部分完成，下面的回答包含需要注意的事项。",
+            "steps": [
+                {
+                    "id": "summary",
+                    "label": "整理公开摘要",
+                    "kind": "summary",
+                    "status": "done",
+                    "detail": "已整理。",
+                }
+            ],
+            "metadata": {"source": "orchestrator_process"},
         }
     ]
 
@@ -469,15 +545,38 @@ async def _insert_agent(*, user_id: UUID | None = None, is_builtin: bool = True)
     return agent_id
 
 
+async def _ensure_builtin_agent(agent_id: str, *, name: str | None = None) -> str:
+    async with SessionFactory() as db:
+        existing = await db.get(Agent, agent_id)
+        if existing is None:
+            db.add(
+                Agent(
+                    id=agent_id,
+                    user_id=None,
+                    name=name or agent_id,
+                    provider="builtin",
+                    avatar_url=f"/avatars/{agent_id}.png",
+                    capabilities=["testing"],
+                    system_prompt=None,
+                    config={},
+                    is_builtin=True,
+                )
+            )
+            await db.commit()
+    return agent_id
+
+
 async def _create_conversation(
     client: AsyncClient,
     headers: dict[str, str],
     agent_ids: list[str],
+    *,
+    mode: str = "single",
 ) -> dict[str, Any]:
     response = await client.post(
         "/api/v1/conversations",
         headers=headers,
-        json={"title": "B2 content block test", "mode": "single", "agent_ids": agent_ids},
+        json={"title": "B2 content block test", "mode": mode, "agent_ids": agent_ids},
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -640,6 +739,22 @@ async def test_message_out_serializes_block_agent_id_and_legacy_blocks() -> None
                 "dry_run_status": "not_supported",
                 "health_status": "passed",
             },
+            {
+                "type": "process",
+                "agent_id": "orchestrator",
+                "title": "思考与执行",
+                "status": "done",
+                "default_collapsed": False,
+                "steps": [
+                    {
+                        "label": "直接回答",
+                        "kind": "routing",
+                        "status": "done",
+                    }
+                ],
+                "summary": "过程已完成，下面是最终回答。",
+                "metadata": {"source": "orchestrator_process"},
+            },
         ],
         status="done",
         created_at=datetime.now(UTC),
@@ -651,6 +766,20 @@ async def test_message_out_serializes_block_agent_id_and_legacy_blocks() -> None
     assert body["content"][1]["agent_id"] == "claude-code"
     assert body["content"][2]["type"] == "workflow"
     assert body["content"][2]["name"] == "Flow"
+    assert body["content"][3]["type"] == "process"
+    assert body["content"][3]["steps"][0]["label"] == "直接回答"
+
+
+async def test_openapi_includes_process_block_contract() -> None:
+    app.openapi_schema = None
+    schemas = app.openapi()["components"]["schemas"]
+
+    assert "ProcessBlock" in schemas
+    assert "ProcessStep" in schemas
+    assert schemas["ProcessBlock"]["properties"]["type"].get("const") == "process"
+    content_schema = schemas["MessageOut"]["properties"]["content"]["items"]
+    refs = {item["$ref"] for item in content_schema["oneOf"]}
+    assert "#/components/schemas/ProcessBlock" in refs
 
 
 async def test_stream_persists_diff_block(
@@ -766,6 +895,258 @@ async def test_stream_persists_web_preview_block(
     assert len(message.content) == 1
     assert message.content[0]["type"] == "web_preview"
     assert message.content[0]["url"] == "https://example.com"
+
+
+async def test_orchestrator_group_stream_persists_child_agent_message(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    orchestrator_id = await _ensure_builtin_agent("orchestrator", name="Orchestrator")
+    child_agent_id = await _ensure_builtin_agent(
+        f"test-agent-{uuid4().hex}",
+        name="Agent A",
+    )
+    conversation = await _create_conversation(
+        client,
+        headers,
+        [orchestrator_id, child_agent_id],
+        mode="group",
+    )
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=orchestrator_id,
+        content_text="Build a small demo",
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    class ChildAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta="child agent built the demo",
+            )
+            yield StreamChunk(event_type="block_end", block_index=0)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+    orchestrator = OrchestratorAdapter(
+        agent_id=orchestrator_id,
+        default_config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "tasks": [
+                {
+                    "task_id": "task-a",
+                    "agent_id": child_agent_id,
+                    "title": "Build demo",
+                    "instruction": "Build the demo.",
+                }
+            ],
+            "sub_adapters": {child_agent_id: ChildAdapter(child_agent_id)},
+        },
+    )
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> OrchestratorAdapter:
+        assert agent_id == orchestrator_id
+        return orchestrator
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        stored_messages = (
+            (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == UUID(conversation["id"]))
+                    .order_by(Message.created_at.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert response.status_code == 200
+    assert 'event: message_start' in sse_text
+    assert 'event: message_done' in sse_text
+
+    parent = next(message for message in stored_messages if str(message.id) == agent_message_id)
+    child_messages = [
+        message
+        for message in stored_messages
+        if message.role == "agent" and message.agent_id == child_agent_id
+    ]
+    assert len(child_messages) == 1
+    child = child_messages[0]
+    assert child.reply_to_id == UUID(messages["user_message"]["id"])
+    assert child.status == "done"
+    assert child.content[0]["type"] == "process"
+    assert child.content[0]["agent_id"] == child_agent_id
+    assert child.content[0]["status"] == "done"
+    assert child.content[0]["default_collapsed"] is False
+    assert child.content[0]["steps"][0]["agent_id"] == child_agent_id
+    assert child.content[1:] == [
+        {
+            "type": "text",
+            "agent_id": child_agent_id,
+            "text": "child agent built the demo",
+        }
+    ]
+    assert parent.status == "done"
+    assert "child agent built the demo" not in str(parent.content)
+
+
+async def test_orchestrator_group_parallel_stream_finishes_all_child_messages(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    orchestrator_id = await _ensure_builtin_agent("orchestrator", name="Orchestrator")
+    agent_a_id = await _ensure_builtin_agent(f"test-agent-{uuid4().hex}", name="Agent A")
+    agent_b_id = await _ensure_builtin_agent(f"test-agent-{uuid4().hex}", name="Agent B")
+    conversation = await _create_conversation(
+        client,
+        headers,
+        [orchestrator_id, agent_a_id, agent_b_id],
+        mode="group",
+    )
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=orchestrator_id,
+        content_text="Build copy and styles in parallel",
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    class ChildAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(
+                event_type="block_start",
+                block_index=0,
+                block_type="text",
+                agent_id=self.agent_id,
+            )
+            await asyncio.sleep(0)
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta=f"{self.agent_id} completed assigned work",
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(
+                event_type="block_end",
+                block_index=0,
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+    orchestrator = OrchestratorAdapter(
+        agent_id=orchestrator_id,
+        default_config={
+            "react_enabled": False,
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_parallel_max_concurrency": 2,
+            "orchestrator_response_polish_enabled": False,
+            "tasks": [
+                {
+                    "task_id": "task-a",
+                    "agent_id": agent_a_id,
+                    "title": "Build copy",
+                    "instruction": "Build the copy.",
+                },
+                {
+                    "task_id": "task-b",
+                    "agent_id": agent_b_id,
+                    "title": "Build styles",
+                    "instruction": "Build the styles.",
+                },
+            ],
+            "sub_adapters": {
+                agent_a_id: ChildAdapter(agent_a_id),
+                agent_b_id: ChildAdapter(agent_b_id),
+            },
+        },
+    )
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> OrchestratorAdapter:
+        assert agent_id == orchestrator_id
+        return orchestrator
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        stored_messages = (
+            (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == UUID(conversation["id"]))
+                    .order_by(Message.created_at.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert response.status_code == 200
+    assert sse_text.count("event: message_start") == 2
+    assert sse_text.count("event: message_done") == 2
+    assert "event: message_error" not in sse_text
+
+    parent = next(message for message in stored_messages if str(message.id) == agent_message_id)
+    child_messages = [
+        message
+        for message in stored_messages
+        if message.role == "agent" and message.agent_id in {agent_a_id, agent_b_id}
+    ]
+    assert {message.agent_id for message in child_messages} == {agent_a_id, agent_b_id}
+    assert {message.status for message in child_messages} == {"done"}
+    assert all(
+        message.reply_to_id == UUID(messages["user_message"]["id"])
+        for message in child_messages
+    )
+    assert all(message.content for message in child_messages)
+    assert parent.status == "done"
+    assert "completed assigned work" not in str(parent.content)
 
 
 async def test_stream_autostarts_platform_preview_for_deploy_request(
