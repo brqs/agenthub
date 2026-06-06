@@ -46,7 +46,7 @@ export function ChatHeader({
       : conversationAgents[0]?.name ?? conversation.agent_ids[0];
 
   return (
-    <header className="relative flex min-h-[68px] shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-3 py-2 backdrop-blur sm:min-h-[76px] sm:px-5 sm:py-3">
+    <header className="native-chat-header relative flex shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/70 px-3 pb-2 backdrop-blur sm:px-5 sm:pb-3">
       <div className="flex min-w-0 items-start gap-3">
         {onOpenConversationList && (
           <button
@@ -148,7 +148,7 @@ export function ChatHeader({
         </button>
       </div>
       {mobileMenuOpen && (
-        <div className="absolute right-3 top-16 z-30 w-64 rounded-md border border-slate-300 bg-white p-3 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:hidden">
+        <div className="native-chat-header-menu absolute right-3 z-30 w-64 rounded-md border border-slate-300 bg-white p-3 text-sm shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:hidden">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">会话 Agent</div>
           <p className="mt-2 text-sm leading-5 text-slate-700 dark:text-slate-300">{agentSummary}</p>
           {onOpenWorkspace && (
