@@ -64,6 +64,7 @@ building and starting Docker, verify it with:
 docker compose exec backend opencode --version
 docker compose exec backend opencode auth list
 docker compose exec backend env | grep OPENCODE
+docker compose exec backend sh -lc 'rm -rf /tmp/opencode-smoke && mkdir -p /tmp/opencode-smoke && opencode run --format json --model deepseek/deepseek-chat --dir /tmp/opencode-smoke "create index.html, styles.css, and app.js, then summarize briefly"'
 ```
 
 OpenCode credentials can be provided through backend `.env` provider keys, or by
