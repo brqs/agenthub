@@ -16,6 +16,9 @@ class ChatMessage(BaseModel):
 
 StreamEventType = Literal[
     "start",
+    "message_start",
+    "message_done",
+    "message_error",
     "block_start",
     "delta",
     "block_end",
@@ -37,6 +40,7 @@ BlockType = Literal[
     "deployment_status",
     "workflow",
     "task_card",
+    "process",
 ]
 
 
@@ -67,6 +71,10 @@ class StreamChunk(BaseModel):
     task: str | None = None
     # for done event
     message_id: str | None = None
+    conversation_id: str | None = None
+    reply_to_id: str | None = None
+    created_at: str | None = None
+    status: Literal["pending", "streaming", "done", "error"] | None = None
     agent_id: str | None = None
     total_blocks: int | None = None
     # for tool_call / tool_result events

@@ -8,6 +8,10 @@ from typing import Any
 from app.agents.orchestrator._internal.execution.presentation import (
     presented_response_text,
 )
+from app.agents.orchestrator._internal.execution.process_block import (
+    contains_forbidden_process_text,
+    execution_process_block,
+)
 from app.agents.orchestrator.evaluation import EvaluationResult
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
@@ -190,3 +194,25 @@ async def test_polish_forbidden_or_empty_output_falls_back() -> None:
     assert "call_" not in forbidden_text
     assert "Write report" in forbidden_text
     assert empty_text == forbidden_text
+
+
+async def test_process_block_marks_pending_tasks_partial_and_sanitizes_terms() -> None:
+    tasks, states, context = _context()
+    pending = SubTask(
+        task_id="task-b",
+        agent_id="agent-b",
+        title="Publish follow-up",
+        instruction="Publish the report.",
+    )
+
+    payload = execution_process_block(
+        [ChatMessage(role="user", content="Create and publish a report")],
+        [*tasks, pending],
+        {**states, pending.task_id: TaskState.PENDING},
+        context,
+    )
+
+    assert payload["status"] == "partial"
+    assert payload["steps"][2]["status"] == "skipped"
+    assert "task-b" not in str(payload)
+    assert not contains_forbidden_process_text(payload)

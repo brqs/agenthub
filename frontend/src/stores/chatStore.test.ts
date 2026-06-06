@@ -231,6 +231,188 @@ describe('chatStore', () => {
     });
   });
 
+  it('applies process stream events and process deltas', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'process',
+        agent_id: 'orchestrator',
+        metadata: {
+          title: '执行过程',
+          status: 'partial',
+          default_collapsed: false,
+          summary: '公开执行过程部分完成。',
+          steps: [
+            {
+              id: 'summary-step',
+              label: '公开摘要',
+              kind: 'summary',
+              status: 'done',
+              detail: '已整理。',
+            },
+          ],
+          metadata: { source: 'orchestrator_process' },
+        },
+      },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'delta',
+      data: {
+        block_index: 0,
+        metadata: {
+          process_delta: {
+            op: 'upsert_step',
+            step: {
+              id: 'summary-step',
+              label: '公开摘要',
+              kind: 'summary',
+              status: 'running',
+              detail: '正在整理。',
+            },
+          },
+        },
+      },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'delta',
+      data: {
+        block_index: 0,
+        metadata: {
+          process_delta: {
+            op: 'set_summary',
+            status: 'done',
+            summary: '公开执行过程已完成。',
+          },
+        },
+      },
+    });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'process',
+      agent_id: 'orchestrator',
+      title: '执行过程',
+      status: 'done',
+      summary: '公开执行过程已完成。',
+      steps: [
+        {
+          id: 'summary-step',
+          label: '公开摘要',
+          kind: 'summary',
+          status: 'running',
+          detail: '正在整理。',
+        },
+      ],
+    });
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).not.toHaveProperty('text');
+  });
+
+  it('routes orchestrator child message events into independent agent messages', () => {
+    const parentId = addStreamingMessage('conv-demo-flow', 'parent-orchestrator-message');
+    const store = useChatStore.getState();
+
+    store.applyStreamEvent(parentId, {
+      event: 'message_start',
+      data: {
+        message_id: 'child-codex-message',
+        conversation_id: 'conv-demo-flow',
+        agent_id: 'codex-helper',
+        reply_to_id: 'user-message-1',
+        created_at: '2026-05-31T00:00:01.000Z',
+        status: 'streaming',
+      },
+    });
+    store.applyStreamEvent(parentId, {
+      event: 'block_start',
+      data: {
+        message_id: 'child-codex-message',
+        block_index: 0,
+        block_type: 'process',
+        agent_id: 'codex-helper',
+        metadata: {
+          title: '思考与执行',
+          status: 'running',
+          default_collapsed: false,
+          steps: [],
+        },
+      },
+    });
+    store.applyStreamEvent(parentId, {
+      event: 'delta',
+      data: {
+        message_id: 'child-codex-message',
+        block_index: 0,
+        metadata: {
+          process_delta: {
+            op: 'upsert_step',
+            step: {
+              id: 'architecture',
+              label: '设计执行方案',
+              kind: 'planning',
+              status: 'running',
+              agent_id: 'codex-helper',
+            },
+          },
+        },
+      },
+    });
+    store.applyStreamEvent(parentId, {
+      event: 'block_start',
+      data: {
+        message_id: 'child-codex-message',
+        block_index: 1,
+        block_type: 'text',
+        agent_id: 'codex-helper',
+      },
+    });
+    store.applyStreamEvent(parentId, {
+      event: 'delta',
+      data: {
+        message_id: 'child-codex-message',
+        block_index: 1,
+        text_delta: '已生成 planning.md',
+        agent_id: 'codex-helper',
+      },
+    });
+    store.applyStreamEvent(parentId, {
+      event: 'message_done',
+      data: {
+        message_id: 'child-codex-message',
+        conversation_id: 'conv-demo-flow',
+        agent_id: 'codex-helper',
+        status: 'done',
+        total_blocks: 2,
+      },
+    });
+
+    const messages = useChatStore.getState().messagesByConversation['conv-demo-flow'];
+    const parent = messages.find((message) => message.id === parentId);
+    const child = messages.find((message) => message.id === 'child-codex-message');
+
+    expect(parent?.content).toEqual([]);
+    expect(child).toMatchObject({
+      id: 'child-codex-message',
+      role: 'agent',
+      agent_id: 'codex-helper',
+      reply_to_id: 'user-message-1',
+      status: 'done',
+    });
+    expect(child?.content).toMatchObject([
+      {
+        type: 'process',
+        agent_id: 'codex-helper',
+        steps: [{ id: 'architecture', label: '设计执行方案', status: 'running' }],
+      },
+      { type: 'text', agent_id: 'codex-helper', text: '已生成 planning.md' },
+    ]);
+  });
+
   it('applies file stream events as rich file blocks', () => {
     const messageId = addStreamingMessage();
     const store = useChatStore.getState();

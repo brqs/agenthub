@@ -19,6 +19,7 @@ class StreamContentAccumulator:
     def __init__(self) -> None:
         self.blocks: list[dict[str, Any]] = []
         self.current: dict[str, Any] | None = None
+        self.process_blocks: dict[int, dict[str, Any]] = {}
         self.pending_tool_calls: dict[str, dict[str, Any]] = {}
         self.has_orphaned_tool_call = False
 
@@ -190,7 +191,20 @@ class StreamContentAccumulator:
                         }
                     )
                 self.current["tasks"] = tasks
+            elif chunk.block_type == "process":
+                meta = chunk.metadata or {}
+                block = {"type": "process"}
+                agent_id = _chunk_agent_id(chunk)
+                if agent_id:
+                    block["agent_id"] = agent_id
+                block.update(_process_block_from_metadata(meta))
+                self.blocks.append(block)
+                if chunk.block_index is not None:
+                    self.process_blocks[chunk.block_index] = block
+                self.current = None
         elif chunk.event_type == "delta" and self.current is not None:
+            if self.current.get("type") == "process":
+                return None
             if chunk.text_delta:
                 if self.current.get("type") == "diff":
                     self.current["diff"] = self.current.get("diff", "") + chunk.text_delta
@@ -207,8 +221,13 @@ class StreamContentAccumulator:
                     )
                 else:
                     self.current["code"] = self.current.get("code", "") + chunk.code_delta
+        elif chunk.event_type == "delta":
+            process_index = chunk.block_index if chunk.block_index is not None else -1
+            _apply_process_delta(self.process_blocks.get(process_index), chunk.metadata)
         elif chunk.event_type == "block_end" and self.current is not None:
             self._finalize_current()
+        elif chunk.event_type == "block_end" and chunk.block_index is not None:
+            self.process_blocks.pop(chunk.block_index, None)
         elif chunk.event_type == "tool_call":
             return self._feed_tool_call(chunk)
         elif chunk.event_type == "tool_result":
@@ -517,6 +536,120 @@ def _task_status(value: object) -> str:
     if value in {"pending", "running", "done", "error"}:
         return str(value)
     return "pending"
+
+
+def _process_block_from_metadata(meta: Mapping[str, Any]) -> dict[str, Any]:
+    block: dict[str, Any] = {
+        "title": str(meta.get("title") or "思考与执行"),
+        "status": _process_status(meta.get("status")),
+        "default_collapsed": bool(meta.get("default_collapsed", False)),
+        "steps": [],
+        "metadata": meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {},
+    }
+    summary = meta.get("summary")
+    if isinstance(summary, str):
+        block["summary"] = summary
+    for raw_step in meta.get("steps", []):
+        if not isinstance(raw_step, Mapping):
+            continue
+        step = {
+            "label": str(raw_step.get("label") or ""),
+            "kind": _process_step_kind(raw_step.get("kind")),
+            "status": _process_step_status(raw_step.get("status")),
+        }
+        step_id = raw_step.get("id")
+        if isinstance(step_id, str) and step_id:
+            step["id"] = step_id
+        detail = raw_step.get("detail")
+        if isinstance(detail, str):
+            step["detail"] = detail
+        agent_id = raw_step.get("agent_id")
+        if isinstance(agent_id, str) and agent_id:
+            step["agent_id"] = agent_id
+        block["steps"].append(step)
+    return block
+
+
+def _apply_process_delta(
+    block: dict[str, Any] | None,
+    metadata: Mapping[str, Any] | None,
+) -> None:
+    if block is None or not isinstance(metadata, Mapping):
+        return
+    raw_delta = metadata.get("process_delta")
+    if not isinstance(raw_delta, Mapping):
+        return
+    op = raw_delta.get("op")
+    if op == "upsert_step":
+        raw_step = raw_delta.get("step")
+        if not isinstance(raw_step, Mapping):
+            return
+        step = _process_step_from_mapping(raw_step)
+        steps = block.setdefault("steps", [])
+        if not isinstance(steps, list):
+            block["steps"] = steps = []
+        step_id = step.get("id")
+        if isinstance(step_id, str) and step_id:
+            for index, existing in enumerate(steps):
+                if isinstance(existing, dict) and existing.get("id") == step_id:
+                    steps[index] = step
+                    return
+        steps.append(step)
+        return
+    if op == "set_summary":
+        block["status"] = _process_status(raw_delta.get("status"))
+        summary = raw_delta.get("summary")
+        if isinstance(summary, str):
+            block["summary"] = summary
+
+
+def _process_step_from_mapping(raw_step: Mapping[str, Any]) -> dict[str, Any]:
+    step = {
+        "label": str(raw_step.get("label") or ""),
+        "kind": _process_step_kind(raw_step.get("kind")),
+        "status": _process_step_status(raw_step.get("status")),
+    }
+    step_id = raw_step.get("id")
+    if isinstance(step_id, str) and step_id:
+        step["id"] = step_id
+    detail = raw_step.get("detail")
+    if isinstance(detail, str):
+        step["detail"] = detail
+    agent_id = raw_step.get("agent_id")
+    if isinstance(agent_id, str) and agent_id:
+        step["agent_id"] = agent_id
+    return step
+
+
+def _process_status(value: object) -> str:
+    if value in {"running", "done", "partial", "error"}:
+        return str(value)
+    return "done"
+
+
+def _process_step_status(value: object) -> str:
+    if value in {"done", "running", "error", "skipped"}:
+        return str(value)
+    return "done"
+
+
+def _process_step_kind(value: object) -> str:
+    allowed = {
+        "routing",
+        "planning",
+        "dispatch",
+        "tool",
+        "review",
+        "evaluation",
+        "workflow",
+        "deployment",
+        "artifact",
+        "repair",
+        "summary",
+    }
+    if isinstance(value, str) and value in allowed:
+        return value
+    return "summary"
 
 
 def _tool_call_orphan_error(message: str) -> StreamChunk:

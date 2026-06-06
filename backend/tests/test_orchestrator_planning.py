@@ -251,6 +251,139 @@ async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
     )
 
 
+async def test_orchestrator_balances_explicit_multi_agent_group_plan() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("from codex"))
+    claude = FakeSubAdapter("claude-code", _text_chunks("from claude"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("from opencode"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "architecture",
+                            "codex-helper",
+                            "Create architecture",
+                            "Create strategy-architecture.md.",
+                            priority=1,
+                        ),
+                        _task(
+                            "journey",
+                            "codex-helper",
+                            "Create journey",
+                            "Create customer-journey.md.",
+                            priority=2,
+                        ),
+                        _task(
+                            "risk",
+                            "codex-helper",
+                            "Create risk review",
+                            "Create risk-review.md.",
+                            priority=3,
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 请用真实 Agent 群聊完成文档策略任务，至少两个"
+                    "可用 Agent 要在自己的独立消息中分工。"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["codex-helper", "claude-code", "opencode-helper"]
+    assert "Create strategy-architecture.md." in codex.received_messages[-1].content
+    assert "Create customer-journey.md." in claude.received_messages[-1].content
+    assert "Create risk-review.md." in opencode.received_messages[-1].content
+
+
+async def test_orchestrator_balances_to_explicitly_mentioned_group_agents() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("from codex"))
+    claude = FakeSubAdapter("claude-code", _text_chunks("from claude"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("from opencode"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task("doc-a", "codex-helper", "Doc A", "Create a.md."),
+                        _task(
+                            "doc-b",
+                            "codex-helper",
+                            "Doc B",
+                            "Create b.md.",
+                            priority=2,
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 请使用 Claude Code 和 OpenCode Helper 两个可用 "
+                    "Agent 按真实分工完成文档任务。"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code", "opencode-helper"]
+    assert claude.received_messages
+    assert opencode.received_messages
+    assert codex.received_messages == []
+
+
 async def test_orchestrator_preserves_explicit_requirements_in_planned_tasks() -> None:
     adapter = FakeSubAdapter("claude-code", _text_chunks("created demo"))
     planner = FakePlannerGateway(
@@ -295,12 +428,13 @@ async def test_orchestrator_preserves_explicit_requirements_in_planned_tasks() -
     assert request in instruction
     assert "Preserve every explicit deliverable" in instruction
     assert "conventional static frontend structure" in instruction
+    assert len(planner.calls) == 1
     assert "Preserve explicit acceptance requirements" in (
         planner.calls[0]["messages"][0].content
     )
 
 
-async def test_frontend_deploy_planner_output_is_stabilized_for_quality_gate() -> None:
+async def test_frontend_deploy_planner_output_is_not_overridden_by_quality_template() -> None:
     claude = FakeSubAdapter("claude-code", _text_chunks("claude plan only"))
     codex = FakeSubAdapter("codex-helper", _text_chunks("created files"))
     opencode = FakeSubAdapter("opencode-helper", _text_chunks("reviewed files"))
@@ -350,18 +484,61 @@ async def test_frontend_deploy_planner_output_is_stabilized_for_quality_gate() -
     assert len(planner.calls) == 1
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["opencode-helper"]
+    ] == ["claude-code"]
     assert any(
         "I'll handle this in 1 step(s)" in (chunk.text_delta or "") for chunk in chunks
     )
     assert any(
-        "Build static frontend demo artifacts" in (chunk.text_delta or "") for chunk in chunks
+        "Analyze request" in (chunk.text_delta or "") for chunk in chunks
     )
-    assert claude.received_messages == []
+    assert not any(
+        "Design frontend demo architecture" in (chunk.text_delta or "") for chunk in chunks
+    )
+    assert "Analyze the frontend request." in claude.received_messages[-1].content
+    assert "移动端适配" in claude.received_messages[-1].content
     assert codex.received_messages == []
-    assert "index.html, styles.css, app.js" in opencode.received_messages[-1].content
-    assert "Do not enter plan mode" in opencode.received_messages[-1].content
-    assert "移动端适配" in opencode.received_messages[-1].content
+    assert opencode.received_messages == []
+
+
+async def test_frontend_deploy_empty_planner_tasks_is_visible_error() -> None:
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("created files"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={"tasks": []},
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    request = (
+        "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff、网页预览、"
+        "按钮交互和移动端适配的前端开发演示，并行执行，主题赛博朋克风，"
+        "部署在端口8082，并完成浏览器级质量验收"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "opencode-helper": opencode,
+                "claude-code": FakeSubAdapter("claude-code", _text_chunks("created page")),
+                "codex-helper": FakeSubAdapter("codex-helper", _text_chunks("created plan")),
+            },
+        },
+    )
+
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[-1].error_code == "missing_task_plan"
+    assert len(planner.calls) == 1
+    assert opencode.received_messages == []
 
 
 async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
@@ -395,7 +572,7 @@ async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
     assert planner.calls == []
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["claude-code", "claude-code", "opencode-helper", "codex-helper"]
+    ] == ["codex-helper", "claude-code", "opencode-helper", "codex-helper"]
     assert any("I'll handle this in 4 step(s)" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Implement frontend artifacts" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Implement backend artifacts" in (chunk.text_delta or "") for chunk in chunks)
@@ -649,7 +826,7 @@ async def test_orchestrator_planner_invalid_json_can_fallback_to_direct_answer()
     assert adapter_a.received_messages == []
 
 
-async def test_artifact_planner_invalid_json_uses_frontend_task_not_direct_answer() -> None:
+async def test_artifact_planner_invalid_json_is_visible_error_not_direct_answer() -> None:
     claude = FakeSubAdapter("claude-code", _text_chunks("created snake game"))
     planner = FakePlannerGateway(
         [
@@ -686,20 +863,15 @@ async def test_artifact_planner_invalid_json_uses_frontend_task_not_direct_answe
         },
     )
 
-    assert chunks[-1].event_type == "done"
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[-1].error_code == "invalid_task_plan"
     assert len(planner.calls) == 1
     assert answer.calls == []
-    assert any(
-        chunk.event_type == "block_start" and chunk.block_type == "task_card"
-        for chunk in chunks
-    )
-    assert [
-        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["claude-code"]
-    assert "index.html, styles.css, app.js" in claude.received_messages[-1].content
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert claude.received_messages == []
 
 
-async def test_artifact_fallback_skips_unavailable_opencode_runtime() -> None:
+async def test_artifact_planner_error_does_not_invoke_unavailable_runtime() -> None:
     claude = FakeSubAdapter("claude-code", _text_chunks("created snake game"))
     opencode = FakeSubAdapter("opencode-helper", _text_chunks("should not run"))
     planner = FakePlannerGateway(
@@ -744,11 +916,10 @@ async def test_artifact_fallback_skips_unavailable_opencode_runtime() -> None:
         },
     )
 
-    assert chunks[-1].event_type == "done"
-    assert [
-        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["claude-code"]
-    assert claude.received_messages
+    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+    assert chunks[-1].error_code == "invalid_task_plan"
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert claude.received_messages == []
     assert opencode.received_messages == []
 
 
@@ -902,3 +1073,47 @@ async def test_orchestrator_planner_template_fallback_requires_flag() -> None:
     assert any("I'll handle this in 2 step(s)" in (chunk.text_delta or "") for chunk in chunks)
     assert all("via legacy template" not in (chunk.text_delta or "") for chunk in chunks)
     assert adapter_a.received_messages[-1].content.startswith("Analyze the user's request")
+
+
+async def test_orchestrator_generic_fallback_prefers_codex_architect_role() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("architecture done"))
+    claude = FakeSubAdapter("claude-code", _text_chunks("implementation done"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("review done"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(
+                event_type="error",
+                error_code="timeout",
+                error="planner timeout",
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a product launch checklist")],
+        config={
+            "planner_gateway": planner,
+            "planner_fallback_to_template": True,
+            "managed_agent_ids": [
+                "opencode-helper",
+                "claude-code",
+                "codex-helper",
+            ],
+            "sub_adapters": {
+                "codex-helper": codex,
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["codex-helper", "claude-code", "opencode-helper"]
+    assert codex.received_messages[-1].content.startswith("Analyze the user's request")
+    assert "product launch checklist" in codex.received_messages[-1].content
+    assert claude.received_messages
+    assert opencode.received_messages

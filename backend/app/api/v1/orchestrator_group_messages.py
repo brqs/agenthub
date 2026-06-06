@@ -1,0 +1,198 @@
+"""Child message persistence for Orchestrator group-chat streams."""
+
+from __future__ import annotations
+
+import asyncio
+from datetime import UTC, datetime
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents.types import StreamChunk
+from app.api.v1.stream_accumulator import StreamContentAccumulator
+from app.models.message import Message
+
+ERROR_TEXT_MAX_CHARS = 1200
+GENERIC_CHILD_ERROR_TEXT = "Agent task failed. Please retry."
+
+
+class OrchestratorGroupMessageWriter:
+    """Create and persist per-agent child messages during one Orchestrator run."""
+
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        conversation_id: UUID,
+        parent_message_id: UUID,
+        user_message_id: UUID | None,
+        lock: asyncio.Lock | None = None,
+    ) -> None:
+        self.db = db
+        self.conversation_id = conversation_id
+        self.parent_message_id = parent_message_id
+        self.user_message_id = user_message_id
+        self._states: dict[str, _ChildMessageState] = {}
+        self._lock = lock or asyncio.Lock()
+
+    async def start_message(
+        self,
+        *,
+        agent_id: str,
+    ) -> StreamChunk:
+        async with self._lock:
+            return await self._start_message_unlocked(agent_id=agent_id)
+
+    async def _start_message_unlocked(self, *, agent_id: str) -> StreamChunk:
+        message = Message(
+            conversation_id=self.conversation_id,
+            role="agent",
+            agent_id=agent_id,
+            content=[],
+            reply_to_id=self.user_message_id,
+            status="streaming",
+        )
+        self.db.add(message)
+        await self.db.flush()
+        if message.created_at is None:
+            message.created_at = datetime.now(UTC)
+        message_id = str(message.id)
+        self._states[message_id] = _ChildMessageState(
+            message_id=message.id,
+            agent_id=agent_id,
+            accumulator=StreamContentAccumulator(),
+        )
+        await self.db.commit()
+        return StreamChunk(
+            event_type="message_start",
+            message_id=message_id,
+            conversation_id=str(self.conversation_id),
+            reply_to_id=str(self.user_message_id) if self.user_message_id else None,
+            created_at=message.created_at.isoformat(),
+            status="streaming",
+            agent_id=agent_id,
+        )
+
+    async def feed(self, chunk: StreamChunk) -> StreamChunk | None:
+        async with self._lock:
+            message_id = chunk.message_id
+            if not message_id or message_id == str(self.parent_message_id):
+                return None
+            if chunk.event_type in {"message_start", "message_done", "message_error"}:
+                return None
+
+            state = self._states.get(message_id)
+            if state is None:
+                return None
+            accumulator_error = state.accumulator.feed(chunk)
+            if accumulator_error is None:
+                return None
+            return await self._finish_message_unlocked(
+                message_id,
+                status="error",
+                error=accumulator_error.error or accumulator_error.error_code,
+                error_code=accumulator_error.error_code,
+            )
+
+    async def finish_message(
+        self,
+        message_id: str,
+        *,
+        status: str = "done",
+        error: str | None = None,
+        error_code: str | None = None,
+    ) -> StreamChunk | None:
+        async with self._lock:
+            return await self._finish_message_unlocked(
+                message_id,
+                status=status,
+                error=error,
+                error_code=error_code,
+            )
+
+    async def _finish_message_unlocked(
+        self,
+        message_id: str,
+        *,
+        status: str = "done",
+        error: str | None = None,
+        error_code: str | None = None,
+    ) -> StreamChunk | None:
+        state = self._states.pop(message_id, None)
+        if state is None:
+            return None
+
+        message = await self.db.get(Message, state.message_id)
+        if message is None:
+            return None
+
+        has_orphaned_tool_call = state.accumulator.finalize_orphaned_tools()
+        content = state.accumulator.to_list()
+        final_status = "error" if status == "error" or has_orphaned_tool_call else "done"
+        if final_status == "error" and not content:
+            content = [
+                {
+                    "type": "text",
+                    "agent_id": state.agent_id,
+                    "text": _safe_error_text(error),
+                }
+            ]
+        message.content = content
+        message.status = final_status
+        await self.db.commit()
+
+        if final_status == "error":
+            return StreamChunk(
+                event_type="message_error",
+                message_id=message_id,
+                conversation_id=str(self.conversation_id),
+                reply_to_id=str(self.user_message_id) if self.user_message_id else None,
+                status="error",
+                agent_id=state.agent_id,
+                error_code=error_code or ("tool_call_orphan" if has_orphaned_tool_call else None),
+                error=_safe_error_text(error),
+            )
+        return StreamChunk(
+            event_type="message_done",
+            message_id=message_id,
+            conversation_id=str(self.conversation_id),
+            reply_to_id=str(self.user_message_id) if self.user_message_id else None,
+            status="done",
+            agent_id=state.agent_id,
+            total_blocks=len(content),
+        )
+
+    async def fail_open_messages(self, error: str) -> list[StreamChunk]:
+        async with self._lock:
+            chunks: list[StreamChunk] = []
+            for message_id in list(self._states):
+                chunk = await self._finish_message_unlocked(
+                    message_id,
+                    status="error",
+                    error=error,
+                )
+                if chunk is not None:
+                    chunks.append(chunk)
+            return chunks
+
+
+class _ChildMessageState:
+    def __init__(
+        self,
+        *,
+        message_id: UUID,
+        agent_id: str,
+        accumulator: StreamContentAccumulator,
+    ) -> None:
+        self.message_id = message_id
+        self.agent_id = agent_id
+        self.accumulator = accumulator
+
+
+def _safe_error_text(text: str | None) -> str:
+    cleaned = " ".join(str(text or "").replace("\x00", "").split())
+    if not cleaned:
+        return GENERIC_CHILD_ERROR_TEXT
+    if len(cleaned) > ERROR_TEXT_MAX_CHARS:
+        return f"{cleaned[:ERROR_TEXT_MAX_CHARS]}..."
+    return cleaned

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,21 @@ from app.agents.orchestrator._internal.execution.attempts import (
 )
 from app.agents.orchestrator._internal.execution.events import error_code as _error_code
 from app.agents.orchestrator._internal.execution.events import error_reason as _error_reason
+from app.agents.orchestrator._internal.execution.process_block import (
+    process_block_end as _process_block_end,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    process_block_start as _process_block_start,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    process_step_delta as _process_step_delta,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    route_process_block as _route_process_block,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    route_process_step as _route_process_step,
+)
 from app.agents.orchestrator._internal.execution.summary import (
     fallback_summary_text as _fallback_summary_text,
 )
@@ -76,6 +91,9 @@ from app.agents.orchestrator.task_planning import (
     agent_id_list as _agent_id_list,
 )
 from app.agents.orchestrator.task_planning import (
+    balance_requested_multi_agent_plan as _balance_requested_multi_agent_plan,
+)
+from app.agents.orchestrator.task_planning import (
     expand_agent_review_tasks as _expand_agent_review_tasks,
 )
 from app.agents.orchestrator.task_planning import (
@@ -100,6 +118,38 @@ from app.agents.orchestrator.types import (
     OrchestratorRunContext,
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
+
+
+def _route_process_chunks(
+    config: Mapping[str, Any],
+    block_index: int,
+    messages: list[ChatMessage],
+    route: str,
+    *,
+    status: str = "done",
+    detail: str | None = None,
+) -> tuple[tuple[StreamChunk, int], ...]:
+    process_start = _process_block_start(
+        config,
+        block_index,
+        _route_process_block(route, messages, status=status, detail=detail),
+    )
+    if process_start is None:
+        return ()
+    start_chunk, next_block_index = process_start
+    process_block_index = start_chunk.block_index
+    chunks: list[tuple[StreamChunk, int]] = [(start_chunk, next_block_index)]
+    step_chunk = _process_step_delta(
+        config,
+        process_block_index,
+        _route_process_step(route, status=status, detail=detail),
+    )
+    if step_chunk is not None:
+        chunks.append((step_chunk, next_block_index))
+    end_chunk = _process_block_end(config, process_block_index)
+    if end_chunk is not None:
+        chunks.append((end_chunk, next_block_index))
+    return tuple(chunks)
 
 
 class OrchestratorAdapter(BaseAgentAdapter):
@@ -130,6 +180,14 @@ class OrchestratorAdapter(BaseAgentAdapter):
             error_reason=_error_reason,
         )
         if platform_fact:
+            for chunk, updated_block_index in _route_process_chunks(
+                merged_config,
+                next_block_index,
+                messages,
+                "platform_fact",
+            ):
+                next_block_index = updated_block_index
+                yield chunk
             for chunk in _text_block(
                 next_block_index,
                 platform_fact_text(merged_config, platform_fact),
@@ -151,6 +209,14 @@ class OrchestratorAdapter(BaseAgentAdapter):
             strip_orchestrator_mention=_strip_orchestrator_mention,
             has_task_intent=_has_task_intent,
         ):
+            for chunk, updated_block_index in _route_process_chunks(
+                merged_config,
+                next_block_index,
+                messages,
+                "direct_answer",
+            ):
+                next_block_index = updated_block_index
+                yield chunk
             async for chunk, updated_block_index, failed in _run_direct_answer(
                 merged_config,
                 messages,
@@ -203,6 +269,15 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 agent_id=self.agent_id,
             )
             final_text = _custom_agent_result_text(tool_status, tool_output)
+            for chunk, updated_block_index in _route_process_chunks(
+                merged_config,
+                next_block_index,
+                messages,
+                "custom_agent",
+                status="done" if tool_status == "ok" else "error",
+            ):
+                next_block_index = updated_block_index
+                yield chunk
             for chunk in _text_block(next_block_index, final_text):
                 yield chunk
             next_block_index += 1
@@ -260,6 +335,14 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 exc,
                 _latest_user_request(messages),
             ):
+                for chunk, updated_block_index in _route_process_chunks(
+                    merged_config,
+                    next_block_index,
+                    messages,
+                    "direct_answer",
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk
                 async for chunk, updated_block_index, failed in _run_direct_answer(
                     merged_config,
                     messages,
@@ -287,6 +370,15 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 ):
                     next_block_index = updated_block_index
                     yield chunk
+                for process_chunk, updated_block_index in _route_process_chunks(
+                    merged_config,
+                    next_block_index,
+                    messages,
+                    "fallback",
+                    status="partial",
+                ):
+                    next_block_index = updated_block_index
+                    yield process_chunk
                 for chunk in _text_block(next_block_index, _fallback_summary_text()):
                     yield chunk
                 next_block_index += 1
@@ -314,6 +406,15 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 ):
                     next_block_index = updated_block_index
                     yield chunk
+                for process_chunk, updated_block_index in _route_process_chunks(
+                    merged_config,
+                    next_block_index,
+                    messages,
+                    "fallback",
+                    status="partial",
+                ):
+                    next_block_index = updated_block_index
+                    yield process_chunk
                 for chunk in _text_block(next_block_index, _fallback_summary_text()):
                     yield chunk
                 next_block_index += 1
@@ -332,6 +433,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             return
 
         tasks = _expand_agent_review_tasks(merged_config, tasks)
+        tasks = _balance_requested_multi_agent_plan(
+            tasks,
+            merged_config,
+            _latest_user_request(messages),
+        )
 
         try:
             _ensure_adapter_source(merged_config)

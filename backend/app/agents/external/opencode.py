@@ -43,6 +43,14 @@ DEFAULT_COMMAND = "opencode"
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
 DEFAULT_SHARED_AUTH_DIR = "/root/.local/share/opencode"
 OPENCODE_AUTH_DIR_ENV = "AGENTHUB_OPENCODE_AUTH_DIR"
+AUTH_ENV_PREFIXES = (
+    "ANTHROPIC_",
+    "CLAUDE_",
+    "DEEPSEEK_",
+    "OPENAI_",
+    "OPENCODE_",
+)
+AUTH_ENV_SUFFIXES = ("API_KEY", "AUTH_TOKEN", "TOKEN")
 OPENCODE_CLI_MISSING_ERROR = (
     "OpenCode CLI command 'opencode' was not found in backend container PATH. "
     "Install OpenCode in the backend Docker image or update opencode-helper "
@@ -71,13 +79,21 @@ TOOL_EVENT_TYPES = TOOL_CALL_EVENT_TYPES | TOOL_RESULT_EVENT_TYPES | TOOL_USE_EV
 TOOL_USE_OK_STATUSES = {"completed", "done", "success", "ok"}
 TOOL_USE_ERROR_STATUSES = {"error", "failed"}
 TOOL_USE_NON_TERMINAL_STATUSES = {"running", "pending", "started"}
+
+
+class SharedOpenCodeAuthError(RuntimeError):
+    """Raised when shared OpenCode auth exists but cannot be safely copied."""
+
+
 def opencode_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str | None]:
     command = argv((config or {}).get("command", DEFAULT_COMMAND))
     if not command:
         return "invalid", "OpenCode command is empty"
-    if _command_available(command):
+    if not _command_available(command):
+        return "unavailable", OPENCODE_CLI_MISSING_ERROR
+    if _has_provider_credentials() or _has_shared_auth():
         return "ready", None
-    return "unavailable", OPENCODE_CLI_MISSING_ERROR
+    return "unavailable", OPENCODE_MISSING_CREDENTIALS_ERROR
 
 
 def _command_available(command: list[str]) -> bool:
@@ -154,8 +170,8 @@ class OpenCodeAdapter(BaseAgentAdapter):
             yield self._error("external_runtime_error", "OpenCode command is empty")
             return
 
-        runtime_env = self._runtime_env(merged, workspace_path)
         try:
+            runtime_env = self._runtime_env(merged, workspace_path)
             process = await asyncio.create_subprocess_exec(
                 *resolve_command(command),
                 *args,
@@ -667,13 +683,11 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
     @staticmethod
     def _copy_shared_auth(env: dict[str, str]) -> None:
-        source_dir = Path(
-            os.environ.get(OPENCODE_AUTH_DIR_ENV)
-            or os.environ.get("OPENCODE_AUTH_DIR", "")
-            or DEFAULT_SHARED_AUTH_DIR
-        ).expanduser()
+        if _has_provider_credentials():
+            return
+        source_dir = _shared_auth_dir()
         source = source_dir / "auth.json"
-        if not source.exists():
+        if not _is_readable_file(source):
             return
         xdg_data_home = env.get("XDG_DATA_HOME")
         home = env.get("HOME")
@@ -684,10 +698,13 @@ class OpenCodeAdapter(BaseAgentAdapter):
         else:
             return
         destination = destination_dir / "auth.json"
-        if source.resolve() == destination.resolve():
+        if _same_path(source, destination):
             return
-        destination_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
+        try:
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+        except OSError as exc:
+            raise SharedOpenCodeAuthError(OPENCODE_MISSING_CREDENTIALS_ERROR) from exc
 
     @staticmethod
     def _normalize_runtime_error(output: str) -> str:
@@ -698,7 +715,41 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
     @staticmethod
     def _safe_message(exc: Exception) -> str:
-        return safe_exception_message(exc)
+        return OpenCodeAdapter._normalize_runtime_error(safe_exception_message(exc))
+
+
+def _has_provider_credentials() -> bool:
+    return any(
+        value
+        for key, value in os.environ.items()
+        if key.startswith(AUTH_ENV_PREFIXES) and key.endswith(AUTH_ENV_SUFFIXES)
+    )
+
+
+def _has_shared_auth() -> bool:
+    return _is_readable_file(_shared_auth_dir() / "auth.json")
+
+
+def _shared_auth_dir() -> Path:
+    return Path(
+        os.environ.get(OPENCODE_AUTH_DIR_ENV)
+        or os.environ.get("OPENCODE_AUTH_DIR", "")
+        or DEFAULT_SHARED_AUTH_DIR
+    ).expanduser()
+
+
+def _is_readable_file(path: Path) -> bool:
+    try:
+        return path.is_file() and os.access(path, os.R_OK)
+    except OSError:
+        return False
+
+
+def _same_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return False
 
 
 def _looks_like_auth_error(output: str) -> bool:

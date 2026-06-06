@@ -15,6 +15,7 @@ from app.agents.external.opencode import opencode_runtime_status
 from app.agents.orchestrator.availability import is_runnable_agent_context
 from app.agents.registry import ORCHESTRATOR_AGENT_ID
 from app.agents.types import ChatMessage
+from app.api.v1.orchestrator_group_messages import OrchestratorGroupMessageWriter
 from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.message import Message
@@ -100,14 +101,18 @@ async def _orchestrator_conversation_config(
         if agent.get("id") != ORCHESTRATOR_AGENT_ID
         and is_runnable_agent_context(agent)
     ]
+    managed_agent_ids = [
+        agent["id"]
+        for agent in conversation_agents
+        if agent.get("id") != ORCHESTRATOR_AGENT_ID and isinstance(agent.get("id"), str)
+    ]
     config: dict[str, Any] = {
         "conversation_agents": conversation_agents,
         "available_agents": available_agents,
         "available_agents_authoritative": True,
         "conversation_scoped_agents": True,
-        "managed_agent_ids": [
-            agent["id"] for agent in available_agents if isinstance(agent.get("id"), str)
-        ],
+        "managed_agent_ids": managed_agent_ids,
+        "orchestrator_include_group_agents_in_planning": True,
     }
     return config
 
@@ -124,6 +129,8 @@ async def apply_orchestrator_stream_context(
 
     stream_config = stream_config or {}
     merged_config = adapter.merged_config(stream_config)
+    db_lock = asyncio.Lock()
+    stream_config["orchestrator_db_lock"] = db_lock
     memory_message = await _orchestrator_memory_context_message(
         db,
         message.conversation_id,
@@ -137,7 +144,18 @@ async def apply_orchestrator_stream_context(
             agent_message_id=message.id,
             user_message_id=message.reply_to_id,
         )
-        stream_config["orchestrator_memory_lock"] = asyncio.Lock()
+        stream_config["orchestrator_memory_lock"] = db_lock
+    if (
+        stream_config.get("conversation_scoped_agents") is True
+        and merged_config.get("orchestrator_group_messages_enabled", True) is not False
+    ):
+        stream_config["orchestrator_group_message_writer"] = OrchestratorGroupMessageWriter(
+            db,
+            conversation_id=message.conversation_id,
+            parent_message_id=message.id,
+            user_message_id=message.reply_to_id,
+            lock=db_lock,
+        )
     stream_config["conversation_id"] = message.conversation_id
     stream_config["orchestrator_db_session"] = db
     stream_config["orchestrator_artifact_manifest_lock"] = asyncio.Lock()

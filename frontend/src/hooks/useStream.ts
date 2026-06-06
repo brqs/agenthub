@@ -16,7 +16,7 @@ interface StreamingBlock {
   call_id?: string;
   tool_name?: string;
   arguments?: Record<string, unknown>;
-  status?: 'pending' | 'ok' | 'error';
+  status?: 'pending' | 'ok' | 'error' | 'running' | 'done' | 'partial';
   text?: string;
   code?: string;
   language?: string;
@@ -59,6 +59,7 @@ export function useStream(
             setStatus('streaming');
             break;
           case 'block_start': {
+            if (eventBelongsToAnotherMessage(messageId, ev)) break;
             const d = ev.data;
             setBlocks((prev) => {
               const next = [...prev];
@@ -71,6 +72,20 @@ export function useStream(
                 newBlock.code = '';
               } else if (d.block_type === 'text') {
                 newBlock.text = '';
+              } else if (d.block_type === 'process') {
+                newBlock.agent_id =
+                  (d.metadata?.agent_id as string | undefined) ?? d.agent_id ?? 'orchestrator';
+                newBlock.title =
+                  typeof d.metadata?.title === 'string' ? d.metadata.title : '执行过程';
+                newBlock.status = processStatus(d.metadata?.status);
+                newBlock.default_collapsed =
+                  typeof d.metadata?.default_collapsed === 'boolean'
+                    ? d.metadata.default_collapsed
+                    : false;
+                newBlock.steps = processSteps(d.metadata?.steps);
+                newBlock.summary =
+                  typeof d.metadata?.summary === 'string' ? d.metadata.summary : null;
+                newBlock.metadata = d.metadata?.metadata ?? {};
               } else if (d.block_type === 'workflow') {
                 newBlock.raw_definition = '';
                 newBlock.last_run_id = (d.metadata?.last_run_id as string) || null;
@@ -97,19 +112,34 @@ export function useStream(
             break;
           }
           case 'delta': {
+            if (eventBelongsToAnotherMessage(messageId, ev)) break;
             const d = ev.data;
             setBlocks((prev) => {
               const next = [...prev];
               const b = next[d.block_index];
               if (!b) return next;
-              if (b.type !== 'workflow' && b.type !== 'file' && d.text_delta) {
+              if (
+                b.type !== 'workflow' &&
+                b.type !== 'file' &&
+                b.type !== 'process' &&
+                d.text_delta
+              ) {
                 b.text = (b.text || '') + d.text_delta;
               }
-              if (b.type !== 'workflow' && b.type !== 'file' && d.code_delta) {
+              if (
+                b.type !== 'workflow' &&
+                b.type !== 'file' &&
+                b.type !== 'process' &&
+                d.code_delta
+              ) {
                 b.code = (b.code || '') + d.code_delta;
               }
               if (b.type === 'workflow' && (d.text_delta || d.code_delta)) {
                 b.raw_definition = (b.raw_definition || '') + (d.text_delta || d.code_delta || '');
+              }
+              if (b.type === 'process') {
+                next[d.block_index] = applyProcessDelta(b, d.metadata);
+                return next;
               }
               if (!b.agent_id && d.agent_id) b.agent_id = d.agent_id;
               next[d.block_index] = { ...b };
@@ -118,9 +148,11 @@ export function useStream(
             break;
           }
           case 'block_end':
+            if (eventBelongsToAnotherMessage(messageId, ev)) break;
             // no-op for now
             break;
           case 'tool_call':
+            if (eventBelongsToAnotherMessage(messageId, ev)) break;
             setBlocks((prev) => [
               ...prev,
               {
@@ -134,6 +166,7 @@ export function useStream(
             ]);
             break;
           case 'tool_result':
+            if (eventBelongsToAnotherMessage(messageId, ev)) break;
             setBlocks((prev) =>
               prev.map((block) =>
                 block.type === 'tool_call' && block.call_id === ev.data.call_id
@@ -150,6 +183,10 @@ export function useStream(
             );
             break;
           case 'heartbeat':
+            break;
+          case 'message_start':
+          case 'message_done':
+          case 'message_error':
             break;
           case 'done':
             completedRef.current = true;
@@ -191,4 +228,102 @@ export function useStream(
   }, [messageId]);
 
   return { blocks, status, error };
+}
+
+function processStatus(value: unknown): 'running' | 'done' | 'partial' | 'error' {
+  if (value === 'running' || value === 'done' || value === 'partial' || value === 'error') {
+    return value;
+  }
+  return 'done';
+}
+
+function processSteps(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((step): step is Record<string, unknown> => Boolean(step && typeof step === 'object'))
+    .map((step) => ({
+      id: typeof step.id === 'string' ? step.id : undefined,
+      label: String(step.label ?? '执行步骤'),
+      kind: processStepKind(step.kind),
+      status: processStepStatus(step.status),
+      detail: typeof step.detail === 'string' ? step.detail : null,
+      agent_id: typeof step.agent_id === 'string' ? step.agent_id : null,
+    }));
+}
+
+function applyProcessDelta(
+  block: StreamingBlock,
+  metadata: Record<string, unknown> | undefined,
+): StreamingBlock {
+  const rawDelta = metadata?.process_delta;
+  if (!rawDelta || typeof rawDelta !== 'object') return { ...block };
+  const delta = rawDelta as Record<string, unknown>;
+  if (delta.op === 'upsert_step') {
+    const step = processStepFromValue(delta.step);
+    if (!step) return { ...block };
+    const currentSteps = Array.isArray(block.steps) ? block.steps : [];
+    const steps = [...currentSteps];
+    if (step.id) {
+      const existingIndex = steps.findIndex(
+        (item) => Boolean(item && typeof item === 'object') && item.id === step.id,
+      );
+      if (existingIndex >= 0) {
+        steps[existingIndex] = step;
+        return { ...block, steps };
+      }
+    }
+    return { ...block, steps: [...steps, step] };
+  }
+  if (delta.op === 'set_summary') {
+    return {
+      ...block,
+      status: processStatus(delta.status),
+      summary: typeof delta.summary === 'string' ? delta.summary : block.summary,
+    };
+  }
+  return { ...block };
+}
+
+function processStepFromValue(value: unknown) {
+  if (!value || typeof value !== 'object') return null;
+  const step = value as Record<string, unknown>;
+  return {
+    id: typeof step.id === 'string' ? step.id : undefined,
+    label: String(step.label ?? '执行步骤'),
+    kind: processStepKind(step.kind),
+    status: processStepStatus(step.status),
+    detail: typeof step.detail === 'string' ? step.detail : null,
+    agent_id: typeof step.agent_id === 'string' ? step.agent_id : null,
+  };
+}
+
+function eventBelongsToAnotherMessage(messageId: string, event: StreamEvent): boolean {
+  const data = event.data as { message_id?: unknown };
+  return typeof data.message_id === 'string' && data.message_id !== messageId;
+}
+
+function processStepStatus(value: unknown): 'done' | 'running' | 'error' | 'skipped' {
+  if (value === 'done' || value === 'running' || value === 'error' || value === 'skipped') {
+    return value;
+  }
+  return 'done';
+}
+
+function processStepKind(value: unknown) {
+  const allowed = [
+    'routing',
+    'planning',
+    'dispatch',
+    'tool',
+    'review',
+    'evaluation',
+    'workflow',
+    'deployment',
+    'artifact',
+    'repair',
+    'summary',
+  ] as const;
+  return typeof value === 'string' && allowed.includes(value as (typeof allowed)[number])
+    ? value
+    : 'summary';
 }

@@ -37,6 +37,7 @@ describe('DeploymentStatusBlock', () => {
       workspace_id: 'workspace-1',
       kind: 'static_site',
       status: 'stopped',
+      attempt_count: 0,
       logs: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
