@@ -11,6 +11,15 @@ from app.agents.orchestrator._internal.execution.presentation import (
     ToolResultFact,
     presented_response_text,
 )
+from app.agents.orchestrator._internal.execution.process_block import (
+    execution_process_block,
+    final_process_deltas,
+    process_block_end,
+    process_block_start,
+    process_step_delta,
+    task_result_step,
+    task_running_step,
+)
 from app.agents.orchestrator._internal.streams import attach_agent_id
 from app.agents.orchestrator._internal.tools.catalog import (
     available_agent_ids,
@@ -105,6 +114,29 @@ async def run_orchestrator_tool_loop(
     final_text_parts: list[str] = []
     dispatched_tasks: list[SubTask] = []
     tool_result_facts: list[ToolResultFact] = []
+    process_block_index: int | None = None
+    process_start = process_block_start(
+        config,
+        next_block_index,
+        execution_process_block(messages, dispatched_tasks, {}, run_context),
+    )
+    if process_start is not None:
+        process_chunk, next_block_index = process_start
+        process_block_index = process_chunk.block_index
+        yield process_chunk, next_block_index
+        planning_chunk = process_step_delta(
+            config,
+            process_block_index,
+            {
+                "id": "tool-planning",
+                "label": "选择工具执行路径",
+                "kind": "planning",
+                "status": "done",
+                "detail": "通过平台或工作区工具处理本次请求。",
+            },
+        )
+        if planning_chunk is not None:
+            yield planning_chunk, next_block_index
 
     for iteration in range(1, max_iterations + 1):
         tool_calls: list[OrchestratorToolCall] = []
@@ -158,6 +190,23 @@ async def run_orchestrator_tool_loop(
                 final_summary,
                 tool_results=tool_result_facts,
             )
+            task_states = {
+                task.task_id: run_context.results[task.task_id].final_state
+                for task in dispatched_tasks
+                if task.task_id in run_context.results
+            }
+            final_process_payload = execution_process_block(
+                messages,
+                dispatched_tasks,
+                task_states,
+                run_context,
+                tool_results=tool_result_facts,
+            )
+            for chunk in final_process_deltas(config, process_block_index, final_process_payload):
+                yield chunk, next_block_index
+            process_end = process_block_end(config, process_block_index)
+            if process_end is not None:
+                yield process_end, next_block_index
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 presented_summary,
@@ -168,13 +217,34 @@ async def run_orchestrator_tool_loop(
             return
 
         result_lines: list[str] = []
-        for call in tool_calls:
+        for call_index, call in enumerate(tool_calls, start=1):
+            tool_step_id = f"tool-{iteration}-{call_index}"
+            tool_start_chunk = process_step_delta(
+                config,
+                process_block_index,
+                {
+                    "id": tool_step_id,
+                    "label": f"调用 {_friendly_tool_label(call.name)}",
+                    "kind": "tool" if call.name != "dispatch_agent" else "dispatch",
+                    "status": "running",
+                    "detail": "正在执行。",
+                },
+            )
+            if tool_start_chunk is not None:
+                yield tool_start_chunk, next_block_index
             if call.name == "dispatch_agent":
                 task_or_result = _dispatch_task_from_call(call, config)
                 if isinstance(task_or_result, OrchestratorToolResult):
                     result = task_or_result
                 else:
                     dispatched_tasks.append(task_or_result)
+                    task_start_chunk = process_step_delta(
+                        config,
+                        process_block_index,
+                        task_running_step(task_or_result),
+                    )
+                    if task_start_chunk is not None:
+                        yield task_start_chunk, next_block_index
                     async for chunk, updated_block_index in run_task(
                         config,
                         task_or_result,
@@ -187,6 +257,19 @@ async def run_orchestrator_tool_loop(
                     ):
                         next_block_index = updated_block_index
                         yield chunk, updated_block_index
+                    task_result = run_context.results.get(task_or_result.task_id)
+                    if task_result is not None:
+                        task_done_chunk = process_step_delta(
+                            config,
+                            process_block_index,
+                            task_result_step(
+                                task_or_result,
+                                task_result.final_state,
+                                task_result,
+                            ),
+                        )
+                        if task_done_chunk is not None:
+                            yield task_done_chunk, next_block_index
                     result = _dispatch_observation_result(
                         task_or_result.task_id,
                         run_context,
@@ -210,6 +293,21 @@ async def run_orchestrator_tool_loop(
                 )
             )
             await _record_tool_event(config, run_context, call, result)
+            tool_done_chunk = process_step_delta(
+                config,
+                process_block_index,
+                {
+                    "id": tool_step_id,
+                    "label": f"调用 {_friendly_tool_label(call.name)}",
+                    "kind": "tool" if call.name != "dispatch_agent" else "dispatch",
+                    "status": "error" if result.status == "error" else "done",
+                    "detail": (
+                        "工具结果需要注意。" if result.status == "error" else "工具调用完成。"
+                    ),
+                },
+            )
+            if tool_done_chunk is not None:
+                yield tool_done_chunk, next_block_index
             result_lines.append(_tool_result_message(call, result))
             if visible_trace:
                 yield _tool_result_chunk(call, result), next_block_index
@@ -234,6 +332,22 @@ async def run_orchestrator_tool_loop(
 
     message = f"orchestrator tool loop exceeded {max_iterations} iterations"
     await _finish_memory_run(config, run_context, "error", message)
+    timeout_summary = process_step_delta(
+        config,
+        process_block_index,
+        {
+            "id": "tool-loop-limit",
+            "label": "工具执行轮次达到上限",
+            "kind": "summary",
+            "status": "error",
+            "detail": "本次工具执行未能在限制内完成。",
+        },
+    )
+    if timeout_summary is not None:
+        yield timeout_summary, next_block_index
+    process_end = process_block_end(config, process_block_index)
+    if process_end is not None:
+        yield process_end, next_block_index
     yield StreamChunk(
         event_type="error",
         agent_id="orchestrator",
@@ -246,6 +360,11 @@ def tool_calling_enabled(config: Mapping[str, Any]) -> bool:
 
 def tool_trace_visible(config: Mapping[str, Any]) -> bool:
     return config.get("orchestrator_tool_trace_visible", True) is not False
+
+
+def _friendly_tool_label(name: str) -> str:
+    return name.replace("_", " ").strip() or "tool"
+
 
 def _tool_gateway(config: Mapping[str, Any]) -> Any:
     gateway = config.get("orchestrator_tool_gateway")

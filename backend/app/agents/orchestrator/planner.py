@@ -53,6 +53,10 @@ require otherwise. Do not probe a weaker agent first and rely on fallback when t
 profile already provides clear evidence.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
+For complex multi-step work, use codex-helper as the lead architect/planner when it is
+available, then assign implementation and verification work to Claude Code and OpenCode
+according to their strengths. Do not force this architect step for simple direct answers,
+platform fact questions, or explicit direct mentions.
 Preserve every explicit deliverable and acceptance requirement from the user request in
 the relevant generation and verification task instructions. A random theme may only add
 style; it must not replace requested sections, files, or checks.

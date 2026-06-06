@@ -54,8 +54,62 @@ from app.agents.orchestrator._internal.execution.events import (
 from app.agents.orchestrator._internal.execution.events import (
     refresh_and_record_workspace_conflicts as _refresh_and_record_workspace_conflicts,
 )
+from app.agents.orchestrator._internal.execution.group_messages import (
+    child_message_chunk as _child_message_chunk,
+)
+from app.agents.orchestrator._internal.execution.group_messages import (
+    finish_group_message as _finish_group_message,
+)
+from app.agents.orchestrator._internal.execution.group_messages import (
+    group_messages_enabled as _group_messages_enabled,
+)
+from app.agents.orchestrator._internal.execution.group_messages import (
+    start_group_message as _start_group_message,
+)
 from app.agents.orchestrator._internal.execution.presentation import (
     presented_response_text as _presented_response_text,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    agent_process_block_end as _agent_process_block_end,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    agent_process_block_start as _agent_process_block_start,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    agent_process_step_delta as _agent_process_step_delta,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    agent_process_summary_delta as _agent_process_summary_delta,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    agent_task_process_step as _agent_task_process_step,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    execution_process_block as _execution_process_block,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    final_process_deltas as _final_process_deltas,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    planning_process_step as _planning_process_step,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    process_block_end as _process_block_end,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    process_block_start as _process_block_start,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    process_step_delta as _process_step_delta,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    skipped_task_step as _skipped_task_step,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    task_result_step as _task_result_step,
+)
+from app.agents.orchestrator._internal.execution.process_block import (
+    task_running_step as _task_running_step,
 )
 from app.agents.orchestrator._internal.execution.review import (
     review_outcome as _review_outcome,
@@ -198,10 +252,29 @@ def _task_card_block(
 
 
 def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> str:
-    _ = task
-    _ = agent_id
-    _ = reason
-    return "The delegated task did not complete successfully.\n"
+    agent_label = agent_id or task.agent_id or "Agent"
+    stage = task.title or "assigned task"
+    visible_reason = _visible_failure_reason(reason)
+    return (
+        f"{agent_label} 在“{stage}”阶段未能完成。{visible_reason}"
+        "可以重试这条消息；如果持续失败，请先检查该 Agent 的运行配置、"
+        "认证状态和 workspace 产物是否已生成。\n"
+    )
+
+
+def _visible_failure_reason(reason: str) -> str:
+    lowered = str(reason or "").lower()
+    if not lowered:
+        return "当前没有可展示的详细错误。"
+    if any(marker in lowered for marker in ("permission denied", "[errno", "auth", "claude.json")):
+        return "运行时认证或权限配置需要检查。"
+    if "no html entry file" in lowered:
+        return "没有找到可用于预览的 HTML 入口文件。"
+    if "timeout" in lowered or "timed out" in lowered:
+        return "执行超时，可能需要缩小任务或检查外部 Agent runtime。"
+    if "missing" in lowered or "artifact" in lowered:
+        return "预期产物缺失，需要补齐文件后再继续。"
+    return "执行结果没有满足本阶段验收条件。"
 
 
 @dataclass(slots=True)
@@ -210,6 +283,102 @@ class _ParallelTaskEvent:
     chunk: StreamChunk | None = None
     error: Exception | None = None
     done: bool = False
+    ack: asyncio.Event | None = None
+
+
+def _child_process_start_chunks(
+    config: Mapping[str, Any],
+    *,
+    child_message_id: str,
+    agent_id: str,
+    task: SubTask,
+    block_index: int,
+) -> tuple[list[StreamChunk], int, int | None]:
+    started = _agent_process_block_start(
+        config,
+        block_index,
+        agent_id=agent_id,
+        title="思考与执行",
+    )
+    if started is None:
+        return [], block_index, None
+    start_chunk, next_block_index = started
+    chunks = [
+        _child_message_chunk(start_chunk, message_id=child_message_id, agent_id=agent_id)
+    ]
+    running = _agent_process_step_delta(
+        config,
+        start_chunk.block_index,
+        agent_id=agent_id,
+        step=_agent_task_process_step(
+            task,
+            agent_id=agent_id,
+            status="running",
+            detail="已接收 Orchestrator 分配的阶段任务，正在公开整理执行过程。",
+        ),
+    )
+    if running is not None:
+        chunks.append(
+            _child_message_chunk(running, message_id=child_message_id, agent_id=agent_id)
+        )
+    return chunks, next_block_index, start_chunk.block_index
+
+
+def _child_process_finish_chunks(
+    config: Mapping[str, Any],
+    *,
+    child_message_id: str,
+    agent_id: str,
+    task: SubTask,
+    block_index: int | None,
+    state: TaskState,
+    reason: str | None = None,
+) -> list[StreamChunk]:
+    if block_index is None:
+        return []
+    failed = state != TaskState.SUCCEEDED
+    detail = (
+        _visible_failure_reason(reason or "")
+        if failed
+        else "本阶段已完成，输出内容和产物已归入该 Agent 的独立消息。"
+    )
+    status = "error" if failed else "done"
+    summary = (
+        "这个阶段需要注意，Orchestrator 会在最终总结里说明影响。"
+        if failed
+        else "这个阶段已完成。"
+    )
+    chunks: list[StreamChunk] = []
+    step = _agent_process_step_delta(
+        config,
+        block_index,
+        agent_id=agent_id,
+        step=_agent_task_process_step(
+            task,
+            agent_id=agent_id,
+            status=status,
+            detail=detail,
+        ),
+    )
+    if step is not None:
+        chunks.append(_child_message_chunk(step, message_id=child_message_id, agent_id=agent_id))
+    summary_chunk = _agent_process_summary_delta(
+        config,
+        block_index,
+        agent_id=agent_id,
+        status="error" if failed else "done",
+        summary=summary,
+    )
+    if summary_chunk is not None:
+        chunks.append(
+            _child_message_chunk(summary_chunk, message_id=child_message_id, agent_id=agent_id)
+        )
+    end_chunk = _agent_process_block_end(config, block_index, agent_id=agent_id)
+    if end_chunk is not None:
+        chunks.append(
+            _child_message_chunk(end_chunk, message_id=child_message_id, agent_id=agent_id)
+        )
+    return chunks
 
 
 
@@ -239,6 +408,23 @@ async def _run_static_tasks(
     task_states = {task.task_id: TaskState.PENDING for task in task_sequence}
     run_context = run_context or OrchestratorRunContext()
     repaired_review_task_ids: set[str] = set()
+    process_block_index: int | None = None
+    process_start = _process_block_start(
+        config,
+        next_block_index,
+        _execution_process_block(messages, task_sequence, task_states, run_context),
+    )
+    if process_start is not None:
+        process_chunk, next_block_index = process_start
+        process_block_index = process_chunk.block_index
+        yield process_chunk, next_block_index
+        planning_chunk = _process_step_delta(
+            config,
+            process_block_index,
+            _planning_process_step(task_sequence),
+        )
+        if planning_chunk is not None:
+            yield planning_chunk, next_block_index
     task_index = 0
     while task_index < len(task_sequence):
         task = task_sequence[task_index]
@@ -251,9 +437,23 @@ async def _run_static_tasks(
             )
             run_context.record(skipped_result)
             await _memory_record_task_result(config, run_context, task, skipped_result)
+            skipped_chunk = _process_step_delta(
+                config,
+                process_block_index,
+                _skipped_task_step(task),
+            )
+            if skipped_chunk is not None:
+                yield skipped_chunk, next_block_index
             task_index += 1
             continue
 
+        running_chunk = _process_step_delta(
+            config,
+            process_block_index,
+            _task_running_step(task),
+        )
+        if running_chunk is not None:
+            yield running_chunk, next_block_index
         async for chunk, updated_block_index in _run_task(
             config,
             task,
@@ -267,6 +467,13 @@ async def _run_static_tasks(
             yield chunk, updated_block_index
         task_result = run_context.results[task.task_id]
         task_states[task.task_id] = task_result.final_state
+        result_chunk = _process_step_delta(
+            config,
+            process_block_index,
+            _task_result_step(task, task_result.final_state, task_result),
+        )
+        if result_chunk is not None:
+            yield result_chunk, next_block_index
         repair_task = None
         if task.task_id not in repaired_review_task_ids:
             repair_task = await _review_repair_task(
@@ -294,6 +501,17 @@ async def _run_static_tasks(
         run_context,
         final_summary,
     )
+    final_process_payload = _execution_process_block(
+        messages,
+        task_sequence,
+        task_states,
+        run_context,
+    )
+    for chunk in _final_process_deltas(config, process_block_index, final_process_payload):
+        yield chunk, next_block_index
+    process_end = _process_block_end(config, process_block_index)
+    if process_end is not None:
+        yield process_end, next_block_index
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
         presented_summary,
@@ -348,19 +566,73 @@ async def _run_task(
         )
 
         yield _agent_switch(task, agent_id), next_block_index
+        child_message_id: str | None = None
+        child_next_block_index = 0
+        child_process_block_index: int | None = None
+        if _group_messages_enabled(config) and agent_id != "orchestrator":
+            child_message_id, start_chunk = await _start_group_message(
+                config,
+                agent_id=agent_id,
+            )
+            if start_chunk is not None:
+                yield start_chunk, next_block_index
+            if child_message_id is not None:
+                process_chunks, child_next_block_index, child_process_block_index = (
+                    _child_process_start_chunks(
+                        config,
+                        child_message_id=child_message_id,
+                        agent_id=agent_id,
+                        task=task,
+                        block_index=child_next_block_index,
+                    )
+                )
+                for process_chunk in process_chunks:
+                    yield process_chunk, next_block_index
 
         try:
             sub_adapter = await _get_sub_adapter(config, agent_id)
         except Exception as exc:
             attempt.state = TaskState.FAILED
             attempt.error = str(exc)
-            for chunk, updated_block_index in _text_block_with_next(
-                next_block_index,
-                _failure_text(task, str(exc), agent_id),
-                agent_id=agent_id,
-            ):
-                next_block_index = updated_block_index
-                yield chunk, updated_block_index
+            if child_message_id:
+                for process_chunk in _child_process_finish_chunks(
+                    config,
+                    child_message_id=child_message_id,
+                    agent_id=agent_id,
+                    task=task,
+                    block_index=child_process_block_index,
+                    state=TaskState.FAILED,
+                    reason=str(exc),
+                ):
+                    yield process_chunk, next_block_index
+                for chunk, updated_child_block_index in _text_block_with_next(
+                    child_next_block_index,
+                    _failure_text(task, str(exc), agent_id),
+                    agent_id=agent_id,
+                ):
+                    child_next_block_index = updated_child_block_index
+                    yield _child_message_chunk(
+                        chunk,
+                        message_id=child_message_id,
+                        agent_id=agent_id,
+                    ), next_block_index
+                error_chunk = await _finish_group_message(
+                    config,
+                    child_message_id,
+                    status="error",
+                    error=str(exc),
+                )
+                child_message_id = None
+                if error_chunk is not None:
+                    yield error_chunk, next_block_index
+            else:
+                for chunk, updated_block_index in _text_block_with_next(
+                    next_block_index,
+                    _failure_text(task, str(exc), agent_id),
+                    agent_id=agent_id,
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk, updated_block_index
         else:
             sub_messages = _task_messages(
                 task,
@@ -377,6 +649,13 @@ async def _run_task(
                 agent_id,
                 attempt_index,
             )
+            if child_message_id:
+                runtime_context = dict(stream_config.get("runtime_context") or {})
+                parent_message_id = runtime_context.get("agent_message_id")
+                if parent_message_id:
+                    runtime_context["parent_agent_message_id"] = str(parent_message_id)
+                runtime_context["agent_message_id"] = child_message_id
+                stream_config["runtime_context"] = runtime_context
             task_failed = False
             async for chunk, updated_block_index, subtask_failed in _remapped_sub_stream(
                 sub_adapter,
@@ -388,7 +667,7 @@ async def _run_task(
                     call_id_prefix=call_id_prefix,
                 ),
                 sub_messages,
-                next_block_index,
+                child_next_block_index if child_message_id else next_block_index,
                 workspace_path,
                 tool_specs,
                 attempt,
@@ -398,8 +677,20 @@ async def _run_task(
                 accumulate_text_event=_accumulate_text_event,
                 accumulate_tool_event=_accumulate_tool_event,
                 stream_config=stream_config,
-                text_visible=config.get("orchestrator_subagent_text_visible") is True,
+                text_visible=bool(
+                    child_message_id
+                    or config.get("orchestrator_subagent_text_visible") is True
+                ),
             ):
+                if child_message_id:
+                    child_next_block_index = updated_block_index
+                    yield _child_message_chunk(
+                        chunk,
+                        message_id=child_message_id,
+                        agent_id=agent_id,
+                    ), next_block_index
+                    task_failed = subtask_failed
+                    continue
                 next_block_index = updated_block_index
                 task_failed = subtask_failed
                 yield chunk, updated_block_index
@@ -420,17 +711,53 @@ async def _run_task(
                             workspace_path,
                             agent_id,
                         )
-                    artifact_chunks, next_block_index = await _artifact_file_blocks(
+                    artifact_start_index = (
+                        child_next_block_index if child_message_id else next_block_index
+                    )
+                    artifact_chunks, artifact_next_block_index = await _artifact_file_blocks(
                         config,
                         workspace_path,
                         task,
                         attempt,
                         run_context,
-                        next_block_index,
+                        artifact_start_index,
                         agent_id,
                     )
                     for artifact_chunk in artifact_chunks:
-                        yield artifact_chunk, next_block_index
+                        if child_message_id:
+                            yield _child_message_chunk(
+                                artifact_chunk,
+                                message_id=child_message_id,
+                                agent_id=agent_id,
+                            ), next_block_index
+                        else:
+                            yield artifact_chunk, artifact_next_block_index
+                    if child_message_id:
+                        child_next_block_index = artifact_next_block_index
+                    else:
+                        next_block_index = artifact_next_block_index
+
+            if child_message_id:
+                finish_status = "error" if attempt.state == TaskState.FAILED else "done"
+                for process_chunk in _child_process_finish_chunks(
+                    config,
+                    child_message_id=child_message_id,
+                    agent_id=agent_id,
+                    task=task,
+                    block_index=child_process_block_index,
+                    state=attempt.state,
+                    reason=attempt.error,
+                ):
+                    yield process_chunk, next_block_index
+                finish_chunk = await _finish_group_message(
+                    config,
+                    child_message_id,
+                    status=finish_status,
+                    error=attempt.error,
+                )
+                child_message_id = None
+                if finish_chunk is not None:
+                    yield finish_chunk, next_block_index
 
         after_snapshot = snapshot_workspace(workspace_path)
         attempt.file_changes = _changes_for_attempt_artifacts(
@@ -540,6 +867,23 @@ async def _run_parallel_tasks(
     run_context = run_context or OrchestratorRunContext()
     max_concurrency = _parallel_max_concurrency(config)
     repaired_review_task_ids: set[str] = set()
+    process_block_index: int | None = None
+    process_start = _process_block_start(
+        config,
+        next_block_index,
+        _execution_process_block(messages, task_sequence, task_states, run_context),
+    )
+    if process_start is not None:
+        process_chunk, next_block_index = process_start
+        process_block_index = process_chunk.block_index
+        yield process_chunk, next_block_index
+        planning_chunk = _process_step_delta(
+            config,
+            process_block_index,
+            _planning_process_step(task_sequence),
+        )
+        if planning_chunk is not None:
+            yield planning_chunk, next_block_index
 
     while pending:
         runnable = [
@@ -558,11 +902,26 @@ async def _run_parallel_tasks(
                 )
                 run_context.record(skipped_result)
                 await _memory_record_task_result(config, run_context, task, skipped_result)
+                skipped_chunk = _process_step_delta(
+                    config,
+                    process_block_index,
+                    _skipped_task_step(task),
+                )
+                if skipped_chunk is not None:
+                    yield skipped_chunk, next_block_index
             break
 
         batch = sorted(runnable, key=lambda task: (task.priority, task.task_id))[
             :max_concurrency
         ]
+        for task in batch:
+            running_chunk = _process_step_delta(
+                config,
+                process_block_index,
+                _task_running_step(task),
+            )
+            if running_chunk is not None:
+                yield running_chunk, next_block_index
         async for chunk, updated_block_index in _stream_parallel_batch(
             config,
             batch,
@@ -579,6 +938,13 @@ async def _run_parallel_tasks(
             pending.discard(task.task_id)
             task_result = run_context.results[task.task_id]
             task_states[task.task_id] = task_result.final_state
+            result_chunk = _process_step_delta(
+                config,
+                process_block_index,
+                _task_result_step(task, task_result.final_state, task_result),
+            )
+            if result_chunk is not None:
+                yield result_chunk, next_block_index
             repair_task = None
             if task.task_id not in repaired_review_task_ids:
                 repair_task = await _review_repair_task(
@@ -607,6 +973,17 @@ async def _run_parallel_tasks(
         run_context,
         final_summary,
     )
+    final_process_payload = _execution_process_block(
+        messages,
+        task_sequence,
+        task_states,
+        run_context,
+    )
+    for chunk in _final_process_deltas(config, process_block_index, final_process_payload):
+        yield chunk, next_block_index
+    process_end = _process_block_end(config, process_block_index)
+    if process_end is not None:
+        yield process_end, next_block_index
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
         presented_summary,
@@ -624,6 +1001,7 @@ async def _stream_parallel_batch(
     next_block_index: int,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     queue: asyncio.Queue[_ParallelTaskEvent] = asyncio.Queue()
+    wait_for_consumer = _group_messages_enabled(config)
     workers = [
         asyncio.create_task(
             _produce_parallel_task_events(
@@ -634,6 +1012,7 @@ async def _stream_parallel_batch(
                 run_context,
                 workspace_path,
                 tool_specs,
+                wait_for_consumer=wait_for_consumer,
             )
         )
         for task in batch
@@ -656,7 +1035,11 @@ async def _stream_parallel_batch(
                 next_block_index,
                 index_maps,
             )
-            yield remapped, next_block_index
+            try:
+                yield remapped, next_block_index
+            finally:
+                if event.ack is not None:
+                    event.ack.set()
     finally:
         await _cancel_parallel_workers(workers)
 
@@ -669,6 +1052,8 @@ async def _produce_parallel_task_events(
     run_context: OrchestratorRunContext,
     workspace_path: Path | None,
     tool_specs: list[ToolSpec] | None,
+    *,
+    wait_for_consumer: bool,
 ) -> None:
     try:
         async for chunk, _updated_block_index in _run_task(
@@ -680,7 +1065,12 @@ async def _produce_parallel_task_events(
             workspace_path,
             tool_specs,
         ):
-            await queue.put(_ParallelTaskEvent(task_id=task.task_id, chunk=chunk))
+            ack = asyncio.Event() if wait_for_consumer else None
+            await queue.put(
+                _ParallelTaskEvent(task_id=task.task_id, chunk=chunk, ack=ack)
+            )
+            if ack is not None:
+                await ack.wait()
     except Exception as exc:
         await queue.put(_ParallelTaskEvent(task_id=task.task_id, error=exc))
         return
@@ -693,6 +1083,8 @@ def _remap_parallel_chunk(
     next_block_index: int,
     index_maps: dict[str, dict[int, int]],
 ) -> tuple[StreamChunk, int]:
+    if chunk.message_id:
+        return chunk, next_block_index
     if chunk.block_index is None:
         return chunk, next_block_index
     index_map = index_maps.setdefault(task_id, {})

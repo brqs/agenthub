@@ -108,6 +108,7 @@ class TestValidConfigs:
             "orchestrator_tool_max_iterations": 12,
             "orchestrator_tool_result_max_chars": 4000,
             "orchestrator_tool_read_max_bytes": 65536,
+            "orchestrator_group_messages_enabled": True,
             "orchestrator_response_polish_enabled": True,
             "orchestrator_response_polish_model_backend": "deepseek",
             "orchestrator_response_polish_max_tokens": 900,
@@ -532,6 +533,16 @@ class TestNumericValidation:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "orchestrator_tool_read_max_bytes" in exc_info.value.message
+
+    def test_invalid_orchestrator_group_messages_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_group_messages_enabled": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
 
     def test_invalid_orchestrator_parallel_enabled_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any, cast
 
 from app.agents.orchestrator._internal.planning.reviews import (
@@ -27,16 +28,10 @@ from app.agents.orchestrator._internal.planning.routing import (
 )
 from app.agents.orchestrator._internal.planning.templates import derive_tasks as _derive_tasks
 from app.agents.orchestrator._internal.planning.templates import (
-    frontend_deploy_tasks_from_request as _frontend_deploy_tasks_from_request,
-)
-from app.agents.orchestrator._internal.planning.templates import (
     fullstack_delivery_tasks_from_request as _fullstack_delivery_tasks_from_request,
 )
 from app.agents.orchestrator._internal.planning.templates import (
     preserve_explicit_requirements as _preserve_explicit_requirements,
-)
-from app.agents.orchestrator._internal.planning.templates import (
-    stabilize_frontend_deploy_tasks as _stabilize_frontend_deploy_tasks,
 )
 from app.agents.orchestrator._internal.planning.templates import (
     workspace_conflict_tasks_from_request as _workspace_conflict_tasks_from_request,
@@ -49,6 +44,7 @@ from app.agents.types import ChatMessage
 PLANNER_PROTOCOL_ERROR_MARKERS = (
     "invalid_json",
     "empty_planner_output",
+    "config.tasks must be a non-empty list",
     "planner failed",
 )
 PORT_SERVICE_TASK_MARKERS = (
@@ -79,6 +75,28 @@ ARTIFACT_TASK_MARKERS = (
     "文件",
     "产物",
 )
+MULTI_AGENT_DISTRIBUTION_MARKERS = (
+    "至少两个可用 agent",
+    "至少两个 agent",
+    "两个可用 agent",
+    "两个 agent",
+    "多个可用 agent",
+    "多个 agent",
+    "多 agent",
+    "multi-agent",
+    "multi agent",
+    "真实 agent 群聊",
+    "真实群聊",
+    "群聊",
+    "独立消息",
+    "自己的独立消息",
+)
+PREFERRED_MULTI_AGENT_ORDER = (
+    "codex-helper",
+    "claude-code",
+    "opencode-helper",
+    "web-designer",
+)
 
 
 class PlannerResolutionError(ValueError):
@@ -107,18 +125,10 @@ async def resolve_tasks(
         fullstack_tasks = _fullstack_delivery_tasks_from_request(config, messages)
         if fullstack_tasks:
             return fullstack_tasks
-        if not llm_planning_enabled(config):
-            frontend_tasks = _frontend_deploy_tasks_from_request(config, messages)
-            if frontend_tasks:
-                return frontend_tasks
         if llm_planning_enabled(config):
             try:
                 return await _plan_tasks_with_model(config, messages, system_prompt)
             except ValueError as exc:
-                if _is_planner_protocol_error(exc):
-                    frontend_tasks = _frontend_deploy_tasks_from_request(config, messages)
-                    if frontend_tasks:
-                        return frontend_tasks
                 if planner_fallback_to_template(config):
                     return _derive_tasks(config, messages)
                 raise PlannerResolutionError(str(exc)) from exc
@@ -177,12 +187,14 @@ async def _plan_tasks_with_model(
     tasks = _tasks_from_planner_payload(planner_output.payload)
     _validate_planned_tasks(tasks, planner_output.allowed_agent_ids)
     tasks = _remove_port_service_tasks(tasks)
-    tasks = _preserve_explicit_requirements(tasks, user_request)
-    return _stabilize_frontend_deploy_tasks(
+    tasks = balance_requested_multi_agent_plan(
         tasks,
+        config,
         user_request,
-        sorted(planner_output.allowed_agent_ids),
+        planner_output.allowed_agent_ids,
     )
+    tasks = _preserve_explicit_requirements(tasks, user_request)
+    return tasks
 
 
 def _tasks_from_planner_payload(payload: Any) -> list[SubTask]:
@@ -219,6 +231,98 @@ def _is_port_service_task(task: SubTask) -> bool:
     if not any(marker in text for marker in PORT_SERVICE_TASK_MARKERS):
         return False
     return not any(marker in text for marker in ARTIFACT_TASK_MARKERS)
+
+
+def balance_requested_multi_agent_plan(
+    tasks: list[SubTask],
+    config: Mapping[str, Any],
+    user_request: str,
+    allowed_agent_ids: set[str] | None = None,
+) -> list[SubTask]:
+    if len(tasks) < 2 or not _explicit_multi_agent_distribution_requested(user_request):
+        return tasks
+    allowed_agent_ids = allowed_agent_ids or _allowed_agent_ids_from_config(config)
+    if len({task.agent_id for task in tasks}) > 1:
+        return tasks
+    ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
+    if len(ordered_agents) < 2:
+        return tasks
+
+    implementation_indices = [
+        index for index, task in enumerate(tasks) if task.task_type == "implementation"
+    ]
+    if len(implementation_indices) < 2:
+        return tasks
+
+    redistributed = list(tasks)
+    for offset, task_index in enumerate(implementation_indices):
+        task = redistributed[task_index]
+        redistributed[task_index] = replace(
+            task,
+            agent_id=ordered_agents[offset % len(ordered_agents)],
+        )
+    return redistributed
+
+
+def _explicit_multi_agent_distribution_requested(user_request: str) -> bool:
+    normalized = user_request.lower()
+    return any(marker in normalized for marker in MULTI_AGENT_DISTRIBUTION_MARKERS)
+
+
+def _ordered_allowed_agent_ids(
+    config: Mapping[str, Any],
+    allowed_agent_ids: set[str],
+    user_request: str = "",
+) -> list[str]:
+    mentioned = explicit_agent_mentions(list(allowed_agent_ids), user_request)
+    if len(mentioned) >= 2:
+        return mentioned
+
+    configured_ids = _configured_agent_order(config)
+    preferred = [
+        agent_id
+        for agent_id in PREFERRED_MULTI_AGENT_ORDER
+        if agent_id in allowed_agent_ids
+    ]
+    ordered = preferred + [
+        agent_id
+        for agent_id in configured_ids
+        if agent_id in allowed_agent_ids and agent_id not in preferred
+    ]
+    if not ordered:
+        ordered = sorted(allowed_agent_ids)
+    seen: set[str] = set()
+    result: list[str] = []
+    for agent_id in ordered:
+        if agent_id in seen:
+            continue
+        seen.add(agent_id)
+        result.append(agent_id)
+    return result
+
+
+def _allowed_agent_ids_from_config(config: Mapping[str, Any]) -> set[str]:
+    return set(_configured_agent_order(config))
+
+
+def _configured_agent_order(config: Mapping[str, Any]) -> list[str]:
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return list(scoped_ids)
+
+    available_agents = config.get("available_agents")
+    if isinstance(available_agents, list):
+        agent_ids: list[str] = []
+        for item in available_agents:
+            if not isinstance(item, Mapping):
+                continue
+            raw_id = item.get("agent_id", item.get("id"))
+            if isinstance(raw_id, str) and raw_id.strip():
+                agent_ids.append(raw_id.strip())
+        if agent_ids:
+            return agent_ids
+
+    return agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))
 
 
 def _ensure_unique_task_ids(tasks: list[SubTask]) -> None:

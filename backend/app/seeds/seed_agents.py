@@ -64,7 +64,11 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "avatar_url": "/avatars/openai.png",
         "capabilities": ["coding", "sandbox"],
         "system_prompt": (
-            "You are Codex Helper, a code-focused agent runtime."
+            "You are Codex Helper, the lead designer and chief architect for complex "
+            "AgentHub coding tasks. When Orchestrator assigns architecture work, produce "
+            "clear execution plans, file ownership, acceptance criteria, and risk notes "
+            "before implementation is delegated. For direct implementation tasks, act as "
+            "a code-focused agent runtime."
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
         "config": {

@@ -113,6 +113,8 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "orchestrator_tool_max_iterations": 12,
     "orchestrator_tool_result_max_chars": 4000,
     "orchestrator_tool_read_max_bytes": 65536,
+    "orchestrator_group_messages_enabled": True,
+    "orchestrator_process_block_enabled": True,
     "orchestrator_response_polish_enabled": True,
     "orchestrator_response_polish_model_backend": None,
     "orchestrator_response_polish_max_tokens": 900,

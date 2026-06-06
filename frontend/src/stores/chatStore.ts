@@ -3,6 +3,7 @@ import {
   type DemoContentBlock,
   type DemoConversation,
   type DemoMessage,
+  type ProcessBlock,
   type TaskCardBlock,
   type TaskStatus,
 } from '@/lib/mockData';
@@ -145,6 +146,78 @@ function createTaskCard(metadata: Record<string, unknown> | undefined): TaskCard
   };
 }
 
+function createProcessBlock(
+  metadata: Record<string, unknown> | undefined,
+  agentId?: string,
+): ProcessBlock {
+  const steps = Array.isArray(metadata?.steps)
+    ? metadata.steps
+        .filter((step): step is Record<string, unknown> => Boolean(step && typeof step === 'object'))
+        .map((step) => ({
+          id: typeof step.id === 'string' ? step.id : undefined,
+          label: String(step.label ?? '执行步骤'),
+          kind: processStepKind(step.kind),
+          status: processStepStatus(step.status),
+          detail: typeof step.detail === 'string' ? step.detail : null,
+          agent_id: typeof step.agent_id === 'string' ? step.agent_id : null,
+        }))
+    : [];
+  return {
+    type: 'process',
+    agent_id: (metadata?.agent_id as string | undefined) ?? agentId ?? 'orchestrator',
+    title: typeof metadata?.title === 'string' ? metadata.title : '执行过程',
+    status: processStatus(metadata?.status),
+    default_collapsed:
+      typeof metadata?.default_collapsed === 'boolean' ? metadata.default_collapsed : false,
+    steps,
+    summary: typeof metadata?.summary === 'string' ? metadata.summary : null,
+    metadata: (metadata?.metadata as Record<string, unknown>) ?? {},
+  };
+}
+
+function processStepFromValue(value: unknown): ProcessBlock['steps'][number] | null {
+  if (!value || typeof value !== 'object') return null;
+  const step = value as Record<string, unknown>;
+  return {
+    id: typeof step.id === 'string' ? step.id : undefined,
+    label: String(step.label ?? '执行步骤'),
+    kind: processStepKind(step.kind),
+    status: processStepStatus(step.status),
+    detail: typeof step.detail === 'string' ? step.detail : null,
+    agent_id: typeof step.agent_id === 'string' ? step.agent_id : null,
+  };
+}
+
+function applyProcessDelta(
+  block: ProcessBlock,
+  metadata: Record<string, unknown> | undefined,
+): ProcessBlock {
+  const rawDelta = metadata?.process_delta;
+  if (!rawDelta || typeof rawDelta !== 'object') return block;
+  const delta = rawDelta as Record<string, unknown>;
+  if (delta.op === 'upsert_step') {
+    const step = processStepFromValue(delta.step);
+    if (!step) return block;
+    const steps = [...block.steps];
+    if (step.id) {
+      const existingIndex = steps.findIndex((item) => item.id === step.id);
+      if (existingIndex >= 0) {
+        steps[existingIndex] = step;
+        return { ...block, steps };
+      }
+    }
+    return { ...block, steps: [...steps, step] };
+  }
+  if (delta.op === 'set_summary') {
+    return {
+      ...block,
+      status: processStatus(delta.status),
+      summary: typeof delta.summary === 'string' ? delta.summary : block.summary,
+    };
+  }
+  return block;
+}
+
 function updateTaskStatuses(
   blocks: DemoContentBlock[],
   event: Extract<StreamEvent, { event: 'agent_switch' }>,
@@ -211,6 +284,9 @@ function previewFromMessage(message: DemoMessage): string | null {
     if (block.type === 'tool_call') {
       return `${block.tool_name}: ${block.status}`;
     }
+    if (block.type === 'process') {
+      return `${block.title}: ${block.status}`;
+    }
     if (block.type === 'file') {
       return block.path || block.filename;
     }
@@ -258,6 +334,11 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
     const next = [...blocks];
     if (event.data.block_type === 'task_card') {
       next[event.data.block_index] = createTaskCard(event.data.metadata);
+    } else if (event.data.block_type === 'process') {
+      next[event.data.block_index] = createProcessBlock(
+        event.data.metadata,
+        event.data.agent_id,
+      );
     } else if (event.data.block_type === 'code') {
       next[event.data.block_index] = {
         type: 'code',
@@ -372,7 +453,168 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
       raw_definition: `${block.raw_definition ?? ''}${event.data.text_delta ?? event.data.code_delta ?? ''}`,
     };
   }
+  if (block.type === 'process') {
+    next[event.data.block_index] = applyProcessDelta(block, event.data.metadata);
+  }
   return next;
+}
+
+function processStatus(value: unknown): ProcessBlock['status'] {
+  if (value === 'running' || value === 'done' || value === 'partial' || value === 'error') {
+    return value;
+  }
+  return 'done';
+}
+
+function processStepStatus(value: unknown): ProcessBlock['steps'][number]['status'] {
+  if (value === 'done' || value === 'running' || value === 'error' || value === 'skipped') {
+    return value;
+  }
+  return 'done';
+}
+
+function processStepKind(value: unknown): ProcessBlock['steps'][number]['kind'] {
+  const allowed = [
+    'routing',
+    'planning',
+    'dispatch',
+    'tool',
+    'review',
+    'evaluation',
+    'workflow',
+    'deployment',
+    'artifact',
+    'repair',
+    'summary',
+  ] as const;
+  return typeof value === 'string' && allowed.includes(value as (typeof allowed)[number])
+    ? (value as ProcessBlock['steps'][number]['kind'])
+    : 'summary';
+}
+
+function applyStreamEventToMessage(message: DemoMessage, event: StreamEvent): DemoMessage {
+  if (message.status === 'done' && event.event === 'error') {
+    return message;
+  }
+  if (event.event === 'start' || event.event === 'message_start') {
+    if (message.status === 'done') return message;
+    return { ...message, status: 'streaming' as const };
+  }
+  if (event.event === 'done' || event.event === 'message_done') {
+    return {
+      ...message,
+      status: 'done' as const,
+      content: completeRunningTasks(message.content),
+    };
+  }
+  if (event.event === 'error' || event.event === 'message_error') {
+    const errorMessage = event.data.error ?? event.data.error_code ?? 'unknown error';
+    const nextContent =
+      message.content.length > 0
+        ? failRunningTasks(message.content)
+        : appendText([], `调用未完成：${errorMessage}`);
+    return {
+      ...message,
+      status: 'error' as const,
+      content: nextContent,
+    };
+  }
+  return {
+    ...message,
+    content: applyDelta(message.content, event),
+  };
+}
+
+function streamEventMessageId(parentMessageId: string, event: StreamEvent): string {
+  const data = event.data as { message_id?: unknown };
+  return typeof data.message_id === 'string' && data.message_id ? data.message_id : parentMessageId;
+}
+
+function streamEventConversationId(event: StreamEvent): string | null {
+  const data = event.data as { conversation_id?: unknown };
+  return typeof data.conversation_id === 'string' && data.conversation_id
+    ? data.conversation_id
+    : null;
+}
+
+function streamEventAgentId(event: StreamEvent): string | null {
+  const data = event.data as { agent_id?: unknown };
+  return typeof data.agent_id === 'string' && data.agent_id ? data.agent_id : null;
+}
+
+function streamEventReplyToId(event: StreamEvent, parentMessage?: DemoMessage): string | null {
+  const data = event.data as { reply_to_id?: unknown };
+  if (typeof data.reply_to_id === 'string') return data.reply_to_id;
+  return parentMessage?.reply_to_id ?? null;
+}
+
+function streamEventCreatedAt(event: StreamEvent): string {
+  const data = event.data as { created_at?: unknown };
+  return typeof data.created_at === 'string' && data.created_at
+    ? data.created_at
+    : new Date().toISOString();
+}
+
+function findMessageLocation(
+  messagesByConversation: Record<string, DemoMessage[]>,
+  messageId: string,
+): { conversationId: string; message: DemoMessage } | null {
+  for (const [conversationId, messages] of Object.entries(messagesByConversation)) {
+    const message = messages.find((item) => item.id === messageId);
+    if (message) return { conversationId, message };
+  }
+  return null;
+}
+
+function ensureStreamTargetMessage(
+  messagesByConversation: Record<string, DemoMessage[]>,
+  conversationId: string,
+  targetMessageId: string,
+  event: StreamEvent,
+  parentMessage?: DemoMessage,
+): Record<string, DemoMessage[]> {
+  const next = { ...messagesByConversation };
+  const current = next[conversationId] ?? [];
+  if (current.some((message) => message.id === targetMessageId)) {
+    next[conversationId] = current;
+    return next;
+  }
+  next[conversationId] = [
+    ...current,
+    {
+      id: targetMessageId,
+      conversation_id: conversationId,
+      role: 'agent',
+      agent_id: streamEventAgentId(event),
+      reply_to_id: streamEventReplyToId(event, parentMessage),
+      status: 'streaming',
+      is_pinned: false,
+      created_at: streamEventCreatedAt(event),
+      content: [],
+    },
+  ];
+  return next;
+}
+
+function updateConversationPreview(
+  conversations: DemoConversation[],
+  conversationId: string,
+  touchedMessage?: DemoMessage | null,
+): DemoConversation[] {
+  return conversations.map((conversation) =>
+    conversation.id === conversationId
+      ? {
+          ...conversation,
+          last_message_at: new Date().toISOString(),
+          last_message_preview:
+            touchedMessage?.status === 'streaming'
+              ? 'Agent 正在流式回复...'
+              : touchedMessage
+                ? (previewFromMessage(touchedMessage) ?? conversation.last_message_preview ?? null)
+                : conversation.last_message_preview,
+        }
+      : conversation,
+  );
 }
 
 export const useChatStore = create<ChatState>((set) => ({
@@ -428,6 +670,45 @@ export const useChatStore = create<ChatState>((set) => ({
   },
   applyStreamEvent: (messageId, event) => {
     set((state) => {
+      const targetMessageId = streamEventMessageId(messageId, event);
+      const isChildLifecycle =
+        event.event === 'message_start' ||
+        event.event === 'message_done' ||
+        event.event === 'message_error';
+      const parentLocation = findMessageLocation(state.messagesByConversation, messageId);
+      if (targetMessageId !== messageId || isChildLifecycle) {
+        const conversationId =
+          streamEventConversationId(event) ??
+          parentLocation?.conversationId ??
+          state.selectedConversationId;
+        if (!conversationId) return {};
+        const nextMessagesByConversation = ensureStreamTargetMessage(
+          state.messagesByConversation,
+          conversationId,
+          targetMessageId,
+          event,
+          parentLocation?.message,
+        );
+        const updatedMessages = (nextMessagesByConversation[conversationId] ?? []).map(
+          (message) => {
+            if (message.id !== targetMessageId) return message;
+            return applyStreamEventToMessage(message, event);
+          },
+        );
+        nextMessagesByConversation[conversationId] = sortMessagesForDisplay(updatedMessages);
+        const touchedMessage = nextMessagesByConversation[conversationId].find(
+          (message) => message.id === targetMessageId,
+        );
+        return {
+          messagesByConversation: nextMessagesByConversation,
+          conversations: updateConversationPreview(
+            state.conversations,
+            conversationId,
+            touchedMessage,
+          ),
+        };
+      }
+
       let touchedConversationId: string | null = null;
       let touchedMessage: DemoMessage | null = null;
       const nextMessagesByConversation = Object.fromEntries(
@@ -435,42 +716,7 @@ export const useChatStore = create<ChatState>((set) => ({
           const nextMessages = messages.map((message) => {
             if (message.id !== messageId) return message;
             touchedConversationId = conversationId;
-            if (message.status === 'done' && event.event === 'error') {
-              touchedMessage = message;
-              return message;
-            }
-            if (event.event === 'start') {
-              if (message.status === 'done') return message;
-              const nextMessage = { ...message, status: 'streaming' as const };
-              touchedMessage = nextMessage;
-              return nextMessage;
-            }
-            if (event.event === 'done') {
-              const nextMessage = {
-                ...message,
-                status: 'done' as const,
-                content: completeRunningTasks(message.content),
-              };
-              touchedMessage = nextMessage;
-              return nextMessage;
-            }
-            if (event.event === 'error') {
-              const errorMessage = event.data.error ?? event.data.error_code ?? 'unknown error';
-              const nextMessage = {
-                ...message,
-                status: 'error' as const,
-                content: appendText(
-                  failRunningTasks(message.content),
-                  `\n\n调用失败：${errorMessage}`,
-                ),
-              };
-              touchedMessage = nextMessage;
-              return nextMessage;
-            }
-            const nextMessage = {
-              ...message,
-              content: applyDelta(message.content, event),
-            };
+            const nextMessage = applyStreamEventToMessage(message, event);
             touchedMessage = nextMessage;
             return nextMessage;
           });

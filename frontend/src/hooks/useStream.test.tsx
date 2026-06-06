@@ -75,6 +75,105 @@ describe('useStream', () => {
     expect(onTransportError).toHaveBeenCalledWith('stream closed before done');
   });
 
+  it('keeps process blocks from metadata and applies process deltas', async () => {
+    mockStream((subscriber) => {
+      subscriber.onEvent({ event: 'start', data: {} });
+      subscriber.onEvent({
+        event: 'block_start',
+        data: {
+          block_index: 0,
+          block_type: 'process',
+          agent_id: 'orchestrator',
+          metadata: {
+            title: '执行过程',
+            status: 'running',
+            default_collapsed: false,
+            steps: [{ id: 'route', label: '直接回答', kind: 'routing', status: 'running' }],
+          },
+        },
+      });
+      subscriber.onEvent({
+        event: 'delta',
+        data: {
+          block_index: 0,
+          metadata: {
+            process_delta: {
+              op: 'upsert_step',
+              step: { id: 'route', label: '直接回答', kind: 'routing', status: 'done' },
+            },
+          },
+        },
+      });
+      subscriber.onEvent({
+        event: 'delta',
+        data: {
+          block_index: 0,
+          metadata: {
+            process_delta: {
+              op: 'set_summary',
+              status: 'done',
+              summary: '公开执行过程已完成。',
+            },
+          },
+        },
+      });
+      subscriber.onEvent({ event: 'done', data: { total_blocks: 1 } });
+    });
+
+    const { result } = renderHook(() => useStream('message-process'));
+
+    await waitFor(() => expect(result.current.status).toBe('done'));
+    expect(result.current.blocks[0]).toMatchObject({
+      type: 'process',
+      agent_id: 'orchestrator',
+      title: '执行过程',
+      status: 'done',
+      summary: '公开执行过程已完成。',
+      steps: [{ id: 'route', label: '直接回答', kind: 'routing', status: 'done' }],
+    });
+    expect(result.current.blocks[0]).not.toHaveProperty('text');
+  });
+
+  it('does not merge child message blocks into the parent stream block list', async () => {
+    mockStream((subscriber) => {
+      subscriber.onEvent({ event: 'start', data: { message_id: 'parent-message' } });
+      subscriber.onEvent({
+        event: 'message_start',
+        data: {
+          message_id: 'child-message',
+          conversation_id: 'conv-1',
+          agent_id: 'codex-helper',
+          status: 'streaming',
+        },
+      });
+      subscriber.onEvent({
+        event: 'block_start',
+        data: {
+          message_id: 'child-message',
+          block_index: 0,
+          block_type: 'text',
+          agent_id: 'codex-helper',
+        },
+      });
+      subscriber.onEvent({
+        event: 'delta',
+        data: {
+          message_id: 'child-message',
+          block_index: 0,
+          text_delta: 'child text',
+          agent_id: 'codex-helper',
+        },
+      });
+      subscriber.onEvent({ event: 'message_done', data: { message_id: 'child-message' } });
+      subscriber.onEvent({ event: 'done', data: { message_id: 'parent-message' } });
+    });
+
+    const { result } = renderHook(() => useStream('parent-message'));
+
+    await waitFor(() => expect(result.current.status).toBe('done'));
+    expect(result.current.blocks).toEqual([]);
+  });
+
   it('does not report close errors after done', async () => {
     const onError = vi.fn();
     mockStream((subscriber) => {

@@ -143,6 +143,32 @@ def _patch_subprocess(
     return factory
 
 
+def test_runtime_status_requires_credentials_or_readable_shared_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode_module, "_command_available", lambda _command: True)
+    monkeypatch.setattr(opencode_module, "_has_provider_credentials", lambda: False)
+    monkeypatch.setattr(opencode_module, "_has_shared_auth", lambda: False)
+
+    status, error = opencode_module.opencode_runtime_status({})
+
+    assert status == "unavailable"
+    assert error == opencode_module.OPENCODE_MISSING_CREDENTIALS_ERROR
+
+
+def test_runtime_status_allows_provider_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(opencode_module, "_command_available", lambda _command: True)
+    monkeypatch.setattr(opencode_module, "_has_provider_credentials", lambda: True)
+    monkeypatch.setattr(opencode_module, "_has_shared_auth", lambda: False)
+
+    status, error = opencode_module.opencode_runtime_status({})
+
+    assert status == "ready"
+    assert error is None
+
+
 class TestOpenCodeAdapterStream:
     async def test_direct_chat_does_not_start_subprocess(
         self,
@@ -621,6 +647,67 @@ class TestOpenCodeAdapterErrors:
         assert [chunk.event_type for chunk in chunks] == ["start", "error"]
         assert chunks[-1].error_code == "external_runtime_error"
         assert "no usable model credentials are configured" in (chunks[-1].error or "")
+
+    async def test_shared_auth_copy_permission_error_is_normalized(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        source_dir = tmp_path / "opencode-auth"
+        source_dir.mkdir()
+        (source_dir / "auth.json").write_text('{"auth":"test"}', encoding="utf-8")
+        monkeypatch.setattr(opencode_module, "_has_provider_credentials", lambda: False)
+        monkeypatch.setattr(opencode_module, "_shared_auth_dir", lambda: source_dir)
+
+        def raise_permission(_source: Path, _destination: Path) -> None:
+            raise PermissionError(
+                "[Errno 13] Permission denied: "
+                "'/root/.local/share/opencode/auth.json'"
+            )
+
+        monkeypatch.setattr(opencode_module.shutil, "copy2", raise_permission)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "error"]
+        assert chunks[-1].error_code == "external_runtime_error"
+        assert "no usable model credentials are configured" in (chunks[-1].error or "")
+        assert "/root/.local/share/opencode/auth.json" not in (chunks[-1].error or "")
+        assert "[Errno 13]" not in (chunks[-1].error or "")
+
+    async def test_provider_credentials_skip_shared_auth_copy(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-token")
+        empty_home = tmp_path / "empty-home"
+        empty_home.mkdir()
+        monkeypatch.setenv("HOME", str(empty_home))
+        source_dir = tmp_path / "opencode-auth"
+        source_dir.mkdir()
+        (source_dir / "auth.json").write_text('{"auth":"test"}', encoding="utf-8")
+        monkeypatch.setattr(opencode_module, "_shared_auth_dir", lambda: source_dir)
+
+        def fail_copy(_source: Path, _destination: Path) -> None:
+            pytest.fail("shared auth should not be copied when provider env credentials exist")
+
+        monkeypatch.setattr(opencode_module.shutil, "copy2", fail_copy)
+        _patch_subprocess(monkeypatch, FakeProcess([_json_line({"type": "done"})]))
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "done"]
+
+    def test_safe_message_normalizes_raw_auth_permission(self) -> None:
+        error = OpenCodeAdapter._safe_message(
+            PermissionError(
+                "[Errno 13] Permission denied: "
+                "'/root/.local/share/opencode/auth.json'"
+            )
+        )
+
+        assert error == opencode_module.OPENCODE_MISSING_CREDENTIALS_ERROR
 
     async def test_done_then_nonzero_exit_completes(
         self,

@@ -126,6 +126,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/{conversation_id}/agent-capability-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation Agent Capability Profile */
+        get: operations["get_conversation_agent_capability_profile_api_v1_conversations__conversation_id__agent_capability_profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{conversation_id}/agent-capability-profile-v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation Agent Capability Profile V2 */
+        get: operations["get_conversation_agent_capability_profile_v2_api_v1_conversations__conversation_id__agent_capability_profile_v2_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations/{conv_id}/orchestrator-runs": {
         parameters: {
             query?: never;
@@ -551,6 +585,137 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentCapabilityProfileItemOut */
+        AgentCapabilityProfileItemOut: {
+            /** Agent Id */
+            agent_id: string;
+            /** Runs Considered */
+            runs_considered: number;
+            /** Task Count */
+            task_count: number;
+            /** Success Count */
+            success_count: number;
+            /** Failure Count */
+            failure_count: number;
+            /** Artifact Missing Count */
+            artifact_missing_count: number;
+            /** Evaluation Failed Count */
+            evaluation_failed_count: number;
+            /** Avg Attempts */
+            avg_attempts: number;
+            /** Artifact Kinds */
+            artifact_kinds?: {
+                [key: string]: number;
+            };
+            /** Review Outcomes */
+            review_outcomes?: {
+                [key: string]: number;
+            };
+            /** Repair Success Count */
+            repair_success_count: number;
+            /** Recent Failure Reasons */
+            recent_failure_reasons?: string[];
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "low" | "medium" | "high";
+        };
+        /** AgentCapabilityProfileOut */
+        AgentCapabilityProfileOut: {
+            /** Items */
+            items: components["schemas"]["AgentCapabilityProfileItemOut"][];
+            /** Total */
+            total: number;
+        };
+        /** AgentCapabilityProfileV2ItemOut */
+        AgentCapabilityProfileV2ItemOut: {
+            /** Agent Id */
+            agent_id: string;
+            /** Runs Considered */
+            runs_considered: number;
+            /** Task Count */
+            task_count: number;
+            /** Success Count */
+            success_count: number;
+            /** Failure Count */
+            failure_count: number;
+            /** Artifact Missing Count */
+            artifact_missing_count: number;
+            /** Evaluation Failed Count */
+            evaluation_failed_count: number;
+            /** Avg Attempts */
+            avg_attempts: number;
+            /** Artifact Kinds */
+            artifact_kinds?: {
+                [key: string]: number;
+            };
+            /** Review Outcomes */
+            review_outcomes?: {
+                [key: string]: number;
+            };
+            /** Repair Success Count */
+            repair_success_count: number;
+            /** Recent Failure Reasons */
+            recent_failure_reasons?: string[];
+            /**
+             * Confidence
+             * @enum {string}
+             */
+            confidence: "low" | "medium" | "high";
+            /**
+             * Scope
+             * @default user
+             * @constant
+             */
+            scope: "user";
+            /** Conversation Count */
+            conversation_count: number;
+            /** Weighted Task Count */
+            weighted_task_count: number;
+            /** Weighted Success Score */
+            weighted_success_score: number;
+            /** Weighted Failure Score */
+            weighted_failure_score: number;
+            /** Success Rate */
+            success_rate: number;
+            /** Timeout Count */
+            timeout_count: number;
+            /** Task Types */
+            task_types?: {
+                [key: string]: number;
+            };
+            /** Task Taxonomy */
+            task_taxonomy?: {
+                [key: string]: number;
+            };
+            /** Score */
+            score: number;
+            /** Score Reasons */
+            score_reasons?: string[];
+        };
+        /** AgentCapabilityProfileV2Out */
+        AgentCapabilityProfileV2Out: {
+            /** Items */
+            items: components["schemas"]["AgentCapabilityProfileV2ItemOut"][];
+            preferences: components["schemas"]["UserPreferenceMemoryOut"];
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "user";
+            /** Source Conversation Count */
+            source_conversation_count: number;
+            /** Runs Considered */
+            runs_considered: number;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Total */
+            total: number;
+        };
         /** AgentList */
         AgentList: {
             /** Items */
@@ -934,7 +1099,7 @@ export interface components {
             /** Agent Id */
             agent_id?: string | null;
             /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Reply To Id */
             reply_to_id?: string | null;
             /**
@@ -1131,6 +1296,52 @@ export interface components {
              */
             updated_at: string;
         };
+        /** ProcessBlock */
+        ProcessBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "process";
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "partial" | "error";
+            /** Default Collapsed */
+            default_collapsed: boolean;
+            /** Steps */
+            steps?: components["schemas"]["ProcessStep"][];
+            /** Summary */
+            summary?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ProcessStep */
+        ProcessStep: {
+            /** Label */
+            label: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "routing" | "planning" | "dispatch" | "tool" | "review" | "evaluation" | "workflow" | "deployment" | "artifact" | "repair" | "summary";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "running" | "error" | "skipped";
+            /** Detail */
+            detail?: string | null;
+            /** Agent Id */
+            agent_id?: string | null;
+        };
         /** RegisterRequest */
         RegisterRequest: {
             /** Username */
@@ -1141,7 +1352,7 @@ export interface components {
         /** SendMessageRequest */
         SendMessageRequest: {
             /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Target Agent Id */
             target_agent_id?: string | null;
         };
@@ -1281,6 +1492,31 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** UserPreferenceMemoryOut */
+        UserPreferenceMemoryOut: {
+            /** Runs Considered */
+            runs_considered: number;
+            /** Source Conversation Count */
+            source_conversation_count: number;
+            /** Domains */
+            domains?: {
+                [key: string]: number;
+            };
+            /** Artifact Preferences */
+            artifact_preferences?: {
+                [key: string]: number;
+            };
+            /** Deployment Preferences */
+            deployment_preferences?: {
+                [key: string]: number;
+            };
+            /** Language Style Hints */
+            language_style_hints?: {
+                [key: string]: number;
+            };
+            /** Summary */
+            summary?: string[];
         };
         /** ValidationError */
         ValidationError: {
@@ -1522,6 +1758,21 @@ export interface components {
             healthcheck_url?: string | null;
             /** Logs Tail */
             logs_tail?: string | null;
+            /** Worker Id */
+            worker_id?: string | null;
+            /**
+             * Attempt Count
+             * @default 0
+             */
+            attempt_count: number;
+            /** Failure Category */
+            failure_category?: string | null;
+            /** Last Error Code */
+            last_error_code?: string | null;
+            /** State Events */
+            state_events?: {
+                [key: string]: unknown;
+            }[];
             /** Queued At */
             queued_at?: string | null;
             /** Started At */
@@ -1999,6 +2250,27 @@ export interface components {
              */
             orchestrator_tool_read_max_bytes: number | null;
             /**
+             * Orchestrator Process Block Enabled
+             * @default null
+             */
+            orchestrator_process_block_enabled: boolean | null;
+            /**
+             * Orchestrator Response Polish Enabled
+             * @default null
+             */
+            orchestrator_response_polish_enabled: boolean | null;
+            /**
+             * Orchestrator Response Polish Model Backend
+             * @description ModelGateway backend for Orchestrator final response polish.
+             * @default null
+             */
+            orchestrator_response_polish_model_backend: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Orchestrator Response Polish Max Tokens
+             * @default null
+             */
+            orchestrator_response_polish_max_tokens: number | null;
+            /**
              * Orchestrator Parallel Enabled
              * @default null
              */
@@ -2031,8 +2303,6 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        OrchestratorRun: components["schemas"]["OrchestratorRunOut"];
-        OrchestratorRunDetail: components["schemas"]["OrchestratorRunDetailOut"];
     };
     responses: never;
     parameters: never;
@@ -2331,6 +2601,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationMemoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_agent_capability_profile_api_v1_conversations__conversation_id__agent_capability_profile_get: {
+        parameters: {
+            query?: {
+                recent_runs?: number;
+            };
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCapabilityProfileOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_agent_capability_profile_v2_api_v1_conversations__conversation_id__agent_capability_profile_v2_get: {
+        parameters: {
+            query?: {
+                recent_runs?: number;
+                half_life_days?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCapabilityProfileV2Out"];
                 };
             };
             /** @description Validation Error */

@@ -753,7 +753,7 @@ async def test_orchestrator_parallel_streams_before_batch_completion() -> None:
     ).__aiter__()
     chunks: list[StreamChunk] = []
     try:
-        for _ in range(10):
+        for _ in range(16):
             chunk = await asyncio.wait_for(anext(iterator), timeout=0.5)
             chunks.append(chunk)
             if chunk.event_type == "agent_switch":
@@ -1143,7 +1143,8 @@ async def test_orchestrator_attribution_marks_subagent_tool_failure_and_summary(
     failure_delta = next(
         chunk
         for chunk in chunks
-        if chunk.text_delta == "The delegated task did not complete successfully.\n"
+        if chunk.agent_id == "agent-a"
+        and "agent-a 在“Work”阶段未能完成" in (chunk.text_delta or "")
     )
     summary_delta = next(
         chunk
@@ -2536,7 +2537,7 @@ async def test_orchestrator_intercepts_subagent_error_chunk() -> None:
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "The delegated task did not complete successfully.\n"
+        and "agent-a 在“Backend API”阶段未能完成" in (chunk.text_delta or "")
         for chunk in chunks
     )
     assert any(
@@ -2578,7 +2579,7 @@ async def test_orchestrator_continues_after_subagent_stream_exception() -> None:
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "The delegated task did not complete successfully.\n"
+        and "agent-a 在“Backend API”阶段未能完成" in (chunk.text_delta or "")
         for chunk in chunks
     )
     assert any(chunk.text_delta == "from b" for chunk in chunks)
@@ -2622,7 +2623,7 @@ async def test_orchestrator_continues_after_subagent_error_chunk() -> None:
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "The delegated task did not complete successfully.\n"
+        and "agent-a 在“Backend API”阶段未能完成" in (chunk.text_delta or "")
         for chunk in chunks
     )
     assert any(chunk.text_delta == "from b" for chunk in chunks)
@@ -2760,7 +2761,7 @@ async def test_orchestrator_adapter_factory_exception_is_task_failure() -> None:
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "agent-a"
-        and chunk.text_delta == "The delegated task did not complete successfully.\n"
+        and "agent-a 在“Backend API”阶段未能完成" in (chunk.text_delta or "")
         for chunk in chunks
     )
     assert any(chunk.text_delta == "from b" for chunk in chunks)
@@ -2874,10 +2875,98 @@ async def test_orchestrator_fallback_closes_open_block_on_exception() -> None:
     assert any(
         chunk.event_type == "delta"
         and chunk.agent_id == "claude-code"
-        and chunk.text_delta == "The fallback agent did not complete successfully.\n"
+        and "claude-code 在“fallback”阶段未能完成" in (chunk.text_delta or "")
         for chunk in chunks
     )
     _assert_blocks_balanced(chunks)
+
+
+async def test_orchestrator_direct_answer_emits_process_before_text() -> None:
+    answer = FakeAnswerGateway(_text_chunks("你好，我是 AgentHub Orchestrator。"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="你好，请直接回答一句话。")],
+        config={"answer_gateway": answer},
+    )
+
+    block_starts = [
+        chunk for chunk in chunks if chunk.event_type == "block_start"
+    ]
+    assert [chunk.block_type for chunk in block_starts[:2]] == ["process", "text"]
+    assert block_starts[0].metadata is not None
+    assert block_starts[0].metadata["status"] == "done"
+    process_deltas = [
+        chunk.metadata["process_delta"]
+        for chunk in chunks
+        if chunk.event_type == "delta"
+        and chunk.metadata
+        and isinstance(chunk.metadata.get("process_delta"), dict)
+    ]
+    assert process_deltas[0]["op"] == "upsert_step"
+    assert process_deltas[0]["step"]["kind"] == "routing"
+
+
+async def test_orchestrator_static_tasks_emit_process_before_final_text() -> None:
+    adapter = FakeSubAdapter("agent-a", _text_chunks("agent done"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "react_enabled": False,
+            "tasks": [_task("task-a", "agent-a", "Build demo", "Build the demo")],
+            "sub_adapters": {"agent-a": adapter},
+        },
+    )
+
+    block_starts = [
+        chunk for chunk in chunks if chunk.event_type == "block_start"
+    ]
+    assert "process" in [chunk.block_type for chunk in block_starts]
+    assert block_starts[-1].block_type == "text"
+    process_payload = next(
+        chunk.metadata or {} for chunk in block_starts if chunk.block_type == "process"
+    )
+    assert process_payload["status"] in {"running", "partial"}
+    process_deltas = [
+        chunk.metadata["process_delta"]
+        for chunk in chunks
+        if chunk.event_type == "delta"
+        and chunk.metadata
+        and isinstance(chunk.metadata.get("process_delta"), dict)
+    ]
+    assert process_deltas[0]["step"]["kind"] == "planning"
+    assert process_deltas[-1]["op"] == "set_summary"
+    assert process_deltas[-1]["status"] == "done"
+    forbidden = ("ReAct step", "Observation:", "Action:", "Tools:", "result ok", "call_")
+    assert not any(term in str([process_payload, *process_deltas]) for term in forbidden)
+
+
+async def test_orchestrator_process_block_can_be_disabled() -> None:
+    answer = FakeAnswerGateway(_text_chunks("plain answer"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="你好，请直接回答一句话。")],
+        config={
+            "answer_gateway": answer,
+            "orchestrator_process_block_enabled": False,
+        },
+    )
+
+    assert not any(
+        chunk.event_type == "block_start" and chunk.block_type == "process"
+        for chunk in chunks
+    )
+    assert not any(
+        chunk.event_type == "delta"
+        and chunk.metadata
+        and isinstance(chunk.metadata.get("process_delta"), dict)
+        for chunk in chunks
+    )
 
 
 async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() -> None:
@@ -2908,4 +2997,4 @@ async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() 
     assert adapter.default_config["react_enabled"] is True
     assert adapter.default_config["react_trace_visible"] is False
     assert adapter.default_config["orchestrator_response_polish_enabled"] is True
-    assert adapter.default_config["planner_model_backend"] == "claude"
+    assert adapter.default_config["planner_model_backend"] == "deepseek"

@@ -63,6 +63,36 @@ def _spec(
 
 SCENARIOS: dict[str, ScenarioSpec] = {
     "quality": _spec("quality", QUALITY_PROMPT, runner.main),
+    "architected_frontend_group_chat_repair": _spec(
+        "architected_frontend_group_chat_repair",
+        QUALITY_PROMPT,
+        runner.main,
+    ),
+    "group_process_document_strategy": _spec(
+        "group_process_document_strategy",
+        runner.GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT,
+        runner.run_generic_group_process_case,
+    ),
+    "group_process_data_analysis": _spec(
+        "group_process_data_analysis",
+        runner.GROUP_PROCESS_DATA_ANALYSIS_PROMPT,
+        runner.run_generic_group_process_case,
+    ),
+    "group_process_workflow_delivery": _spec(
+        "group_process_workflow_delivery",
+        runner.GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT,
+        runner.run_generic_group_process_case,
+    ),
+    "group_process_failure_readable": _spec(
+        "group_process_failure_readable",
+        runner.GROUP_PROCESS_FAILURE_READABLE_PROMPT,
+        runner.run_generic_group_process_case,
+    ),
+    "group_process_frontend_preview": _spec(
+        "group_process_frontend_preview",
+        QUALITY_PROMPT,
+        runner.main,
+    ),
     "fullstack": _spec("fullstack", runner.FULLSTACK_PROMPT, runner.main),
     "deployment": _spec("deployment", runner.DEPLOYMENT_PROMPT, runner.main),
     "deployment_repair": _spec(

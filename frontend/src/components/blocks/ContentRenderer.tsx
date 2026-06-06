@@ -2,6 +2,7 @@ import { CodeBlock } from './CodeBlock';
 import { DeploymentStatusBlock } from './DeploymentStatusBlock';
 import { DiffBlock } from './DiffBlock';
 import { FileBlock } from './FileBlock';
+import { ProcessBlock } from './ProcessBlock';
 import { TaskCardBlock } from './TaskCardBlock';
 import { TextBlock } from './TextBlock';
 import { ToolCallBlock } from './ToolCallBlock';
@@ -113,6 +114,9 @@ function renderBlock(
   }
   if (block.type === 'task_card') {
     return <TaskCardBlock key={`${block.type}-${index}`} block={block} agents={agents} />;
+  }
+  if (block.type === 'process') {
+    return <ProcessBlock key={`${block.type}-${index}`} block={block} />;
   }
   if (block.type === 'tool_call') {
     return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;

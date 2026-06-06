@@ -28,6 +28,24 @@ DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noq
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
 DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH = "/tmp/agenthub_custom_agent_tools_sse.jsonl"  # noqa: S108
+DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_architected_frontend_group_chat_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_DOCUMENT_STRATEGY_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_document_strategy_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_DATA_ANALYSIS_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_data_analysis_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_WORKFLOW_DELIVERY_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_workflow_delivery_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FAILURE_READABLE_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_failure_readable_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_frontend_preview_sse.jsonl"  # noqa: S108
+)
 
 DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
 DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
@@ -46,11 +64,35 @@ DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
 DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH = "/tmp/agenthub_custom_agent_tools_report.json"  # noqa: S108
+DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_architected_frontend_group_chat_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_DOCUMENT_STRATEGY_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_document_strategy_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_DATA_ANALYSIS_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_data_analysis_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_WORKFLOW_DELIVERY_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_workflow_delivery_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FAILURE_READABLE_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_failure_readable_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_frontend_preview_report.json"  # noqa: S108
+)
 
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
 DEFAULT_QUALITY_BROWSER_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_browser.json"  # noqa: S108
+DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_architected_frontend_group_chat_browser.json"  # noqa: S108
+)
+DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_process_frontend_preview_browser.json"  # noqa: S108
+)
 
 
 @dataclass(frozen=True)
@@ -80,6 +122,32 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
     "custom_agent_tools": ScenarioDefaults(
         DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH,
         DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH,
+    ),
+    "architected_frontend_group_chat_repair": ScenarioDefaults(
+        DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_REPORT_PATH,
+        DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_SSE_PATH,
+        DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_BROWSER_REPORT_PATH,
+    ),
+    "group_process_document_strategy": ScenarioDefaults(
+        DEFAULT_GROUP_PROCESS_DOCUMENT_STRATEGY_REPORT_PATH,
+        DEFAULT_GROUP_PROCESS_DOCUMENT_STRATEGY_SSE_PATH,
+    ),
+    "group_process_data_analysis": ScenarioDefaults(
+        DEFAULT_GROUP_PROCESS_DATA_ANALYSIS_REPORT_PATH,
+        DEFAULT_GROUP_PROCESS_DATA_ANALYSIS_SSE_PATH,
+    ),
+    "group_process_workflow_delivery": ScenarioDefaults(
+        DEFAULT_GROUP_PROCESS_WORKFLOW_DELIVERY_REPORT_PATH,
+        DEFAULT_GROUP_PROCESS_WORKFLOW_DELIVERY_SSE_PATH,
+    ),
+    "group_process_failure_readable": ScenarioDefaults(
+        DEFAULT_GROUP_PROCESS_FAILURE_READABLE_REPORT_PATH,
+        DEFAULT_GROUP_PROCESS_FAILURE_READABLE_SSE_PATH,
+    ),
+    "group_process_frontend_preview": ScenarioDefaults(
+        DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH,
+        DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH,
+        DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH,
     ),
     "p1_attribution": ScenarioDefaults(
         DEFAULT_P1_ATTRIBUTION_REPORT_PATH,

@@ -1257,6 +1257,57 @@ async def test_workspace_preview_requested_port_unavailable_fails(
     assert response.json()["detail"]["error"]["code"] == "workspace_preview_start_failed"
 
 
+async def test_workspace_preview_requested_port_replaces_managed_session(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    first = await _create_conversation(client, headers)
+    second = await _create_conversation(client, headers)
+    first_id = first["id"]
+    second_id = second["id"]
+    for conversation_id, title in (
+        (first_id, "First Preview"),
+        (second_id, "Second Preview"),
+    ):
+        await client.put(
+            f"/api/v1/workspaces/{conversation_id}/files/index.html",
+            headers=headers,
+            content=f"<!doctype html><html><body><h1>{title}</h1></body></html>".encode(),
+        )
+
+    first_response = await client.post(
+        f"/api/v1/workspaces/{first_id}/preview",
+        headers=headers,
+        json={
+            "entry_path": "index.html",
+            "requested_port": settings.preview_port_start,
+        },
+    )
+    second_response = await client.post(
+        f"/api/v1/workspaces/{second_id}/preview",
+        headers=headers,
+        json={
+            "entry_path": "index.html",
+            "requested_port": settings.preview_port_start,
+        },
+    )
+
+    assert first_response.status_code == 201, first_response.text
+    assert second_response.status_code == 201, second_response.text
+    assert first_response.json()["port"] == settings.preview_port_start
+    assert second_response.json()["port"] == settings.preview_port_start
+    async with SessionFactory() as db:
+        first_session = (
+            await db.execute(
+                select(WorkspacePreviewSession).where(
+                    WorkspacePreviewSession.conversation_id == UUID(first_id)
+                )
+            )
+        ).scalar_one()
+    assert first_session.status == "stopped"
+    assert first_session.error == "preview replaced by a newer explicit port request"
+
+
 async def test_workspace_preview_verify_browser_checks(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
