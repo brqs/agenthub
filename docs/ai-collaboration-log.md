@@ -1,3 +1,20 @@
+## 2026-06-07 — Codex 设计 Orchestrator 代码前需求澄清闸门
+
+### 任务
+阅读 `mattpocock/skills` 中 `/grill-me`、`/grill-with-docs`、`/setup-matt-pocock-skills` 的工作方式，判断其“实现前不断追问需求”的能力能否应用到 AgentHub Orchestrator，并先更新 spec/rules/skill 工作文档，不进入代码实现。
+
+### 关键 Prompt
+> 我现在需要其中的一个功能，就是使得agent在开始项目代码的编写前能够不断追问你的具体要求的一个功能。
+
+### AI 输出摘要
+新增 `docs/b2/spec/orchestrator/clarification-gate.spec.md`，把该能力定义为 Orchestrator planner 前的 clarification gate：先判断 artifact/build/code/design 请求是否足够明确；能从代码、workspace、structured memory、spec/rules/docs 推断的问题不问用户；确实缺少关键约束时一次只问一个最高价值问题，并提供推荐默认。同步更新 B2 spec 索引、Orchestrator spec package、B2 README、`AGENTS.md`、`CLAUDE.md` 和 `docs/ai-skills/b2-ai-collaboration/SKILL.md`。
+
+### 人工调整
+本轮只做理论分析和任务规划，不改后端/前端运行代码，不新增公开 API，不改 OpenAPI。现有 `ask_user` tool 被确认只能作为 v1 文本补充语义，不能替代 planner 前的确定性 clarification gate。
+
+### 经验
+把“追问需求”做成产品级能力时，重点不是让模型自由发挥多问问题，而是定义一个可恢复的状态机：何时问、问什么、如何给默认值、如何沉淀答案、何时进入 planner。该规则应优先沉淀到 Orchestrator spec 和 AI 协作宪法，避免后续实现直接把欠规格需求派给子 Agent。
+
 ## 2026-06-01 — Codex 补强 B1 AI 协作范式四件套
 
 ### 任务

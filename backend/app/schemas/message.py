@@ -145,6 +145,28 @@ class ProcessBlock(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ClarificationQuestion(BaseModel):
+    id: str
+    question: str
+    reason: str | None = None
+    recommended_answer: str | None = None
+    options: list[str] = Field(default_factory=list)
+    status: Literal["pending", "answered", "skipped"] = "pending"
+    answer: str | None = None
+
+
+class ClarificationBlock(BaseModel):
+    type: Literal["clarification"] = "clarification"
+    agent_id: str | None = None
+    mode: Literal["auto", "grill_me", "grill_with_docs", "setup_matt_pocock_skills"]
+    title: str
+    status: Literal["waiting", "resolved", "cancelled"]
+    current_question: ClarificationQuestion | None = None
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
+    summary: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolCallBlock(BaseModel):
     type: Literal["tool_call"] = "tool_call"
     agent_id: str | None = None
@@ -167,6 +189,7 @@ ContentBlock = Annotated[
     | WorkflowBlock
     | TaskCardBlock
     | ProcessBlock
+    | ClarificationBlock
     | ToolCallBlock,
     Field(discriminator="type"),
 ]

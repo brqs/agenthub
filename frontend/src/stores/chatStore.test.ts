@@ -313,6 +313,50 @@ describe('chatStore', () => {
     ).not.toHaveProperty('text');
   });
 
+  it('applies clarification stream events as clarification blocks', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'clarification',
+        agent_id: 'orchestrator',
+        metadata: {
+          agent_id: 'orchestrator',
+          mode: 'grill_me',
+          title: 'Needs clarification',
+          status: 'waiting',
+          current_question: {
+            id: 'scope',
+            question: 'What scope should we implement?',
+            reason: 'This changes the implementation plan.',
+            recommended_answer: 'Use the recommended static web app scope.',
+            options: ['Use recommendation'],
+            status: 'pending',
+          },
+          questions: [],
+          metadata: { original_request: 'build a game' },
+        },
+      },
+    });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'clarification',
+      agent_id: 'orchestrator',
+      mode: 'grill_me',
+      title: 'Needs clarification',
+      status: 'waiting',
+      current_question: {
+        id: 'scope',
+        question: 'What scope should we implement?',
+        recommended_answer: 'Use the recommended static web app scope.',
+      },
+    });
+  });
+
   it('routes orchestrator child message events into independent agent messages', () => {
     const parentId = addStreamingMessage('conv-demo-flow', 'parent-orchestrator-message');
     const store = useChatStore.getState();
