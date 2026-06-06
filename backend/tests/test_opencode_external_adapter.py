@@ -295,6 +295,7 @@ class TestOpenCodeAdapterStream:
         argv = factory.calls[0]["argv"]
         assert Path(argv[0]).stem.lower() == "opencode"
         assert argv[1:4] == ["run", "--format", "json"]
+        assert argv[4:6] == ["--model", "deepseek/deepseek-chat"]
         assert "--dir" in argv
         assert [chunk.event_type for chunk in chunks] == [
             "start",
@@ -304,6 +305,24 @@ class TestOpenCodeAdapterStream:
             "done",
         ]
         assert "".join(chunk.text_delta or "" for chunk in chunks) == "hello from opencode"
+
+    async def test_json_format_uses_configured_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess([_json_line({"type": "done"})])
+        factory = _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            config={"model": "deepseek/deepseek-v4-flash"},
+        )
+
+        assert chunks[-1].event_type == "done"
+        argv = factory.calls[0]["argv"]
+        assert argv[4:6] == ["--model", "deepseek/deepseek-v4-flash"]
 
     async def test_tool_call_and_result_are_mapped(
         self,
@@ -503,6 +522,11 @@ class TestOpenCodeAdapterStream:
         assert "do not create a Node/Express" in prompt
         assert "server.js" in prompt
         assert "Treat the latest user message as the only active request" in prompt
+        assert "create or update those exact workspace-relative files" in prompt
+        assert "Do not replace a requested multi-file artifact" in prompt
+        assert "Keep implementation runs bounded" in prompt
+        assert "The Current user request above is complete and actionable" in prompt
+        assert "If the workspace is empty, create the requested files" in prompt
         assert "python3 -m http.server 8082" not in prompt
 
     async def test_stdin_payload_includes_workspace_rules(

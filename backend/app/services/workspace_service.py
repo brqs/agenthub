@@ -98,7 +98,10 @@ class WorkspaceService:
         root = Path(workspace.root_path).resolve()
         if not root.exists():
             return {"name": root.name, "path": "", "type": "directory", "children": []}
-        return self._tree_node(root, root, max(max_depth, 0), current_depth=0)
+        try:
+            return self._tree_node(root, root, max(max_depth, 0), current_depth=0)
+        except (FileNotFoundError, NotADirectoryError, OSError):
+            return {"name": root.name, "path": "", "type": "directory", "children": []}
 
     def read_file(self, workspace: Workspace, rel_path: str) -> tuple[bytes, str]:
         path = self.validate_read_path(Path(workspace.root_path), rel_path)
@@ -205,12 +208,19 @@ class WorkspaceService:
         if current_depth >= max_depth:
             return node
         children: list[dict[str, Any]] = []
-        for child in sorted(path.iterdir(), key=lambda item: (item.is_file(), item.name)):
-            if child.name in FORBIDDEN_PATH_PARTS or child.is_symlink():
+        try:
+            child_paths = sorted(path.iterdir(), key=lambda item: item.name)
+        except (FileNotFoundError, NotADirectoryError, OSError):
+            return node
+        for child in child_paths:
+            try:
+                if child.name in FORBIDDEN_PATH_PARTS or child.is_symlink():
+                    continue
+                children.append(
+                    self._tree_node(child, root, max_depth, current_depth=current_depth + 1)
+                )
+            except (FileNotFoundError, NotADirectoryError, OSError):
                 continue
-            children.append(
-                self._tree_node(child, root, max_depth, current_depth=current_depth + 1)
-            )
         node["children"] = children
         return node
 

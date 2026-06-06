@@ -7,12 +7,13 @@ import { useWorkspaceArtifacts } from '@/hooks/useWorkspace';
 import type { DemoContentBlock, DemoMessage } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
-import { AtSign, Pin, RotateCcw } from 'lucide-react';
+import { AlertTriangle, AtSign, Loader2, Pin, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+const EMPTY_ERROR_FALLBACK_TEXT = '调用失败：后端未返回错误详情，请重试。';
 const EMPTY_ERROR_FALLBACK_BLOCK: DemoContentBlock = {
   type: 'text',
-  text: '调用失败：后端未返回错误详情，请重试。',
+  text: EMPTY_ERROR_FALLBACK_TEXT,
 };
 
 export function MessageBubble({
@@ -170,18 +171,47 @@ export function MessageBubble({
 
 function MessageContent({ message, agents }: { message: DemoMessage; agents: Agent[] }) {
   const visibleBlocks = visibleMessageBlocks(message);
-  const hasFileBlock = visibleBlocks.some((block) => block.type === 'file');
-  if (!hasFileBlock) {
-    return (
+  if (message.status === 'streaming' && visibleBlocks.length === 0) {
+    return <StreamingEmptyState isOrchestrator={message.agent_id === 'orchestrator'} />;
+  }
+
+  const failureBlocks: Array<DemoContentBlock & { type: 'text'; text: string }> =
+    message.status === 'error' ? visibleBlocks.filter(isFailureTextBlock) : [];
+  const contentBlocks =
+    failureBlocks.length > 0
+      ? visibleBlocks.filter((block) => !isFailureTextBlock(block))
+      : visibleBlocks;
+  const hasFileBlock = contentBlocks.some((block) => block.type === 'file');
+  const contentRenderer =
+    contentBlocks.length === 0 ? null : hasFileBlock ? (
+      <ManifestAwareMessageContent message={message} agents={agents} blocks={contentBlocks} />
+    ) : (
       <ContentRenderer
-        blocks={visibleBlocks}
+        blocks={contentBlocks}
         agents={agents}
         streaming={message.status === 'streaming'}
         conversationId={message.conversation_id}
       />
     );
+
+  if (failureBlocks.length > 0) {
+    const firstFailureBlock = failureBlocks[0];
+    const failureText =
+      firstFailureBlock?.type === 'text'
+        ? firstFailureBlock.text
+        : EMPTY_ERROR_FALLBACK_TEXT;
+    return (
+      <div className="space-y-3">
+        <FailureCard text={failureText} />
+        {contentRenderer}
+      </div>
+    );
   }
-  return <ManifestAwareMessageContent message={message} agents={agents} blocks={visibleBlocks} />;
+
+  if (!hasFileBlock) {
+    return contentRenderer;
+  }
+  return contentRenderer;
 }
 
 function ManifestAwareMessageContent({
@@ -207,27 +237,84 @@ function ManifestAwareMessageContent({
   );
 }
 
+function StreamingEmptyState({ isOrchestrator }: { isOrchestrator: boolean }) {
+  const label = isOrchestrator ? '正在分析请求...' : '正在组织回复...';
+
+  return (
+    <div
+      className="flex min-h-5 items-center gap-2 text-sm text-slate-500 dark:text-slate-400"
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-brand-light" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function FailureCard({ text }: { text: string }) {
+  return (
+    <section className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100">
+      <div className="flex min-w-0 items-start gap-2">
+        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200">
+          <AlertTriangle className="h-3.5 w-3.5" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-xs font-semibold uppercase tracking-wide text-rose-700 dark:text-rose-200">
+            调用失败
+          </div>
+          <p className="mt-1 line-clamp-3 break-words text-xs leading-5">{text}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function visibleMessageBlocks(message: DemoMessage): DemoContentBlock[] {
   if (message.status === 'error' && message.content.length === 0) {
     return [EMPTY_ERROR_FALLBACK_BLOCK];
   }
-  if (message.agent_id !== 'orchestrator' || message.status !== 'done') {
+  if (message.agent_id !== 'orchestrator') {
     return message.content;
   }
-  return message.content.filter((block) => !isLegacyOrchestratorTraceBlock(block));
+  const filtered: DemoContentBlock[] = [];
+  let keptFailureText = false;
+  for (const block of message.content) {
+    if (isLegacyOrchestratorTraceBlock(block)) continue;
+    if (isFailureTextBlock(block)) {
+      if (keptFailureText) continue;
+      keptFailureText = true;
+    }
+    filtered.push(block);
+  }
+  if (message.status === 'error' && filtered.length === 0) {
+    return [EMPTY_ERROR_FALLBACK_BLOCK];
+  }
+  return filtered;
 }
 
 function isLegacyOrchestratorTraceBlock(block: DemoContentBlock): boolean {
   if (block.type !== 'text') return false;
   const text = block.text.trim();
-  return text.startsWith('ReAct step ') || text.startsWith('Execution summary');
+  return (
+    text.startsWith('ReAct step ') ||
+    text.startsWith('Execution summary') ||
+    /^Planned \d+ sub-task\(s\)/.test(text)
+  );
+}
+
+function isFailureTextBlock(block: DemoContentBlock): block is DemoContentBlock & { type: 'text'; text: string } {
+  if (block.type !== 'text') return false;
+  const text = block.text.trim();
+  return text.startsWith('调用失败') || text.startsWith('failed:') || text.startsWith('orchestrator_task_failed:');
 }
 
 function ReviewThreadForMessage({ message, agents }: { message: DemoMessage; agents: Agent[] }) {
   const runDetailQuery = useOrchestratorRunForMessage(
     message.conversation_id,
     message.id,
-    message.status === 'done',
+    message.status === 'done' || message.status === 'error',
   );
 
   return <ReviewThreadTimeline detail={runDetailQuery.data} agents={agents} />;

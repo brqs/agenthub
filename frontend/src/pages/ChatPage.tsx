@@ -196,6 +196,7 @@ export function ChatPage() {
       </section>
       {conversation && rightPanelOpen && isDesktopWorkspace && (
         <RightAgentPanel
+          key={`desktop-${conversation.id}`}
           conversation={conversation}
           messages={messages}
           agents={agents}
@@ -240,6 +241,7 @@ export function ChatPage() {
       {conversation && (
         <MobileSheet open={mobileSheet === 'workspace'} hiddenAt="xl" onClose={closeMobileSheet}>
           <RightAgentPanel
+            key={`mobile-${conversation.id}`}
             conversation={conversation}
             messages={messages}
             agents={agents}
