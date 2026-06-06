@@ -174,20 +174,20 @@ const components: Components = {
   h4: ({ node: _node, ...props }) => (
     <h4 className="mt-3 mb-2 text-sm font-semibold text-white" {...props} />
   ),
-  p: ({ node: _node, ...props }) => <p className="my-2 leading-7" {...props} />,
+  p: ({ node: _node, ...props }) => <p className="mobile-text-safe my-2 leading-7" {...props} />,
   ul: ({ node: _node, ...props }) => (
-    <ul className="my-2 list-disc space-y-1 pl-5 leading-7" {...props} />
+    <ul className="mobile-text-safe my-2 list-disc space-y-1 pl-5 leading-7" {...props} />
   ),
   ol: ({ node: _node, ...props }) => (
-    <ol className="my-2 list-decimal space-y-1 pl-5 leading-7" {...props} />
+    <ol className="mobile-text-safe my-2 list-decimal space-y-1 pl-5 leading-7" {...props} />
   ),
-  li: ({ node: _node, ...props }) => <li className="leading-7" {...props} />,
+  li: ({ node: _node, ...props }) => <li className="mobile-text-safe leading-7" {...props} />,
   hr: ({ node: _node, ...props }) => (
     <hr className="my-3 border-slate-700" {...props} />
   ),
   blockquote: ({ node: _node, ...props }) => (
     <blockquote
-      className="my-3 border-l-2 border-brand/50 pl-3 text-slate-400"
+        className="mobile-text-safe my-3 border-l-2 border-brand/50 pl-3 text-slate-400"
       {...props}
     />
   ),
@@ -244,7 +244,7 @@ const components: Components = {
     if (isInline) {
       return (
         <code
-          className="rounded bg-slate-950 px-1.5 py-0.5 font-mono text-brand-light"
+          className="inline rounded bg-slate-950 px-1.5 py-0.5 font-mono text-brand-light"
           {...props}
         >
           {children}
@@ -272,7 +272,7 @@ const components: Components = {
 
     return (
       <a
-        className="text-brand-light underline-offset-2 hover:underline"
+        className="mobile-text-safe text-brand-light underline-offset-2 hover:underline"
         target="_blank"
         rel="noreferrer"
         href={href}
@@ -304,7 +304,7 @@ export function TextBlock({
   );
 
   return (
-    <div className={`agent-markdown min-w-0 text-slate-100${streaming ? ' streaming-cursor' : ''}`}>
+  <div className={`agent-markdown chat-markdown-safe text-slate-100${streaming ? ' streaming-cursor' : ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
         components={components}

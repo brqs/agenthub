@@ -73,13 +73,13 @@ export function MessageBubble({
   return (
     <article
       className={cn(
-        'group flex gap-3 rounded-md px-1 py-1 transition-colors',
+        'group flex min-w-0 max-w-full gap-2 rounded-md px-1 py-1 transition-colors sm:gap-3',
         isUser && 'justify-end',
         highlighted && 'bg-brand/10 ring-1 ring-brand/40',
       )}
     >
       {!isUser && (
-        <div className="flex flex-col items-center gap-1 pt-6">
+        <div className="flex shrink-0 flex-col items-center gap-1 pt-6">
           <div
             className={cn(canMentionAgent && 'cursor-context-menu')}
             onContextMenu={openMentionMenu}
@@ -99,8 +99,8 @@ export function MessageBubble({
           )}
         </div>
       )}
-      <div className={cn(isUser ? 'order-1 flex max-w-[min(680px,88%)] flex-col items-end sm:max-w-[min(680px,78%)]' : 'min-w-0 flex-1')}>
-        <div className={cn('mb-1.5 flex items-center gap-2 px-1 text-xs text-slate-500', isUser && 'justify-end')}>
+      <div className={cn(isUser ? 'order-1 flex min-w-0 max-w-[min(680px,88%)] flex-col items-end sm:max-w-[min(680px,78%)]' : 'min-w-0 max-w-full flex-1')}>
+        <div className={cn('mb-1.5 flex min-w-0 max-w-full items-center gap-2 px-1 text-xs text-slate-500', isUser && 'justify-end')}>
           <span className="font-medium text-slate-800 dark:text-slate-300">{isUser ? '你' : agent?.name ?? 'Agent'}</span>
           <span>{formatTime(message.created_at)}</span>
           {message.status === 'streaming' && <span className="text-brand-light">正在输入</span>}
@@ -122,7 +122,7 @@ export function MessageBubble({
         </div>
         <div
           className={cn(
-            'min-w-0 overflow-visible rounded-md px-4 py-3 shadow-sm',
+            'mobile-text-safe min-w-0 max-w-full overflow-visible rounded-md px-3 py-3 shadow-sm sm:px-4',
             isUser
               ? 'user-message-bubble w-fit max-w-full bg-brand px-4 py-2.5 text-white shadow-brand/10'
               : message.status === 'error'

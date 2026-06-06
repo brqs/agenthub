@@ -32,7 +32,7 @@ export function ContentRenderer({
   const shouldGroup = new Set(groups.map((group) => group.agentId).filter(Boolean)).size > 1;
 
   return (
-    <div className="min-w-0 space-y-2">
+    <div className="mobile-text-safe space-y-2">
       {shouldGroup
         ? groups.map((group) => {
             if (!group.agentId) {
@@ -53,13 +53,13 @@ export function ContentRenderer({
             return (
               <section
                 key={`${group.agentId}-${group.blocks[0]?.index ?? 0}`}
-                className="min-w-0 border-l-2 border-brand/40 pl-3"
+                className="mobile-text-safe border-l-2 border-brand/40 pl-3"
               >
                 <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
                   <AgentAvatar agent={agent} size="sm" />
                   <span className="truncate">{agent?.name ?? group.agentId}</span>
                 </div>
-                <div className="min-w-0 space-y-2">
+                <div className="mobile-text-safe space-y-2">
                   {group.blocks.map(({ block, index }) =>
                     renderBlock(
                       block,

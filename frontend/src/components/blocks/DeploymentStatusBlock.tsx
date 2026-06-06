@@ -92,7 +92,7 @@ export function DeploymentStatusBlock({
   }
 
   return (
-    <section className="overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
+    <section className="mobile-text-safe overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
       <div className="p-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-slate-50 text-brand dark:border-slate-800 dark:bg-slate-900 dark:text-brand-light">
@@ -100,7 +100,7 @@ export function DeploymentStatusBlock({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h3 className="truncate text-sm font-semibold text-slate-950 dark:text-white">
+              <h3 className="mobile-text-safe text-sm font-semibold text-slate-950 dark:text-white sm:truncate">
                 {deploymentTitle(deploymentLike)}
               </h3>
               <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium', meta.className)}>
@@ -108,7 +108,7 @@ export function DeploymentStatusBlock({
                 {meta.label}
               </span>
             </div>
-            <div className="mt-1 truncate text-xs text-slate-500">
+            <div className="mobile-text-safe mt-1 text-xs text-slate-500 sm:truncate">
               {DEPLOYMENT_KIND_LABELS[kind]} · {block.deployment_id}
               {sizeLabel ? ` · ${sizeLabel}` : ''}
             </div>
@@ -176,21 +176,21 @@ export function DeploymentStatusBlock({
           <p className="mt-3 text-xs text-slate-500">源码包为临时产物，请及时下载并妥善保存。</p>
         )}
         {status === 'not_supported' && (
-          <p className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800 dark:border-sky-400/25 dark:bg-sky-950/25 dark:text-sky-100">
+          <p className="mobile-text-safe mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800 dark:border-sky-400/25 dark:bg-sky-950/25 dark:text-sky-100">
             当前环境暂未开启容器部署 worker。前端会保留记录，你可以继续使用静态发布或源码打包。
           </p>
         )}
         {error && (
-          <p className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100">
+          <p className="mobile-text-safe mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100">
             {error}
           </p>
         )}
         {logsPreview && (
-          <details className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          <details className="mobile-text-safe mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
             <summary className="cursor-pointer select-none font-medium text-slate-700 dark:text-slate-300">
               {kind === 'container' ? '查看容器日志' : '查看发布日志'}
             </summary>
-            <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap leading-5 scrollbar-thin">
+            <pre className="mt-2 max-h-28 max-w-full overflow-auto whitespace-pre-wrap break-words leading-5 scrollbar-thin">
               {logsPreview}
             </pre>
           </details>
@@ -233,34 +233,34 @@ function DeploymentSummary({ deployment }: { deployment: DeploymentLike }) {
       {fields.map(([label, value]) => (
         <div
           key={label}
-          className="min-w-28 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70"
+          className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70 sm:min-w-28"
         >
           <dt className="text-[11px] text-slate-500">{label}</dt>
-          <dd className="mt-0.5 max-w-44 truncate font-medium text-slate-800 dark:text-slate-200" title={value}>
+          <dd className="mobile-text-safe mt-0.5 max-w-44 font-medium text-slate-800 dark:text-slate-200 sm:truncate" title={value}>
             {value}
           </dd>
         </div>
       ))}
       {deployment.healthcheck_url && (
-        <div className="min-w-40 flex-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+        <div className="min-w-0 flex-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70 sm:min-w-40">
           <dt className="text-[11px] text-slate-500">健康检查</dt>
-          <dd className="mt-0.5 truncate font-medium text-slate-800 dark:text-slate-200" title={deployment.healthcheck_url}>
+          <dd className="mobile-text-safe mt-0.5 font-medium text-slate-800 dark:text-slate-200 sm:truncate" title={deployment.healthcheck_url}>
             {deployment.healthcheck_url}
           </dd>
         </div>
       )}
       {deployment.image_id && (
-        <div className="min-w-40 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+        <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70 sm:min-w-40">
           <dt className="text-[11px] text-slate-500">镜像 ID</dt>
-          <dd className="mt-0.5 max-w-48 truncate font-mono text-slate-800 dark:text-slate-200" title={deployment.image_id}>
+          <dd className="mobile-text-safe mt-0.5 max-w-48 font-mono text-slate-800 dark:text-slate-200 sm:truncate" title={deployment.image_id}>
             {deployment.image_id}
           </dd>
         </div>
       )}
       {deployment.container_id && (
-        <div className="min-w-40 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70">
+        <div className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-950/70 sm:min-w-40">
           <dt className="text-[11px] text-slate-500">容器 ID</dt>
-          <dd className="mt-0.5 max-w-48 truncate font-mono text-slate-800 dark:text-slate-200" title={deployment.container_id}>
+          <dd className="mobile-text-safe mt-0.5 max-w-48 font-mono text-slate-800 dark:text-slate-200 sm:truncate" title={deployment.container_id}>
             {deployment.container_id}
           </dd>
         </div>
@@ -281,7 +281,7 @@ function DeploymentTimeline({ deployment }: { deployment: DeploymentLike }) {
           className="inline-flex min-w-0 items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1.5 dark:border-slate-800 dark:bg-slate-950/60"
         >
           <span className="h-2 w-2 shrink-0 rounded-full bg-brand dark:bg-brand-light" />
-          <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
+          <span className="mobile-text-safe min-w-0 text-slate-700 dark:text-slate-200 sm:truncate">
             {step.label}
             {formatDateTime(step.time) && (
               <span className="ml-1 text-slate-500">{formatDateTime(step.time)}</span>
