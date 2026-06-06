@@ -690,6 +690,47 @@ GET http://localhost:8081 -> ok
      does not prove Claude SDK/CLI artifact runtime availability.
    - These status answers must not create a new task plan or promise delegation.
 
+### 12.9 OpenCode Runtime Idle Timeout And Artifact Boundary
+
+2026-06-05 update:
+
+1. `External runtime exceeded idle_timeout_seconds` for OpenCode usually means
+   AgentHub saw no stdout events for the idle window, not that the `opencode`
+   process was never started.
+   - Container smoke confirmed `opencode` is installed and can write files.
+   - Failed Pac-Man runs emitted early tool events, then went silent until the
+     external runtime idle watchdog killed the subprocess.
+   - OpenCode logs showed the default model path selecting
+     `deepseek/deepseek-v4-pro`, which can spend a long time in a later model
+     step without emitting JSON events.
+
+2. OpenCode default execution should be bounded and file-list driven.
+   - `opencode-helper` now defaults to `model=deepseek/deepseek-chat`.
+   - `opencode-helper` seed config uses `idle_timeout_seconds=360` and
+     `max_runtime_seconds=600`; keep the hard timeout so genuinely stuck
+     runtimes are still cleaned up.
+   - The adapter passes `--model <config.model>` when no custom `args` are
+     configured. Custom `args` remain an explicit escape hatch.
+
+3. Prompt contract for static artifacts:
+   - If the task names required artifact files such as `index.html`,
+     `styles.css`, and `app.js`, OpenCode must create those exact
+     workspace-relative files.
+   - Empty workspace is not a reason to ask "what files should I create" when
+     the current user request already describes the product and files.
+   - OpenCode should write the requested artifacts, do at most a concise
+     verification pass, and then summarize. It should not keep iterating on
+     optional refinements after the requested files exist.
+
+4. Useful smoke checks:
+
+```powershell
+docker compose exec backend opencode --version
+docker compose exec backend opencode auth list
+docker compose exec backend sh -lc 'rm -rf /tmp/opencode-smoke && mkdir -p /tmp/opencode-smoke && opencode run --format json --model deepseek/deepseek-chat --dir /tmp/opencode-smoke "创建 index.html、styles.css、app.js 三个文件，完成后简短总结"'
+docker compose exec backend python -m app.seeds.seed_agents
+```
+
 ## 13. Suggested Next Agent Startup Checklist
 
 1. Read this handoff.

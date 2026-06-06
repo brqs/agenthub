@@ -342,6 +342,11 @@ function WorkspacePanel({
     return () => window.clearTimeout(timeoutId);
   }, [deploymentNotice]);
 
+  useEffect(() => {
+    setActiveDeploymentKind(null);
+    setDeploymentNotice(null);
+  }, [conversationId]);
+
   function createRelease(kind: DeploymentKind) {
     const intent = actionIntents[kind];
     if (intent.disabledReason) {
@@ -395,11 +400,11 @@ function WorkspacePanel({
       <div>
       <PanelHeader icon={Box} title="Workspace" meta={`${touchedFilesCount} outputs`} />
 
-      {isLoading ? (
+      {isLoading && !workspace ? (
         <div className="rounded-md border border-slate-800 p-4 text-sm text-slate-500">
           正在加载 workspace...
         </div>
-      ) : workspaceError ? (
+      ) : !workspace && Boolean(workspaceError) ? (
         <div className="space-y-3 rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
           <p>Workspace 加载失败，请稍后重试。</p>
           <button
@@ -413,6 +418,19 @@ function WorkspacePanel({
         </div>
       ) : workspace ? (
         <div className="space-y-3">
+          {Boolean(workspaceError) && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-amber-400/30 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700 dark:border-amber-400/25 dark:bg-amber-950/20 dark:text-amber-200">
+              <span className="min-w-0">Workspace 刷新失败，已保留上一次可用内容。</span>
+              <button
+                type="button"
+                onClick={onRetryWorkspace}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-amber-400/40 px-2 py-1 font-medium transition hover:bg-amber-400/10"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                重试
+              </button>
+            </div>
+          )}
           <div className="rounded-md border border-slate-800 bg-slate-950/60 p-2">
             <div className="mb-1 truncate px-2 py-1 text-[11px] text-slate-600" title={workspace.root}>
               {workspace.root}

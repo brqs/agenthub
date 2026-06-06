@@ -41,6 +41,7 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_COMMAND = "opencode"
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+DEFAULT_MODEL = "deepseek/deepseek-chat"
 DEFAULT_SHARED_AUTH_DIR = "/root/.local/share/opencode"
 OPENCODE_AUTH_DIR_ENV = "AGENTHUB_OPENCODE_AUTH_DIR"
 AUTH_ENV_PREFIXES = (
@@ -160,6 +161,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 "run",
                 "--format",
                 "json",
+                *self._model_args(merged),
                 "--dir",
                 str(workspace_path),
                 self._format_prompt(messages, system_prompt, workspace_path),
@@ -460,6 +462,16 @@ class OpenCodeAdapter(BaseAgentAdapter):
         conversation = format_runtime_messages(messages)
         if conversation:
             lines.append(conversation)
+        lines.append(
+            "OpenCode execution instruction:\n"
+            "- The Current user request above is complete and actionable. Execute it now.\n"
+            "- If the workspace is empty, create the requested files instead of asking "
+            "what files to create.\n"
+            "- If the request names required files, create those exact files before "
+            "writing the final summary.\n"
+            "- Only ask a follow-up question when the request lacks the core product "
+            "or task to build."
+        )
         return "\n\n".join(lines)
 
     def _effective_system_prompt(
@@ -656,6 +668,16 @@ class OpenCodeAdapter(BaseAgentAdapter):
     @staticmethod
     def _truncate(value: str, max_chars: int) -> str:
         return truncate(value, max_chars)
+
+    @staticmethod
+    def _model_args(config: dict[str, Any]) -> list[str]:
+        model = config.get("model")
+        if model is None:
+            model = DEFAULT_MODEL
+        if not isinstance(model, str):
+            return []
+        model = model.strip()
+        return ["--model", model] if model else []
 
     def _error(self, error_code: str, error: str) -> StreamChunk:
         return external_error_chunk(

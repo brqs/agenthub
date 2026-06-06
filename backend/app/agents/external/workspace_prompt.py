@@ -63,6 +63,15 @@ def workspace_guard_prompt(workspace_path: Path) -> str:
             "the preview port.",
             "- For web apps, write the files in the workspace and tell the user which "
             "files changed; preview is handled by AgentHub Workspace.",
+            "- When the request or task description names required artifact files "
+            "such as index.html, styles.css, app.js, README.md, or a similar list, "
+            "create or update those exact workspace-relative files. Do not replace "
+            "a requested multi-file artifact with a single combined file unless the "
+            "latest user message explicitly asks for a single file.",
+            "- Keep implementation runs bounded: write the requested artifacts, do "
+            "one concise verification pass if needed, then provide a short final "
+            "summary. Do not keep iterating on optional refinements after the "
+            "requested files exist.",
         ]
     )
 

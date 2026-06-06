@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MessageBubble, visibleMessageBlocks } from './MessageBubble';
 import type { DemoMessage } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
+import type { ReactElement } from 'react';
 
 const codexAgent: Agent = {
   id: 'codex-helper',
@@ -26,6 +28,15 @@ const agentMessage: DemoMessage = {
   content: [{ type: 'text', text: '我来处理。' }],
 };
 
+function renderWithQueryClient(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 describe('MessageBubble', () => {
   it('filters legacy orchestrator trace text from completed messages', () => {
     const message: DemoMessage = {
@@ -45,6 +56,26 @@ describe('MessageBubble', () => {
     ]);
   });
 
+  it('filters legacy orchestrator trace text from failed messages', () => {
+    const message: DemoMessage = {
+      ...agentMessage,
+      agent_id: 'orchestrator',
+      status: 'error',
+      content: [
+        { type: 'task_card', title: 'Plan', tasks: [] },
+        { type: 'text', text: 'Planned 1 sub-task(s) via LLM planner/config:\n1. @agent - Task' },
+        { type: 'text', text: 'Execution summary\n\n- failed: @agent - Task' },
+        { type: 'text', text: '调用失败：Agent 回复失败，请重试这条消息。' },
+        { type: 'text', text: '调用失败：duplicate failure text' },
+      ],
+    };
+
+    expect(visibleMessageBlocks(message)).toEqual([
+      { type: 'task_card', title: 'Plan', tasks: [] },
+      { type: 'text', text: '调用失败：Agent 回复失败，请重试这条消息。' },
+    ]);
+  });
+
   it('shows a fallback text block for legacy empty error messages', () => {
     const message: DemoMessage = {
       ...agentMessage,
@@ -55,6 +86,68 @@ describe('MessageBubble', () => {
     expect(visibleMessageBlocks(message)).toEqual([
       { type: 'text', text: '调用失败：后端未返回错误详情，请重试。' },
     ]);
+  });
+
+  it('renders a failure card for visible error text', () => {
+    render(
+      <MessageBubble
+        message={{
+          ...agentMessage,
+          status: 'error',
+          content: [{ type: 'text', text: 'failed: External runtime exceeded idle_timeout_seconds' }],
+        }}
+        agents={[codexAgent]}
+      />,
+    );
+
+    expect(screen.getByText('调用失败')).toBeInTheDocument();
+    expect(screen.getByText('failed: External runtime exceeded idle_timeout_seconds')).toBeInTheDocument();
+  });
+
+  it('shows an initial streaming state for an empty orchestrator message', () => {
+    renderWithQueryClient(
+      <MessageBubble
+        message={{
+          ...agentMessage,
+          agent_id: 'orchestrator',
+          status: 'streaming',
+          content: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: '正在分析请求...' })).toBeInTheDocument();
+  });
+
+  it('shows an initial streaming state for an empty agent message', () => {
+    render(
+      <MessageBubble
+        message={{
+          ...agentMessage,
+          status: 'streaming',
+          content: [],
+        }}
+        agents={[codexAgent]}
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: '正在组织回复...' })).toBeInTheDocument();
+  });
+
+  it('renders real streaming content instead of the initial empty state', () => {
+    render(
+      <MessageBubble
+        message={{
+          ...agentMessage,
+          status: 'streaming',
+          content: [{ type: 'text', text: '已经开始输出' }],
+        }}
+        agents={[codexAgent]}
+      />,
+    );
+
+    expect(screen.getByText('已经开始输出')).toBeInTheDocument();
+    expect(screen.queryByText('正在组织回复...')).not.toBeInTheDocument();
   });
 
   it('opens an agent mention menu from the avatar context menu', () => {
