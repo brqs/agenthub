@@ -58,7 +58,7 @@ describe('ContentRenderer', () => {
         agent_id: 'orchestrator',
         title: '执行过程',
         status: 'partial',
-        default_collapsed: true,
+        default_collapsed: false,
         summary: '公开执行过程部分完成。',
         metadata: {},
         steps: [
