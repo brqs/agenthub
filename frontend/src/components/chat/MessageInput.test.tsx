@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MessageInput } from './MessageInput';
 import { mockAgents, type DemoConversation } from '@/lib/mockData';
 
@@ -108,6 +108,33 @@ describe('MessageInput', () => {
     fireEvent.click(screen.getByText('Codex Helper'));
 
     expect(input).toHaveValue('@codex-helper ');
+  });
+
+  it('shows slash command suggestions and inserts selected command', () => {
+    render(<MessageInput conversation={groupConversation} agents={mockAgents} onSend={vi.fn()} />);
+    const input = screen.getByPlaceholderText('发消息到 群聊测试');
+
+    fireEvent.change(input, { target: { value: '/gr' } });
+    fireEvent.click(screen.getByText('/grill-me'));
+
+    expect(input).toHaveValue('/grill-me ');
+  });
+
+  it('fills input from clarification card answer chips', () => {
+    const onSend = vi.fn();
+    render(<MessageInput conversation={groupConversation} agents={mockAgents} onSend={onSend} />);
+    const input = screen.getByPlaceholderText('发消息到 群聊测试');
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('agenthub:fill-message-input', {
+          detail: { text: '使用推荐答案' },
+        }),
+      );
+    });
+
+    expect(input).toHaveValue('使用推荐答案');
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it('inserts requested mentions from external agent actions', () => {

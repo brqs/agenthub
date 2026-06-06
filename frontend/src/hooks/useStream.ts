@@ -16,7 +16,16 @@ interface StreamingBlock {
   call_id?: string;
   tool_name?: string;
   arguments?: Record<string, unknown>;
-  status?: 'pending' | 'ok' | 'error' | 'running' | 'done' | 'partial';
+  status?:
+    | 'pending'
+    | 'ok'
+    | 'error'
+    | 'running'
+    | 'done'
+    | 'partial'
+    | 'waiting'
+    | 'resolved'
+    | 'cancelled';
   text?: string;
   code?: string;
   language?: string;
@@ -86,6 +95,18 @@ export function useStream(
                 newBlock.summary =
                   typeof d.metadata?.summary === 'string' ? d.metadata.summary : null;
                 newBlock.metadata = d.metadata?.metadata ?? {};
+              } else if (d.block_type === 'clarification') {
+                newBlock.agent_id =
+                  (d.metadata?.agent_id as string | undefined) ?? d.agent_id ?? 'orchestrator';
+                newBlock.mode = clarificationMode(d.metadata?.mode);
+                newBlock.title =
+                  typeof d.metadata?.title === 'string' ? d.metadata.title : '需求澄清';
+                newBlock.status = clarificationStatus(d.metadata?.status);
+                newBlock.current_question = clarificationQuestion(d.metadata?.current_question);
+                newBlock.questions = clarificationQuestions(d.metadata?.questions);
+                newBlock.summary =
+                  typeof d.metadata?.summary === 'string' ? d.metadata.summary : null;
+                newBlock.metadata = d.metadata?.metadata ?? {};
               } else if (d.block_type === 'workflow') {
                 newBlock.raw_definition = '';
                 newBlock.last_run_id = (d.metadata?.last_run_id as string) || null;
@@ -122,6 +143,7 @@ export function useStream(
                 b.type !== 'workflow' &&
                 b.type !== 'file' &&
                 b.type !== 'process' &&
+                b.type !== 'clarification' &&
                 d.text_delta
               ) {
                 b.text = (b.text || '') + d.text_delta;
@@ -130,6 +152,7 @@ export function useStream(
                 b.type !== 'workflow' &&
                 b.type !== 'file' &&
                 b.type !== 'process' &&
+                b.type !== 'clarification' &&
                 d.code_delta
               ) {
                 b.code = (b.code || '') + d.code_delta;
@@ -326,4 +349,48 @@ function processStepKind(value: unknown) {
   return typeof value === 'string' && allowed.includes(value as (typeof allowed)[number])
     ? value
     : 'summary';
+}
+
+function clarificationMode(value: unknown) {
+  if (
+    value === 'auto' ||
+    value === 'grill_me' ||
+    value === 'grill_with_docs' ||
+    value === 'setup_matt_pocock_skills'
+  ) {
+    return value;
+  }
+  return 'auto';
+}
+
+function clarificationStatus(value: unknown) {
+  if (value === 'waiting' || value === 'resolved' || value === 'cancelled') {
+    return value;
+  }
+  return 'waiting';
+}
+
+function clarificationQuestion(value: unknown) {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  return {
+    id: String(raw.id ?? 'question'),
+    question: String(raw.question ?? ''),
+    reason: typeof raw.reason === 'string' ? raw.reason : null,
+    recommended_answer:
+      typeof raw.recommended_answer === 'string' ? raw.recommended_answer : null,
+    options: Array.isArray(raw.options)
+      ? raw.options.filter((item): item is string => typeof item === 'string')
+      : [],
+    status:
+      raw.status === 'answered' || raw.status === 'skipped' || raw.status === 'pending'
+        ? raw.status
+        : 'pending',
+    answer: typeof raw.answer === 'string' ? raw.answer : null,
+  };
+}
+
+function clarificationQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => clarificationQuestion(item)).filter(Boolean);
 }

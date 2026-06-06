@@ -3,7 +3,7 @@
 > 目的：作为 Orchestrator 相关 spec 的包级入口，区分当前契约和当前验证报告。
 >
 > 状态：Current package index
-> 最后更新：2026-06-05
+> 最后更新：2026-06-07
 
 ---
 
@@ -13,6 +13,7 @@
 |---|---|---|
 | [core.spec.md](core.spec.md) | Current contract | Orchestrator 主行为契约：调度、DAG 并行、summary、失败处理、preview 边界 |
 | [task-planning.spec.md](task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、legacy fallback、DAG 依赖语义 |
+| [clarification-gate.spec.md](clarification-gate.spec.md) | Implemented MVP | Orchestrator 进入任务规划和子 Agent 调度前的结构化需求澄清闸门 |
 | [tool-calling.spec.md](tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent 与 deployment platform tools |
 | [memory-context.spec.md](memory-context.spec.md) | Current contract | Orchestrator structured memory 与上下文注入设计 |
 | [workspace-conflict.spec.md](workspace-conflict.spec.md) | Current contract | Workspace snapshot、file changes、同一 run 内冲突检测 |
@@ -32,8 +33,16 @@
 
 1. [core.spec.md](core.spec.md)
 2. [task-planning.spec.md](task-planning.spec.md)
-3. [workspace-conflict.spec.md](workspace-conflict.spec.md)
-4. [live-e2e-report.spec.md](live-e2e-report.spec.md)
+3. [clarification-gate.spec.md](clarification-gate.spec.md)
+4. [workspace-conflict.spec.md](workspace-conflict.spec.md)
+5. [live-e2e-report.spec.md](live-e2e-report.spec.md)
+
+修改 Orchestrator 需求澄清 / 代码前追问：
+
+1. [clarification-gate.spec.md](clarification-gate.spec.md)
+2. [task-planning.spec.md](task-planning.spec.md)
+3. [memory-context.spec.md](memory-context.spec.md)
+4. [markdown-preservation-feedback.spec.md](markdown-preservation-feedback.spec.md)
 
 修改 Orchestrator tools：
 
@@ -81,6 +90,7 @@
 - Orchestrator 最终用户可见 text block 已通过 response presentation 层生成：raw execution summary 继续写入 memory / run detail，聊天最终回复只暴露自然、简洁、面向结果的摘要。
 - Orchestrator 会在最终 text 前输出 `process` ContentBlock：只展示公开执行事实，不展示 hidden thinking、raw ReAct trace、prompt、stderr、call id 或完整 tool output；可通过 `orchestrator_process_block_enabled=false` 关闭。
 - Orchestrator group 模式已支持真实 Agent 子消息后端契约：子 Agent 输出会创建独立 `messages` 行，并通过 `message_start` / `message_done` / `message_error` SSE lifecycle 事件和带 `message_id` 的 block/tool events 归属到子消息；可通过 `orchestrator_group_messages_enabled=false` 回退到旧合流消息模式。
+- Orchestrator clarification gate MVP 已实现：artifact/build/code/design 请求在进入 LLM planner 和子 Agent 调度前，会先判断需求是否足够明确；缺少关键约束时输出 `clarification` ContentBlock，一轮只问一个最高价值问题，并给出推荐默认。显式支持 `/grill-me`、`/grill-with-docs`、`/setup-matt-pocock-skills`。
 - 2026-06-05 真实群聊后端 smoke 已通过：`/tmp/agenthub_group_messages_report.json`、`/tmp/agenthub_group_messages_sse.jsonl`，conversation `0948e3a6-1fc4-40a2-8cf7-3e348b2047ae`，run `34f5ef15-e649-4827-84e4-0808037f8cfe`；SSE 出现 2 个 `message_start` 和 2 个 terminal child lifecycle event，子消息均未停留在 `streaming`。
 - 2026-06-06 真实群聊 + OpenCode 式过程展示 repair loop 已通过：`/tmp/agenthub_architected_frontend_group_chat_report.json`、`/tmp/agenthub_architected_frontend_group_chat_sse.jsonl`、`/tmp/agenthub_architected_frontend_group_chat_browser.json`，conversation `fbcd2fc5-ef65-4e0a-971a-6f700437a82c`，run `aa968e64-aeb4-4eca-b74b-ab51d26dff53`，`passed=true`。
 - 该 repair loop 覆盖 Codex Helper 独立架构消息、Claude Code / OpenCode Helper 独立后续消息、每个 child message 的流式 `process_delta`、workspace `planning.md` / `index.html` / `styles.css` / `app.js` / `diff.md`、8082 preview 200、browser verify passed 和父 Orchestrator 不内嵌子 Agent 输出。

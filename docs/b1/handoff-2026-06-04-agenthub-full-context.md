@@ -178,7 +178,10 @@ The B1 backend core has implemented, in broad terms:
 13. ContentBlock attribution:
    - optional `agent_id` per block
    - frontends should render with `block.agent_id ?? message.agent_id`
-14. SSE/concurrency hardening is in progress or recently implemented:
+14. `clarification` ContentBlock persistence:
+   - used by Orchestrator requirement clarification before planner/runtime dispatch
+   - persisted by the stream accumulator and included in OpenAPI message content union
+15. SSE/concurrency hardening is in progress or recently implemented:
    - active stream ownership should be `message_id + conversation_id`
    - avoid cross-conversation stream delivery
    - stale cleanup and terminalization of stuck messages
@@ -205,6 +208,9 @@ B2 has implemented or was working on:
    - task cards / task events
    - workspace conflict summaries
    - concise default visibility for sub-agent output
+   - clarification gate before direct planning/runtime dispatch
+   - slash commands: `/grill-me`, `/grill-with-docs`, `/setup-matt-pocock-skills`
+   - waiting clarification must not create `task_card`, `agent_switch`, or runtime attempts
 4. Runtime isolation:
    - per-message runtime context
    - separate runtime state directories
@@ -217,6 +223,19 @@ Known product expectation:
 ```text
 Simple input should get a simple answer.
 Complex build/deploy/file tasks can trigger Orchestrator planning and sub-agent execution.
+```
+
+Clarification gate expectation:
+
+```text
+Underspecified artifact/build/design/code requests may first receive a structured
+clarification card. The card asks one high-value question and provides a recommended
+answer. Recommendation chips only fill the input; side effects require explicit positive confirmation such as "按这个做" or "按默认开始实现". Negated phrases like "不要按默认" must not continue.
+
+Pending clarification replies are routed before handling: current-answer, reference-context, new-topic, explicit-switch, control, or ambiguous. New topics ask for direction confirmation instead of being swallowed as answers.
+
+`/grill-with-docs` and `/setup-matt-pocock-skills` only write the current
+conversation workspace. They must not modify AgentHub's main repository files.
 ```
 
 ## 6. Frontend Capabilities Known From Recent Work
@@ -236,8 +255,12 @@ F has implemented or was working on:
 5. TaskCardBlock rendering for orchestrator events.
 6. ContentBlock rendering:
    - text, code, diff, web/file/artifact, tool blocks.
+   - `clarification` card with question, reason, recommended answer, option chips, history, and summary.
+   - clarification option chips only fill the input box; the user still sends the answer manually.
 7. Frontend session cleanup:
    - logout should clear auth, agents, conversations, messages, React Query cache.
+8. MessageInput:
+   - slash command suggestions for `/grill-me`, `/grill-with-docs`, `/setup-matt-pocock-skills`.
 
 Known frontend bugs previously discussed and current expectations:
 

@@ -190,6 +190,25 @@ ContentBlock = (
 
 ---
 
+### 4.4 Orchestrator 需求澄清闸门（Implemented MVP）
+
+📍 规划契约：[docs/b2/spec/orchestrator/clarification-gate.spec.md](docs/b2/spec/orchestrator/clarification-gate.spec.md)
+
+B2 修改 Orchestrator 任务规划、prompt 或调度前，必须检查是否影响代码产物请求的需求澄清阶段。
+
+规则：
+
+- artifact / build / code / design 请求在进入 LLM planner 或子 Agent 调度前，应先判断需求是否足够明确。
+- 缺少会改变实现方向的关键约束时，只问一个最高价值问题，并给出推荐默认。
+- 能从当前会话、structured memory、workspace、spec/rules/docs 或代码事实推断的信息，不问用户。
+- 等待用户补充时不得创建 `task_card`、不得发 `agent_switch`、不得调用子 Agent、不得写 workspace。
+- “需要用户补充”是正常 `done` 状态，不是 runtime error，不显示重试。
+- 推荐答案和选项 chip 只辅助填入输入框；普通下一条消息不得被自动当成执行确认。
+- 进入 planner、写 workspace 或调度 Agent 前必须有明确正向确认；否定句优先于关键词匹配。
+- 用户明确要求“不要问，直接按默认做”时，可以在安全默认可行的情况下跳过澄清。
+
+---
+
 ## 5. 项目目录约定
 
 ```

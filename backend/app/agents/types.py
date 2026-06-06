@@ -41,6 +41,7 @@ BlockType = Literal[
     "workflow",
     "task_card",
     "process",
+    "clarification",
 ]
 
 

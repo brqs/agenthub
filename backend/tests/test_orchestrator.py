@@ -32,6 +32,7 @@ from app.agents.registry import get_adapter
 from app.agents.types import ChatMessage, StreamChunk
 from app.models.agent import Agent
 from app.services.artifacts.manifest import ArtifactManifestService
+from app.services.context.compression import blocks_to_text
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 from tests.orchestrator_fakes import (
     FakeAnswerGateway,
@@ -1374,6 +1375,7 @@ async def test_orchestrator_uses_planner_for_chinese_generation_request() -> Non
                 role="user",
                 content=(
                     "@orchestrator "
+                    "\u4e0d\u8981\u8ffd\u95ee\uff0c\u76f4\u63a5"
                     "\u8bf7\u4f60\u5e2e\u6211\u751f\u6210\u4e00\u4e2a\u7f51\u9875"
                 ),
             )
@@ -2906,6 +2908,542 @@ async def test_orchestrator_direct_answer_emits_process_before_text() -> None:
     ]
     assert process_deltas[0]["op"] == "upsert_step"
     assert process_deltas[0]["step"]["kind"] == "routing"
+
+
+async def test_orchestrator_grill_me_command_asks_clarification_without_dispatch() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="/grill-me 帮我做一个网页游戏")],
+        config={
+            "sub_adapters": {"codex-helper": FakeSubAdapter("codex-helper", _text_chunks("done"))}
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert any(
+        chunk.event_type == "block_start" and chunk.block_type == "clarification"
+        for chunk in chunks
+    )
+    assert not any(chunk.block_type == "task_card" for chunk in chunks)
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_auto_clarification_gate_precedes_planning() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="帮我做一个网页游戏")],
+        config={
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": FakeSubAdapter("codex-helper", _text_chunks("done"))},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert block.metadata["mode"] == "auto"
+    assert block.metadata["status"] == "waiting"
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_explicit_tasks_skip_auto_clarification_gate() -> None:
+    adapter = FakeSubAdapter("codex-helper", _text_chunks("done"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="帮我做一个网页游戏")],
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "task-a",
+                    "codex-helper",
+                    "Build demo",
+                    "Build the provided demo task.",
+                )
+            ],
+            "sub_adapters": {"codex-helper": adapter},
+        },
+    )
+
+    assert not any(chunk.block_type == "clarification" for chunk in chunks)
+    assert any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "codex-helper"
+        for chunk in chunks
+    )
+
+
+async def test_orchestrator_explicit_default_confirmation_continues_to_planner() -> None:
+    adapter = FakeSubAdapter("codex-helper", _text_chunks("implemented"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting","title":"Orchestrator '
+        '需求澄清","current_question":{"id":"delivery_defaults","question":"确认边界",'
+        '"recommended_answer":"静态前端产物"},"metadata":{"original_request":"帮我做一个网页游戏",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="user", content="帮我做一个网页游戏"),
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="按默认开始实现"),
+        ],
+        config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": adapter},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert any(
+        chunk.event_type == "block_start"
+        and chunk.block_type == "clarification"
+        and chunk.metadata
+        and chunk.metadata["status"] == "resolved"
+        for chunk in chunks
+    )
+    assert any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "codex-helper"
+        for chunk in chunks
+    )
+    assert "帮我做一个网页游戏" in adapter.received_messages[-1].content
+    assert "静态前端产物" in adapter.received_messages[-1].content
+
+
+async def test_orchestrator_auto_clarification_plain_answer_waits_for_confirmation() -> None:
+    adapter = FakeSubAdapter("codex-helper", _text_chunks("implemented"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting","title":"Orchestrator '
+        '需求澄清","current_question":{"id":"delivery_defaults","question":"确认边界",'
+        '"recommended_answer":"静态前端产物"},"metadata":{"original_request":"帮我做一个网页游戏",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="user", content="帮我做一个网页游戏"),
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="更重视觉和移动端体验"),
+        ],
+        config={
+            "react_enabled": False,
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": adapter},
+        },
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert chunks[-1].event_type == "done"
+    assert block.metadata is not None
+    assert block.metadata["status"] == "waiting"
+    assert block.metadata["current_question"]["id"] == "confirm_proceed"
+    assert "更重视觉和移动端体验" in block.metadata["metadata"]["pending_answer"]
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert adapter.received_messages == []
+
+
+async def test_orchestrator_negated_default_confirmation_does_not_continue() -> None:
+    adapter = FakeSubAdapter("codex-helper", _text_chunks("implemented"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting","title":"Orchestrator '
+        '需求澄清","current_question":{"id":"delivery_defaults","question":"确认边界",'
+        '"recommended_answer":"静态前端产物"},"metadata":{"original_request":"帮我做一个网页游戏",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="不要按默认，也不要直接做"),
+        ],
+        config={
+            "react_enabled": False,
+            "sub_adapters": {"codex-helper": adapter},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert adapter.received_messages == []
+
+
+async def test_orchestrator_grill_me_preserves_answered_question_history() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"grill_me","status":"waiting","title":"需求追问",'
+        '"current_question":{"id":"interaction_scope","question":"核心交互？",'
+        '"recommended_answer":"完整主流程","status":"pending"},"questions":['
+        '{"id":"audience_goal","question":"目标？","status":"answered","answer":"普通用户"},'
+        '{"id":"interaction_scope","question":"核心交互？","recommended_answer":"完整主流程",'
+        '"status":"pending"}],"metadata":{"original_request":"帮我做一个网页游戏",'
+        '"question_count":2,"max_questions":4}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="完整主流程"),
+        ],
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert [item["status"] for item in block.metadata["questions"]] == [
+        "answered",
+        "answered",
+        "pending",
+    ]
+    assert block.metadata["questions"][0]["answer"] == "普通用户"
+    assert block.metadata["questions"][1]["answer"] == "完整主流程"
+
+
+async def test_orchestrator_setup_command_writes_workspace_docs(tmp_path: Path) -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"setup_matt_pocock_skills","status":"waiting",'
+        '"title":"Matt Pocock Skills 初始化","current_question":{"id":"setup_confirm",'
+        '"question":"是否初始化","recommended_answer":"使用推荐配置"},"metadata":'
+        '{"original_request":"setup matt pocock skills","question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="使用推荐配置"),
+        ],
+        workspace_path=tmp_path,
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert (tmp_path / "AGENTS.md").is_file()
+    assert (tmp_path / "docs" / "agents" / "issue-tracker.md").is_file()
+    assert (tmp_path / "docs" / "agents" / "triage-labels.md").is_file()
+    assert (tmp_path / "docs" / "agents" / "domain.md").is_file()
+
+
+async def test_orchestrator_setup_command_requires_explicit_write_confirmation(
+    tmp_path: Path,
+) -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"setup_matt_pocock_skills","status":"waiting",'
+        '"title":"Matt Pocock Skills 初始化","current_question":{"id":"setup_confirm",'
+        '"question":"是否初始化","recommended_answer":"使用推荐配置"},"metadata":'
+        '{"original_request":"setup matt pocock skills","question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="我们以后可能使用本地文档管理"),
+        ],
+        workspace_path=tmp_path,
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert block.metadata["status"] == "waiting"
+    assert block.metadata["current_question"]["id"] == "setup_write_confirm"
+    assert not (tmp_path / "AGENTS.md").exists()
+
+
+async def test_orchestrator_grill_with_docs_requires_write_confirmation(
+    tmp_path: Path,
+) -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"grill_with_docs","status":"waiting",'
+        '"title":"带文档的需求澄清","current_question":{"id":"term_definition",'
+        '"question":"定义术语","recommended_answer":"定义精致"},"metadata":'
+        '{"original_request":"grill with docs","question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="精致指移动端和桌面端都没有明显粗糙状态"),
+        ],
+        workspace_path=tmp_path,
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert block.metadata["current_question"]["id"] == "docs_write_confirm"
+    assert not (tmp_path / "CONTEXT.md").exists()
+
+    confirm_state = (
+        '[Clarification state] {"mode":"grill_with_docs","status":"waiting",'
+        '"title":"带文档的需求澄清","current_question":{"id":"docs_write_confirm",'
+        '"question":"确认写入","recommended_answer":"确认写入"},"metadata":'
+        '{"original_request":"grill with docs","pending_docs_answer":'
+        '"精致指移动端和桌面端都没有明显粗糙状态","question_count":2,"max_questions":3}}'
+    )
+    confirm_chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=confirm_state),
+            ChatMessage(role="user", content="确认写入"),
+        ],
+        workspace_path=tmp_path,
+    )
+
+    assert confirm_chunks[-1].event_type == "done"
+    assert "精致指移动端和桌面端都没有明显粗糙状态" in (tmp_path / "CONTEXT.md").read_text(
+        encoding="utf-8"
+    )
+
+
+async def test_orchestrator_reference_to_other_project_is_current_answer() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting","title":"Orchestrator '
+        '需求澄清","current_question":{"id":"delivery_defaults","question":"项目 A 的交付边界？",'
+        '"recommended_answer":"静态前端产物"},"metadata":{"original_request":"项目 A 做网页游戏",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="参考项目 B 的交互体验，但视觉更轻"),
+        ],
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert block.metadata["current_question"]["id"] == "confirm_proceed"
+    assert "参考项目 B" in block.metadata["metadata"]["pending_answer"]
+
+
+async def test_orchestrator_new_project_topic_asks_route_confirmation() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting","title":"Orchestrator '
+        '需求澄清","current_question":{"id":"delivery_defaults","question":"项目 A 的交付边界？",'
+        '"recommended_answer":"静态前端产物"},"metadata":{"original_request":"项目 A 做网页游戏",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="项目 B 的登录体验怎么改？"),
+        ],
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert block.metadata["title"] == "确认澄清方向"
+    assert block.metadata["current_question"]["id"] == "topic_route"
+    assert "项目 B 的登录体验怎么改" in block.metadata["metadata"]["route_pending_user_request"]
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_explicit_topic_switch_restarts_gate() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting","title":"Orchestrator '
+        '需求澄清","current_question":{"id":"delivery_defaults","question":"项目 A 的交付边界？",'
+        '"recommended_answer":"静态前端产物"},"metadata":{"original_request":"项目 A 做网页游戏",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="先不做项目 A，改做项目 B 的网页游戏"),
+        ],
+        config={
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": FakeSubAdapter("codex-helper", _text_chunks("done"))},
+        },
+    )
+
+    blocks = [
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    ]
+    assert [block.metadata["status"] for block in blocks if block.metadata] == [
+        "cancelled",
+        "waiting",
+    ]
+    assert blocks[-1].metadata is not None
+    assert blocks[-1].metadata["metadata"]["original_request"] == "改做项目 B 的网页游戏"
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_topic_route_state_from_blocks_to_text_keeps_reference() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    previous_state = {
+        "mode": "auto",
+        "status": "waiting",
+        "title": "Orchestrator 需求澄清",
+        "current_question": {
+            "id": "delivery_defaults",
+            "question": "项目 A 的交付边界？",
+            "recommended_answer": "静态前端产物",
+            "status": "pending",
+        },
+        "questions": [
+            {
+                "id": "delivery_defaults",
+                "question": "项目 A 的交付边界？",
+                "recommended_answer": "静态前端产物",
+                "status": "pending",
+            }
+        ],
+        "metadata": {
+            "original_request": "项目 A 做网页游戏",
+            "question_count": 1,
+            "max_questions": 3,
+        },
+    }
+    pending_state = blocks_to_text(
+        [
+            {
+                "type": "clarification",
+                "mode": "auto",
+                "status": "waiting",
+                "title": "确认澄清方向",
+                "current_question": {
+                    "id": "topic_route",
+                    "question": "继续当前需求还是切换？",
+                    "recommended_answer": "继续澄清当前需求",
+                    "options": [
+                        "继续澄清当前需求",
+                        "切换到新需求",
+                        "把新内容作为当前需求参考",
+                    ],
+                    "status": "pending",
+                },
+                "questions": [
+                    {
+                        "id": "delivery_defaults",
+                        "question": "项目 A 的交付边界？",
+                        "status": "answered",
+                        "answer": "项目 B 的登录体验怎么改？",
+                    },
+                    {
+                        "id": "topic_route",
+                        "question": "继续当前需求还是切换？",
+                        "status": "pending",
+                    },
+                ],
+                "metadata": {
+                    "route": "new_topic",
+                    "route_pending_user_request": "项目 B 的登录体验怎么改？",
+                    "previous_clarification_state": previous_state,
+                },
+            }
+        ]
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="把新内容作为当前需求参考"),
+        ],
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert block.metadata["current_question"]["id"] == "confirm_proceed"
+    assert "项目 B 的登录体验怎么改" in block.metadata["metadata"]["pending_answer"]
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_legacy_clarification_state_restores_current_question() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting","title":"Orchestrator '
+        '需求澄清","question_id":"delivery_defaults","question":"项目 A 的交付边界？",'
+        '"recommended_answer":"静态前端产物","metadata":{"original_request":"项目 A 做网页游戏",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="更重视觉和移动端体验"),
+        ],
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    assert block.metadata["current_question"]["id"] == "confirm_proceed"
+    assert block.metadata["questions"][0]["id"] == "delivery_defaults"
+    assert block.metadata["questions"][0]["answer"] == "更重视觉和移动端体验"
 
 
 async def test_orchestrator_static_tasks_emit_process_before_final_text() -> None:

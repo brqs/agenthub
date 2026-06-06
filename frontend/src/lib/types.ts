@@ -136,6 +136,26 @@ export interface ProcessBlock {
   summary?: string | null;
   metadata?: Record<string, unknown>;
 }
+export interface ClarificationQuestion {
+  id: string;
+  question: string;
+  reason?: string | null;
+  recommended_answer?: string | null;
+  options?: string[];
+  status: 'pending' | 'answered' | 'skipped';
+  answer?: string | null;
+}
+export interface ClarificationBlock {
+  type: 'clarification';
+  agent_id?: string | null;
+  mode: 'auto' | 'grill_me' | 'grill_with_docs' | 'setup_matt_pocock_skills';
+  title: string;
+  status: 'waiting' | 'resolved' | 'cancelled';
+  current_question?: ClarificationQuestion | null;
+  questions: ClarificationQuestion[];
+  summary?: string | null;
+  metadata?: Record<string, unknown>;
+}
 export interface WorkflowBlock {
   type: 'workflow';
   agent_id?: string | null;
@@ -176,6 +196,7 @@ export type ContentBlock =
   | WorkflowBlock
   | TaskCardBlock
   | ProcessBlock
+  | ClarificationBlock
   | ToolCallBlock;
 
 // ─── Messages ───

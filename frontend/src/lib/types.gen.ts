@@ -775,6 +775,58 @@ export interface components {
             expires_in: number;
             user: components["schemas"]["UserOut"];
         };
+        /** ClarificationBlock */
+        ClarificationBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "clarification";
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "auto" | "grill_me" | "grill_with_docs" | "setup_matt_pocock_skills";
+            /** Title */
+            title: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "waiting" | "resolved" | "cancelled";
+            current_question?: components["schemas"]["ClarificationQuestion"] | null;
+            /** Questions */
+            questions?: components["schemas"]["ClarificationQuestion"][];
+            /** Summary */
+            summary?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ClarificationQuestion */
+        ClarificationQuestion: {
+            /** Id */
+            id: string;
+            /** Question */
+            question: string;
+            /** Reason */
+            reason?: string | null;
+            /** Recommended Answer */
+            recommended_answer?: string | null;
+            /** Options */
+            options?: string[];
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "answered" | "skipped";
+            /** Answer */
+            answer?: string | null;
+        };
         /** CodeBlock */
         CodeBlock: {
             /**
@@ -1099,7 +1151,7 @@ export interface components {
             /** Agent Id */
             agent_id?: string | null;
             /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Reply To Id */
             reply_to_id?: string | null;
             /**
@@ -1325,6 +1377,8 @@ export interface components {
         };
         /** ProcessStep */
         ProcessStep: {
+            /** Id */
+            id?: string | null;
             /** Label */
             label: string;
             /**
@@ -1352,7 +1406,7 @@ export interface components {
         /** SendMessageRequest */
         SendMessageRequest: {
             /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Target Agent Id */
             target_agent_id?: string | null;
         };
@@ -2250,6 +2304,11 @@ export interface components {
              */
             orchestrator_tool_read_max_bytes: number | null;
             /**
+             * Orchestrator Group Messages Enabled
+             * @default null
+             */
+            orchestrator_group_messages_enabled: boolean | null;
+            /**
              * Orchestrator Process Block Enabled
              * @default null
              */
@@ -2259,6 +2318,26 @@ export interface components {
              * @default null
              */
             orchestrator_response_polish_enabled: boolean | null;
+            /**
+             * Clarification Gate Enabled
+             * @default null
+             */
+            clarification_gate_enabled: boolean | null;
+            /**
+             * Auto Clarification Max Questions
+             * @default null
+             */
+            auto_clarification_max_questions: number | null;
+            /**
+             * Grill Max Questions
+             * @default null
+             */
+            grill_max_questions: number | null;
+            /**
+             * Workspace Docs Enabled
+             * @default null
+             */
+            workspace_docs_enabled: boolean | null;
             /**
              * Orchestrator Response Polish Model Backend
              * @description ModelGateway backend for Orchestrator final response polish.
