@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -252,18 +253,28 @@ class WorkspacePreviewService:
             await db.flush()
 
     def _start_process(self, root: Path, entry_path: str, port: int) -> subprocess.Popen[bytes]:
+        argv = [
+            sys.executable,
+            "-m",
+            "app.services.workspace.static_server",
+            "--root",
+            str(root),
+            "--entry",
+            entry_path,
+            "--port",
+            str(port),
+            "--frame-ancestors",
+            settings.preview_allowed_frame_ancestors,
+        ]
+        if os.name == "nt":
+            return subprocess.Popen(  # noqa: S603 - static argv, workspace path is validated.
+                argv,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+            )
         return subprocess.Popen(  # noqa: S603 - static argv, workspace path is validated.
-            [
-                sys.executable,
-                "-m",
-                "app.services.workspace.static_server",
-                "--root",
-                str(root),
-                "--entry",
-                entry_path,
-                "--port",
-                str(port),
-            ],
+            argv,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
@@ -282,10 +293,12 @@ class WorkspacePreviewService:
             return
         assert pid is not None
         try:
-            os.killpg(pid, signal.SIGTERM)
+            self._kill_preview_process(pid, signal.SIGTERM)
         except ProcessLookupError:
             return
         except PermissionError:
+            if os.name == "nt":
+                raise
             os.kill(pid, signal.SIGTERM)
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -293,16 +306,49 @@ class WorkspacePreviewService:
                 return
             time.sleep(0.05)
         try:
-            os.killpg(pid, signal.SIGKILL)
+            self._kill_preview_process(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
         except ProcessLookupError:
             return
         except PermissionError:
-            os.kill(pid, signal.SIGKILL)
+            if os.name == "nt":
+                raise
+            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+
+    def _kill_preview_process(self, pid: int, sig: signal.Signals) -> None:
+        if os.name == "nt":
+            self._kill_windows_process_tree(pid)
+            return
+        killpg = getattr(os, "killpg", None)
+        if killpg is not None:
+            killpg(pid, sig)
+            return
+        os.kill(pid, sig)
+
+    def _kill_windows_process_tree(self, pid: int) -> None:
+        taskkill = shutil.which("taskkill")
+        if taskkill is None:
+            raise FileNotFoundError("taskkill.exe was not found")
+        completed = subprocess.run(  # noqa: S603, S607 - taskkill is the Windows process-tree primitive.
+            [taskkill, "/PID", str(pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if completed.returncode == 0:
+            return
+        if completed.returncode == 128:
+            raise ProcessLookupError(pid)
+        if not self._pid_alive(pid):
+            raise ProcessLookupError(pid)
+        raise PermissionError(f"taskkill failed with exit code {completed.returncode}")
 
     def _wait_until_healthy(self, port: int, entry_path: str) -> None:
         url = f"http://127.0.0.1:{port}/{self._quote_path(entry_path)}"
         opener = build_opener(ProxyHandler({}))
-        deadline = time.monotonic() + settings.preview_start_timeout_seconds
+        timeout_seconds = settings.preview_start_timeout_seconds
+        if os.name == "nt":
+            timeout_seconds = max(timeout_seconds, 15)
+        deadline = time.monotonic() + timeout_seconds
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             try:

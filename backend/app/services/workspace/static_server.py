@@ -8,22 +8,27 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from app.core.config import settings
+DEFAULT_FRAME_ANCESTORS = "http://154.44.25.94:1573"
 
-frame_ancestors = " ".join(
-    ["'self'", *(item.strip() for item in settings.preview_allowed_frame_ancestors.split(","))]
-)
-HTML_CSP = (
-    "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: blob:; "
-    "font-src 'self' data:; "
-    "connect-src 'self'; "
-    "object-src 'none'; "
-    "base-uri 'none'; "
-    f"frame-ancestors {frame_ancestors}"
-)
+
+def _build_html_csp(allowed_frame_ancestors: str) -> str:
+    frame_ancestors = " ".join(
+        ["'self'", *(item.strip() for item in allowed_frame_ancestors.split(",") if item.strip())]
+    )
+    return (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "object-src 'none'; "
+        "base-uri 'none'; "
+        f"frame-ancestors {frame_ancestors}"
+    )
+
+
+HTML_CSP = _build_html_csp(DEFAULT_FRAME_ANCESTORS)
 
 
 class SnapshotRequestHandler(SimpleHTTPRequestHandler):
@@ -69,7 +74,10 @@ def main() -> None:
     parser.add_argument("--root", required=True)
     parser.add_argument("--entry", required=True)
     parser.add_argument("--port", required=True, type=int)
+    parser.add_argument("--frame-ancestors", default=DEFAULT_FRAME_ANCESTORS)
     args = parser.parse_args()
+    global HTML_CSP
+    HTML_CSP = _build_html_csp(args.frame_ancestors)
     root = Path(args.root).expanduser().resolve()
     entry = (root / args.entry).resolve()
     entry.relative_to(root)

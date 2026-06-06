@@ -1,3 +1,4 @@
+import { ClarificationCard } from './ClarificationCard';
 import { CodeBlock } from './CodeBlock';
 import { DeploymentStatusBlock } from './DeploymentStatusBlock';
 import { DiffBlock } from './DiffBlock';
@@ -117,6 +118,9 @@ function renderBlock(
   }
   if (block.type === 'process') {
     return <ProcessBlock key={`${block.type}-${index}`} block={block} />;
+  }
+  if (block.type === 'clarification') {
+    return <ClarificationCard key={`${block.type}-${index}`} block={block} />;
   }
   if (block.type === 'tool_call') {
     return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;

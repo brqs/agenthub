@@ -11,6 +11,7 @@
 | [spec/orchestrator/README.md](spec/orchestrator/README.md) | Orchestrator spec package：主契约、planning、tools、memory、conflict、E2E |
 | [spec/orchestrator/live-e2e-report.spec.md](spec/orchestrator/live-e2e-report.spec.md) | Orchestrator 真实 E2E、回归部署与 bugfix 证据 |
 | [spec/orchestrator/core.spec.md](spec/orchestrator/core.spec.md) | Orchestrator 当前行为契约 |
+| [spec/orchestrator/clarification-gate.spec.md](spec/orchestrator/clarification-gate.spec.md) | Orchestrator 代码产物请求进入 planner/子 Agent 调度前的需求澄清闸门 |
 | [spec/external-runtime-adapters.spec.md](spec/external-runtime-adapters.spec.md) | Claude Code / Codex / OpenCode adapter 细节 |
 | [spec/external-direct-chat-routing.spec.md](spec/external-direct-chat-routing.spec.md) | External Agent 纯问答 / Runtime 路由 |
 | [spec/model-gateway.spec.md](spec/model-gateway.spec.md) | ModelGateway backend 与 resilience |
@@ -113,6 +114,7 @@
 | [spec/model-gateway.spec.md](spec/model-gateway.spec.md) | ModelGateway backend 与 resilience |
 | [spec/orchestrator/core.spec.md](spec/orchestrator/core.spec.md) | Orchestrator 行为契约 |
 | [spec/orchestrator/task-planning.spec.md](spec/orchestrator/task-planning.spec.md) | Orchestrator 任务规划与分配规则 |
+| [spec/orchestrator/clarification-gate.spec.md](spec/orchestrator/clarification-gate.spec.md) | Orchestrator 需求澄清闸门 |
 | [spec/orchestrator/memory-context.spec.md](spec/orchestrator/memory-context.spec.md) | Orchestrator 结构化记忆与上下文管理 |
 | [spec/orchestrator/tool-calling.spec.md](spec/orchestrator/tool-calling.spec.md) | Orchestrator 原生 Tool Calling Agent 设计 |
 | [spec/agent-config-validation.spec.md](spec/agent-config-validation.spec.md) | Agent 配置校验 |

@@ -92,6 +92,7 @@ uv run mypy <paths>
 
 - 是否违反目录 owner、任务边界或共享契约。
 - 是否擅自修改 `BaseAgentAdapter`、`StreamChunk`、OpenAPI、frontend、registry、seed。
+- Orchestrator 规划/prompt/调度改动是否遵守 [docs/b2/spec/orchestrator/clarification-gate.spec.md](../../b2/spec/orchestrator/clarification-gate.spec.md)：代码产物请求进入 planner/子 Agent 调度前，应先判断是否需要一问一答式需求澄清。
 - `workspace_path`、`tool_specs`、`ToolSpec.parameters`、`call_id` 是否符合 contract。
 - external runtime 的 timeout、process cleanup、SDK/subprocess error 是否映射为标准 error。
 - tool_call/tool_result 是否保持 call_id 配对。

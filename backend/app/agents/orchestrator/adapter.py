@@ -76,6 +76,9 @@ from app.agents.orchestrator._internal.tools.loop import (
     run_orchestrator_tool_loop,
     tool_calling_enabled,
 )
+from app.agents.orchestrator.clarification import (
+    maybe_handle_clarification as _maybe_handle_clarification,
+)
 from app.agents.orchestrator.execution import (
     _run_static_tasks,
     _run_task,
@@ -170,6 +173,28 @@ class OrchestratorAdapter(BaseAgentAdapter):
 
         merged_config = self.merged_config(config)
         next_block_index = 0
+        clarification = await _maybe_handle_clarification(
+            merged_config,
+            messages,
+            next_block_index,
+            workspace_path,
+            latest_user_request=_latest_user_request,
+            has_task_intent=_has_task_intent,
+        )
+        if clarification is not None:
+            for chunk in clarification.chunks:
+                yield chunk
+            next_block_index = clarification.next_block_index
+            if clarification.done:
+                yield StreamChunk(
+                    event_type="done",
+                    agent_id=self.agent_id,
+                    total_blocks=next_block_index,
+                )
+                return
+            if clarification.continue_messages is not None:
+                messages = clarification.continue_messages
+
         platform_fact = await platform_fact_intent(
             merged_config,
             messages,
