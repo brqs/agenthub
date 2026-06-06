@@ -1,4 +1,13 @@
-import { AlertTriangle, CheckCircle2, CircleDashed, Clock3, ListChecks } from 'lucide-react';
+import { useState } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleDashed,
+  Clock3,
+  ListChecks,
+} from 'lucide-react';
 import type { ProcessBlock as ProcessBlockData, ProcessStep } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -51,8 +60,11 @@ const KIND_LABELS: Record<ProcessStep['kind'], string> = {
 };
 
 export function ProcessBlock({ block }: { block: ProcessBlockData }) {
+  const [isCollapsed, setIsCollapsed] = useState(block.default_collapsed);
   const meta = STATUS_META[block.status];
   const StatusIcon = meta.icon;
+  const ToggleIcon = isCollapsed ? ChevronRight : ChevronDown;
+  const stepCountLabel = `${block.steps.length} 个步骤`;
 
   return (
     <section className="my-3 min-w-0 overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
@@ -60,7 +72,7 @@ export function ProcessBlock({ block }: { block: ProcessBlockData }) {
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-brand/25 bg-brand/10 text-brand dark:text-brand-light">
           <ListChecks className="h-4 w-4" />
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="mobile-text-safe min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-slate-950 dark:text-white">
             {block.title}
           </div>
@@ -70,6 +82,9 @@ export function ProcessBlock({ block }: { block: ProcessBlockData }) {
             </div>
           )}
         </div>
+        <span className="hidden shrink-0 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400 sm:inline-flex">
+          {stepCountLabel}
+        </span>
         <span
           className={cn(
             'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs',
@@ -79,36 +94,47 @@ export function ProcessBlock({ block }: { block: ProcessBlockData }) {
           <StatusIcon className="h-3.5 w-3.5" />
           {meta.label}
         </span>
+        <button
+          type="button"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:border-brand/40 hover:bg-brand/10 hover:text-brand focus:outline-none focus:ring-2 focus:ring-brand/30 dark:border-slate-800 dark:text-slate-400 dark:hover:border-brand-light/40 dark:hover:bg-brand-light/10 dark:hover:text-brand-light"
+          aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? '展开执行过程' : '收起执行过程'}
+          onClick={() => setIsCollapsed((value) => !value)}
+        >
+          <ToggleIcon className="h-4 w-4" />
+        </button>
       </div>
-      <div className="grid min-w-0 gap-2 px-3 py-3">
-        {block.steps.map((step, index) => {
-          const stepMeta = STEP_STATUS_META[step.status];
-          const StepIcon = stepMeta.icon;
-          return (
-            <div
-              key={step.id ?? `${step.kind}-${index}-${step.label}`}
-              className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/70"
-            >
-              <StepIcon className={cn('mt-0.5 h-4 w-4', stepMeta.className)} />
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="min-w-0 break-words text-sm font-medium text-slate-900 dark:text-slate-100">
-                    {step.label}
-                  </span>
-                  <span className="shrink-0 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
-                    {KIND_LABELS[step.kind]}
-                  </span>
-                </div>
-                {step.detail && (
-                  <div className="mt-1 break-words text-xs leading-5 text-slate-600 dark:text-slate-400">
-                    {step.detail}
+      {!isCollapsed && (
+        <div className="grid min-w-0 gap-2 px-3 py-3">
+          {block.steps.map((step, index) => {
+            const stepMeta = STEP_STATUS_META[step.status];
+            const StepIcon = stepMeta.icon;
+            return (
+              <div
+                key={step.id ?? `${step.kind}-${index}-${step.label}`}
+                className="grid min-w-0 grid-cols-[1rem_minmax(0,1fr)] gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800 dark:bg-slate-900/70"
+              >
+                <StepIcon className={cn('mt-0.5 h-4 w-4', stepMeta.className)} />
+                <div className="mobile-text-safe min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="min-w-0 break-words text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {step.label}
+                    </span>
+                    <span className="shrink-0 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
+                      {KIND_LABELS[step.kind]}
+                    </span>
                   </div>
-                )}
+                  {step.detail && (
+                    <div className="mt-1 break-words text-xs leading-5 text-slate-600 dark:text-slate-400">
+                      {step.detail}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
