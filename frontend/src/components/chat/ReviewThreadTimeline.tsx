@@ -14,8 +14,8 @@ export function ReviewThreadTimeline({
   if (items.length === 0) return null;
 
   return (
-    <section className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/70">
-      <div className="mb-3 flex items-center justify-between gap-2">
+    <section className="mobile-text-safe mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/70">
+      <div className="mb-3 flex min-w-0 items-center justify-between gap-2">
         <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
           Review / Handoff Timeline
         </div>
@@ -38,7 +38,7 @@ function TimelineNode({ item, agents }: { item: ReviewThreadItem; agents: Agent[
   const BadgeIcon = badge.icon;
 
   return (
-    <div className="flex gap-3 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/75">
+    <div className="flex min-w-0 max-w-full gap-3 rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/75">
       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand dark:text-brand-light">
         <Icon className="h-4 w-4" />
       </span>
@@ -54,11 +54,11 @@ function TimelineNode({ item, agents }: { item: ReviewThreadItem; agents: Agent[
         </div>
         <div className="mt-2 flex min-w-0 items-center gap-2">
           <AgentAvatar agent={agent} size="sm" />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+          <div className="min-w-0 max-w-full">
+            <div className="mobile-text-safe text-sm font-medium text-slate-900 dark:text-slate-100 sm:truncate">
               {item.title}
             </div>
-            <div className="truncate text-xs text-slate-500">
+            <div className="mobile-text-safe text-xs text-slate-500 sm:truncate">
               @{agent?.name ?? item.agentId} · {item.taskId}
             </div>
           </div>
@@ -91,7 +91,7 @@ function TimelineMetadata({ item }: { item: ReviewThreadItem }) {
           {chips.map((chip) => (
             <span
               key={chip}
-              className="max-w-full truncate rounded border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800"
+              className="mobile-text-safe max-w-full rounded border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800 sm:truncate"
             >
               {chip}
             </span>
@@ -99,12 +99,12 @@ function TimelineMetadata({ item }: { item: ReviewThreadItem }) {
         </div>
       )}
       {errorSummary && (
-        <p className="mt-2 line-clamp-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs leading-5 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+        <p className="mobile-text-safe mt-2 line-clamp-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs leading-5 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
           {errorSummary}
         </p>
       )}
       {summary && (
-        <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate-600 dark:text-slate-400">
+        <p className="mobile-text-safe mt-2 line-clamp-3 text-xs leading-5 text-slate-600 dark:text-slate-400">
           {summary}
         </p>
       )}

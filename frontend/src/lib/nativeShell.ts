@@ -8,6 +8,7 @@ let initialized = false;
 export function initializeNativeShell(): void {
   if (!Capacitor.isNativePlatform() || initialized) return;
   initialized = true;
+  document.documentElement.classList.add('is-native-shell');
   void App.addListener('backButton', ({ canGoBack }) => {
     void handleNativeBackButton(canGoBack);
   });

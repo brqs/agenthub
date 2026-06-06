@@ -83,7 +83,7 @@ export function MessageInput({
   }
 
   return (
-    <footer className="shrink-0 border-t border-slate-200 bg-slate-100 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 dark:border-slate-800 dark:bg-slate-950 sm:px-5 sm:py-3 max-[800px]:py-2 [@media(max-height:800px)]:py-2">
+    <footer className="min-w-0 max-w-full shrink-0 overflow-hidden border-t border-slate-200 bg-slate-100 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 dark:border-slate-800 dark:bg-slate-950 sm:px-5 sm:py-3 max-[800px]:py-2 [@media(max-height:800px)]:py-2">
       {conversation.mode === 'group' && (
         <div className="mb-2 flex items-center gap-2 text-xs text-slate-500 max-[800px]:hidden [@media(max-height:800px)]:hidden">
           <AtSign className="h-3.5 w-3.5" />
@@ -99,14 +99,14 @@ export function MessageInput({
         </p>
       )}
       {submitError && (
-        <p className="mb-2 text-xs font-medium text-red-600 dark:text-red-400">
+        <p className="mobile-text-safe mb-2 text-xs font-medium text-red-600 dark:text-red-400">
           {submitError}
         </p>
       )}
-      <div className="flex items-end gap-3 rounded-md border border-slate-300 bg-white p-2.5 focus-within:border-brand dark:border-slate-800 dark:bg-slate-900 [@media(max-height:800px)]:p-2">
+      <div className="flex min-w-0 max-w-full items-end gap-2 rounded-md border border-slate-300 bg-white p-2.5 focus-within:border-brand dark:border-slate-800 dark:bg-slate-900 sm:gap-3 [@media(max-height:800px)]:p-2">
         <button
           type="button"
-          className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+          className="shrink-0 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
           title="添加附件"
           aria-label="添加附件"
         >
@@ -123,13 +123,13 @@ export function MessageInput({
           rows={1}
           disabled={isUnavailable}
           placeholder={isOffline ? '当前离线，恢复网络后可继续发送' : `发消息到 ${conversation.title}`}
-          className="max-h-28 min-h-9 flex-1 resize-none bg-transparent py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-600 [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
+          className="mobile-text-safe max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-600 [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
         />
         <button
           type="button"
           onClick={() => void submit()}
           disabled={!text.trim() || isUnavailable}
-          className="flex h-10 w-10 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
           title="发送"
           aria-label="发送"
         >

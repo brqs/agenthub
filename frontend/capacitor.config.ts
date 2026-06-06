@@ -15,6 +15,9 @@ const config: CapacitorConfig = {
       resize: 'body',
     },
   },
+  server: {
+    androidScheme: 'http',
+  },
 };
 
 export default config;
