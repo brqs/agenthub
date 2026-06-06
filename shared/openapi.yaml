@@ -1880,6 +1880,101 @@ components:
       - expires_in
       - user
       title: AuthResponse
+    ClarificationBlock:
+      properties:
+        type:
+          type: string
+          const: clarification
+          title: Type
+          default: clarification
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        mode:
+          type: string
+          enum:
+          - auto
+          - grill_me
+          - grill_with_docs
+          - setup_matt_pocock_skills
+          title: Mode
+        title:
+          type: string
+          title: Title
+        status:
+          type: string
+          enum:
+          - waiting
+          - resolved
+          - cancelled
+          title: Status
+        current_question:
+          anyOf:
+          - $ref: '#/components/schemas/ClarificationQuestion'
+          - type: 'null'
+        questions:
+          items:
+            $ref: '#/components/schemas/ClarificationQuestion'
+          type: array
+          title: Questions
+        summary:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - mode
+      - title
+      - status
+      title: ClarificationBlock
+    ClarificationQuestion:
+      properties:
+        id:
+          type: string
+          title: Id
+        question:
+          type: string
+          title: Question
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        recommended_answer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Recommended Answer
+        options:
+          items:
+            type: string
+          type: array
+          title: Options
+        status:
+          type: string
+          enum:
+          - pending
+          - answered
+          - skipped
+          title: Status
+          default: pending
+        answer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Answer
+      type: object
+      required:
+      - id
+      - question
+      title: ClarificationQuestion
     CodeBlock:
       properties:
         type:
@@ -2479,10 +2574,12 @@ components:
             - $ref: '#/components/schemas/WorkflowBlock'
             - $ref: '#/components/schemas/TaskCardBlock'
             - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
             - $ref: '#/components/schemas/ToolCallBlock'
             discriminator:
               propertyName: type
               mapping:
+                clarification: '#/components/schemas/ClarificationBlock'
                 code: '#/components/schemas/CodeBlock'
                 deployment_status: '#/components/schemas/DeploymentStatusBlock'
                 diff: '#/components/schemas/DiffBlock'
@@ -2942,10 +3039,12 @@ components:
             - $ref: '#/components/schemas/WorkflowBlock'
             - $ref: '#/components/schemas/TaskCardBlock'
             - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
             - $ref: '#/components/schemas/ToolCallBlock'
             discriminator:
               propertyName: type
               mapping:
+                clarification: '#/components/schemas/ClarificationBlock'
                 code: '#/components/schemas/CodeBlock'
                 deployment_status: '#/components/schemas/DeploymentStatusBlock'
                 diff: '#/components/schemas/DiffBlock'
@@ -4554,6 +4653,38 @@ components:
           - type: 'null'
           default: null
           title: Orchestrator Response Polish Enabled
+        clarification_gate_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Clarification Gate Enabled
+        auto_clarification_max_questions:
+          anyOf:
+          - maximum: 8
+            minimum: 0
+            type: integer
+          - type: 'null'
+          default: null
+          title: Auto Clarification Max Questions
+          minimum: 0
+          maximum: 8
+        grill_max_questions:
+          anyOf:
+          - maximum: 12
+            minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          title: Grill Max Questions
+          minimum: 1
+          maximum: 12
+        workspace_docs_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Workspace Docs Enabled
         orchestrator_response_polish_model_backend:
           anyOf:
           - enum:

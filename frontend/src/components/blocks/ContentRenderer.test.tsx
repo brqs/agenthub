@@ -77,6 +77,23 @@ describe('ContentRenderer', () => {
         ],
       },
       {
+        type: 'clarification',
+        agent_id: 'orchestrator',
+        mode: 'grill_me',
+        title: '需求追问',
+        status: 'waiting',
+        current_question: {
+          id: 'audience_goal',
+          question: '目标用户是谁？',
+          reason: '先锁定使用场景。',
+          recommended_answer: '普通用户，桌面和移动端都可用。',
+          options: ['使用推荐答案'],
+          status: 'pending',
+        },
+        questions: [],
+        metadata: {},
+      },
+      {
         type: 'tool_call',
         call_id: 'call-1',
         tool_name: 'write_file',
@@ -136,6 +153,10 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('部分完成')).toBeInTheDocument();
     expect(screen.getByText('整理执行计划')).toBeInTheDocument();
     expect(screen.getByText('移动端验收')).toBeInTheDocument();
+    expect(screen.getByText('需求追问')).toBeInTheDocument();
+    expect(screen.getByText('目标用户是谁？')).toBeInTheDocument();
+    expect(screen.getByText('普通用户，桌面和移动端都可用。')).toBeInTheDocument();
+    expect(screen.getByText(/只会填入输入框/)).toBeInTheDocument();
     expect(screen.getByText('write_file')).toBeInTheDocument();
     expect(screen.getByText('call-1')).toBeInTheDocument();
     expect(screen.getByText('Static site deployment')).toBeInTheDocument();

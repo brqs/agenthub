@@ -3,6 +3,7 @@ import {
   type DemoContentBlock,
   type DemoConversation,
   type DemoMessage,
+  type ClarificationBlock,
   type ProcessBlock,
   type TaskCardBlock,
   type TaskStatus,
@@ -175,6 +176,23 @@ function createProcessBlock(
   };
 }
 
+function createClarificationBlock(
+  metadata: Record<string, unknown> | undefined,
+  agentId?: string,
+): ClarificationBlock {
+  return {
+    type: 'clarification',
+    agent_id: (metadata?.agent_id as string | undefined) ?? agentId ?? 'orchestrator',
+    mode: clarificationMode(metadata?.mode),
+    title: typeof metadata?.title === 'string' ? metadata.title : '需求澄清',
+    status: clarificationStatus(metadata?.status),
+    current_question: clarificationQuestion(metadata?.current_question),
+    questions: clarificationQuestions(metadata?.questions),
+    summary: typeof metadata?.summary === 'string' ? metadata.summary : null,
+    metadata: (metadata?.metadata as Record<string, unknown>) ?? {},
+  };
+}
+
 function processStepFromValue(value: unknown): ProcessBlock['steps'][number] | null {
   if (!value || typeof value !== 'object') return null;
   const step = value as Record<string, unknown>;
@@ -287,6 +305,9 @@ function previewFromMessage(message: DemoMessage): string | null {
     if (block.type === 'process') {
       return `${block.title}: ${block.status}`;
     }
+    if (block.type === 'clarification') {
+      return `${block.title}: ${block.status}`;
+    }
     if (block.type === 'file') {
       return block.path || block.filename;
     }
@@ -336,6 +357,11 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
       next[event.data.block_index] = createTaskCard(event.data.metadata);
     } else if (event.data.block_type === 'process') {
       next[event.data.block_index] = createProcessBlock(
+        event.data.metadata,
+        event.data.agent_id,
+      );
+    } else if (event.data.block_type === 'clarification') {
+      next[event.data.block_index] = createClarificationBlock(
         event.data.metadata,
         event.data.agent_id,
       );
@@ -490,6 +516,52 @@ function processStepKind(value: unknown): ProcessBlock['steps'][number]['kind'] 
   return typeof value === 'string' && allowed.includes(value as (typeof allowed)[number])
     ? (value as ProcessBlock['steps'][number]['kind'])
     : 'summary';
+}
+
+function clarificationMode(value: unknown): ClarificationBlock['mode'] {
+  if (
+    value === 'auto' ||
+    value === 'grill_me' ||
+    value === 'grill_with_docs' ||
+    value === 'setup_matt_pocock_skills'
+  ) {
+    return value;
+  }
+  return 'auto';
+}
+
+function clarificationStatus(value: unknown): ClarificationBlock['status'] {
+  if (value === 'waiting' || value === 'resolved' || value === 'cancelled') {
+    return value;
+  }
+  return 'waiting';
+}
+
+function clarificationQuestion(value: unknown): ClarificationBlock['current_question'] {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  return {
+    id: String(raw.id ?? 'question'),
+    question: String(raw.question ?? ''),
+    reason: typeof raw.reason === 'string' ? raw.reason : null,
+    recommended_answer:
+      typeof raw.recommended_answer === 'string' ? raw.recommended_answer : null,
+    options: Array.isArray(raw.options)
+      ? raw.options.filter((item): item is string => typeof item === 'string')
+      : [],
+    status:
+      raw.status === 'answered' || raw.status === 'skipped' || raw.status === 'pending'
+        ? raw.status
+        : 'pending',
+    answer: typeof raw.answer === 'string' ? raw.answer : null,
+  };
+}
+
+function clarificationQuestions(value: unknown): ClarificationBlock['questions'] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => clarificationQuestion(item))
+    .filter((item): item is ClarificationBlock['questions'][number] => Boolean(item));
 }
 
 function applyStreamEventToMessage(message: DemoMessage, event: StreamEvent): DemoMessage {

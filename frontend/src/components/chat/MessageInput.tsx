@@ -1,4 +1,4 @@
-import { AtSign, Paperclip, Send } from 'lucide-react';
+import { AtSign, Paperclip, Send, Slash } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentMentionPicker } from './AgentMentionPicker';
 import type { DemoConversation } from '@/lib/mockData';
@@ -8,6 +8,24 @@ export interface MentionInsertRequest {
   agentId: string;
   requestId: number;
 }
+
+const slashCommands = [
+  {
+    value: '/grill-me',
+    label: '/grill-me',
+    description: '开始需求追问，先锁定关键规格',
+  },
+  {
+    value: '/grill-with-docs',
+    label: '/grill-with-docs',
+    description: '结合 Workspace 文档澄清术语',
+  },
+  {
+    value: '/setup-matt-pocock-skills',
+    label: '/setup-matt-pocock-skills',
+    description: '初始化本会话 Workspace 协作文档',
+  },
+];
 
 export function MessageInput({
   conversation,
@@ -33,6 +51,14 @@ export function MessageInput({
     const match = text.match(/@([\w-]*)$/);
     return match?.[1] ?? null;
   }, [conversation.mode, text]);
+  const slashMatches = useMemo(() => {
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith('/')) return [];
+    const query = trimmed.slice(1).toLowerCase();
+    return slashCommands.filter((command) =>
+      command.value.slice(1).toLowerCase().startsWith(query),
+    );
+  }, [text]);
   const availableAgents = agents.filter((agent) => conversation.agent_ids.includes(agent.id));
   const isUnavailable = isSending || isOffline;
 
@@ -71,6 +97,26 @@ export function MessageInput({
     });
   }, [conversation.mode, mentionInsertRequest, text]);
 
+  useEffect(() => {
+    function handleFillMessageInput(event: Event) {
+      const detail = (event as CustomEvent<{ text?: unknown }>).detail;
+      if (typeof detail?.text !== 'string' || !detail.text.trim()) return;
+      const nextText = detail.text;
+      setText(nextText);
+      setSubmitError(null);
+      window.requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        const nextCaret = nextText.length;
+        textareaRef.current?.setSelectionRange(nextCaret, nextCaret);
+      });
+    }
+
+    window.addEventListener('agenthub:fill-message-input', handleFillMessageInput);
+    return () => {
+      window.removeEventListener('agenthub:fill-message-input', handleFillMessageInput);
+    };
+  }, []);
+
   function handleKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -80,6 +126,11 @@ export function MessageInput({
 
   function pickAgent(agent: Agent) {
     setText((current) => current.replace(/@[\w-]*$/, `@${agent.id} `));
+  }
+
+  function pickSlashCommand(command: (typeof slashCommands)[number]) {
+    setText(`${command.value} `);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   return (
@@ -92,6 +143,28 @@ export function MessageInput({
       )}
       {mentionQuery !== null && (
         <AgentMentionPicker agents={availableAgents} query={mentionQuery} onPick={pickAgent} />
+      )}
+      {slashMatches.length > 0 && (
+        <div className="mb-2 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+          {slashMatches.map((command) => (
+            <button
+              key={command.value}
+              type="button"
+              onClick={() => pickSlashCommand(command)}
+              className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <Slash className="h-4 w-4 shrink-0 text-brand" />
+              <span className="min-w-0">
+                <span className="block font-medium text-slate-900 dark:text-slate-100">
+                  {command.label}
+                </span>
+                <span className="block truncate text-xs text-slate-500 dark:text-slate-400">
+                  {command.description}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
       )}
       {isOffline && (
         <p className="mb-2 text-xs font-medium text-amber-700 dark:text-amber-300">
