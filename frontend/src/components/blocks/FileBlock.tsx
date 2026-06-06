@@ -143,7 +143,7 @@ export function FileBlock({
 
   return (
     <>
-      <div className="my-3 flex items-start gap-3 rounded-md border border-slate-300 bg-white p-3 text-sm shadow-sm transition hover:border-brand hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-900">
+      <div className="mobile-text-safe my-3 flex items-start gap-3 rounded-md border border-slate-300 bg-white p-3 text-sm shadow-sm transition hover:border-brand hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-900">
         {isImage && url ? (
           <button
             type="button"
@@ -158,23 +158,23 @@ export function FileBlock({
             <Icon className="h-5 w-5" />
           </span>
         )}
-        <span className="min-w-0 flex-1">
+        <span className="min-w-0 max-w-full flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium text-slate-100">{filename}</span>
+            <span className="mobile-text-safe font-medium text-slate-100 sm:truncate">{filename}</span>
             <span className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[11px] text-slate-400">
               {kindLabel(artifactKind)}
             </span>
           </span>
-          <span className="mt-1 block truncate text-xs text-slate-500">
+          <span className="mobile-text-safe mt-1 block text-xs text-slate-500 sm:truncate">
             {mimeType} · {formatBytes(size)}
           </span>
           {path && path !== filename && (
-            <span className="mt-1 block truncate text-xs text-slate-600 dark:text-slate-500">
+            <span className="mobile-text-safe mt-1 block text-xs text-slate-600 dark:text-slate-500 sm:truncate">
               {path}
             </span>
           )}
           {(slideCount !== null || fileCount !== null) && (
-            <span className="mt-1 block truncate text-xs text-slate-500">
+            <span className="mobile-text-safe mt-1 block text-xs text-slate-500 sm:truncate">
               {slideCount !== null ? `${slideCount} 页幻灯片` : null}
               {slideCount !== null && fileCount !== null ? ' · ' : null}
               {fileCount !== null ? `${fileCount} 个文件` : null}
@@ -182,7 +182,7 @@ export function FileBlock({
             </span>
           )}
           {entries.length > 0 && (
-            <span className="mt-1 block truncate text-xs text-slate-500">
+            <span className="mobile-text-safe mt-1 block text-xs text-slate-500 sm:truncate">
               {entries.slice(0, 4).join(', ')}
             </span>
           )}
@@ -192,18 +192,18 @@ export function FileBlock({
               {evaluation.label}
             </span>
             {taskId && (
-              <span className="max-w-40 truncate rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800">
+              <span className="mobile-text-safe max-w-40 rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800 sm:truncate">
                 task {taskId}
               </span>
             )}
             {runId && (
-              <span className="max-w-40 truncate rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800">
+              <span className="mobile-text-safe max-w-40 rounded-full border border-slate-200 px-2 py-0.5 text-[11px] text-slate-500 dark:border-slate-800 sm:truncate">
                 run {runId}
               </span>
             )}
           </span>
           {evalSummary && (
-            <span className="mt-1 block line-clamp-2 text-xs leading-5 text-slate-600 dark:text-slate-400">
+            <span className="mobile-text-safe mt-1 block line-clamp-2 text-xs leading-5 text-slate-600 dark:text-slate-400">
               {evalSummary}
             </span>
           )}
@@ -234,9 +234,9 @@ export function FileBlock({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
           <div className="flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">{filename}</div>
-                <div className="mt-1 text-xs text-slate-500">{mimeType} · {formatBytes(size)}</div>
+              <div className="mobile-text-safe">
+                <div className="mobile-text-safe text-sm font-semibold text-white sm:truncate">{filename}</div>
+                <div className="mobile-text-safe mt-1 text-xs text-slate-500">{mimeType} · {formatBytes(size)}</div>
               </div>
               <button
                 type="button"
@@ -247,7 +247,7 @@ export function FileBlock({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="min-h-0 overflow-y-auto bg-slate-950 p-6 scrollbar-thin">
+            <div className="mobile-text-safe min-h-0 overflow-y-auto bg-slate-950 p-4 scrollbar-thin sm:p-6">
               {isImage && url ? (
                 <div className="flex min-h-56 items-center justify-center">
                   <img src={url} alt={filename} className="max-h-[70vh] max-w-full object-contain" />
@@ -255,12 +255,12 @@ export function FileBlock({
               ) : mimeType.includes('markdown') && previewText ? (
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
-                  className="prose prose-invert max-w-none prose-p:leading-7 prose-li:my-1 prose-code:text-brand-light"
+                  className="prose prose-invert chat-markdown-safe max-w-none prose-p:leading-7 prose-li:my-1 prose-code:text-brand-light"
                 >
                   {previewText}
                 </ReactMarkdown>
               ) : (
-                <pre className="whitespace-pre-wrap text-sm leading-6 text-slate-200">
+                <pre className="mobile-text-safe whitespace-pre-wrap text-sm leading-6 text-slate-200">
                   {previewText}
                   {previewTruncated ? '\n\n…' : ''}
                 </pre>

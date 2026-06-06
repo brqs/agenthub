@@ -38,7 +38,7 @@ export function MobileSheet({
     >
       <div
         className={cn(
-          'min-h-0 overflow-hidden bg-slate-900 shadow-2xl',
+          'native-mobile-sheet-shell min-h-0 overflow-hidden bg-slate-900 shadow-2xl',
           variant === 'drawer'
             ? 'h-full w-[min(22rem,calc(100vw-3rem))] border-r border-slate-800'
             : 'h-full w-full',
