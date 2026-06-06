@@ -113,6 +113,38 @@ class TaskCardBlock(BaseModel):
     tasks: list[TaskCardTask] = Field(default_factory=list)
 
 
+class ProcessStep(BaseModel):
+    id: str | None = None
+    label: str
+    kind: Literal[
+        "routing",
+        "planning",
+        "dispatch",
+        "tool",
+        "review",
+        "evaluation",
+        "workflow",
+        "deployment",
+        "artifact",
+        "repair",
+        "summary",
+    ]
+    status: Literal["done", "running", "error", "skipped"]
+    detail: str | None = None
+    agent_id: str | None = None
+
+
+class ProcessBlock(BaseModel):
+    type: Literal["process"] = "process"
+    agent_id: str | None = None
+    title: str
+    status: Literal["running", "done", "partial", "error"]
+    default_collapsed: bool
+    steps: list[ProcessStep] = Field(default_factory=list)
+    summary: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolCallBlock(BaseModel):
     type: Literal["tool_call"] = "tool_call"
     agent_id: str | None = None
@@ -134,6 +166,7 @@ ContentBlock = Annotated[
     | DeploymentStatusBlock
     | WorkflowBlock
     | TaskCardBlock
+    | ProcessBlock
     | ToolCallBlock,
     Field(discriminator="type"),
 ]

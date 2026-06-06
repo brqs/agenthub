@@ -320,6 +320,8 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "orchestrator_memory_enabled")
     _validate_bool(config, "orchestrator_tool_calling_enabled")
     _validate_bool(config, "orchestrator_tool_trace_visible")
+    _validate_bool(config, "orchestrator_group_messages_enabled")
+    _validate_bool(config, "orchestrator_process_block_enabled")
     _validate_bool(config, "orchestrator_response_polish_enabled")
     _validate_bool(config, "orchestrator_parallel_enabled")
     _validate_bool(config, "orchestrator_evaluation_enabled")

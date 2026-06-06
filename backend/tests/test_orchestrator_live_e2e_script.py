@@ -11,6 +11,10 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH,
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH,
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
+    GROUP_PROCESS_DATA_ANALYSIS_PROMPT,
+    GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT,
+    GROUP_PROCESS_FAILURE_READABLE_PROMPT,
+    GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT,
     P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
     P1_AGENT_CAPABILITY_PROFILE_PROMPT,
     P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
@@ -89,6 +93,30 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "custom_agent_tools": (
             "/tmp/agenthub_custom_agent_tools_report.json",
             "/tmp/agenthub_custom_agent_tools_sse.jsonl",
+        ),
+        "architected_frontend_group_chat_repair": (
+            "/tmp/agenthub_architected_frontend_group_chat_report.json",
+            "/tmp/agenthub_architected_frontend_group_chat_sse.jsonl",
+        ),
+        "group_process_document_strategy": (
+            "/tmp/agenthub_group_process_document_strategy_report.json",
+            "/tmp/agenthub_group_process_document_strategy_sse.jsonl",
+        ),
+        "group_process_data_analysis": (
+            "/tmp/agenthub_group_process_data_analysis_report.json",
+            "/tmp/agenthub_group_process_data_analysis_sse.jsonl",
+        ),
+        "group_process_workflow_delivery": (
+            "/tmp/agenthub_group_process_workflow_delivery_report.json",
+            "/tmp/agenthub_group_process_workflow_delivery_sse.jsonl",
+        ),
+        "group_process_failure_readable": (
+            "/tmp/agenthub_group_process_failure_readable_report.json",
+            "/tmp/agenthub_group_process_failure_readable_sse.jsonl",
+        ),
+        "group_process_frontend_preview": (
+            "/tmp/agenthub_group_process_frontend_preview_report.json",
+            "/tmp/agenthub_group_process_frontend_preview_sse.jsonl",
         ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",
@@ -215,6 +243,26 @@ def test_p2_agent_capability_profile_v2_prompt_uses_user_scope_without_agent_nam
     assert "claude-code" not in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
     assert "opencode-helper" not in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
     assert "codex-helper" not in P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
+
+
+def test_group_process_scenarios_cover_distinct_non_template_tasks() -> None:
+    assert "strategy-architecture.md" in GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT
+    assert "sample-metrics.csv" in GROUP_PROCESS_DATA_ANALYSIS_PROMPT
+    assert "group-process-workflow.yaml" in GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT
+    assert "../outside-workspace.txt" in GROUP_PROCESS_FAILURE_READABLE_PROMPT
+    combined = "\n".join(
+        (
+            GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT,
+            GROUP_PROCESS_DATA_ANALYSIS_PROMPT,
+            GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT,
+            GROUP_PROCESS_FAILURE_READABLE_PROMPT,
+        )
+    )
+    assert "前端开发演示" not in combined
+    assert "index.html、styles.css、app.js" not in combined
+    assert "codex-helper" not in combined
+    assert "Claude Code" in combined
+    assert "OpenCode Helper" in combined
 
 
 def test_evaluate_p1_agent_capability_profile_checks_actual_selected_agent() -> None:

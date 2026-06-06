@@ -45,6 +45,7 @@
 - `/tmp/agenthub_p1_rich_artifacts_report.json`
 - `/tmp/agenthub_fullstack_flow_report.json`
 - `/tmp/agenthub_frontend_ui_smoke_report.json`
+- `/tmp/agenthub_group_messages_report.json`
 
 最终结论：`passed=true`。
 
@@ -58,6 +59,11 @@ Capability Profile v1/v2 均为 `passed=true`。本轮按 repair loop 修复了 
 并行 executor 真实流式转发、Claude SDK task-scoped session isolation、evaluation repair
 instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`，Alembic
 `7e8f9012abcd (head)`，本机与公网 `/health` 均正常。
+
+2026-06-05 真实 Agent 群聊后端契约 smoke 结论：`/tmp/agenthub_group_messages_report.json`
+与 `/tmp/agenthub_group_messages_sse.jsonl` `passed=true`。SSE 中出现 2 个子 Agent
+`message_start` 和 2 个 terminal lifecycle event，最终持久化 child messages 均非 Orchestrator
+且没有停留在 `streaming`。本轮只验收后端 SSE / persistence 契约，不验收前端真实群聊 UI。
 
 ---
 
@@ -75,6 +81,7 @@ instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`
 | Case 7 - Agent Capability Profile v2 | 临时用户隔离；seed conversation 产生 Claude evaluation failure 与 Opencode fallback success；新 conversation follow-up 前无当前 run，但 user-scope v2 profile / preference memory 注入 planner，最终 task/attempt 均为 Opencode | passed |
 | Case 7 - Custom Agent Tool Allowlist | 真实聊天创建 builtin 自建 Agent，`allowed_tools=["read_file"]` 持久化；后续运行可读文件，未授权 `write_file` / `bash` 不进入模型 tool list | passed |
 | Case 8 - Agent Capability Profile v1 | 当前 conversation 内形成 Claude failure / Opencode success 画像；planner 看到画像后将未点名的 follow-up 唯一 task/attempt 直接分配给 Opencode | passed |
+| Case 9 - True Agent Group Messages | group + Orchestrator 运行中为实际负责 Agent 创建独立 child message；SSE 输出 `message_start` / `message_done` / `message_error` 与子 `message_id`；父 Orchestrator final text 无内部 trace | passed |
 
 Case 5 证据：
 
@@ -584,6 +591,336 @@ p2_agent_capability_profile_v2:
   followup_runs_before_count: 0
   passed: true
 ```
+
+2026-06-05 Response Presentation 公网 API/SSE smoke 证据：
+
+```text
+response_presentation_smoke:
+  report: /tmp/agenthub_response_presentation_report.json
+  sse: /tmp/agenthub_response_presentation_sse.jsonl
+  base_url: http://111.229.151.159:8000
+  backend_pid_before: 715177
+  backend_pid_after: 715177
+  backend_restarted: false
+  seed_agents_run: true
+  alembic_current: 7e8f9012abcd (head)
+  local_health: {"status":"ok"}
+  public_health: {"status":"ok"}
+  config_assertions:
+    react_trace_visible: false
+    orchestrator_response_polish_enabled: true
+    planner_model_backend: deepseek
+  direct_answer_identity:
+    conversation_id: ce5a3e9f-3a71-4564-9918-ddec2b7c0925
+    message_id: 9daf6451-14af-4096-9552-ff22b7248eff
+    status: done
+    process_block_present: false
+    forbidden_terms: []
+    passed: true
+  light_task_failure_readable:
+    conversation_id: 6181f178-2b83-4a3c-94cb-e0df486effa8
+    message_id: 4e738891-ef0e-4b62-8f69-f441e2230ce7
+    run_id: 458c138f-2568-4b4d-b77d-faab168e06c6
+    status: done
+    run_detail: 1 task / 1 attempt / 11 events
+    process_block_present: false
+    forbidden_terms: []
+    passed: true
+  react_trace_hidden:
+    conversation_id: 7a3506ef-aff5-4e1d-b839-13a5083f905f
+    message_id: 032bfa33-08a6-453a-85ec-52dfaf1a4531
+    run_id: 39cb3d45-ad24-4990-9169-8bd836ad895f
+    status: done
+    run_detail: 1 task / 1 attempt / 11 events
+    process_block_present: false
+    forbidden_terms: []
+    passed: true
+  raw_evidence_preserved: true
+  process_block_expected: false
+  passed: true
+```
+
+2026-06-05 Claude Code shared auth permission repair 公网 API/SSE smoke 证据：
+
+```text
+claude_auth_permission_repair:
+  report: /tmp/agenthub_claude_auth_permission_report.json
+  sse: /tmp/agenthub_claude_auth_permission_sse.jsonl
+  base_url: http://111.229.151.159:8000
+  backend_pid_before: 715177
+  backend_pid_after: 779884
+  backend_restarted: true
+  alembic_current: 7e8f9012abcd (head)
+  local_health: {"status":"ok"}
+  public_health: {"status":"ok"}
+  forbidden_terms:
+    - Permission denied
+    - "[Errno 13]"
+    - /root/.agenthub
+    - claude-auth
+    - .claude.json
+    - Traceback (most recent call last)
+  direct_greeting_with_claude_in_group:
+    conversation_id: 117156b4-26e7-4f4c-aec1-5d72e7dac055
+    message_id: 168691a0-a38f-42ef-b09a-b01c5b6a3d09
+    status: done
+    stream_final_event: done
+    visible_sse_forbidden_terms: []
+    persisted_text_forbidden_terms: []
+    full_sse_forbidden_terms: []
+    passed: true
+  claude_task_degrades_without_permission_leak:
+    conversation_id: a1962721-4b68-4fa4-be9a-3cb67ddf778e
+    message_id: 04a2af8e-cdd6-4621-851f-7b914e721ff3
+    status: error
+    stream_final_event: error
+    visible_sse_forbidden_terms: []
+    persisted_text_forbidden_terms: []
+    full_sse_forbidden_terms: []
+    note: existing no_runnable_agent behavior preserved when Claude Code is unavailable
+    passed: true
+  passed: true
+```
+
+2026-06-05 Orchestrator 同例前端演示 repair loop 公网 API/SSE 证据：
+
+```text
+same_prompt_frontend_demo_repair:
+  prompt: "@orchestrator 帮我完成一个带任务拆解、代码产物、Diff、网页预览、按钮交互和移动端适配的前端开发演示，并行执行，主题赛博朋克风，部署在端口8082，并完成浏览器级质量验收"
+  report: /tmp/agenthub_same_prompt_repair_report_final.json
+  sse: /tmp/agenthub_same_prompt_repair_sse_final.jsonl
+  browser_report: /tmp/agenthub_orchestrator_quality_browser.json
+  base_url: http://111.229.151.159:8000
+  backend_pid_final: 858990
+  seed_agents_executed: true
+  alembic_current: 7e8f9012abcd (head)
+  local_health: {"status":"ok"}
+  public_health: {"status":"ok"}
+  conversation_id: ddb4837b-d4f9-4a2a-b42c-a1ab59bc5ae7
+  message_id: b2b955f0-3f4d-4d4d-8c76-dd9a1c239333
+  run_id: 74251fbc-55b6-44e7-9b5d-b1c2edef04fa
+  duration_seconds: 547.135
+  root_causes:
+    - OpenCode shared auth permission errors were not normalized.
+    - Empty planner task payloads did not trigger frontend deterministic fallback.
+    - A previous managed preview session could occupy requested port 8082 across live reruns.
+  fixes:
+    - OpenCode shared auth readability and copy errors are normalized; runtime status requires credentials or readable shared auth.
+    - Empty planner task payload is treated as planner protocol failure for template fallback.
+    - Explicit requested preview ports can replace older managed preview sessions; external port conflicts still fail.
+  final_checks:
+    orchestrator_llm_planning_enabled: true
+    orchestrator_parallel_enabled: true
+    orchestrator_parallel_concurrency_3: true
+    message_done: true
+    planner_used_llm: true
+    has_html_artifact: true
+    workspace_has_required_frontend_files: true
+    preview_8082_public_accessible: true
+    preview_uses_requested_8082: true
+    platform_preview_tool_called: true
+    browser_verify_passed: true
+    browser_desktop_screenshot_exists: true
+    browser_mobile_screenshot_exists: true
+    browser_no_console_errors: true
+    browser_no_page_errors: true
+    browser_no_failed_requests: true
+    browser_mobile_no_horizontal_overflow: true
+    browser_button_interaction_ok: true
+    artifact_covers_required_sections: true
+    passed: true
+```
+
+2026-06-05 真实 Agent 群聊后端契约公网 API/SSE smoke 证据：
+
+```text
+group_messages_deterministic_smoke:
+  report: /tmp/agenthub_group_messages_report.json
+  sse: /tmp/agenthub_group_messages_sse.jsonl
+  base_url: http://111.229.151.159:8000
+  backend_pid_before: 1189179
+  backend_pid_after: 1203019
+  backend_restarted: true
+  alembic_current: 7e8f9012abcd (head)
+  local_health: {"status":"ok"}
+  public_health: {"status":"ok"}
+  temporary_config_restored: true
+  conversation_id: 0948e3a6-1fc4-40a2-8cf7-3e348b2047ae
+  parent_message_id: fc81e594-5f4c-4eca-b593-570d629e6f71
+  run_id: 34f5ef15-e649-4827-84e4-0808037f8cfe
+  events_by_type:
+    message_start: 2
+    message_done: 1
+    message_error: 1
+    done: 1
+  child_messages:
+    writer:
+      status: error
+      note: business-level workspace path failure was isolated to the writer child message
+      content_types: [tool_call, tool_call, tool_call, text, tool_call, text]
+    web-designer:
+      status: done
+      content_types: [tool_call, text, code, text, file]
+  checks:
+    parent_done: true
+    message_start_count_at_least_2: true
+    child_terminal_event_count_at_least_2: true
+    child_messages_created: true
+    child_agents_are_not_orchestrator: true
+    expected_child_agents_seen: true
+    expected_terminal_agents_seen: true
+    no_child_left_streaming: true
+    all_child_messages_terminal: true
+    child_content_present: true
+    final_text_no_forbidden_terms: true
+    child_text_no_core_trace: true
+    sse_no_core_trace: true
+  passed: true
+```
+
+2026-06-06 真实 Agent 群聊 + OpenCode 式过程展示 repair loop 公网证据：
+
+```text
+architected_frontend_group_chat_repair:
+  report: /tmp/agenthub_architected_frontend_group_chat_report.json
+  sse: /tmp/agenthub_architected_frontend_group_chat_sse.jsonl
+  browser_report: /tmp/agenthub_architected_frontend_group_chat_browser.json
+  base_url: http://111.229.151.159:8000
+  frontend_url_checked: http://154.44.25.94:1573
+  frontend_static_deployed: false
+  frontend_static_deploy_note: 154.44.25.94:1573 is not served by this backend host;
+    local frontend tests/build passed, remote static publishing must be done by the frontend host.
+  backend_pid_before_final_restart: 1263466
+  backend_pid_after_final_restart: 1271744
+  alembic_current: 7e8f9012abcd (head)
+  seed_agents_rerun_this_round: false
+  local_health: {"status":"ok"}
+  public_health: {"status":"ok"}
+  conversation_id: fbcd2fc5-ef65-4e0a-971a-6f700437a82c
+  user_message_id: 32d6f98f-d8a9-4ee5-9a29-fb5aa0393f4f
+  parent_orchestrator_message_id: 675cde50-1dea-46b1-83d8-07a6e21f99bd
+  run_id: aa968e64-aeb4-4eca-b74b-ab51d26dff53
+  child_messages:
+    codex-helper: 6fed1bbf-e054-43db-8d15-bf5013d902c2
+    opencode-helper: d6aba3d0-4a27-4fb6-97ea-0f1cb175ece5
+    claude-code: c660e36d-f9ab-44fe-a9f1-632c828515a0
+  sse_counts:
+    message_start: 3
+    message_done: 3
+    message_error: 0
+    process_delta: 23
+    done: 1
+  agent_switch_order:
+    - codex-helper
+    - opencode-helper
+    - claude-code
+  workspace_files:
+    - planning.md
+    - index.html
+    - styles.css
+    - app.js
+    - diff.md
+  preview_8082:
+    url: http://111.229.151.159:8082/index.html
+    http_status: 200
+  checks:
+    group_child_message_start_all_agents: true
+    group_persisted_child_messages_all_agents: true
+    group_child_messages_have_process: true
+    group_child_process_delta_seen: true
+    group_codex_architect_first: true
+    group_parent_does_not_embed_child_outputs: true
+    workspace_has_required_frontend_files: true
+    browser_verify_passed: true
+    browser_desktop_screenshot_exists: true
+    browser_mobile_screenshot_exists: true
+    browser_no_console_errors: true
+    browser_no_page_errors: true
+    browser_no_failed_requests: true
+    browser_mobile_no_horizontal_overflow: true
+    browser_button_interaction_ok: true
+    final_summary_no_missing_or_pending: true
+    passed: true
+```
+
+2026-06-06 后续修正：
+
+- 上述公网前端场景只作为真实群聊、子 `message_id` 路由、流式 `process_delta`
+  和平台 preview/browser verify 的集成证据，不再作为“前端质量演示专用模板”
+  的产品契约。
+- 已撤销前端质量演示的 deterministic planner override、`frontend-architecture`
+  fallback planning.md 和缺 HTML 时的 static demo scaffold。前端 prompt 只是示例，
+  不能驱动 Orchestrator 进入硬编码任务模板。
+- 当前不变量：真实 Agent 群聊与公开 process 流适用于所有 Orchestrator 子任务；
+  LLM planner 输出不会被前端模板覆盖；planner 协议错误默认以可见错误暴露，
+  只有显式 `planner_fallback_to_template=true` 才走 legacy generic fallback。
+- 子 Agent child message 均应带独立 `process` block 和流式 `process_delta`；
+  父 Orchestrator message 只保留调度、平台工具、质量门和最终总结。
+
+2026-06-06 通用场景 E2E 扩展：
+
+- 新增非前端模板 live scenarios：
+  - `group_process_document_strategy`
+  - `group_process_data_analysis`
+  - `group_process_workflow_delivery`
+  - `group_process_failure_readable`
+  - `group_process_frontend_preview`
+- 前四个 generic case 覆盖文档策略、数据分析、workflow 交付和可读失败处理；
+  它们不再依赖前端质量演示模板，也不要求 `index.html/styles.css/app.js`。
+- 新增默认证据路径：
+  - `/tmp/agenthub_group_process_document_strategy_report.json`
+  - `/tmp/agenthub_group_process_document_strategy_sse.jsonl`
+  - `/tmp/agenthub_group_process_data_analysis_report.json`
+  - `/tmp/agenthub_group_process_data_analysis_sse.jsonl`
+  - `/tmp/agenthub_group_process_workflow_delivery_report.json`
+  - `/tmp/agenthub_group_process_workflow_delivery_sse.jsonl`
+  - `/tmp/agenthub_group_process_failure_readable_report.json`
+  - `/tmp/agenthub_group_process_failure_readable_sse.jsonl`
+  - `/tmp/agenthub_group_process_frontend_preview_report.json`
+  - `/tmp/agenthub_group_process_frontend_preview_sse.jsonl`
+- 本轮修复了明确 multi-agent 请求的保守归属平衡：当用户明确要求“两个/多个 Agent”
+  或真实群聊，而 LLM planner 把多个 implementation task 全派给同一 Agent 时，
+  Orchestrator 会按用户明确点名的多个 Agent 或通用偏好顺序重新分配责任人；
+  不改 task id/title/instruction，不创建前端专用模板。
+- 本地门禁：
+
+```text
+cd backend
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator_live_e2e_script.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_stream_content_blocks.py -q
+# 72 passed
+
+uv run python -m ruff check \
+  app/agents/orchestrator/adapter.py \
+  app/agents/orchestrator/task_planning.py \
+  scripts \
+  tests/test_orchestrator_live_e2e_script.py \
+  tests/test_orchestrator_planning.py
+# passed
+
+uv run python -m mypy \
+  app/agents/orchestrator/adapter.py \
+  app/agents/orchestrator/task_planning.py \
+  scripts/orchestrator_e2e
+# passed
+```
+
+- 后端本机运行代码已同步到 PID `1650213`；`alembic current` 为
+  `7e8f9012abcd (head)`；本机 `/health` 为 `{"status":"ok"}`。
+- 阻断记录：
+  - 手动 Codex CLI smoke 复现 `You've hit your usage limit... try again at Jun 11th, 2026 5:54 PM`。
+    因此当前环境不能把 Codex Helper 作为必须成功的 live execution gate。
+  - `AGENTHUB_E2E_BASE_URL=http://111.229.151.159:8000` 的请求未出现在本机
+    PID `1650213` 的 uvicorn access log 中；公网 8000 当前可能未命中本轮已重启的
+    本机后端实例。公网 `/health` 仍返回 `{"status":"ok"}`，但不能证明加载了本轮未提交代码。
+  - `group_process_document_strategy` 本机 API/SSE run 已生成
+    `/tmp/agenthub_group_process_document_strategy_report.json` 和
+    `/tmp/agenthub_group_process_document_strategy_sse.jsonl`；当前未达到 `passed=true`，
+    主要失败层为 planner/live runtime 仍选择 Codex 并被额度限制阻断。
+- 本轮不把上述 live 阻断伪装为通过；后续需要先确认公网 8000 落点与 Codex quota /
+  runtime policy，再重跑五个新增场景。
 
 ---
 

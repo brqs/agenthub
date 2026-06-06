@@ -16,7 +16,8 @@
 | [tool-calling.spec.md](tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent 与 deployment platform tools |
 | [memory-context.spec.md](memory-context.spec.md) | Current contract | Orchestrator structured memory 与上下文注入设计 |
 | [workspace-conflict.spec.md](workspace-conflict.spec.md) | Current contract | Workspace snapshot、file changes、同一 run 内冲突检测 |
-| [message-attribution.spec.md](message-attribution.spec.md) | Current contract | Orchestrator 合流 stream 中每个 content/tool chunk 的真实 Agent 归属 |
+| [message-attribution.spec.md](message-attribution.spec.md) | Current contract | Orchestrator 合流 stream 中 block 归属与真实 Agent 子消息后端契约 |
+| [process-block.spec.md](process-block.spec.md) | Implemented MVP | 用户可见 structured process ContentBlock，展示公开执行事实 |
 | [agent-review-thread.spec.md](agent-review-thread.spec.md) | Implemented MVP + Live E2E Passed | Agent-to-Agent review、handoff、repair thread |
 | [native-deployment.execution.spec.md](native-deployment.execution.spec.md) | Implemented hardening MVP | Orchestrator 原生部署 tool、container E2E、deployment repair/redeploy |
 | [live-e2e-report.spec.md](live-e2e-report.spec.md) | Implemented report | 真实部署链路、deployment repair/redeploy、自建 Agent 工具白名单 E2E 证据 |
@@ -55,8 +56,9 @@
 修改 Orchestrator 用户可见回复：
 
 1. [markdown-preservation-feedback.spec.md](markdown-preservation-feedback.spec.md)
-2. [message-attribution.spec.md](message-attribution.spec.md)
-3. [memory-context.spec.md](memory-context.spec.md)
+2. [process-block.spec.md](process-block.spec.md)
+3. [message-attribution.spec.md](message-attribution.spec.md)
+4. [memory-context.spec.md](memory-context.spec.md)
 
 修改 Orchestrator 原生部署：
 
@@ -77,6 +79,12 @@
 - Agent-to-Agent review thread MVP 已实现：关键 implementation task 可自动 handoff 给其他 Agent review，并在 failed / needs_repair outcome 下顺序或并行追加 repair task；前端 handoff timeline 交接见 [../../../frontend/agent-review-thread-handoff.md](../../../frontend/agent-review-thread-handoff.md)。
 - Workspace conflict detection 当前只记录和展示，不做自动 merge、rollback 或文件级 lock。
 - Orchestrator 最终用户可见 text block 已通过 response presentation 层生成：raw execution summary 继续写入 memory / run detail，聊天最终回复只暴露自然、简洁、面向结果的摘要。
+- Orchestrator 会在最终 text 前输出 `process` ContentBlock：只展示公开执行事实，不展示 hidden thinking、raw ReAct trace、prompt、stderr、call id 或完整 tool output；可通过 `orchestrator_process_block_enabled=false` 关闭。
+- Orchestrator group 模式已支持真实 Agent 子消息后端契约：子 Agent 输出会创建独立 `messages` 行，并通过 `message_start` / `message_done` / `message_error` SSE lifecycle 事件和带 `message_id` 的 block/tool events 归属到子消息；可通过 `orchestrator_group_messages_enabled=false` 回退到旧合流消息模式。
+- 2026-06-05 真实群聊后端 smoke 已通过：`/tmp/agenthub_group_messages_report.json`、`/tmp/agenthub_group_messages_sse.jsonl`，conversation `0948e3a6-1fc4-40a2-8cf7-3e348b2047ae`，run `34f5ef15-e649-4827-84e4-0808037f8cfe`；SSE 出现 2 个 `message_start` 和 2 个 terminal child lifecycle event，子消息均未停留在 `streaming`。
+- 2026-06-06 真实群聊 + OpenCode 式过程展示 repair loop 已通过：`/tmp/agenthub_architected_frontend_group_chat_report.json`、`/tmp/agenthub_architected_frontend_group_chat_sse.jsonl`、`/tmp/agenthub_architected_frontend_group_chat_browser.json`，conversation `fbcd2fc5-ef65-4e0a-971a-6f700437a82c`，run `aa968e64-aeb4-4eca-b74b-ab51d26dff53`，`passed=true`。
+- 该 repair loop 覆盖 Codex Helper 独立架构消息、Claude Code / OpenCode Helper 独立后续消息、每个 child message 的流式 `process_delta`、workspace `planning.md` / `index.html` / `styles.css` / `app.js` / `diff.md`、8082 preview 200、browser verify passed 和父 Orchestrator 不内嵌子 Agent 输出。
+- 前端 stream/store 已支持 `message_start` / `message_done` / `message_error` 和带子 `message_id` 的 block/tool/process delta；本地 targeted tests、`tsc --noEmit`、`pnpm build` 通过。公网 `154.44.25.94:1573` 静态资源不在当前后端主机上，本轮未执行远端前端静态发布。
 - ReAct trace 默认不再进入普通聊天流；调试证据仍记录在 run detail / memory event。需要调试可显式开启 `react_trace_visible=true`。
 - 可选 LLM response polish 只接收结构化事实，失败、空输出或包含内部 trace 词时回退 deterministic summary。
 
@@ -138,4 +146,64 @@
 
 - 完整后端 pytest 中旧 planning 文案断言已同步为新的用户可见 step/title 文案。
 - Response presentation 将 `TaskState.PENDING` 计入 `needs_attention`，ReAct 达到 `max_iterations` 且仍有 pending task 时最终回复为 partial/failed，不再误报 “Done”。
+
+公网 API/SSE 验证：
+
+- `/tmp/agenthub_response_presentation_report.json` 与 `/tmp/agenthub_response_presentation_sse.jsonl` 均已生成，`passed=true`。
+- 覆盖 `direct_answer_identity`、`light_task_failure_readable`、`react_trace_hidden` 三个场景；最终 message 均为 `done`。
+- SSE text 与 persisted text 均不包含 `ReAct step`、`Observation:`、`Action:`、`Tools:`、`result ok`、`Execution summary`、`LLM planner`、`call_`、runtime stderr 或 raw stack trace。
+- `process_block_present=false`；Process Block 仍属于后续 `B2-TODO-11` planned scope，本轮未新增 schema、OpenAPI 或前端 renderer。
+- 任务场景 run detail 仍保留结构化证据：`light_task_failure_readable` run `458c138f-2568-4b4d-b77d-faab168e06c6`，`react_trace_hidden` run `39cb3d45-ad24-4990-9169-8bd836ad895f`。
 - 完整后端 pytest `650 passed, 7 skipped`；Ruff、Mypy、`git diff --check` passed。后端已重启，PID `687089`；本机与公网 `/health` 正常；轻量公网 smoke passed。
+
+## 7. Structured Process Block 记录
+
+2026-06-05 完成 Orchestrator `process` ContentBlock MVP：
+
+- 新增公开契约：后端 `StreamChunk.BlockType`、Pydantic `ContentBlock` union、OpenAPI/shared types 和前端手写 `ContentBlock` union 均包含 `process`。
+- Stream / persistence 继续复用 `block_start` / `block_end`；前序 MVP 使用 `block_start.metadata` 放完整 payload。
+- Orchestrator route / execution / ReAct / tool-loop 均在最终用户可见 text 前插入 deterministic process block；raw memory summary 和 run detail 证据不变。
+- 新增配置 `orchestrator_process_block_enabled=true`，支持关闭 process block；seed/default config 已覆盖，需 seed 后刷新内置 Orchestrator。
+- 前端新增基础 `ProcessBlock` 面板，不实现折叠状态管理；`default_collapsed` 字段保留给后续交互增强。
+- 本地门禁：backend targeted `112 passed`，agent config validation `73 passed`，frontend process tests `28 passed`，backend Ruff/Mypy、frontend `tsc --noEmit`、`git diff --check` passed。
+- 部署与 smoke：后端 PID `858990 -> 1037330`，已执行 `seed_agents`；本机与公网 `/health` 正常；report `/tmp/agenthub_process_block_smoke_report.json`、SSE `/tmp/agenthub_process_block_smoke_sse.jsonl` `passed=true`。公网 smoke 覆盖 direct answer `process -> text`，以及轻量任务既有 block 后追加 `process -> text`；final text 与 process block 均无内部 trace forbidden terms。
+
+2026-06-05 追加完成后端流式 process 契约：
+
+- 不新增 SSE event，继续复用 `block_start` / `delta` / `block_end`；`delta.metadata.process_delta` 支持 `upsert_step` 和 `set_summary`。
+- `ProcessStep` 新增公开 `id` 字段，用于前端原地更新 step；该 id 不使用内部 task id 或 tool call id。
+- direct answer / platform fact 会先输出 process start + route delta；static / parallel / ReAct / native tool-loop 在执行中持续 upsert 公开步骤，最终 text 仍由 response presentation 输出。
+- `StreamContentAccumulator` 会原地应用 process delta 并持久化完整 block；`orchestrator_process_block_enabled=false` 时不输出 process block 或 process delta。
+- 本轮只改 B2 后端契约、SSE、持久化和测试；不做前端 renderer、折叠交互或前端静态资源部署。
+- 部署与 smoke：后端 PID `1152309 -> 1155645`，已执行 `seed_agents`；report `/tmp/agenthub_streaming_process_report.json`、SSE `/tmp/agenthub_streaming_process_sse.jsonl` `passed=true`，覆盖 direct answer `process_delta_count=1` 与轻量任务 `process_delta_count=7`。
+
+同例前端演示 repair loop：
+
+- 2026-06-05 使用用户原始“任务拆解、代码产物、Diff、网页预览、按钮交互、移动端适配、赛博朋克风、8082、浏览器级质量验收” prompt 重跑公网 API/SSE E2E。
+- 修复范围：OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管。
+- 最终证据：report `/tmp/agenthub_same_prompt_repair_report_final.json`，SSE `/tmp/agenthub_same_prompt_repair_sse_final.jsonl`，conversation `ddb4837b-d4f9-4a2a-b42c-a1ab59bc5ae7`，run `74251fbc-55b6-44e7-9b5d-b1c2edef04fa`，`passed=true`。
+
+2026-06-06 边界更正：
+
+- 前端开发演示 prompt 只是 live smoke 示例，不是 Orchestrator 的产品级任务模板。
+- 真实 Agent 群聊和流式公开 process 是通用执行层能力，适用于所有通过 planner / explicit config / legacy fallback 产生的子任务。
+- LLM planner 输出不得被“前端质量演示”模板覆盖；planner 协议错误默认暴露为可见错误，只有显式 `planner_fallback_to_template=true` 时才走 legacy generic fallback。
+- 已撤销前端质量演示专用 planner override、`frontend-architecture` fallback planning.md 和缺 HTML 时 static demo scaffold。
+
+2026-06-06 通用 E2E case 扩展：
+
+- 新增 `group_process_document_strategy`、`group_process_data_analysis`、
+  `group_process_workflow_delivery`、`group_process_failure_readable`、
+  `group_process_frontend_preview` 五个 live scenarios，用于覆盖真实群聊 /
+  process stream 在不同任务类型下的后端 API/SSE 证据。
+- Generic cases 不依赖前端质量演示模板；验收重点是独立 child message、
+  child process block、`process_delta`、父 Orchestrator 不内嵌子 Agent 输出、
+  workspace required files、可见文本无内部 trace。
+- Planning 层新增通用保护：用户明确要求“两个/多个 Agent”或真实群聊时，
+  如果 LLM planner 把多个 implementation task 全部派给同一 Agent，
+  Orchestrator 会按用户明确点名的多个 Agent 或通用偏好顺序平衡负责人；
+  保持 task id/title/instruction 不变。
+- 当前 live repair loop 未完成 `passed=true`：Codex CLI 手动 smoke 显示账号额度限制
+  到 `2026-06-11 17:54`，且公网 `111.229.151.159:8000` 请求未命中本机
+  已重启 PID `1650213` 的 uvicorn access log。后续重跑前需先修正公网落点和 Codex
+  runtime 可用性。

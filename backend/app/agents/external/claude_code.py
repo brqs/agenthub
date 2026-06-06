@@ -78,6 +78,10 @@ _RUNTIME_PROBE_CACHE: dict[
 ] = {}
 
 
+class SharedClaudeAuthError(RuntimeError):
+    """Raised when shared Claude auth exists but cannot be safely copied."""
+
+
 def claude_code_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str | None]:
     if not (_has_provider_credentials() or _has_shared_auth()):
         return "unavailable", CLAUDE_MISSING_CREDENTIALS_ERROR
@@ -203,9 +207,9 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             workspace_path=workspace_path,
             agent_id=self.agent_id,
         )
-        self._copy_shared_auth(runtime_env)
         result = None
         try:
+            self._copy_shared_auth(runtime_env)
             async for event in stream_cli_text(
                 command,
                 cwd=workspace_path,
@@ -426,6 +430,8 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
         )
 
     def _classify_exception(self, exc: BaseException) -> str:
+        if self._safe_error_message(exc) == CLAUDE_MISSING_CREDENTIALS_ERROR:
+            return "missing_api_key"
         return classify_external_exception(exc)
 
     def _safe_error_message(self, exc: BaseException) -> str:
@@ -440,14 +446,17 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
     @staticmethod
     def _copy_shared_auth(env: dict[str, str]) -> None:
         source_dir = _shared_auth_dir()
-        if not source_dir.exists():
+        if not _path_exists(source_dir):
             return
         home = env.get("HOME")
         if not home:
             return
         destination_home = Path(home)
-        _copy_if_present(source_dir / ".claude.json", destination_home / ".claude.json")
-        _copy_if_present(source_dir / ".claude", destination_home / ".claude")
+        try:
+            _copy_if_present(source_dir / ".claude.json", destination_home / ".claude.json")
+            _copy_if_present(source_dir / ".claude", destination_home / ".claude")
+        except OSError as exc:
+            raise SharedClaudeAuthError(CLAUDE_MISSING_CREDENTIALS_ERROR) from exc
 
     @staticmethod
     def _normalize_runtime_error(output: str) -> str:
@@ -467,7 +476,9 @@ def _has_provider_credentials() -> bool:
 
 def _has_shared_auth() -> bool:
     source_dir = _shared_auth_dir()
-    return (source_dir / ".claude.json").exists() or (source_dir / ".claude").exists()
+    return _is_readable_file(source_dir / ".claude.json") or _is_readable_dir(
+        source_dir / ".claude"
+    )
 
 
 def _probe_claude_runtime(config: dict[str, Any] | None) -> tuple[str, str | None]:
@@ -492,12 +503,15 @@ def _probe_claude_runtime(config: dict[str, Any] | None) -> tuple[str, str | Non
                 "agent_id": "claude-code",
             },
         }
-        runtime_env = isolated_runtime_env(
-            probe_config,
-            workspace_path=workspace_path,
-            agent_id="claude-code",
-        )
-        ClaudeCodeAdapter._copy_shared_auth(runtime_env)
+        try:
+            runtime_env = isolated_runtime_env(
+                probe_config,
+                workspace_path=workspace_path,
+                agent_id="claude-code",
+            )
+            ClaudeCodeAdapter._copy_shared_auth(runtime_env)
+        except Exception as exc:  # noqa: BLE001
+            return "unavailable", ClaudeCodeAdapter._normalize_runtime_error(str(exc))
         try:
             completed = subprocess.run(  # noqa: S603
                 command,
@@ -557,12 +571,18 @@ def _shared_auth_fingerprint() -> tuple[Any, ...]:
     claude_json = source_dir / ".claude.json"
     claude_dir = source_dir / ".claude"
     json_stat = _path_signature(claude_json)
-    if not claude_dir.exists():
+    if not _path_exists(claude_dir):
         return (str(source_dir), json_stat, None)
+    if not _is_readable_dir(claude_dir):
+        return (str(source_dir), json_stat, "unreadable")
     file_count = 0
     total_size = 0
     newest_mtime_ns = 0
-    for path in claude_dir.rglob("*"):
+    try:
+        paths = list(claude_dir.rglob("*"))
+    except OSError:
+        return (str(source_dir), json_stat, "unreadable")
+    for path in paths:
         if not path.is_file():
             continue
         with contextlib.suppress(OSError):
@@ -579,6 +599,27 @@ def _path_signature(path: Path) -> tuple[int, int] | None:
     except OSError:
         return None
     return stat.st_size, stat.st_mtime_ns
+
+
+def _path_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def _is_readable_file(path: Path) -> bool:
+    try:
+        return path.is_file() and os.access(path, os.R_OK)
+    except OSError:
+        return False
+
+
+def _is_readable_dir(path: Path) -> bool:
+    try:
+        return path.is_dir() and os.access(path, os.R_OK | os.X_OK)
+    except OSError:
+        return False
 
 
 def _completed_output(stdout: object, stderr: object) -> str:

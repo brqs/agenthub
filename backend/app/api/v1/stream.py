@@ -350,6 +350,36 @@ def _stream_wait_budget(
     return idle_remaining, "stream_idle_timeout"
 
 
+def _is_child_message_chunk(chunk: StreamChunk, parent_message: Message) -> bool:
+    return bool(chunk.message_id and chunk.message_id != str(parent_message.id))
+
+
+async def _feed_child_message_chunk(
+    stream_config: dict[str, Any] | None,
+    chunk: StreamChunk,
+) -> StreamChunk | None:
+    if chunk.event_type in {"message_start", "message_done", "message_error"}:
+        return None
+    writer = (stream_config or {}).get("orchestrator_group_message_writer")
+    feed = getattr(writer, "feed", None)
+    if not callable(feed):
+        return None
+    child_error = await feed(chunk)
+    return child_error if isinstance(child_error, StreamChunk) else None
+
+
+async def _fail_open_child_messages(
+    stream_config: dict[str, Any] | None,
+    error: str,
+) -> AsyncIterator[StreamChunk]:
+    writer = (stream_config or {}).get("orchestrator_group_message_writer")
+    fail_open = getattr(writer, "fail_open_messages", None)
+    if not callable(fail_open):
+        return
+    for chunk in await fail_open(error):
+        yield chunk
+
+
 async def _event_generator(
     db: AsyncSession,
     request: Request,
@@ -437,6 +467,12 @@ async def _runtime_event_generator(
                 if chunk.total_blocks is not None:
                     next_block_index = max(next_block_index, chunk.total_blocks)
                 break
+            if _is_child_message_chunk(chunk, message):
+                child_error = await _feed_child_message_chunk(stream_config, chunk)
+                yield chunk.to_sse()
+                if child_error is not None:
+                    yield child_error.to_sse()
+                continue
             accumulator_error = accumulator.feed(chunk)
             if accumulator_error is not None:
                 await _persist_stream_error(db, message, accumulator, accumulator_error)
@@ -479,6 +515,8 @@ async def _runtime_event_generator(
         await db.commit()
     except StreamTimeoutError as e:
         await cancel_orchestrator_run(stream_config)
+        async for child_error in _fail_open_child_messages(stream_config, str(e)):
+            yield child_error.to_sse()
         await _mark_stream_error(db, message, accumulator, str(e))
         yield StreamChunk(
             event_type="error",
@@ -487,6 +525,11 @@ async def _runtime_event_generator(
         ).to_sse()
     except asyncio.CancelledError:
         await cancel_orchestrator_run(stream_config)
+        async for child_error in _fail_open_child_messages(
+            stream_config,
+            "Stream was cancelled before the Agent finished.",
+        ):
+            yield child_error.to_sse()
         await _mark_stream_error(
             db,
             message,
@@ -498,9 +541,13 @@ async def _runtime_event_generator(
         chunk = StreamChunk(
             event_type="error", error_code="agent_not_found", error=str(e)
         )
+        async for child_error in _fail_open_child_messages(stream_config, str(e)):
+            yield child_error.to_sse()
         await _persist_stream_error(db, message, accumulator, chunk)
         yield chunk.to_sse()
     except Exception as e:  # noqa: BLE001
+        async for child_error in _fail_open_child_messages(stream_config, str(e)):
+            yield child_error.to_sse()
         await _mark_stream_error(db, message, accumulator, str(e))
         yield StreamChunk(
             event_type="error", error_code="internal_error", error=str(e)
@@ -508,6 +555,11 @@ async def _runtime_event_generator(
     finally:
         if stream_claimed and message.status in {"pending", "streaming"}:
             await cancel_orchestrator_run(stream_config)
+            async for child_error in _fail_open_child_messages(
+                stream_config,
+                "Agent stream ended before a final done or error event.",
+            ):
+                yield child_error.to_sse()
             await _mark_stream_error(
                 db,
                 message,

@@ -13,13 +13,17 @@ PORT_NUMBER_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
 
 
 def available_orchestrator_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    if config.get("orchestrator_include_group_agents_in_planning") is True:
+        ids = agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))
+        if ids:
+            return ids
     scoped_ids = scoped_runnable_agent_ids(config)
     if scoped_ids is not None:
         return scoped_ids
 
     available_agents = config.get("available_agents")
     if isinstance(available_agents, list):
-        ids: list[str] = []
+        available_ids: list[str] = []
         seen: set[str] = set()
         for item in available_agents:
             if not isinstance(item, Mapping):
@@ -31,9 +35,9 @@ def available_orchestrator_agent_ids(config: Mapping[str, Any]) -> list[str]:
             if not agent_id or agent_id == "orchestrator" or agent_id in seen:
                 continue
             seen.add(agent_id)
-            ids.append(agent_id)
-        if ids:
-            return ids
+            available_ids.append(agent_id)
+        if available_ids:
+            return available_ids
     return agent_id_list(
         config.get("managed_agent_ids", config.get("default_sub_agents"))
     )

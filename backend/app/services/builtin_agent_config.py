@@ -15,6 +15,12 @@ ORCHESTRATOR_CONFIG_UPGRADES = {
     "answer_model_backend": ORCHESTRATOR_DEFAULTS["answer_model_backend"],
     "planner_model_backend": ORCHESTRATOR_DEFAULTS["planner_model_backend"],
     "react_trace_visible": ORCHESTRATOR_DEFAULTS["react_trace_visible"],
+    "orchestrator_group_messages_enabled": ORCHESTRATOR_DEFAULTS[
+        "orchestrator_group_messages_enabled"
+    ],
+    "orchestrator_process_block_enabled": ORCHESTRATOR_DEFAULTS[
+        "orchestrator_process_block_enabled"
+    ],
 }
 
 
