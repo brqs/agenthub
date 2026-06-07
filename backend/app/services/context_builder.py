@@ -29,6 +29,7 @@ from app.services.context.compression import (
     message_to_text,
     truncate_text,
 )
+from app.services.memory_hub import MemoryHubService
 from app.services.model_gateway import has_configured_compression_api_key
 
 
@@ -91,6 +92,22 @@ def _message_to_chat(
             f"{truncate_text(text, COMPRESSED_PIN_TOKEN_LIMIT * 3)}"
         )
     return ChatMessage(role=role, content=text)
+
+
+def _is_side_chat_message(message: Message) -> bool:
+    for block in message.content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "turn_control" and block.get("kind") == "side_chat":
+            return True
+    return False
+
+
+def _latest_user_query(messages: list[Message], *, include_agent_labels: bool) -> str:
+    for message in reversed(messages):
+        if message.role == "user":
+            return message_to_text(message, include_agent_label=include_agent_labels)
+    return ""
 
 
 async def _get_or_create_memory(
@@ -209,6 +226,7 @@ async def build_context(
     max_tokens: int = TOTAL_TOKEN_BUDGET,
     *,
     current_agent_id: str | None = None,
+    agent_message_id: UUID | None = None,
 ) -> list[ChatMessage]:
     """Build compressed context from memory, pinned messages, and recent messages."""
     conversation = await db.get(Conversation, conversation_id)
@@ -221,7 +239,11 @@ async def build_context(
         .where(Message.status.in_(["done", "streaming"]))
         .order_by(Message.created_at.asc())
     )
-    messages = list((await db.execute(stmt)).scalars().all())
+    messages = [
+        message
+        for message in (await db.execute(stmt)).scalars().all()
+        if not _is_side_chat_message(message)
+    ]
     memory = await _refresh_memory_if_needed(
         db,
         conversation_id,
@@ -241,7 +263,24 @@ async def build_context(
             min(max_tokens, 300),
         )
 
-    if memory and memory.summary_text.strip():
+    memory_hub_message = None
+    if conversation is not None:
+        memory_hub_message = await MemoryHubService().build_mount_context(
+            db,
+            conversation=conversation,
+            query=_latest_user_query(messages, include_agent_labels=is_group),
+            current_agent_id=current_agent_id,
+            agent_message_id=agent_message_id,
+        )
+    if memory_hub_message is not None:
+        used_tokens = _append_with_budget(
+            context,
+            memory_hub_message,
+            used_tokens,
+            min(max_tokens, 1600),
+        )
+
+    if memory_hub_message is None and memory and memory.summary_text.strip():
         summary_budget = min(max_tokens, max(settings.context_summary_max_tokens, 1))
         summary = truncate_text(memory.summary_text, summary_budget * 3)
         summary_message = ChatMessage(

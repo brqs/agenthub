@@ -3,10 +3,16 @@ import type {
   Message,
   MessageList,
   InterruptMessageResponse,
+  GuidanceRequest,
+  QueueMergeRequest,
   QueueMessageRequest,
   QueueMessageResponse,
+  QueueReorderRequest,
+  QueueReorderResponse,
   SendMessageRequest,
   SendMessageResponse,
+  SideChatRequest,
+  TurnControlResponse,
   UpdateQueuedMessageRequest,
   UpdateMessageRequest,
 } from '@/lib/types';
@@ -88,6 +94,74 @@ export async function deleteQueuedMessage(messageId: string): Promise<void> {
   await api.delete(`/api/v1/queued-messages/${messageId}`);
 }
 
+export async function reorderQueuedMessages(
+  conversationId: string,
+  input: QueueReorderRequest,
+): Promise<QueueReorderResponse> {
+  const { data } = await api.post<QueueReorderResponse>(
+    `/api/v1/conversations/${conversationId}/queued-messages/reorder`,
+    input,
+  );
+  return { messages: data.messages.map(normalizeMessage) };
+}
+
+export async function mergeQueuedMessages(
+  conversationId: string,
+  input: QueueMergeRequest,
+): Promise<QueueMessageResponse> {
+  const { data } = await api.post<QueueMessageResponse>(
+    `/api/v1/conversations/${conversationId}/queued-messages/merge`,
+    input,
+  );
+  return {
+    ...data,
+    queued_message: normalizeMessage(data.queued_message),
+  };
+}
+
+export async function convertQueuedMessageToGuidance(
+  messageId: string,
+): Promise<TurnControlResponse> {
+  const { data } = await api.post<TurnControlResponse>(
+    `/api/v1/queued-messages/${messageId}/convert-to-guidance`,
+  );
+  return normalizeTurnControlResponse(data);
+}
+
+export async function stopAndRunQueuedMessage(
+  messageId: string,
+): Promise<InterruptMessageResponse> {
+  const { data } = await api.post<InterruptMessageResponse>(
+    `/api/v1/queued-messages/${messageId}/stop-and-run`,
+  );
+  return {
+    ...data,
+    message: normalizeMessage(data.message),
+  };
+}
+
+export async function sendGuidance(
+  activeMessageId: string,
+  input: GuidanceRequest,
+): Promise<TurnControlResponse> {
+  const { data } = await api.post<TurnControlResponse>(
+    `/api/v1/messages/${activeMessageId}/guidance`,
+    input,
+  );
+  return normalizeTurnControlResponse(data);
+}
+
+export async function sendSideChat(
+  activeMessageId: string,
+  input: SideChatRequest,
+): Promise<TurnControlResponse> {
+  const { data } = await api.post<TurnControlResponse>(
+    `/api/v1/messages/${activeMessageId}/side-chat`,
+    input,
+  );
+  return normalizeTurnControlResponse(data);
+}
+
 export async function updateMessage(
   messageId: string,
   input: UpdateMessageRequest,
@@ -112,5 +186,13 @@ export async function interruptMessage(messageId: string): Promise<InterruptMess
   return {
     ...data,
     message: normalizeMessage(data.message),
+  };
+}
+
+function normalizeTurnControlResponse(data: TurnControlResponse): TurnControlResponse {
+  return {
+    ...data,
+    user_message: data.user_message ? normalizeMessage(data.user_message) : null,
+    agent_message: data.agent_message ? normalizeMessage(data.agent_message) : null,
   };
 }

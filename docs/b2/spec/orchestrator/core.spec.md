@@ -680,3 +680,17 @@ Queued next turns are owned by B1/F message lifecycle, not by Orchestrator plann
 - The new pending message is a normal fresh Orchestrator turn and should rebuild context from persisted conversation history.
 - Queue dispatch must preserve group-scoped scheduling rules. A queued message with an invalid or removed target agent should become a visible platform error turn, not a silent fallback to a global agent.
 - Phase 1 does not implement "guide current thinking"; that future feature will require a separate runtime-control contract.
+
+## 2026-06-07 Conversation Control Plane Addendum
+
+The runtime-control contract now exists for Orchestrator safe-point guidance and side chat:
+
+- Guidance is explicit and separate from queued next turns. Default running-time submit still queues the next turn.
+- B1 creates `conversation_turn_controls` rows and streams `turn_control` events; Orchestrator only consumes pending `guidance` controls at safe points.
+- Safe points include direct-answer before generation, planner before/after, task dispatch before, tool-loop entry, quality-gate/replanner/repair boundaries, and child-task switch boundaries where available.
+- Applied guidance is injected as a scoped system/context instruction for the remaining active Orchestrator turn, then recorded as `orchestrator_run_event=guidance_applied`.
+- Unapplied guidance expires when the active parent message reaches `done`, `error`, or `interrupted`.
+- External CLI/SDK child runtimes do not receive live prompt injection in this phase. If the active message is not an Orchestrator safe-point runtime, guidance must return `409 GUIDANCE_NOT_SUPPORTED`.
+- Side-chat messages answer status questions from active stream/run/task/queue/workspace summaries and must not create `task_card`, `agent_switch`, or runtime attempts.
+- Context building excludes `turn_control.kind=side_chat` messages from future main-task context so status questions do not become hidden task requirements.
+- Queue actions remain platform-level controls. They may reorder/merge/convert queued messages or interrupt-then-dispatch, but they must not bypass group-scoped dispatch or same-conversation serial execution.
