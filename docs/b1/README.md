@@ -11,6 +11,7 @@
 | [spec/workspace-sandbox.spec.md](spec/workspace-sandbox.spec.md) | Workspace 沙箱隔离规范 |
 | [spec/group-observer-context.spec.md](spec/group-observer-context.spec.md) | 群聊 Agent 旁观者上下文与记忆契约 |
 | [spec/message-content-block-attribution.spec.md](spec/message-content-block-attribution.spec.md) | ContentBlock block-level `agent_id` 归属契约 |
+| [../spec/next-major-modules.spec.md](../spec/next-major-modules.spec.md) | 下一阶段 B1 相关契约：interrupt API、upload storage/API、自定义 Agent 配置持久化 |
 
 ## 当前 B1 能力快照
 
@@ -26,6 +27,10 @@
 | ContentBlock `agent_id` 归属 | Done | `tests/test_stream_content_blocks.py` |
 | 单聊 / 群聊上下文记忆 | Done | `tests/test_context_builder.py` |
 | 群聊旁观者身份强化 | Done | `tests/test_context_builder.py`, `tests/test_stream_tool_calls.py` |
+| 对话打断 API / 终态 | Done | `POST /messages/{id}/interrupt`、`message.status=interrupted`、StreamRunManager interrupt token、`tests/test_b1_quality.py` |
+| 运行中提交排队 | Done | `message.status=queued`、`message_queue_entries`、`POST /conversations/{id}/queued-messages`、`tests/test_conversation_api.py` |
+| 文件上传与 Workspace 导入 | Planned | `uploads` metadata/storage、multipart upload、archive safe extraction、owner permission |
+| 自定义 Agent 配置持久化 | Planned | Agent profile、knowledge uploads、skill package metadata、MCP secret refs / health status |
 
 ## 每次同步后必跑
 
@@ -53,3 +58,24 @@ docker compose exec -T backend ruff check
 | [../api-spec.md](../api-spec.md) | API 契约说明 |
 | [../tech-architecture.md](../tech-architecture.md) | 后端架构上下文 |
 | [../team-division.md](../team-division.md) | B1 任务边界 |
+## 2026-06-07 Interrupt API Contract
+
+B1 now owns user interrupt as a neutral terminal lifecycle state:
+
+- `POST /api/v1/messages/{msg_id}/interrupt`
+- `message.status=interrupted`
+- SSE terminal event `interrupted`
+- Orchestrator child terminal event `message_interrupted`
+- `interrupted` clears conversation busy and does not trigger retry/regenerate/error UI
+
+## 2026-06-07 Queued Next Turn Contract
+
+B1 now persists same-conversation queued user turns:
+
+- `message.status=queued` is used only for user messages waiting behind an active agent response.
+- `message_queue_entries` records queue order and dispatch state.
+- `POST /api/v1/conversations/{conversation_id}/queued-messages` is allowed only while the conversation has an active `pending` or `streaming` agent response.
+- `PATCH /api/v1/queued-messages/{message_id}` and `DELETE /api/v1/queued-messages/{message_id}` are allowed only before dispatch.
+- Current `POST /messages` busy protection remains unchanged; queueing is explicit and does not bypass serial execution.
+- After `done`, `error`, or `interrupted`, B1 dispatches the queue head and may include `queued_next` in the terminal SSE payload.
+- Queued messages do not enter the active turn's context. They become normal `done` user messages only when dispatched as the next turn.

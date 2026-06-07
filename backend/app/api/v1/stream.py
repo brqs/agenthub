@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
@@ -27,6 +26,7 @@ from app.api.v1.stream_accumulator import StreamContentAccumulator
 from app.api.v1.stream_orchestrator_context import (
     apply_orchestrator_stream_context,
     cancel_orchestrator_run,
+    interrupt_orchestrator_run,
 )
 from app.api.v1.stream_preview import maybe_autostart_platform_preview
 from app.core.config import settings
@@ -34,8 +34,11 @@ from app.core.database import SessionFactory
 from app.core.deps import DbSession, get_current_user
 from app.models.message import Message
 from app.models.user import User
+from app.schemas.message import MessageOut
 from app.services.context_builder import build_context
 from app.services.message_lifecycle import cleanup_stale_streaming_messages
+from app.services.queued_messages import QueuedDispatch, dispatch_next_queued_message
+from app.services.stream_run_manager import StreamRunSession, stream_run_manager
 from app.services.workspace_service import WorkspaceService
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 
@@ -45,93 +48,15 @@ _ContentAccumulator = StreamContentAccumulator
 workflow_runtime_service = WorkspaceWorkflowRuntimeService()
 ERROR_TEXT_MAX_CHARS = 1200
 GENERIC_STREAM_ERROR_TEXT = "Agent stream failed. Please retry."
-
-
-@dataclass
-class StreamRunSession:
-    message_id: UUID
-    conversation_id: UUID
-    events: list[dict[str, str]] = field(default_factory=list)
-    condition: asyncio.Condition = field(default_factory=asyncio.Condition)
-    terminal: bool = False
-    task: asyncio.Task[None] | None = None
-
-
-class StreamRunManager:
-    """In-process owner for agent runtime tasks, shared by SSE subscribers."""
-
-    def __init__(self) -> None:
-        self._sessions: dict[UUID, StreamRunSession] = {}
-        self._lock = asyncio.Lock()
-
-    async def get(self, message_id: UUID) -> StreamRunSession | None:
-        async with self._lock:
-            return self._sessions.get(message_id)
-
-    async def start(self, message: Message) -> StreamRunSession:
-        async with self._lock:
-            existing = self._sessions.get(message.id)
-            if existing is not None:
-                return existing
-            session = StreamRunSession(
-                message_id=message.id,
-                conversation_id=message.conversation_id,
-            )
-            session.task = asyncio.create_task(self._run(session))
-            self._sessions[message.id] = session
-            return session
-
-    async def publish(
-        self,
-        session: StreamRunSession,
-        event: dict[str, str],
-    ) -> None:
-        async with session.condition:
-            session.events.append(event)
-            session.condition.notify_all()
-
-    async def subscribe(
-        self,
-        session: StreamRunSession,
-    ) -> AsyncIterator[dict[str, str]]:
-        index = 0
-        while True:
-            async with session.condition:
-                while index >= len(session.events) and not session.terminal:
-                    await session.condition.wait()
-                if index < len(session.events):
-                    event = session.events[index]
-                    index += 1
-                else:
-                    return
-            yield event
-
-    async def terminalize(self, session: StreamRunSession) -> None:
-        async with session.condition:
-            session.terminal = True
-            session.condition.notify_all()
-
-    async def _run(self, session: StreamRunSession) -> None:
-        try:
-            async with SessionFactory() as db:
-                message = await db.get(Message, session.message_id)
-                if message is None:
-                    return
-                async for event in _runtime_event_generator(db, message):
-                    await self.publish(session, event)
-        finally:
-            await self.terminalize(session)
-            async with self._lock:
-                current = self._sessions.get(session.message_id)
-                if current is session:
-                    self._sessions.pop(session.message_id, None)
-
-
-stream_run_manager = StreamRunManager()
+GENERIC_INTERRUPTED_TEXT = "已打断本次回复，可以继续补充要求。"
 
 
 class StreamDisconnectedError(RuntimeError):
     """Raised when the client disconnects while an adapter is still running."""
+
+
+class StreamInterruptedError(RuntimeError):
+    """Raised when the user explicitly interrupts a running agent turn."""
 
 
 class StreamTimeoutError(RuntimeError):
@@ -228,6 +153,55 @@ async def _next_chunk_with_timeout(
             next_task.cancel()
 
 
+async def _next_chunk_with_timeout_or_interrupt(
+    iterator: AsyncIterator[StreamChunk],
+    *,
+    interrupt_event: asyncio.Event | None,
+    timeout_seconds: float | None = None,
+    timeout_error_code: str = "stream_timeout",
+) -> StreamChunk:
+    next_task: asyncio.Task[StreamChunk] = asyncio.create_task(
+        _anext_stream_chunk(iterator)
+    )
+    interrupt_task: asyncio.Task[bool] | None = None
+    tasks: set[asyncio.Task[Any]] = {next_task}
+    if interrupt_event is not None:
+        interrupt_task = asyncio.create_task(interrupt_event.wait())
+        tasks.add(interrupt_task)
+    try:
+        done, _ = await asyncio.wait(
+            tasks,
+            timeout=timeout_seconds,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if not done:
+            for task in tasks:
+                await _cancel_task_with_budget(task)
+            await _close_async_iterator(iterator)
+            raise StreamTimeoutError(
+                timeout_error_code,
+                "Agent stream timed out before the Agent finished.",
+            )
+        if interrupt_task is not None and interrupt_task in done:
+            await _cancel_task_with_budget(next_task)
+            await _close_async_iterator(iterator)
+            raise StreamInterruptedError("User interrupted this agent turn.")
+        if interrupt_task is not None:
+            await _cancel_task_with_budget(interrupt_task)
+        return next_task.result()
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+
+
+async def _close_async_iterator(iterator: AsyncIterator[StreamChunk]) -> None:
+    aclose = getattr(iterator, "aclose", None)
+    if callable(aclose):
+        with contextlib.suppress(BaseException):
+            await asyncio.wait_for(aclose(), timeout=0.5)
+
+
 async def _anext_stream_chunk(iterator: AsyncIterator[StreamChunk]) -> StreamChunk:
     return await anext(iterator)
 
@@ -261,6 +235,26 @@ async def _mark_stream_error(
         await db.rollback()
 
 
+async def _mark_stream_interrupted(
+    db: AsyncSession,
+    message: Message,
+    accumulator: _ContentAccumulator,
+) -> None:
+    message_id = message.id
+    with contextlib.suppress(Exception):
+        await db.rollback()
+    refreshed = await db.get(Message, message_id)
+    if refreshed is None:
+        return
+    refreshed.content = _interrupted_content_blocks(accumulator)
+    refreshed.status = "interrupted"
+    message.status = "interrupted"
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+
 async def _persist_stream_error(
     db: AsyncSession,
     message: Message,
@@ -273,6 +267,16 @@ async def _persist_stream_error(
         agent_id=chunk.agent_id,
     )
     message.status = "error"
+    await db.commit()
+
+
+async def _persist_stream_interrupted(
+    db: AsyncSession,
+    message: Message,
+    accumulator: _ContentAccumulator,
+) -> None:
+    message.content = _interrupted_content_blocks(accumulator)
+    message.status = "interrupted"
     await db.commit()
 
 
@@ -291,6 +295,16 @@ def _error_content_blocks(
     if agent_id:
         error_block["agent_id"] = agent_id
     return [*content, error_block]
+
+
+def _interrupted_content_blocks(
+    accumulator: _ContentAccumulator,
+) -> list[dict[str, Any]]:
+    accumulator.finalize_interrupted()
+    content = accumulator.to_list()
+    if content:
+        return content
+    return [{"type": "text", "text": GENERIC_INTERRUPTED_TEXT}]
 
 
 def _chunk_error_text(chunk: StreamChunk) -> str:
@@ -315,6 +329,27 @@ def _content_has_error_text(content: list[dict[str, Any]], error_text: str) -> b
         block.get("type") == "text" and normalized in str(block.get("text") or "")
         for block in content
     )
+
+
+async def _dispatch_queued_next_payload(
+    db: AsyncSession,
+    message: Message,
+) -> dict[str, Any] | None:
+    dispatch = await dispatch_next_queued_message(
+        db,
+        conversation_id=message.conversation_id,
+    )
+    if dispatch is None:
+        return None
+    return _queued_dispatch_payload(dispatch)
+
+
+def _queued_dispatch_payload(dispatch: QueuedDispatch) -> dict[str, Any]:
+    return {
+        "user_message": MessageOut.model_validate(dispatch.user_message).model_dump(mode="json"),
+        "agent_message": MessageOut.model_validate(dispatch.agent_message).model_dump(mode="json"),
+        "queue_remaining_count": dispatch.queue_remaining_count,
+    }
 
 
 async def _mark_orphaned_stream_error(db: AsyncSession, message: Message) -> None:
@@ -380,6 +415,17 @@ async def _fail_open_child_messages(
         yield chunk
 
 
+async def _interrupt_open_child_messages(
+    stream_config: dict[str, Any] | None,
+) -> AsyncIterator[StreamChunk]:
+    writer = (stream_config or {}).get("orchestrator_group_message_writer")
+    interrupt_open = getattr(writer, "interrupt_open_messages", None)
+    if not callable(interrupt_open):
+        return
+    for chunk in await interrupt_open():
+        yield chunk
+
+
 async def _event_generator(
     db: AsyncSession,
     request: Request,
@@ -394,6 +440,8 @@ async def _event_generator(
 async def _runtime_event_generator(
     db: AsyncSession,
     message: Message,
+    *,
+    session: StreamRunSession | None = None,
 ) -> AsyncIterator[dict[str, str]]:
     """Run an agent message and yield SSE-formatted events."""
     accumulator = _ContentAccumulator()
@@ -407,7 +455,10 @@ async def _runtime_event_generator(
                 error="Message has no agent_id",
             )
             await _persist_stream_error(db, message, accumulator, chunk)
-            yield chunk.to_sse()
+            queued_next = await _dispatch_queued_next_payload(db, message)
+            if queued_next is not None:
+                await db.commit()
+            yield chunk.model_copy(update={"queued_next": queued_next}).to_sse()
             return
 
         adapter = await get_adapter(message.agent_id, db)
@@ -439,6 +490,9 @@ async def _runtime_event_generator(
                 "agent_id": message.agent_id,
             },
         }
+        if session is not None:
+            stream_config["runtime_interrupt_event"] = session.interrupt_event
+            stream_config["runtime_control"] = {"interrupt_event": session.interrupt_event}
         adapter_iterator = adapter.stream(
             history,
             config=stream_config,
@@ -452,8 +506,9 @@ async def _runtime_event_generator(
                     started_at=started_at,
                     last_activity_at=last_activity_at,
                 )
-                chunk = await _next_chunk_with_timeout(
+                chunk = await _next_chunk_with_timeout_or_interrupt(
                     adapter_iterator,
+                    interrupt_event=session.interrupt_event if session else None,
                     timeout_seconds=wait_timeout,
                     timeout_error_code=timeout_code,
                 )
@@ -463,6 +518,8 @@ async def _runtime_event_generator(
             if chunk.block_index is not None:
                 next_block_index = max(next_block_index, chunk.block_index + 1)
             if chunk.event_type == "done":
+                if session is not None and session.interrupt_event.is_set():
+                    raise StreamInterruptedError("User interrupted this agent turn.")
                 final_done = chunk
                 if chunk.total_blocks is not None:
                     next_block_index = max(next_block_index, chunk.total_blocks)
@@ -476,15 +533,26 @@ async def _runtime_event_generator(
             accumulator_error = accumulator.feed(chunk)
             if accumulator_error is not None:
                 await _persist_stream_error(db, message, accumulator, accumulator_error)
-                yield accumulator_error.to_sse()
+                queued_next = await _dispatch_queued_next_payload(db, message)
+                if queued_next is not None:
+                    await db.commit()
+                yield accumulator_error.model_copy(
+                    update={"queued_next": queued_next}
+                ).to_sse()
                 return
-            yield chunk.to_sse()
             if chunk.event_type == "error":
                 await _persist_stream_error(db, message, accumulator, chunk)
+                queued_next = await _dispatch_queued_next_payload(db, message)
+                if queued_next is not None:
+                    await db.commit()
+                yield chunk.model_copy(update={"queued_next": queued_next}).to_sse()
                 return
+            yield chunk.to_sse()
 
         # Persist
         if final_done is not None:
+            if session is not None and session.interrupt_event.is_set():
+                raise StreamInterruptedError("User interrupted this agent turn.")
             preview_chunks, next_block_index = await maybe_autostart_platform_preview(
                 db=db,
                 message=message,
@@ -497,10 +565,16 @@ async def _runtime_event_generator(
                 accumulator_error = accumulator.feed(preview_chunk)
                 if accumulator_error is not None:
                     await _persist_stream_error(db, message, accumulator, accumulator_error)
-                    yield accumulator_error.to_sse()
+                    queued_next = await _dispatch_queued_next_payload(db, message)
+                    if queued_next is not None:
+                        await db.commit()
+                    yield accumulator_error.model_copy(
+                        update={"queued_next": queued_next}
+                    ).to_sse()
                     return
                 yield preview_chunk.to_sse()
-            yield final_done.model_copy(update={"total_blocks": next_block_index}).to_sse()
+            if session is not None and session.interrupt_event.is_set():
+                raise StreamInterruptedError("User interrupted this agent turn.")
         has_orphaned_tool_call = accumulator.finalize_orphaned_tools()
         accumulator.finalize_task_cards(success=not has_orphaned_tool_call)
         blocks = accumulator.to_list()
@@ -513,15 +587,50 @@ async def _runtime_event_generator(
         message.content = blocks
         message.status = "error" if has_orphaned_tool_call else "done"
         await db.commit()
+        queued_next = await _dispatch_queued_next_payload(db, message)
+        if queued_next is not None:
+            await db.commit()
+        if final_done is not None and not has_orphaned_tool_call:
+            yield final_done.model_copy(
+                update={"total_blocks": next_block_index, "queued_next": queued_next}
+            ).to_sse()
+        elif has_orphaned_tool_call:
+            yield StreamChunk(
+                event_type="error",
+                error_code="orphan_tool_call",
+                error="Agent stream ended with an incomplete tool call.",
+                queued_next=queued_next,
+            ).to_sse()
+    except StreamInterruptedError:
+        await interrupt_orchestrator_run(stream_config)
+        async for child_chunk in _interrupt_open_child_messages(stream_config):
+            yield child_chunk.to_sse()
+        await _persist_stream_interrupted(db, message, accumulator)
+        queued_next = await _dispatch_queued_next_payload(db, message)
+        if queued_next is not None:
+            await db.commit()
+        yield StreamChunk(
+            event_type="interrupted",
+            status="interrupted",
+            message_id=str(message.id),
+            conversation_id=str(message.conversation_id),
+            agent_id=message.agent_id,
+            total_blocks=len(message.content or []),
+            queued_next=queued_next,
+        ).to_sse()
     except StreamTimeoutError as e:
         await cancel_orchestrator_run(stream_config)
         async for child_error in _fail_open_child_messages(stream_config, str(e)):
             yield child_error.to_sse()
         await _mark_stream_error(db, message, accumulator, str(e))
+        queued_next = await _dispatch_queued_next_payload(db, message)
+        if queued_next is not None:
+            await db.commit()
         yield StreamChunk(
             event_type="error",
             error_code=e.error_code,
             error=str(e),
+            queued_next=queued_next,
         ).to_sse()
     except asyncio.CancelledError:
         await cancel_orchestrator_run(stream_config)
@@ -544,13 +653,22 @@ async def _runtime_event_generator(
         async for child_error in _fail_open_child_messages(stream_config, str(e)):
             yield child_error.to_sse()
         await _persist_stream_error(db, message, accumulator, chunk)
-        yield chunk.to_sse()
+        queued_next = await _dispatch_queued_next_payload(db, message)
+        if queued_next is not None:
+            await db.commit()
+        yield chunk.model_copy(update={"queued_next": queued_next}).to_sse()
     except Exception as e:  # noqa: BLE001
         async for child_error in _fail_open_child_messages(stream_config, str(e)):
             yield child_error.to_sse()
         await _mark_stream_error(db, message, accumulator, str(e))
+        queued_next = await _dispatch_queued_next_payload(db, message)
+        if queued_next is not None:
+            await db.commit()
         yield StreamChunk(
-            event_type="error", error_code="internal_error", error=str(e)
+            event_type="error",
+            error_code="internal_error",
+            error=str(e),
+            queued_next=queued_next,
         ).to_sse()
     finally:
         if stream_claimed and message.status in {"pending", "streaming"}:
@@ -566,6 +684,21 @@ async def _runtime_event_generator(
                 accumulator,
                 "Agent stream ended before a final done or error event.",
             )
+            queued_next = await _dispatch_queued_next_payload(db, message)
+            if queued_next is not None:
+                await db.commit()
+
+
+async def _run_stream_session(session: StreamRunSession) -> None:
+    try:
+        async with SessionFactory() as db:
+            message = await db.get(Message, session.message_id)
+            if message is None:
+                return
+            async for event in _runtime_event_generator(db, message, session=session):
+                await stream_run_manager.publish(session, event)
+    finally:
+        await stream_run_manager.finish(session)
 
 
 @router.get("/messages/{msg_id}/stream")
@@ -626,5 +759,5 @@ async def stream_message(
 
     message.status = "streaming"
     await db.commit()
-    session = await stream_run_manager.start(message)
+    session = await stream_run_manager.start(message, _run_stream_session)
     return EventSourceResponse(stream_run_manager.subscribe(session))

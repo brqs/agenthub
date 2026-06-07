@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { subscribeMessageStream } from '@/lib/sse';
 import type { ContentBlock, StreamEvent } from '@/lib/types';
 
-export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error';
+export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'interrupted';
 
 interface StreamingBlock {
   type: ContentBlock['type'];
@@ -25,7 +25,8 @@ interface StreamingBlock {
     | 'partial'
     | 'waiting'
     | 'resolved'
-    | 'cancelled';
+    | 'cancelled'
+    | 'interrupted';
   text?: string;
   code?: string;
   language?: string;
@@ -42,6 +43,7 @@ export function useStream(
     onEvent?: (event: StreamEvent) => void;
     onDone?: () => void;
     onError?: (error: string) => void;
+    onInterrupted?: () => void;
     onTransportError?: (error: string) => void;
   },
 ) {
@@ -210,11 +212,18 @@ export function useStream(
           case 'message_start':
           case 'message_done':
           case 'message_error':
+          case 'message_interrupted':
             break;
           case 'done':
             completedRef.current = true;
             setStatus('done');
             optionsRef.current?.onDone?.();
+            ctrl.abort();
+            break;
+          case 'interrupted':
+            completedRef.current = true;
+            setStatus('interrupted');
+            optionsRef.current?.onInterrupted?.();
             ctrl.abort();
             break;
           case 'error':
@@ -253,8 +262,14 @@ export function useStream(
   return { blocks, status, error };
 }
 
-function processStatus(value: unknown): 'running' | 'done' | 'partial' | 'error' {
-  if (value === 'running' || value === 'done' || value === 'partial' || value === 'error') {
+function processStatus(value: unknown): 'running' | 'done' | 'partial' | 'error' | 'interrupted' {
+  if (
+    value === 'running' ||
+    value === 'done' ||
+    value === 'partial' ||
+    value === 'error' ||
+    value === 'interrupted'
+  ) {
     return value;
   }
   return 'done';
@@ -325,8 +340,16 @@ function eventBelongsToAnotherMessage(messageId: string, event: StreamEvent): bo
   return typeof data.message_id === 'string' && data.message_id !== messageId;
 }
 
-function processStepStatus(value: unknown): 'done' | 'running' | 'error' | 'skipped' {
-  if (value === 'done' || value === 'running' || value === 'error' || value === 'skipped') {
+function processStepStatus(
+  value: unknown,
+): 'done' | 'running' | 'error' | 'skipped' | 'interrupted' {
+  if (
+    value === 'done' ||
+    value === 'running' ||
+    value === 'error' ||
+    value === 'skipped' ||
+    value === 'interrupted'
+  ) {
     return value;
   }
   return 'done';

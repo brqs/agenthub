@@ -682,3 +682,6 @@ uv run python -m mypy app/agents app/services app/schemas/agent.py
 - [core.spec.md](core.spec.md) 描述当前 Orchestrator 主行为契约，已包含 structured memory 边界。
 - [task-planning.spec.md](task-planning.spec.md) 描述 planner 和 task schema。
 - 本文档描述 Orchestrator 跨轮结构化记忆和上下文注入。
+## 2026-06-07 Memory Status Addendum
+
+Structured Orchestrator memory now treats `interrupted` as a terminal run/task-attempt state. It is distinct from `cancelled`: `interrupted` means the user explicitly clicked Stop on the agent turn; `cancelled` remains legacy/system cancellation language. Recent-run memory injection may include interrupted runs so Orchestrator can answer follow-up questions about stopped work.

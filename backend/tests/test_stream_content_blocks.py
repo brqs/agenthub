@@ -592,6 +592,60 @@ async def test_stream_accumulator_marks_running_task_cards_error_on_failure() ->
 
     assert accumulator.to_list()[0]["tasks"][0]["status"] == "error"
 
+
+async def test_stream_accumulator_marks_running_blocks_interrupted() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="task_card",
+            metadata={
+                "title": "Orchestrator plan",
+                "tasks": [
+                    {
+                        "id": "task-a",
+                        "agent_id": "claude-code",
+                        "title": "Build HTML",
+                        "status": "running",
+                    },
+                    {
+                        "id": "task-b",
+                        "agent_id": "claude-code",
+                        "title": "Review HTML",
+                        "status": "done",
+                    },
+                ],
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=1,
+            block_type="process",
+            metadata={
+                "title": "Execution",
+                "status": "running",
+                "steps": [
+                    {"label": "Plan", "kind": "planning", "status": "done"},
+                    {"label": "Run", "kind": "dispatch", "status": "running"},
+                ],
+            },
+        )
+    )
+
+    accumulator.finalize_interrupted()
+    task_card, process = accumulator.to_list()
+
+    assert task_card["tasks"][0]["status"] == "interrupted"
+    assert task_card["tasks"][1]["status"] == "done"
+    assert process["status"] == "interrupted"
+    assert process["steps"][0]["status"] == "done"
+    assert process["steps"][1]["status"] == "interrupted"
+
+
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def ensure_tables() -> None:
     async with engine.begin() as conn:

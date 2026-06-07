@@ -1,6 +1,6 @@
 import type { Agent, ContentBlock, Conversation, Message } from '@/lib/types';
 
-export type TaskStatus = 'pending' | 'running' | 'done' | 'error';
+export type TaskStatus = 'pending' | 'running' | 'done' | 'error' | 'interrupted';
 export type { ClarificationBlock, ProcessBlock } from '@/lib/types';
 
 export interface TaskCardBlock {

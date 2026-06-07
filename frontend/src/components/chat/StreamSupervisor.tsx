@@ -50,6 +50,10 @@ function StreamSubscription({
       finishActiveStream(stream.messageId);
       invalidateConversationQueries(queryClient, userId, stream.conversationId);
     },
+    onInterrupted: () => {
+      finishActiveStream(stream.messageId);
+      invalidateConversationQueries(queryClient, userId, stream.conversationId);
+    },
     onError: () => {
       applyStreamEvent(stream.messageId, {
         event: 'error',

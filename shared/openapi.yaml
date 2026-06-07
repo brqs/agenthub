@@ -616,6 +616,100 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/queued-messages:
+    post:
+      tags:
+      - Messages
+      summary: Queue Message
+      operationId: queue_message_api_v1_conversations__conv_id__queued_messages_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueMessageRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/queued-messages/{msg_id}:
+    patch:
+      tags:
+      - Messages
+      summary: Update Queued Message
+      operationId: update_queued_message_api_v1_queued_messages__msg_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateQueuedMessageRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Messages
+      summary: Delete Queued Message
+      operationId: delete_queued_message_api_v1_queued_messages__msg_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/messages/{msg_id}:
     patch:
       tags:
@@ -669,6 +763,35 @@ paths:
       responses:
         '204':
           description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/messages/{msg_id}/interrupt:
+    post:
+      tags:
+      - Messages
+      summary: Interrupt Message
+      operationId: interrupt_message_api_v1_messages__msg_id__interrupt_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterruptMessageResponse'
         '422':
           description: Validation Error
           content:
@@ -2507,6 +2630,22 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    InterruptMessageResponse:
+      properties:
+        state:
+          type: string
+          enum:
+          - interrupted
+          - already_terminal
+          - interrupting
+          title: State
+        message:
+          $ref: '#/components/schemas/MessageOut'
+      type: object
+      required:
+      - state
+      - message
+      title: InterruptMessageResponse
     LoginRequest:
       properties:
         username:
@@ -2605,6 +2744,8 @@ components:
           - streaming
           - done
           - error
+          - interrupted
+          - queued
           title: Status
           default: done
         is_pinned:
@@ -2935,6 +3076,7 @@ components:
           - done
           - partial
           - error
+          - interrupted
           title: Status
         default_collapsed:
           type: boolean
@@ -2991,6 +3133,7 @@ components:
           - running
           - error
           - skipped
+          - interrupted
           title: Status
         detail:
           anyOf:
@@ -3025,6 +3168,60 @@ components:
       - username
       - password
       title: RegisterRequest
+    QueueMessageRequest:
+      properties:
+        content:
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/TextBlock'
+            - $ref: '#/components/schemas/CodeBlock'
+            - $ref: '#/components/schemas/DiffBlock'
+            - $ref: '#/components/schemas/WebPreviewBlock'
+            - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/DeploymentStatusBlock'
+            - $ref: '#/components/schemas/WorkflowBlock'
+            - $ref: '#/components/schemas/TaskCardBlock'
+            - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
+            - $ref: '#/components/schemas/ToolCallBlock'
+            discriminator:
+              propertyName: type
+              mapping:
+                clarification: '#/components/schemas/ClarificationBlock'
+                code: '#/components/schemas/CodeBlock'
+                deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                diff: '#/components/schemas/DiffBlock'
+                file: '#/components/schemas/FileBlock'
+                process: '#/components/schemas/ProcessBlock'
+                task_card: '#/components/schemas/TaskCardBlock'
+                text: '#/components/schemas/TextBlock'
+                tool_call: '#/components/schemas/ToolCallBlock'
+                web_preview: '#/components/schemas/WebPreviewBlock'
+                workflow: '#/components/schemas/WorkflowBlock'
+          type: array
+          minItems: 1
+          title: Content
+        target_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Agent Id
+      type: object
+      required:
+      - content
+      title: QueueMessageRequest
+    QueueMessageResponse:
+      properties:
+        queued_message:
+          $ref: '#/components/schemas/MessageOut'
+        queue_position:
+          type: integer
+          title: Queue Position
+      type: object
+      required:
+      - queued_message
+      - queue_position
+      title: QueueMessageResponse
     SendMessageRequest:
       properties:
         content:
@@ -3078,6 +3275,48 @@ components:
       - user_message
       - agent_message
       title: SendMessageResponse
+    UpdateQueuedMessageRequest:
+      properties:
+        content:
+          anyOf:
+          - items:
+              oneOf:
+              - $ref: '#/components/schemas/TextBlock'
+              - $ref: '#/components/schemas/CodeBlock'
+              - $ref: '#/components/schemas/DiffBlock'
+              - $ref: '#/components/schemas/WebPreviewBlock'
+              - $ref: '#/components/schemas/FileBlock'
+              - $ref: '#/components/schemas/DeploymentStatusBlock'
+              - $ref: '#/components/schemas/WorkflowBlock'
+              - $ref: '#/components/schemas/TaskCardBlock'
+              - $ref: '#/components/schemas/ProcessBlock'
+              - $ref: '#/components/schemas/ClarificationBlock'
+              - $ref: '#/components/schemas/ToolCallBlock'
+              discriminator:
+                propertyName: type
+                mapping:
+                  clarification: '#/components/schemas/ClarificationBlock'
+                  code: '#/components/schemas/CodeBlock'
+                  deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                  diff: '#/components/schemas/DiffBlock'
+                  file: '#/components/schemas/FileBlock'
+                  process: '#/components/schemas/ProcessBlock'
+                  task_card: '#/components/schemas/TaskCardBlock'
+                  text: '#/components/schemas/TextBlock'
+                  tool_call: '#/components/schemas/ToolCallBlock'
+                  web_preview: '#/components/schemas/WebPreviewBlock'
+                  workflow: '#/components/schemas/WorkflowBlock'
+            type: array
+            minItems: 1
+          - type: 'null'
+          title: Content
+        target_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Agent Id
+      type: object
+      title: UpdateQueuedMessageRequest
     TaskCardBlock:
       properties:
         type:
@@ -3120,6 +3359,7 @@ components:
           - running
           - done
           - error
+          - interrupted
           title: Status
       type: object
       required:
@@ -4297,463 +4537,6 @@ components:
       - health_status
       - created_at
       title: WorkspaceWorkflowRunResponse
-    AgentConfig:
-      additionalProperties: true
-      properties:
-        model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for builtin agents.
-          title: Model Backend
-        answer_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for orchestrator direct answers.
-          title: Answer Model Backend
-        planner_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for orchestrator LLM planning.
-          title: Planner Model Backend
-        llm_planning:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Llm Planning
-        planner_fallback_to_template:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Planner Fallback To Template
-        orchestrator_llm_config:
-          anyOf:
-          - additionalProperties: true
-            type: object
-          - type: 'null'
-          default: null
-          title: Orchestrator Llm Config
-        max_iterations:
-          anyOf:
-          - maximum: 50
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Max Iterations
-          minimum: 1
-          maximum: 50
-        react_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: React Enabled
-        react_trace_visible:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: React Trace Visible
-        react_decision_max_tokens:
-          anyOf:
-          - maximum: 4096
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: React Decision Max Tokens
-          minimum: 1
-          maximum: 4096
-        mcp_servers:
-          anyOf:
-          - items:
-              additionalProperties: true
-              type: object
-            type: array
-          - type: 'null'
-          default: null
-          title: Mcp Servers
-        allowed_tools:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          description: Maximum builtin native/MCP tools this agent may receive. Omit
-            to keep legacy behavior; [] means no tools.
-          title: Allowed Tools
-        command:
-          anyOf:
-          - type: string
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Command
-        args:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Args
-        timeout_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Timeout Seconds
-          minimum: 1
-          maximum: 3600
-        max_runtime_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Max Runtime Seconds
-          minimum: 1
-          maximum: 3600
-        idle_timeout_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Idle Timeout Seconds
-          minimum: 1
-          maximum: 3600
-        heartbeat_interval_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Heartbeat Interval Seconds
-          minimum: 1
-          maximum: 3600
-        qa_short_circuit_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Qa Short Circuit Enabled
-        qa_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for external direct chat.
-          title: Qa Model Backend
-        qa_model:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Qa Model
-        qa_classifier_model:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Qa Classifier Model
-        qa_max_tokens:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Qa Max Tokens
-          minimum: 1
-          maximum: 32000
-        qa_classifier_max_tokens:
-          anyOf:
-          - maximum: 1024
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Qa Classifier Max Tokens
-          minimum: 1
-          maximum: 1024
-        qa_temperature:
-          anyOf:
-          - maximum: 2
-            minimum: 0
-            type: number
-          - type: 'null'
-          default: null
-          title: Qa Temperature
-          minimum: 0
-          maximum: 2
-        qa_request_timeout_seconds:
-          anyOf:
-          - maximum: 120
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Qa Request Timeout Seconds
-          minimum: 1
-          maximum: 120
-        task_fallback_agent_ids:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Task Fallback Agent Ids
-        max_task_attempts:
-          anyOf:
-          - maximum: 3
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Max Task Attempts
-          minimum: 1
-          maximum: 3
-        task_result_context_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Task Result Context Max Chars
-          minimum: 1
-          maximum: 32000
-        task_result_item_max_chars:
-          anyOf:
-          - maximum: 8000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Task Result Item Max Chars
-          minimum: 1
-          maximum: 8000
-        orchestrator_memory_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Enabled
-        orchestrator_memory_recent_runs:
-          anyOf:
-          - maximum: 10
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Recent Runs
-          minimum: 1
-          maximum: 10
-        orchestrator_memory_context_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Context Max Chars
-          minimum: 1
-          maximum: 32000
-        orchestrator_tool_calling_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Calling Enabled
-        orchestrator_tool_trace_visible:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Trace Visible
-        orchestrator_tool_max_iterations:
-          anyOf:
-          - maximum: 50
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Max Iterations
-          minimum: 1
-          maximum: 50
-        orchestrator_tool_result_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Result Max Chars
-          minimum: 1
-          maximum: 32000
-        orchestrator_tool_read_max_bytes:
-          anyOf:
-          - maximum: 1048576
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Read Max Bytes
-          minimum: 1
-          maximum: 1048576
-        orchestrator_group_messages_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Group Messages Enabled
-        orchestrator_process_block_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Process Block Enabled
-        orchestrator_response_polish_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Response Polish Enabled
-        clarification_gate_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Clarification Gate Enabled
-        auto_clarification_max_questions:
-          anyOf:
-          - maximum: 8
-            minimum: 0
-            type: integer
-          - type: 'null'
-          default: null
-          title: Auto Clarification Max Questions
-          minimum: 0
-          maximum: 8
-        grill_max_questions:
-          anyOf:
-          - maximum: 12
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Grill Max Questions
-          minimum: 1
-          maximum: 12
-        workspace_docs_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Workspace Docs Enabled
-        orchestrator_response_polish_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for Orchestrator final response polish.
-          title: Orchestrator Response Polish Model Backend
-        orchestrator_response_polish_max_tokens:
-          anyOf:
-          - maximum: 4096
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Response Polish Max Tokens
-          minimum: 1
-          maximum: 4096
-        orchestrator_parallel_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Parallel Enabled
-        orchestrator_parallel_max_concurrency:
-          anyOf:
-          - maximum: 10
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Parallel Max Concurrency
-          minimum: 1
-          maximum: 10
-        orchestrator_evaluation_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Evaluation Enabled
-        orchestrator_evaluation_read_max_bytes:
-          anyOf:
-          - maximum: 1048576
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Evaluation Read Max Bytes
-          minimum: 1
-          maximum: 1048576
-        orchestrator_test_runner_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Test Runner Enabled
-        orchestrator_test_command_allowlist:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Orchestrator Test Command Allowlist
-      title: AgentConfig
-      type: object
   securitySchemes:
     HTTPBearer:
       type: http
