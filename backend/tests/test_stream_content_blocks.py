@@ -19,6 +19,7 @@ from sqlalchemy import select, text
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.types import StreamChunk
+from app.api.v1.orchestrator_group_messages import _safe_error_text
 from app.api.v1.stream_accumulator import StreamContentAccumulator
 from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
@@ -29,6 +30,25 @@ from app.schemas.message import MessageOut
 from app.services.context.compression import blocks_to_text
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
+
+
+async def test_group_message_error_text_sanitizes_internal_runtime_terms() -> None:
+    text = _safe_error_text(
+        "[Errno 13] Permission denied: "
+        "'/root/.agenthub/claude-auth/.claude.json' call_abc123 Traceback stderr"
+    )
+
+    forbidden = (
+        "Permission denied",
+        "[Errno",
+        ".claude.json",
+        "/root/.agenthub",
+        "call_",
+        "Traceback",
+        "stderr",
+    )
+    assert all(item not in text for item in forbidden)
+    assert "运行时认证或权限配置需要检查" in text
 
 
 async def test_stream_accumulator_persists_deployment_status_block() -> None:

@@ -1922,3 +1922,45 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 
 ### 经验
 上传功能必须先明确”附件归属”和”消息上下文注入”边界：文件本体属于 upload 资源，消息只持久化稳定的 attachment block 和关联表。这样前端展示、Agent 上下文、后续安全扫描与 workspace 导入可以分阶段演进。
+
+## 2026-06-07 — Codex 修复 Orchestrator 通用 fallback 与真实群聊错误体验
+
+### 任务
+执行“Orchestrator 通用 Fallback 与真实群聊体验修复计划”：修复已知不可用 Agent 先产生红框失败再 fallback、同一坏 runtime 并行刷失败、runtime hard failure 判定过宽、child message 错误泄露内部路径，以及 legacy fullstack fallback 硬编码 OKR 主题的问题。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: Orchestrator 通用 Fallback 与真实群聊体验修复计划
+
+### AI 输出摘要
+1. `TaskResult` 新增 `skipped_unavailable_agents`，`OrchestratorRunContext` 新增 run-local failed runtime / skip reason 状态。
+2. `_run_task()` attempt 前过滤当前会话不可运行、全局 cooldown、本次 run 已硬失败和非 group scope Agent；已知不可用 Agent 不创建 child message，只记录 memory/process 改派证据。
+3. runtime hard failure 后立即写入 run-local unavailable，并可进入全局短期 cooldown；当前 run 的后续 task 和后续 batch 会避开该 Agent，全局 cooldown 才会影响后续 planner / fallback selection。
+4. 并行 executor 按首选可运行 Agent 去重选取 batch，避免同一坏 runtime 在同一批任务里刷出多条失败 child message。
+5. `_is_runtime_hard_failure()` 收窄为 auth / quota / credential / CLI missing / provider runtime unavailable / 明确 runtime timeout；artifact missing、普通 not found、业务验证失败、构建/test 失败只触发当前 task fallback，不进入 runtime cooldown。
+6. 子 Agent error chunk 会保留 `error_code` 信号；`external_runtime_error` / `runtime_idle_timeout` 即使搭配泛化 `process exited` 文案，也能进入 runtime hard failure 判定。
+7. `OrchestratorGroupMessageWriter` 的 `message_error.error` 和空 error child fallback text 统一做用户可见清洗，不暴露 `Permission denied`、`[Errno`、`.claude.json`、`/root/.agenthub`、stderr、stack trace 或 `call_`。
+8. legacy fullstack fallback 去掉“团队 OKR 轻量看板”和 `/api/okrs` 固定语义，改为保留用户请求主题和通用产品交付描述。
+9. `test_orchestrator_planning.py` 的 planning 回归 helper 默认关闭 clarification gate，避免远端新增澄清门抢占 planner/template/fallback 单元测试；clarification gate 自身测试仍在 `test_orchestrator.py` 覆盖。
+10. 新增后端回归：已知 unavailable runtime 不启动 child message、并行同坏 runtime 限流、artifact missing 和普通业务 error code 不进入 runtime cooldown、`external_runtime_error` code 会进入 run-local unavailable、child error sanitizer、fullstack fallback 不硬编码 OKR。
+11. 同时修复远端基线 mypy 小问题：clarification 局部 tuple 类型收窄、`StreamRunner` 使用 `Coroutine`、`messages` 目标 conversation 参数补类型。
+12. 本地门禁通过：
+    - `AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest tests/test_orchestrator.py tests/test_orchestrator_planning.py tests/test_orchestrator_response_presentation.py tests/test_stream_content_blocks.py tests/test_orchestrator_live_e2e_script.py -q`
+    - `180 passed`
+    - `uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts` passed
+    - `uv run python -m mypy app/agents app/api/v1 app/schemas` passed
+    - `git diff --check` passed
+13. 后端运行代码已同步：旧 PID `3018534`，新 PID `3042194`；未改 seed/default config，未执行 seed；`alembic current = 7e8f9012abcd`；本机与公网 `/health` 均为 `{"status":"ok"}`。
+14. 公网 `agent_fallback_matrix` rerun 通过：
+    - report: `/tmp/agenthub_agent_fallback_matrix_report.json`
+    - SSE: `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`
+    - `passed=true`
+    - `agent_fallback_codex_unavailable`: target preflight skipped，`writer=done`，生成 `fallback-codex.md`
+    - `agent_fallback_claude_unavailable`: `claude-code=error`，`writer=done`，生成 `fallback-claude.md`
+    - `agent_fallback_opencode_unavailable`: target preflight skipped，`writer=done`，生成 `fallback-opencode.md`
+15. 文档已更新：`docs/b2/spec/orchestrator/core.spec.md`、`message-attribution.spec.md`、`live-e2e-report.spec.md`、`README.md`、`docs/b2/spec/b2-pdf-gap-todo.spec.md` 和本协作日志。
+
+### 人工调整
+本轮只做后端与测试/文档 hardening，未修改前端视觉。公网 E2E 只验收 API/SSE、message attribution、fallback 产物和可见文本清洗，不验收远端前端 UI。
+
+### 经验
+fallback 体验的关键不是“失败后能不能补救”，而是先判断哪些失败根本不该发生在用户面前。已知不可用应执行前改派；运行中才发现的硬失败才保留一条清洗后的子消息证据；业务产物缺失则不能误伤整个 runtime。

@@ -81,6 +81,8 @@ SSE lifecycle：
 - 子 message `agent_id` 为实际负责 Agent。
 - 每个子 message 使用独立 `StreamContentAccumulator`；block index 是该子 message 的局部 index。
 - 父 Orchestrator message 继续承载 task card、process、orchestration 证据与最终用户可见总结。
+- 已知不可运行 Agent 在 attempt 前被过滤时，不创建对应 child message；Orchestrator process / memory 记录“检测到不可用并改派”。
+- 子 message 失败时，`message_error.error` 和空 error child fallback text 必须是清洗后的用户可读原因，不暴露本地认证路径、Errno、stderr、stack trace 或 call id。
 
 关闭 `orchestrator_group_messages_enabled=false` 时，Orchestrator 回到旧模式：所有子 Agent block 仍在父 Orchestrator message 中以 `agent_id` 标记。
 

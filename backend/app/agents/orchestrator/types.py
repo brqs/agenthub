@@ -150,6 +150,7 @@ class TaskResult:
     final_state: TaskState = TaskState.PENDING
     attempts: list[TaskAttempt] = field(default_factory=list)
     workspace_conflicts: list[dict[str, Any]] = field(default_factory=list)
+    skipped_unavailable_agents: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -158,11 +159,33 @@ class OrchestratorRunContext:
     result_order: list[str] = field(default_factory=list)
     memory_run_id: UUID | None = None
     workspace_conflict_event_keys: set[str] = field(default_factory=set)
+    failed_runtime_agent_ids: set[str] = field(default_factory=set)
+    runtime_agent_failure_reasons: dict[str, str] = field(default_factory=dict)
+    runtime_agent_skip_reasons: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def record(self, result: TaskResult) -> None:
         if result.task_id not in self.results:
             self.result_order.append(result.task_id)
         self.results[result.task_id] = result
+
+    def mark_runtime_failed(self, agent_id: str, reason: str) -> None:
+        clean_agent_id = agent_id.strip()
+        if not clean_agent_id or clean_agent_id == "orchestrator":
+            return
+        self.failed_runtime_agent_ids.add(clean_agent_id)
+        self.runtime_agent_failure_reasons[clean_agent_id] = reason
+
+    def record_runtime_agent_skip(
+        self,
+        task_id: str,
+        agent_id: str,
+        reason: str,
+    ) -> None:
+        clean_agent_id = agent_id.strip()
+        if not clean_agent_id or clean_agent_id == "orchestrator":
+            return
+        task_reasons = self.runtime_agent_skip_reasons.setdefault(task_id, {})
+        task_reasons[clean_agent_id] = reason
 
 
 class OrchestratorMemoryWriter(Protocol):

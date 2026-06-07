@@ -489,7 +489,7 @@ async def _handle_pending_answer(
         )
 
     summary = _requirements_brief(state, user_request)
-    chunks = (
+    final_chunks = (
         *_clarification_block_chunks(
             next_block_index,
             mode=mode,
@@ -503,7 +503,11 @@ async def _handle_pending_answer(
         *_text_block(next_block_index + 1, summary),
     )
     await _record_clarification(config, "clarification_resolved", state, user_request)
-    return ClarificationOutcome(chunks=chunks, next_block_index=next_block_index + 2, done=True)
+    return ClarificationOutcome(
+        chunks=final_chunks,
+        next_block_index=next_block_index + 2,
+        done=True,
+    )
 
 
 async def _handle_setup_answer(
@@ -1527,7 +1531,7 @@ def _max_questions(state: dict[str, Any]) -> int:
 def _recommended_answer(state: dict[str, Any]) -> str:
     question = state.get("current_question")
     if isinstance(question, dict) and isinstance(question.get("recommended_answer"), str):
-        return question["recommended_answer"]
+        return str(question["recommended_answer"])
     value = state.get("recommended_answer")
     return value if isinstance(value, str) else ""
 

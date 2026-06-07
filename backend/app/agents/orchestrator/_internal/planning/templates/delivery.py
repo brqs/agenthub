@@ -132,14 +132,13 @@ def derive_fullstack_delivery_tasks(
     frontend_static_preview_rules = (
         "Static preview quality rules:\n"
         "- index.html must link styles.css and app.js.\n"
-        "- The visible page must include the Chinese labels/sections: 任务拆解, "
-        "代码产物, Diff, 网页预览, 按钮交互, 移动端适配.\n"
+        "- The visible page must reflect the product/theme and explicit sections "
+        "requested by the user.\n"
         "- Include at least one clickable button wired to app.js. Clicking visible "
         "buttons must not produce JavaScript errors.\n"
-        "- Do not automatically request /api/okrs or other same-origin API URLs in "
-        "static preview. Seed the UI from local mock OKR data by default, while "
-        "keeping clearly named API helper functions that match api.md for future "
-        "backend integration.\n"
+        "- Do not automatically request same-origin API URLs in static preview. Seed "
+        "the UI from local mock data that matches api.md by default, while keeping "
+        "clearly named API helper functions for future backend integration.\n"
         "- Avoid console.error, failed resource requests, external same-origin assets, "
         "and mobile horizontal overflow at a 390px viewport.\n"
     )
@@ -151,7 +150,8 @@ def derive_fullstack_delivery_tasks(
             instruction=(
                 "Create planning.md in the workspace root. It must include product "
                 "goal, page structure, backend API, data model, frontend/backend "
-                "division, and acceptance criteria for the 团队 OKR 轻量看板 product.\n\n"
+                "division, and acceptance criteria for the requested fullstack "
+                "product or demo.\n\n"
                 f"{request_block}"
                 "Use clear Markdown. Do not create implementation files in this task."
             ),
@@ -185,7 +185,7 @@ def derive_fullstack_delivery_tasks(
                 "backend_app.py, api.md, backend_tests.md.\n\n"
                 f"{request_block}"
                 "backend_app.py should be a compact Python API implementation for the "
-                "OKR endpoints described in planning.md. api.md must document the "
+                "endpoints described in planning.md. api.md must document the "
                 "endpoints and payloads. backend_tests.md must include CRUD and edge "
                 "case test guidance. Do not start the backend service."
             ),

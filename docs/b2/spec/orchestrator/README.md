@@ -224,3 +224,16 @@
 - 失败 Agent 会进入短期 cooldown；planner 和 fallback selection 会跳过 cooldown / unavailable Agent，避免反复派给已失败 runtime。
 - `agent_fallback_matrix` 公网 API/SSE E2E 已通过：report `/tmp/agenthub_agent_fallback_matrix_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`，`passed=true`。
 - Matrix 覆盖 `codex-helper`、`claude-code`、`opencode-helper` 三个首选 Agent 失败后自动切换到可用 fallback Agent；失败 attempt 与 fallback attempt 分别持久化为独立 child message，父 Orchestrator 不内嵌子 Agent 输出，可见文本无内部 trace。
+
+2026-06-07 fallback / 真实群聊体验 hardening：
+
+- `_run_task()` attempt 前会过滤当前会话不可运行、cooldown、run-local 已硬失败和非 group scope Agent；已知不可运行 Agent 不再先创建失败 child message。
+- 单次 Orchestrator run 内新增 run-local failed runtime 状态；某 Agent 一旦出现 runtime hard failure，后续 task 和后续 batch 立即避开它。
+- Run-local failed runtime 只影响当前 run 的执行选择；全局 cooldown 才可能影响后续 planner / fallback selection。
+- 并行 executor 会按首选可运行 Agent 去重选取 batch，避免同一坏 runtime 在同批任务中刷出多条失败消息。
+- runtime hard failure 判定收窄为 auth / quota / credential / CLI missing / provider runtime unavailable / 明确 runtime timeout；artifact missing、普通 not found、验证/构建/test 失败只触发当前 task fallback，不进入 runtime cooldown。
+- 子 Agent error chunk 会保留 `error_code` 信号；即使用户可读 `error` 只是 `process exited`，`external_runtime_error` / `runtime_idle_timeout` 等 code 仍能触发 run-local unavailable。
+- 子 Agent `message_error.error` 与空 error child message 统一走可见错误清洗，不暴露 `Permission denied`、`[Errno`、`.claude.json`、`/root/.agenthub`、raw stderr、stack trace 或 `call_`。
+- Legacy fullstack fallback 不再硬编码“团队 OKR 轻量看板”；只保留用户请求中的主题和产物要求，无法抽取时使用通用产品交付演示语义。
+- 本地 targeted gate：`tests/test_orchestrator.py`、`tests/test_orchestrator_planning.py`、`tests/test_orchestrator_response_presentation.py`、`tests/test_stream_content_blocks.py`、`tests/test_orchestrator_live_e2e_script.py` 共 `180 passed`；Ruff、Mypy、`git diff --check` passed。
+- 公网 `agent_fallback_matrix` 已重跑通过：report `/tmp/agenthub_agent_fallback_matrix_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`，`passed=true`。Codex / OpenCode case 覆盖 preflight skip 后直接改派 writer；Claude case 覆盖先出现清洗后的 error child message 再改派 writer。

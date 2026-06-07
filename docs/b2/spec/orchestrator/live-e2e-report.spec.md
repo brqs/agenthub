@@ -973,6 +973,60 @@ agent_fallback_opencode_unavailable:
 - 父 Orchestrator message 不内嵌子 Agent block；最终可见文本不包含 `ReAct step`、`Observation:`、`Action:`、`Tools:`、`call_`、raw stderr 或 stack trace。
 - 本轮验证的是通用 fallback 调度、message attribution 和可见文本清洗，不依赖前端质量演示模板，也不验收前端 UI。
 
+2026-06-07 fallback / 真实群聊体验 hardening rerun：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: agent_fallback_matrix
+report: /tmp/agenthub_agent_fallback_matrix_report.json
+sse: /tmp/agenthub_agent_fallback_matrix_sse.jsonl
+backend_pid: 3042194
+seed: not required
+alembic_current: 7e8f9012abcd
+local_health: {"status":"ok"}
+public_health: {"status":"ok"}
+passed: true
+```
+
+Case evidence：
+
+```text
+agent_fallback_codex_unavailable:
+  conversation_id: 02a0905d-3947-4860-902c-6e1f0e9e463b
+  parent_message_id: 195dd0d2-d6db-42d4-8f4c-63b232db2366
+  target_attempted: false
+  target_skipped_before_attempt: true
+  switches: writer
+  child_messages: writer=done
+  artifact: fallback-codex.md
+
+agent_fallback_claude_unavailable:
+  conversation_id: b4997b22-5efe-4a1a-8658-0c5bdca9fa4d
+  parent_message_id: a2592708-b0df-417b-b096-8b9744566107
+  target_attempted: true
+  target_skipped_before_attempt: false
+  switches: claude-code -> writer
+  child_messages: claude-code=error, writer=done
+  artifact: fallback-claude.md
+
+agent_fallback_opencode_unavailable:
+  conversation_id: 7355be75-5b2e-4b44-8bc9-8d6dbafa7361
+  parent_message_id: 1640fa20-c306-4ab9-821d-70ed01c551a6
+  target_attempted: false
+  target_skipped_before_attempt: true
+  switches: writer
+  child_messages: writer=done
+  artifact: fallback-opencode.md
+```
+
+验收结论：
+
+- Known unavailable runtime 可在 attempt 前 preflight skip，不创建失败 child message；process / memory 记录改派。
+- Runtime 执行中失败仍保留清洗后的独立 error child message，再由 fallback Agent 继续。
+- 子 Agent `error_code` 会并入 attempt error 判定路径；本轮新增 `external_runtime_error` 泛化错误回归，避免 hard failure 被 `process exited` 这类文案掩盖。
+- 三个 case 均生成对应 fallback markdown 产物，父 Orchestrator message 不内嵌子 Agent block，可见文本无内部 trace。
+
 ---
 
 ## 3. Regression And Deployment
