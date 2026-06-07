@@ -9,7 +9,12 @@ from typing import Any
 from app.agents.orchestrator._internal.execution.summary import (
     task_result_context_message as _task_result_context_message,
 )
-from app.agents.orchestrator.availability import scoped_runnable_agent_ids
+from app.agents.orchestrator.availability import (
+    runnable_agent_ids,
+    runtime_cooldown_agent_ids,
+    runtime_cooldown_status,
+    scoped_runnable_agent_ids,
+)
 from app.agents.orchestrator.types import (
     DEFAULT_MAX_TASK_ATTEMPTS,
     DEFAULT_TASK_RESULT_CONTEXT_MAX_CHARS,
@@ -106,18 +111,31 @@ def _expected_paths(task: SubTask) -> list[str]:
 
 
 def task_fallback_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    ordered_runnable_ids = _ordered_runnable_agent_ids(config)
+    strict_scope = scoped_runnable_agent_ids(config)
+    strict_allowed = set(strict_scope) if strict_scope is not None else None
+    runnable_allowed = set(ordered_runnable_ids) if ordered_runnable_ids else None
+    cooled_down = runtime_cooldown_agent_ids()
+
+    def permitted(agent_id: str) -> bool:
+        if agent_id == "orchestrator" or agent_id in cooled_down:
+            return False
+        if strict_allowed is not None:
+            return agent_id in strict_allowed
+        if runnable_allowed is not None:
+            return agent_id in runnable_allowed
+        return True
+
+    candidates: list[str] = []
     value = config.get("task_fallback_agent_ids")
-    if not isinstance(value, list):
-        return []
-    allowed_agent_ids = allowed_fallback_agent_ids(config)
-    return dedupe_strings(
-        item.strip()
-        for item in value
-        if isinstance(item, str)
-        and item.strip()
-        and item.strip() != "orchestrator"
-        and (not allowed_agent_ids or item.strip() in allowed_agent_ids)
-    )
+    if isinstance(value, list):
+        candidates.extend(
+            item.strip()
+            for item in value
+            if isinstance(item, str) and item.strip() and permitted(item.strip())
+        )
+    candidates.extend(agent_id for agent_id in ordered_runnable_ids if permitted(agent_id))
+    return dedupe_strings(candidates)
 
 
 def allowed_fallback_agent_ids(config: Mapping[str, Any]) -> set[str]:
@@ -127,16 +145,9 @@ def allowed_fallback_agent_ids(config: Mapping[str, Any]) -> set[str]:
 
     available_agents = config.get("available_agents")
     if isinstance(available_agents, list):
-        ids = {
-            agent_id
-            for item in available_agents
-            if isinstance(item, Mapping)
-            and isinstance((agent_id := item.get("agent_id", item.get("id"))), str)
-            and agent_id.strip()
-            and agent_id.strip() != "orchestrator"
-        }
+        ids = set(runnable_agent_ids(available_agents))
         if ids:
-            return {agent_id.strip() for agent_id in ids}
+            return ids
     for key in ("managed_agent_ids", "default_sub_agents"):
         value = config.get(key)
         if isinstance(value, list):
@@ -150,6 +161,39 @@ def allowed_fallback_agent_ids(config: Mapping[str, Any]) -> set[str]:
             if ids:
                 return ids
     return set()
+
+
+def _ordered_runnable_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return list(scoped_ids)
+
+    agent_ids: list[str] = []
+    available_agents = config.get("available_agents")
+    if isinstance(available_agents, list):
+        agent_ids.extend(runnable_agent_ids(available_agents))
+
+    for key in ("managed_agent_ids", "default_sub_agents"):
+        value = config.get(key)
+        if isinstance(value, list):
+            agent_ids.extend(
+                item.strip()
+                for item in value
+                if isinstance(item, str)
+                and item.strip()
+                and item.strip() != "orchestrator"
+            )
+
+    sub_adapters = config.get("sub_adapters")
+    if isinstance(sub_adapters, Mapping):
+        agent_ids.extend(
+            agent_id.strip()
+            for agent_id in sub_adapters
+            if isinstance(agent_id, str)
+            and agent_id.strip()
+            and agent_id.strip() != "orchestrator"
+        )
+    return dedupe_strings(agent_ids)
 
 
 def max_task_attempts(config: Mapping[str, Any]) -> int:
@@ -215,11 +259,12 @@ def agent_for_attempt(
     fallback_agents: list[str],
     attempted_agents: set[str],
 ) -> str | None:
-    if not attempted_agents:
-        return task.agent_id
-    for agent_id in fallback_agents:
-        if agent_id not in attempted_agents:
-            return agent_id
+    for agent_id in dedupe_strings([task.agent_id, *fallback_agents]):
+        if agent_id in attempted_agents:
+            continue
+        if runtime_cooldown_status(agent_id)[0] == "cooldown":
+            continue
+        return agent_id
     return None
 
 

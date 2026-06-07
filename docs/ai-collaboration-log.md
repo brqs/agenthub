@@ -1844,3 +1844,43 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 
 ### 经验
 新增 E2E case 不能只看 `/health`。这次明确证明公网 health 正常不等于命中了当前重启的后端进程。真实 Agent 群聊的 E2E 还必须把外部 runtime 额度/认证状态纳入环境前置，否则会把调度问题和第三方 runtime 阻断混在一起。
+
+## 2026-06-06 — Codex 完成通用 Agent 失败自动调度 Repair Loop
+
+### 任务
+执行“Orchestrator 通用 Agent 失败自动调度 Repair Loop 计划”：把 fallback 从 Codex 专项降级扩展为所有 Orchestrator 委派任务的通用能力，任意 Agent 失败后自动调配其他可用 Agent 继续，并通过公网 `agent_fallback_matrix` E2E 验收。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: Orchestrator 通用 Agent 失败自动调度 Repair Loop 计划
+
+### AI 输出摘要
+1. 新增 runtime cooldown：quota/auth/permission/CLI missing/runtime crash/timeout 等硬失败会将对应 Agent 短期移出 planner / fallback selection，避免反复派给已失败 runtime。
+2. `available_agents` / managed agents / `task_fallback_agent_ids` / `sub_adapters` 统一进入 fallback 候选选择；在 group conversation 中仍受当前会话可用 Agent 范围约束。
+3. 默认 Orchestrator `task_fallback_agent_ids` 保持 Claude Code / OpenCode Helper / Codex Helper，`max_task_attempts` 提升为 3；`evaluation_failed` 与 `artifact_missing` 一样可进入 fallback。
+4. `_run_task()` 在硬失败后写入 memory event `agent_runtime_cooldown`，并继续尝试下一个可用 Agent；只要 fallback attempt 最终成功，依赖任务可继续执行。
+5. 失败 child message 改为 `message_error` / `status="error"`，fallback Agent 以独立 child message 继续流式 process 和结果；父 Orchestrator message 不嵌入子 Agent 输出。
+6. 子 Agent 失败文案改为可读中文，不再重复粗糙的 `The delegated task did not complete successfully.`，并继续清洗内部 trace、raw stderr、stack trace 和 call id。
+7. live E2E 脚本新增 `agent_fallback_matrix` scenario，覆盖 Codex、Claude Code、OpenCode Helper 三类首选 Agent 失败后自动 fallback；该 scenario 是通用 markdown 证据任务，不依赖前端质量演示模板。
+8. 修复 live matrix 自身稳定性：
+   - Claude Code SDK 不受 `command` patch 影响，因此 matrix 内临时把 Claude provider 改为不可加载 runtime，结束后还原。
+   - fallback Writer 在 matrix 内临时限制为 `allowed_tools=["write_file"]`，并要求使用 workspace-relative path，避免误用 `/workspace/...` bash 绝对路径。
+9. 本地门禁通过：
+   - Orchestrator targeted + live script tests：`161 passed`
+   - `uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts` passed
+   - `uv run python -m mypy app/agents app/api/v1 app/schemas` passed
+   - `git diff --check` passed
+10. 后端运行代码已同步：旧 PID `1683235`，新 PID `1688851`；已执行 `uv run python -m app.seeds.seed_agents`；`alembic current = 7e8f9012abcd (head)`；本机与公网 `/health` 均为 `{"status":"ok"}`。
+11. 公网 `agent_fallback_matrix` E2E 通过：
+    - report: `/tmp/agenthub_agent_fallback_matrix_report.json`
+    - SSE: `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`
+    - `passed=true`
+    - `agent_fallback_codex_unavailable`: `codex-helper -> writer`，`codex-helper=error`，`writer=done`，生成 `fallback-codex.md`
+    - `agent_fallback_claude_unavailable`: `claude-code -> writer`，`claude-code=error`，`writer=done`，生成 `fallback-claude.md`
+    - `agent_fallback_opencode_unavailable`: `opencode-helper -> writer`，`opencode-helper=error`，`writer=done`，生成 `fallback-opencode.md`
+12. 文档已更新：`docs/b2/spec/orchestrator/core.spec.md`、`message-attribution.spec.md`、`live-e2e-report.spec.md`、`README.md`、`docs/b2/spec/b2-pdf-gap-todo.spec.md` 和本协作日志。
+
+### 人工调整
+本轮不修改前端 UI；公网 E2E 只验收后端 API/SSE、持久化 child message、workspace 产物和文本清洗。`agent_fallback_matrix` 使用 Writer 作为可控 fallback 证据 Agent，是为了稳定验证通用 fallback 机制；产品默认 fallback 候选仍以当前会话可用 Agent 与 Orchestrator 配置为准。
+
+### 经验
+通用 fallback 要区分两件事：真实产品机制必须能处理任何 Agent 失败；live E2E 则需要可控地制造失败并提供一个稳定 fallback 成功者。把这两层分开，才能避免为单个前端 demo 写模板，同时又能证明调度机制确实闭环。
