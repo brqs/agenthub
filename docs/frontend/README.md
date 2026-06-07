@@ -35,6 +35,7 @@
 | [deployment-release-handoff](spec/deployment-release-handoff.spec.md) | Deployment / Release 状态卡与可选 metadata 展示 |
 | [mobile-development](spec/frontend-mobile-development.spec.md) | 移动 Web、PWA 与 Capacitor 分阶段适配 |
 | [capacitor-shell](spec/frontend-capacitor-shell.spec.md) | Capacitor v8 iOS / Android 壳层、HTTPS 构建约束与原生桥接 |
+| [file-upload](spec/frontend-file-upload.spec.md) | Web / iOS / Android 文件上传、附件队列、AttachmentBlock 和 Workspace 导入 UX |
 
 ## 下一阶段前端职责
 

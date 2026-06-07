@@ -856,6 +856,116 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads:
+    post:
+      tags:
+      - Uploads
+      summary: Create Upload
+      operationId: create_upload_api_v1_uploads_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_upload_api_v1_uploads_post'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads/{upload_id}:
+    get:
+      tags:
+      - Uploads
+      summary: Get Upload
+      operationId: get_upload_api_v1_uploads__upload_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Uploads
+      summary: Delete Upload
+      operationId: delete_upload_api_v1_uploads__upload_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads/{upload_id}/download:
+    get:
+      tags:
+      - Uploads
+      summary: Download Upload
+      operationId: download_upload_api_v1_uploads__upload_id__download_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agents:
     get:
       tags:
@@ -1983,6 +2093,112 @@ components:
       - provider
       - created_at
       title: AgentOut
+    AttachmentBlock:
+      properties:
+        type:
+          type: string
+          const: attachment
+          title: Type
+          default: attachment
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        filename:
+          type: string
+          title: Filename
+        content_type:
+          type: string
+          title: Content Type
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        purpose:
+          type: string
+          enum:
+          - message_attachment
+          - workspace_file
+          title: Purpose
+        safety_status:
+          type: string
+          enum:
+          - pending
+          - passed
+          - blocked
+          - manual_review_required
+          title: Safety Status
+        preview:
+          anyOf:
+          - $ref: '#/components/schemas/AttachmentPreview'
+          - type: 'null'
+      type: object
+      required:
+      - upload_id
+      - filename
+      - content_type
+      - size_bytes
+      - purpose
+      - safety_status
+      title: AttachmentBlock
+    AttachmentPreview:
+      properties:
+        kind:
+          type: string
+          enum:
+          - image
+          - archive
+          - document
+          - text
+          - code
+          - unknown
+          title: Kind
+          default: unknown
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        thumbnail_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Thumbnail Url
+        text_preview:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Text Preview
+        truncated:
+          type: boolean
+          title: Truncated
+          default: false
+        entries_preview:
+          items:
+            type: string
+          type: array
+          title: Entries Preview
+        width:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Width
+        height:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Height
+        page_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Page Count
+      type: object
+      title: AttachmentPreview
     AuthResponse:
       properties:
         access_token:
@@ -2003,6 +2219,29 @@ components:
       - expires_in
       - user
       title: AuthResponse
+    Body_create_upload_api_v1_uploads_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+        purpose:
+          type: string
+          enum:
+          - message_attachment
+          - workspace_file
+          title: Purpose
+          default: message_attachment
+        conversation_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Conversation Id
+      type: object
+      required:
+      - file
+      title: Body Create Upload Api V1 Uploads Post
     ClarificationBlock:
       properties:
         type:
@@ -2709,6 +2948,7 @@ components:
             - $ref: '#/components/schemas/DiffBlock'
             - $ref: '#/components/schemas/WebPreviewBlock'
             - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
             - $ref: '#/components/schemas/DeploymentStatusBlock'
             - $ref: '#/components/schemas/WorkflowBlock'
             - $ref: '#/components/schemas/TaskCardBlock'
@@ -2718,6 +2958,7 @@ components:
             discriminator:
               propertyName: type
               mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
                 clarification: '#/components/schemas/ClarificationBlock'
                 code: '#/components/schemas/CodeBlock'
                 deployment_status: '#/components/schemas/DeploymentStatusBlock'
@@ -3178,6 +3419,7 @@ components:
             - $ref: '#/components/schemas/DiffBlock'
             - $ref: '#/components/schemas/WebPreviewBlock'
             - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
             - $ref: '#/components/schemas/DeploymentStatusBlock'
             - $ref: '#/components/schemas/WorkflowBlock'
             - $ref: '#/components/schemas/TaskCardBlock'
@@ -3187,6 +3429,7 @@ components:
             discriminator:
               propertyName: type
               mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
                 clarification: '#/components/schemas/ClarificationBlock'
                 code: '#/components/schemas/CodeBlock'
                 deployment_status: '#/components/schemas/DeploymentStatusBlock'
@@ -3206,6 +3449,13 @@ components:
           - type: string
           - type: 'null'
           title: Target Agent Id
+        attachment_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          maxItems: 10
+          title: Attachment Ids
       type: object
       required:
       - content
@@ -3232,6 +3482,7 @@ components:
             - $ref: '#/components/schemas/DiffBlock'
             - $ref: '#/components/schemas/WebPreviewBlock'
             - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
             - $ref: '#/components/schemas/DeploymentStatusBlock'
             - $ref: '#/components/schemas/WorkflowBlock'
             - $ref: '#/components/schemas/TaskCardBlock'
@@ -3241,6 +3492,7 @@ components:
             discriminator:
               propertyName: type
               mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
                 clarification: '#/components/schemas/ClarificationBlock'
                 code: '#/components/schemas/CodeBlock'
                 deployment_status: '#/components/schemas/DeploymentStatusBlock'
@@ -3260,6 +3512,13 @@ components:
           - type: string
           - type: 'null'
           title: Target Agent Id
+        attachment_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          maxItems: 10
+          title: Attachment Ids
       type: object
       required:
       - content
@@ -3286,6 +3545,7 @@ components:
               - $ref: '#/components/schemas/DiffBlock'
               - $ref: '#/components/schemas/WebPreviewBlock'
               - $ref: '#/components/schemas/FileBlock'
+              - $ref: '#/components/schemas/AttachmentBlock'
               - $ref: '#/components/schemas/DeploymentStatusBlock'
               - $ref: '#/components/schemas/WorkflowBlock'
               - $ref: '#/components/schemas/TaskCardBlock'
@@ -3295,6 +3555,7 @@ components:
               discriminator:
                 propertyName: type
                 mapping:
+                  attachment: '#/components/schemas/AttachmentBlock'
                   clarification: '#/components/schemas/ClarificationBlock'
                   code: '#/components/schemas/CodeBlock'
                   deployment_status: '#/components/schemas/DeploymentStatusBlock'
@@ -3558,6 +3819,81 @@ components:
           title: Is Pinned
       type: object
       title: UpdateMessageRequest
+    UploadOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        filename:
+          type: string
+          title: Filename
+        content_type:
+          type: string
+          title: Content Type
+        detected_content_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detected Content Type
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        sha256:
+          type: string
+          title: Sha256
+        purpose:
+          type: string
+          enum:
+          - message_attachment
+          - workspace_file
+          title: Purpose
+        status:
+          type: string
+          enum:
+          - ready
+          - processing
+          - failed
+          - deleted
+          title: Status
+        safety_status:
+          type: string
+          enum:
+          - pending
+          - passed
+          - blocked
+          - manual_review_required
+          title: Safety Status
+        preview:
+          anyOf:
+          - $ref: '#/components/schemas/AttachmentPreview'
+          - type: 'null'
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Code
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - filename
+      - content_type
+      - size_bytes
+      - sha256
+      - purpose
+      - status
+      - safety_status
+      - created_at
+      title: UploadOut
     UserOut:
       properties:
         id:

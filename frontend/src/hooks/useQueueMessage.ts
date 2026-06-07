@@ -12,7 +12,7 @@ export function useQueueMessage() {
   const removeMessageLocal = useChatStore((state) => state.removeMessageLocal);
   const conversations = useChatStore((state) => state.conversations);
 
-  async function queueMessage(conversationId: string, text: string) {
+  async function queueMessage(conversationId: string, text: string, attachmentIds: string[] = []) {
     setIsPending(true);
     setError(null);
     try {
@@ -23,7 +23,8 @@ export function useQueueMessage() {
       const response = await messagesAdapter.queueMessage(conversationId, {
         content: [{ type: 'text', text }],
         target_agent_id: targetAgentId,
-      });
+        ...(attachmentIds.length ? { attachment_ids: attachmentIds } : {}),
+      } as messagesAdapter.QueueMessageWithAttachments);
       appendQueuedMessage(conversationId, response.queued_message);
       return response;
     } catch (err) {

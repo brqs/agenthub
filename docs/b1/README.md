@@ -9,6 +9,7 @@
 | [spec/stream-error-status.spec.md](spec/stream-error-status.spec.md) | SSE error 状态持久化协同规则 |
 | [pivot-demo-script.md](pivot-demo-script.md) | B1 Workspace / Artifact / SSE demo 讲解脚本 |
 | [spec/workspace-sandbox.spec.md](spec/workspace-sandbox.spec.md) | Workspace 沙箱隔离规范 |
+| [spec/file-upload-backend.spec.md](spec/file-upload-backend.spec.md) | 文件上传后端 API、存储、安全扫描、AttachmentBlock 与 Workspace 导入契约 |
 | [spec/group-observer-context.spec.md](spec/group-observer-context.spec.md) | 群聊 Agent 旁观者上下文与记忆契约 |
 | [spec/message-content-block-attribution.spec.md](spec/message-content-block-attribution.spec.md) | ContentBlock block-level `agent_id` 归属契约 |
 | [../spec/next-major-modules.spec.md](../spec/next-major-modules.spec.md) | 下一阶段 B1 相关契约：interrupt API、upload storage/API、自定义 Agent 配置持久化 |
