@@ -15,6 +15,19 @@ failure. They must either create real tasks for runnable conversation members or
 return an explicit error. Direct answers that discuss recent task state must use
 same-conversation structured Orchestrator memory before model-generated prose.
 
+## 2026-06-07 Update: Clarification Gate MVP
+
+Before artifact/build/code/design requests enter LLM planner or sub-agent
+dispatch, Orchestrator runs a clarification gate. The gate determines
+whether the request has enough product, artifact, constraint, and acceptance
+detail to begin implementation. If a missing decision would materially change
+the result, Orchestrator should ask exactly one high-value question with a
+recommended default, end the message as `done`, and wait for the user's next
+answer. It must not create `task_card`, emit `agent_switch`, call sub-agents, or
+write workspace files while waiting for clarification.
+
+The implemented MVP contract is [clarification-gate.spec.md](clarification-gate.spec.md).
+
 > 定义 Orchestrator 的任务规划、任务分配和 planner 降级规则。子任务执行流转、事件聚合和失败状态汇总见 [core.spec.md](core.spec.md)。
 >
 > 版本：v1.1
@@ -27,6 +40,7 @@ same-conversation structured Orchestrator memory before model-generated prose.
 本文件只覆盖 Orchestrator 从用户请求到 `list[SubTask]` 的规划过程：
 
 - direct answer 短路判定。
+- clarification gate 判定。
 - 显式 `config.tasks` 解析。
 - 直接多 Agent mention 路由。
 - LLM planner 调用、输出解析和校验。
@@ -65,13 +79,16 @@ same-conversation structured Orchestrator memory before model-generated prose.
 
 ## 3. 总体解析顺序
 
-Orchestrator 的任务解析顺序固定，前一个分支命中后不会继续尝试后续分支：
+Orchestrator 的任务解析顺序固定，前一个分支命中后不会继续尝试后续分支。
 
-1. Direct answer 短路。
-2. 显式 `config.tasks`。
-3. 直接多 Agent mention 路由。
-4. LLM planner。
-5. Legacy template fallback。
+当前实现顺序：
+
+1. Platform facts / direct answer / recent task status / clarification gate 入口判定。
+2. 显式 `config.tasks` 自动跳过 clarification gate，并直接解析。
+3. Clarification Gate 命中时输出 `clarification` block 并等待用户补充。
+4. 直接多 Agent mention 路由。
+5. LLM planner。
+6. Legacy template fallback。
 
 规划失败后的降级顺序：
 
@@ -99,6 +116,28 @@ direct answer 使用：
 - 否则创建 ModelGateway。
 - backend 取 `answer_model_backend`，再取 `model_backend`，默认 `claude`。
 - 模型参数来自 `orchestrator_answer_config`，并兼容顶层 `model`、`max_retries`、`request_timeout_seconds`。
+
+---
+
+## 4.1 Clarification Gate（Implemented MVP）
+
+Clarification Gate 是进入 planner 前的需求充足度检查，不生成 `SubTask`。
+MVP 由 `orchestrator/clarification.py` 实现，并通过 `clarification` ContentBlock
+持久化和展示。
+
+规则：
+
+- 只针对 artifact/build/code/design/deploy/file 等可能创建或修改产物的请求。
+- 普通 direct answer、历史任务状态询问和平台事实问答必须跳过。
+- 如果缺失信息可以通过 conversation、structured memory、workspace、spec/rules/docs 或代码事实推断，不追问用户。
+- 如果缺失信息会明显改变实现方向，一次只问一个最高价值问题，并给出推荐默认。
+- 等待用户补充时，Orchestrator message 以 `done` 结束；这不是 runtime error。
+- 等待期间不得创建 task card、发 `agent_switch`、调用子 Agent 或写 workspace。
+- 下一轮用户回答会与原始请求、推荐默认合并后，再进入 planner。
+- 显式支持 `/grill-me`、`/grill-with-docs`、`/setup-matt-pocock-skills`。
+- `/grill-with-docs` 和 `/setup-matt-pocock-skills` 只写当前 conversation workspace。
+
+详细行为、状态语义和后续实施任务见 [clarification-gate.spec.md](clarification-gate.spec.md)。
 
 ---
 

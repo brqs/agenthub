@@ -14,6 +14,9 @@ export function MessageList({
   onTogglePin,
   onRetry,
   retryingMessageIds = {},
+  interruptingMessageIds = {},
+  onUpdateQueuedMessage,
+  onDeleteQueuedMessage,
   onMentionAgent,
   agents = [],
 }: {
@@ -26,6 +29,9 @@ export function MessageList({
   onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
   retryingMessageIds?: Record<string, boolean>;
+  interruptingMessageIds?: Record<string, boolean>;
+  onUpdateQueuedMessage?: (messageId: string, text: string) => void | Promise<void>;
+  onDeleteQueuedMessage?: (messageId: string) => void | Promise<void>;
   onMentionAgent?: (agent: Agent) => void;
   agents?: Agent[];
 }) {
@@ -95,9 +101,9 @@ export function MessageList({
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="min-h-0 flex-1 overflow-y-auto px-3 py-4 scrollbar-thin sm:px-6 sm:py-5 [@media(max-height:800px)]:py-4"
+      className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-4 scrollbar-thin sm:px-6 sm:py-5 [@media(max-height:800px)]:py-4"
     >
-      <div className="mx-auto flex max-w-5xl flex-col gap-4">
+      <div className="mobile-text-safe mx-auto flex max-w-5xl flex-col gap-4">
         {(hasMore || isLoadingMore) && (
           <div className="flex justify-center py-2 text-xs text-slate-500">
             {isLoadingMore ? (
@@ -129,6 +135,9 @@ export function MessageList({
             onTogglePin={onTogglePin}
             onRetry={onRetry}
             isRetrying={Boolean(retryingMessageIds[message.id])}
+            isInterrupting={Boolean(interruptingMessageIds[message.id])}
+            onUpdateQueuedMessage={onUpdateQueuedMessage}
+            onDeleteQueuedMessage={onDeleteQueuedMessage}
             onMentionAgent={onMentionAgent}
           />
         ))}

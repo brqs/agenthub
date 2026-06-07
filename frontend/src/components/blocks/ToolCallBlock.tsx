@@ -49,7 +49,7 @@ export function ToolCallBlock({ block }: { block: ToolCallBlockType }) {
   return (
     <section
       className={cn(
-        'overflow-hidden rounded-md border bg-white shadow-sm dark:bg-slate-950/70',
+        'mobile-text-safe overflow-hidden rounded-md border bg-white shadow-sm dark:bg-slate-950/70',
         hasError
           ? 'border-rose-200 ring-1 ring-rose-100 dark:border-rose-400/30 dark:ring-rose-400/10'
           : 'border-slate-300 dark:border-slate-800',
@@ -72,8 +72,8 @@ export function ToolCallBlock({ block }: { block: ToolCallBlockType }) {
           <Terminal className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold text-slate-950 dark:text-white">{block.tool_name}</span>
-          <span className="block truncate text-xs text-slate-500">{block.call_id}</span>
+          <span className="mobile-text-safe block text-sm font-semibold text-slate-950 dark:text-white sm:truncate">{block.tool_name}</span>
+          <span className="mobile-text-safe block text-xs text-slate-500 sm:truncate">{block.call_id}</span>
         </span>
         <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs', meta.className)}>
           <StatusIcon className="h-3.5 w-3.5" />
@@ -82,11 +82,11 @@ export function ToolCallBlock({ block }: { block: ToolCallBlockType }) {
       </button>
 
       {open && (
-        <div className="border-t border-slate-200 px-3 py-3 dark:border-slate-800">
+        <div className="mobile-text-safe border-t border-slate-200 px-3 py-3 dark:border-slate-800">
           <div className="grid gap-3">
             <div>
               <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Arguments</div>
-              <div className="max-h-44 overflow-auto rounded-md border border-slate-300 bg-slate-50 p-3 text-xs leading-5 scrollbar-thin dark:border-slate-800 dark:bg-slate-950">
+                <div className="max-h-44 max-w-full overflow-auto rounded-md border border-slate-300 bg-slate-50 p-3 text-xs leading-5 scrollbar-thin dark:border-slate-800 dark:bg-slate-950">
                 <SyntaxHighlightedCode
                   code={formatJson(block.arguments)}
                   language="json"
@@ -108,7 +108,7 @@ export function ToolCallBlock({ block }: { block: ToolCallBlockType }) {
                 </div>
                 <div
                   className={cn(
-                    'rounded-md border p-3 text-xs leading-5',
+                    'mobile-text-safe rounded-md border p-3 text-xs leading-5',
                     hasError
                       ? 'border-rose-200 bg-rose-50 text-rose-900 shadow-sm shadow-rose-100/70 dark:border-rose-400/25 dark:bg-rose-950/25 dark:text-rose-100 dark:shadow-none'
                       : 'border-slate-300 bg-white text-slate-800 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300',

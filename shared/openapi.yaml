@@ -616,6 +616,100 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/queued-messages:
+    post:
+      tags:
+      - Messages
+      summary: Queue Message
+      operationId: queue_message_api_v1_conversations__conv_id__queued_messages_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueMessageRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/queued-messages/{msg_id}:
+    patch:
+      tags:
+      - Messages
+      summary: Update Queued Message
+      operationId: update_queued_message_api_v1_queued_messages__msg_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateQueuedMessageRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Messages
+      summary: Delete Queued Message
+      operationId: delete_queued_message_api_v1_queued_messages__msg_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/messages/{msg_id}:
     patch:
       tags:
@@ -675,6 +769,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/messages/{msg_id}/interrupt:
+    post:
+      tags:
+      - Messages
+      summary: Interrupt Message
+      operationId: interrupt_message_api_v1_messages__msg_id__interrupt_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterruptMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/messages/{msg_id}/regenerate:
     post:
       tags:
@@ -727,6 +850,116 @@ paths:
           content:
             application/json:
               schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads:
+    post:
+      tags:
+      - Uploads
+      summary: Create Upload
+      operationId: create_upload_api_v1_uploads_post
+      security:
+      - HTTPBearer: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_upload_api_v1_uploads_post'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads/{upload_id}:
+    get:
+      tags:
+      - Uploads
+      summary: Get Upload
+      operationId: get_upload_api_v1_uploads__upload_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Uploads
+      summary: Delete Upload
+      operationId: delete_upload_api_v1_uploads__upload_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads/{upload_id}/download:
+    get:
+      tags:
+      - Uploads
+      summary: Download Upload
+      operationId: download_upload_api_v1_uploads__upload_id__download_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
         '422':
           description: Validation Error
           content:
@@ -1860,6 +2093,112 @@ components:
       - provider
       - created_at
       title: AgentOut
+    AttachmentBlock:
+      properties:
+        type:
+          type: string
+          const: attachment
+          title: Type
+          default: attachment
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        filename:
+          type: string
+          title: Filename
+        content_type:
+          type: string
+          title: Content Type
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        purpose:
+          type: string
+          enum:
+          - message_attachment
+          - workspace_file
+          title: Purpose
+        safety_status:
+          type: string
+          enum:
+          - pending
+          - passed
+          - blocked
+          - manual_review_required
+          title: Safety Status
+        preview:
+          anyOf:
+          - $ref: '#/components/schemas/AttachmentPreview'
+          - type: 'null'
+      type: object
+      required:
+      - upload_id
+      - filename
+      - content_type
+      - size_bytes
+      - purpose
+      - safety_status
+      title: AttachmentBlock
+    AttachmentPreview:
+      properties:
+        kind:
+          type: string
+          enum:
+          - image
+          - archive
+          - document
+          - text
+          - code
+          - unknown
+          title: Kind
+          default: unknown
+        url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url
+        thumbnail_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Thumbnail Url
+        text_preview:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Text Preview
+        truncated:
+          type: boolean
+          title: Truncated
+          default: false
+        entries_preview:
+          items:
+            type: string
+          type: array
+          title: Entries Preview
+        width:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Width
+        height:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Height
+        page_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Page Count
+      type: object
+      title: AttachmentPreview
     AuthResponse:
       properties:
         access_token:
@@ -1880,6 +2219,124 @@ components:
       - expires_in
       - user
       title: AuthResponse
+    Body_create_upload_api_v1_uploads_post:
+      properties:
+        file:
+          type: string
+          format: binary
+          title: File
+        purpose:
+          type: string
+          enum:
+          - message_attachment
+          - workspace_file
+          title: Purpose
+          default: message_attachment
+        conversation_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Conversation Id
+      type: object
+      required:
+      - file
+      title: Body Create Upload Api V1 Uploads Post
+    ClarificationBlock:
+      properties:
+        type:
+          type: string
+          const: clarification
+          title: Type
+          default: clarification
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        mode:
+          type: string
+          enum:
+          - auto
+          - grill_me
+          - grill_with_docs
+          - setup_matt_pocock_skills
+          title: Mode
+        title:
+          type: string
+          title: Title
+        status:
+          type: string
+          enum:
+          - waiting
+          - resolved
+          - cancelled
+          title: Status
+        current_question:
+          anyOf:
+          - $ref: '#/components/schemas/ClarificationQuestion'
+          - type: 'null'
+        questions:
+          items:
+            $ref: '#/components/schemas/ClarificationQuestion'
+          type: array
+          title: Questions
+        summary:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - mode
+      - title
+      - status
+      title: ClarificationBlock
+    ClarificationQuestion:
+      properties:
+        id:
+          type: string
+          title: Id
+        question:
+          type: string
+          title: Question
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        recommended_answer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Recommended Answer
+        options:
+          items:
+            type: string
+          type: array
+          title: Options
+        status:
+          type: string
+          enum:
+          - pending
+          - answered
+          - skipped
+          title: Status
+          default: pending
+        answer:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Answer
+      type: object
+      required:
+      - id
+      - question
+      title: ClarificationQuestion
     CodeBlock:
       properties:
         type:
@@ -2412,6 +2869,22 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    InterruptMessageResponse:
+      properties:
+        state:
+          type: string
+          enum:
+          - interrupted
+          - already_terminal
+          - interrupting
+          title: State
+        message:
+          $ref: '#/components/schemas/MessageOut'
+      type: object
+      required:
+      - state
+      - message
+      title: InterruptMessageResponse
     LoginRequest:
       properties:
         username:
@@ -2475,14 +2948,18 @@ components:
             - $ref: '#/components/schemas/DiffBlock'
             - $ref: '#/components/schemas/WebPreviewBlock'
             - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
             - $ref: '#/components/schemas/DeploymentStatusBlock'
             - $ref: '#/components/schemas/WorkflowBlock'
             - $ref: '#/components/schemas/TaskCardBlock'
             - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
             - $ref: '#/components/schemas/ToolCallBlock'
             discriminator:
               propertyName: type
               mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
+                clarification: '#/components/schemas/ClarificationBlock'
                 code: '#/components/schemas/CodeBlock'
                 deployment_status: '#/components/schemas/DeploymentStatusBlock'
                 diff: '#/components/schemas/DiffBlock'
@@ -2508,6 +2985,8 @@ components:
           - streaming
           - done
           - error
+          - interrupted
+          - queued
           title: Status
           default: done
         is_pinned:
@@ -2838,6 +3317,7 @@ components:
           - done
           - partial
           - error
+          - interrupted
           title: Status
         default_collapsed:
           type: boolean
@@ -2894,6 +3374,7 @@ components:
           - running
           - error
           - skipped
+          - interrupted
           title: Status
         detail:
           anyOf:
@@ -2928,7 +3409,7 @@ components:
       - username
       - password
       title: RegisterRequest
-    SendMessageRequest:
+    QueueMessageRequest:
       properties:
         content:
           items:
@@ -2938,14 +3419,18 @@ components:
             - $ref: '#/components/schemas/DiffBlock'
             - $ref: '#/components/schemas/WebPreviewBlock'
             - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
             - $ref: '#/components/schemas/DeploymentStatusBlock'
             - $ref: '#/components/schemas/WorkflowBlock'
             - $ref: '#/components/schemas/TaskCardBlock'
             - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
             - $ref: '#/components/schemas/ToolCallBlock'
             discriminator:
               propertyName: type
               mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
+                clarification: '#/components/schemas/ClarificationBlock'
                 code: '#/components/schemas/CodeBlock'
                 deployment_status: '#/components/schemas/DeploymentStatusBlock'
                 diff: '#/components/schemas/DiffBlock'
@@ -2964,6 +3449,76 @@ components:
           - type: string
           - type: 'null'
           title: Target Agent Id
+        attachment_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          maxItems: 10
+          title: Attachment Ids
+      type: object
+      required:
+      - content
+      title: QueueMessageRequest
+    QueueMessageResponse:
+      properties:
+        queued_message:
+          $ref: '#/components/schemas/MessageOut'
+        queue_position:
+          type: integer
+          title: Queue Position
+      type: object
+      required:
+      - queued_message
+      - queue_position
+      title: QueueMessageResponse
+    SendMessageRequest:
+      properties:
+        content:
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/TextBlock'
+            - $ref: '#/components/schemas/CodeBlock'
+            - $ref: '#/components/schemas/DiffBlock'
+            - $ref: '#/components/schemas/WebPreviewBlock'
+            - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
+            - $ref: '#/components/schemas/DeploymentStatusBlock'
+            - $ref: '#/components/schemas/WorkflowBlock'
+            - $ref: '#/components/schemas/TaskCardBlock'
+            - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
+            - $ref: '#/components/schemas/ToolCallBlock'
+            discriminator:
+              propertyName: type
+              mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
+                clarification: '#/components/schemas/ClarificationBlock'
+                code: '#/components/schemas/CodeBlock'
+                deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                diff: '#/components/schemas/DiffBlock'
+                file: '#/components/schemas/FileBlock'
+                process: '#/components/schemas/ProcessBlock'
+                task_card: '#/components/schemas/TaskCardBlock'
+                text: '#/components/schemas/TextBlock'
+                tool_call: '#/components/schemas/ToolCallBlock'
+                web_preview: '#/components/schemas/WebPreviewBlock'
+                workflow: '#/components/schemas/WorkflowBlock'
+          type: array
+          minItems: 1
+          title: Content
+        target_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Agent Id
+        attachment_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          maxItems: 10
+          title: Attachment Ids
       type: object
       required:
       - content
@@ -2979,6 +3534,50 @@ components:
       - user_message
       - agent_message
       title: SendMessageResponse
+    UpdateQueuedMessageRequest:
+      properties:
+        content:
+          anyOf:
+          - items:
+              oneOf:
+              - $ref: '#/components/schemas/TextBlock'
+              - $ref: '#/components/schemas/CodeBlock'
+              - $ref: '#/components/schemas/DiffBlock'
+              - $ref: '#/components/schemas/WebPreviewBlock'
+              - $ref: '#/components/schemas/FileBlock'
+              - $ref: '#/components/schemas/AttachmentBlock'
+              - $ref: '#/components/schemas/DeploymentStatusBlock'
+              - $ref: '#/components/schemas/WorkflowBlock'
+              - $ref: '#/components/schemas/TaskCardBlock'
+              - $ref: '#/components/schemas/ProcessBlock'
+              - $ref: '#/components/schemas/ClarificationBlock'
+              - $ref: '#/components/schemas/ToolCallBlock'
+              discriminator:
+                propertyName: type
+                mapping:
+                  attachment: '#/components/schemas/AttachmentBlock'
+                  clarification: '#/components/schemas/ClarificationBlock'
+                  code: '#/components/schemas/CodeBlock'
+                  deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                  diff: '#/components/schemas/DiffBlock'
+                  file: '#/components/schemas/FileBlock'
+                  process: '#/components/schemas/ProcessBlock'
+                  task_card: '#/components/schemas/TaskCardBlock'
+                  text: '#/components/schemas/TextBlock'
+                  tool_call: '#/components/schemas/ToolCallBlock'
+                  web_preview: '#/components/schemas/WebPreviewBlock'
+                  workflow: '#/components/schemas/WorkflowBlock'
+            type: array
+            minItems: 1
+          - type: 'null'
+          title: Content
+        target_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Agent Id
+      type: object
+      title: UpdateQueuedMessageRequest
     TaskCardBlock:
       properties:
         type:
@@ -3021,6 +3620,7 @@ components:
           - running
           - done
           - error
+          - interrupted
           title: Status
       type: object
       required:
@@ -3219,6 +3819,81 @@ components:
           title: Is Pinned
       type: object
       title: UpdateMessageRequest
+    UploadOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        filename:
+          type: string
+          title: Filename
+        content_type:
+          type: string
+          title: Content Type
+        detected_content_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Detected Content Type
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        sha256:
+          type: string
+          title: Sha256
+        purpose:
+          type: string
+          enum:
+          - message_attachment
+          - workspace_file
+          title: Purpose
+        status:
+          type: string
+          enum:
+          - ready
+          - processing
+          - failed
+          - deleted
+          title: Status
+        safety_status:
+          type: string
+          enum:
+          - pending
+          - passed
+          - blocked
+          - manual_review_required
+          title: Safety Status
+        preview:
+          anyOf:
+          - $ref: '#/components/schemas/AttachmentPreview'
+          - type: 'null'
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Code
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - filename
+      - content_type
+      - size_bytes
+      - sha256
+      - purpose
+      - status
+      - safety_status
+      - created_at
+      title: UploadOut
     UserOut:
       properties:
         id:
@@ -4198,431 +4873,6 @@ components:
       - health_status
       - created_at
       title: WorkspaceWorkflowRunResponse
-    AgentConfig:
-      additionalProperties: true
-      properties:
-        model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for builtin agents.
-          title: Model Backend
-        answer_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for orchestrator direct answers.
-          title: Answer Model Backend
-        planner_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for orchestrator LLM planning.
-          title: Planner Model Backend
-        llm_planning:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Llm Planning
-        planner_fallback_to_template:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Planner Fallback To Template
-        orchestrator_llm_config:
-          anyOf:
-          - additionalProperties: true
-            type: object
-          - type: 'null'
-          default: null
-          title: Orchestrator Llm Config
-        max_iterations:
-          anyOf:
-          - maximum: 50
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Max Iterations
-          minimum: 1
-          maximum: 50
-        react_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: React Enabled
-        react_trace_visible:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: React Trace Visible
-        react_decision_max_tokens:
-          anyOf:
-          - maximum: 4096
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: React Decision Max Tokens
-          minimum: 1
-          maximum: 4096
-        mcp_servers:
-          anyOf:
-          - items:
-              additionalProperties: true
-              type: object
-            type: array
-          - type: 'null'
-          default: null
-          title: Mcp Servers
-        allowed_tools:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          description: Maximum builtin native/MCP tools this agent may receive. Omit
-            to keep legacy behavior; [] means no tools.
-          title: Allowed Tools
-        command:
-          anyOf:
-          - type: string
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Command
-        args:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Args
-        timeout_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Timeout Seconds
-          minimum: 1
-          maximum: 3600
-        max_runtime_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Max Runtime Seconds
-          minimum: 1
-          maximum: 3600
-        idle_timeout_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Idle Timeout Seconds
-          minimum: 1
-          maximum: 3600
-        heartbeat_interval_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Heartbeat Interval Seconds
-          minimum: 1
-          maximum: 3600
-        qa_short_circuit_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Qa Short Circuit Enabled
-        qa_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for external direct chat.
-          title: Qa Model Backend
-        qa_model:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Qa Model
-        qa_classifier_model:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Qa Classifier Model
-        qa_max_tokens:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Qa Max Tokens
-          minimum: 1
-          maximum: 32000
-        qa_classifier_max_tokens:
-          anyOf:
-          - maximum: 1024
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Qa Classifier Max Tokens
-          minimum: 1
-          maximum: 1024
-        qa_temperature:
-          anyOf:
-          - maximum: 2
-            minimum: 0
-            type: number
-          - type: 'null'
-          default: null
-          title: Qa Temperature
-          minimum: 0
-          maximum: 2
-        qa_request_timeout_seconds:
-          anyOf:
-          - maximum: 120
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Qa Request Timeout Seconds
-          minimum: 1
-          maximum: 120
-        task_fallback_agent_ids:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Task Fallback Agent Ids
-        max_task_attempts:
-          anyOf:
-          - maximum: 3
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Max Task Attempts
-          minimum: 1
-          maximum: 3
-        task_result_context_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Task Result Context Max Chars
-          minimum: 1
-          maximum: 32000
-        task_result_item_max_chars:
-          anyOf:
-          - maximum: 8000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Task Result Item Max Chars
-          minimum: 1
-          maximum: 8000
-        orchestrator_memory_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Enabled
-        orchestrator_memory_recent_runs:
-          anyOf:
-          - maximum: 10
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Recent Runs
-          minimum: 1
-          maximum: 10
-        orchestrator_memory_context_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Context Max Chars
-          minimum: 1
-          maximum: 32000
-        orchestrator_tool_calling_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Calling Enabled
-        orchestrator_tool_trace_visible:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Trace Visible
-        orchestrator_tool_max_iterations:
-          anyOf:
-          - maximum: 50
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Max Iterations
-          minimum: 1
-          maximum: 50
-        orchestrator_tool_result_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Result Max Chars
-          minimum: 1
-          maximum: 32000
-        orchestrator_tool_read_max_bytes:
-          anyOf:
-          - maximum: 1048576
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Read Max Bytes
-          minimum: 1
-          maximum: 1048576
-        orchestrator_group_messages_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Group Messages Enabled
-        orchestrator_process_block_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Process Block Enabled
-        orchestrator_response_polish_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Response Polish Enabled
-        orchestrator_response_polish_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for Orchestrator final response polish.
-          title: Orchestrator Response Polish Model Backend
-        orchestrator_response_polish_max_tokens:
-          anyOf:
-          - maximum: 4096
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Response Polish Max Tokens
-          minimum: 1
-          maximum: 4096
-        orchestrator_parallel_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Parallel Enabled
-        orchestrator_parallel_max_concurrency:
-          anyOf:
-          - maximum: 10
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Parallel Max Concurrency
-          minimum: 1
-          maximum: 10
-        orchestrator_evaluation_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Evaluation Enabled
-        orchestrator_evaluation_read_max_bytes:
-          anyOf:
-          - maximum: 1048576
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Evaluation Read Max Bytes
-          minimum: 1
-          maximum: 1048576
-        orchestrator_test_runner_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Test Runner Enabled
-        orchestrator_test_command_allowlist:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Orchestrator Test Command Allowlist
-      title: AgentConfig
-      type: object
   securitySchemes:
     HTTPBearer:
       type: http

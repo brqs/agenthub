@@ -50,6 +50,10 @@ function StreamSubscription({
       finishActiveStream(stream.messageId);
       invalidateConversationQueries(queryClient, userId, stream.conversationId);
     },
+    onInterrupted: () => {
+      finishActiveStream(stream.messageId);
+      invalidateConversationQueries(queryClient, userId, stream.conversationId);
+    },
     onError: () => {
       applyStreamEvent(stream.messageId, {
         event: 'error',
@@ -88,8 +92,17 @@ function invalidateWorkspaceQueries(
   void queryClient.invalidateQueries({ queryKey: ['workspace-tree', conversationId] });
 }
 
-function isWorkspaceWritingTool(toolName: string | undefined): boolean {
+export function isWorkspaceWritingTool(toolName: string | undefined): boolean {
   if (!toolName) return false;
-  const normalized = toolName.toLowerCase();
-  return normalized.includes('write') || normalized.includes('file');
+  const normalized = toolName.toLowerCase().replace(/[-\s]+/g, '_');
+  const terminalSegment = normalized.split('.').pop() ?? normalized;
+  return [
+    'write',
+    'edit',
+    'write_file',
+    'create_file',
+    'delete_file',
+    'save_file',
+    'replace_file',
+  ].includes(terminalSegment);
 }

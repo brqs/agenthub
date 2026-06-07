@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import CursorPagination
+from app.schemas.upload import AttachmentPreview, UploadPurpose, UploadSafetyStatus
 
 
 # ─── ContentBlock 联合类型 ───────────────────────────────────────
@@ -58,6 +59,18 @@ class FileBlock(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class AttachmentBlock(BaseModel):
+    type: Literal["attachment"] = "attachment"
+    agent_id: str | None = None
+    upload_id: UUID
+    filename: str
+    content_type: str
+    size_bytes: int
+    purpose: UploadPurpose
+    safety_status: UploadSafetyStatus
+    preview: AttachmentPreview | None = None
+
+
 class DeploymentStatusBlock(BaseModel):
     type: Literal["deployment_status"] = "deployment_status"
     agent_id: str | None = None
@@ -103,7 +116,7 @@ class TaskCardTask(BaseModel):
     id: str
     agent_id: str
     title: str
-    status: Literal["pending", "running", "done", "error"]
+    status: Literal["pending", "running", "done", "error", "interrupted"]
 
 
 class TaskCardBlock(BaseModel):
@@ -129,7 +142,7 @@ class ProcessStep(BaseModel):
         "repair",
         "summary",
     ]
-    status: Literal["done", "running", "error", "skipped"]
+    status: Literal["done", "running", "error", "skipped", "interrupted"]
     detail: str | None = None
     agent_id: str | None = None
 
@@ -138,9 +151,31 @@ class ProcessBlock(BaseModel):
     type: Literal["process"] = "process"
     agent_id: str | None = None
     title: str
-    status: Literal["running", "done", "partial", "error"]
+    status: Literal["running", "done", "partial", "error", "interrupted"]
     default_collapsed: bool
     steps: list[ProcessStep] = Field(default_factory=list)
+    summary: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClarificationQuestion(BaseModel):
+    id: str
+    question: str
+    reason: str | None = None
+    recommended_answer: str | None = None
+    options: list[str] = Field(default_factory=list)
+    status: Literal["pending", "answered", "skipped"] = "pending"
+    answer: str | None = None
+
+
+class ClarificationBlock(BaseModel):
+    type: Literal["clarification"] = "clarification"
+    agent_id: str | None = None
+    mode: Literal["auto", "grill_me", "grill_with_docs", "setup_matt_pocock_skills"]
+    title: str
+    status: Literal["waiting", "resolved", "cancelled"]
+    current_question: ClarificationQuestion | None = None
+    questions: list[ClarificationQuestion] = Field(default_factory=list)
     summary: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -163,10 +198,12 @@ ContentBlock = Annotated[
     | DiffBlock
     | WebPreviewBlock
     | FileBlock
+    | AttachmentBlock
     | DeploymentStatusBlock
     | WorkflowBlock
     | TaskCardBlock
     | ProcessBlock
+    | ClarificationBlock
     | ToolCallBlock,
     Field(discriminator="type"),
 ]
@@ -174,7 +211,7 @@ ContentBlock = Annotated[
 
 # ─── Message DTOs ────────────────────────────────────────────────
 MessageRole = Literal["user", "agent", "system"]
-MessageStatus = Literal["pending", "streaming", "done", "error"]
+MessageStatus = Literal["pending", "streaming", "done", "error", "interrupted", "queued"]
 
 
 class MessageOut(BaseModel):
@@ -194,11 +231,36 @@ class MessageOut(BaseModel):
 class SendMessageRequest(BaseModel):
     content: list[ContentBlock] = Field(..., min_length=1)
     target_agent_id: str | None = None
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class SendMessageResponse(BaseModel):
     user_message: MessageOut
     agent_message: MessageOut
+
+
+class QueueMessageRequest(BaseModel):
+    content: list[ContentBlock] = Field(..., min_length=1)
+    target_agent_id: str | None = None
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
+
+
+class UpdateQueuedMessageRequest(BaseModel):
+    content: list[ContentBlock] | None = Field(default=None, min_length=1)
+    target_agent_id: str | None = None
+
+
+class QueueMessageResponse(BaseModel):
+    queued_message: MessageOut
+    queue_position: int
+
+
+InterruptMessageState = Literal["interrupted", "already_terminal", "interrupting"]
+
+
+class InterruptMessageResponse(BaseModel):
+    state: InterruptMessageState
+    message: MessageOut
 
 
 class UpdateMessageRequest(BaseModel):

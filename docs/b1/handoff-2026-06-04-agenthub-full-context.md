@@ -178,7 +178,10 @@ The B1 backend core has implemented, in broad terms:
 13. ContentBlock attribution:
    - optional `agent_id` per block
    - frontends should render with `block.agent_id ?? message.agent_id`
-14. SSE/concurrency hardening is in progress or recently implemented:
+14. `clarification` ContentBlock persistence:
+   - used by Orchestrator requirement clarification before planner/runtime dispatch
+   - persisted by the stream accumulator and included in OpenAPI message content union
+15. SSE/concurrency hardening is in progress or recently implemented:
    - active stream ownership should be `message_id + conversation_id`
    - avoid cross-conversation stream delivery
    - stale cleanup and terminalization of stuck messages
@@ -205,6 +208,9 @@ B2 has implemented or was working on:
    - task cards / task events
    - workspace conflict summaries
    - concise default visibility for sub-agent output
+   - clarification gate before direct planning/runtime dispatch
+   - slash commands: `/grill-me`, `/grill-with-docs`, `/setup-matt-pocock-skills`
+   - waiting clarification must not create `task_card`, `agent_switch`, or runtime attempts
 4. Runtime isolation:
    - per-message runtime context
    - separate runtime state directories
@@ -217,6 +223,19 @@ Known product expectation:
 ```text
 Simple input should get a simple answer.
 Complex build/deploy/file tasks can trigger Orchestrator planning and sub-agent execution.
+```
+
+Clarification gate expectation:
+
+```text
+Underspecified artifact/build/design/code requests may first receive a structured
+clarification card. The card asks one high-value question and provides a recommended
+answer. Recommendation chips only fill the input; side effects require explicit positive confirmation such as "按这个做" or "按默认开始实现". Negated phrases like "不要按默认" must not continue.
+
+Pending clarification replies are routed before handling: current-answer, reference-context, new-topic, explicit-switch, control, or ambiguous. New topics ask for direction confirmation instead of being swallowed as answers.
+
+`/grill-with-docs` and `/setup-matt-pocock-skills` only write the current
+conversation workspace. They must not modify AgentHub's main repository files.
 ```
 
 ## 6. Frontend Capabilities Known From Recent Work
@@ -236,8 +255,12 @@ F has implemented or was working on:
 5. TaskCardBlock rendering for orchestrator events.
 6. ContentBlock rendering:
    - text, code, diff, web/file/artifact, tool blocks.
+   - `clarification` card with question, reason, recommended answer, option chips, history, and summary.
+   - clarification option chips only fill the input box; the user still sends the answer manually.
 7. Frontend session cleanup:
    - logout should clear auth, agents, conversations, messages, React Query cache.
+8. MessageInput:
+   - slash command suggestions for `/grill-me`, `/grill-with-docs`, `/setup-matt-pocock-skills`.
 
 Known frontend bugs previously discussed and current expectations:
 
@@ -690,6 +713,47 @@ GET http://localhost:8081 -> ok
      does not prove Claude SDK/CLI artifact runtime availability.
    - These status answers must not create a new task plan or promise delegation.
 
+### 12.9 OpenCode Runtime Idle Timeout And Artifact Boundary
+
+2026-06-05 update:
+
+1. `External runtime exceeded idle_timeout_seconds` for OpenCode usually means
+   AgentHub saw no stdout events for the idle window, not that the `opencode`
+   process was never started.
+   - Container smoke confirmed `opencode` is installed and can write files.
+   - Failed Pac-Man runs emitted early tool events, then went silent until the
+     external runtime idle watchdog killed the subprocess.
+   - OpenCode logs showed the default model path selecting
+     `deepseek/deepseek-v4-pro`, which can spend a long time in a later model
+     step without emitting JSON events.
+
+2. OpenCode default execution should be bounded and file-list driven.
+   - `opencode-helper` now defaults to `model=deepseek/deepseek-chat`.
+   - `opencode-helper` seed config uses `idle_timeout_seconds=360` and
+     `max_runtime_seconds=600`; keep the hard timeout so genuinely stuck
+     runtimes are still cleaned up.
+   - The adapter passes `--model <config.model>` when no custom `args` are
+     configured. Custom `args` remain an explicit escape hatch.
+
+3. Prompt contract for static artifacts:
+   - If the task names required artifact files such as `index.html`,
+     `styles.css`, and `app.js`, OpenCode must create those exact
+     workspace-relative files.
+   - Empty workspace is not a reason to ask "what files should I create" when
+     the current user request already describes the product and files.
+   - OpenCode should write the requested artifacts, do at most a concise
+     verification pass, and then summarize. It should not keep iterating on
+     optional refinements after the requested files exist.
+
+4. Useful smoke checks:
+
+```powershell
+docker compose exec backend opencode --version
+docker compose exec backend opencode auth list
+docker compose exec backend sh -lc 'rm -rf /tmp/opencode-smoke && mkdir -p /tmp/opencode-smoke && opencode run --format json --model deepseek/deepseek-chat --dir /tmp/opencode-smoke "创建 index.html、styles.css、app.js 三个文件，完成后简短总结"'
+docker compose exec backend python -m app.seeds.seed_agents
+```
+
 ## 13. Suggested Next Agent Startup Checklist
 
 1. Read this handoff.
@@ -774,3 +838,78 @@ clear PR description
 ```
 
 Do not let the chat history become the only place where decisions live.
+
+## 17. Next Major Modules Draft (2026-06-07)
+
+The user requested documentation-first planning for three next modules:
+
+1. interruptible conversations, similar to Codex-style user cancellation;
+2. web/iOS/Android file uploads for images, archives, documents, and workspace imports;
+3. deep custom Agent creation for non-coding users, including role/function customization, knowledge files, skills, MCP servers, permissions, and testing.
+
+Primary spec:
+
+```text
+docs/spec/next-major-modules.spec.md
+```
+
+Important handoff notes:
+
+- This turn updated architecture/spec docs only; implementation code and OpenAPI were intentionally not changed.
+- B1 should start from interrupt API, upload metadata/storage, safe archive extraction, and custom Agent persistence.
+- B2 should start from runtime cancellation, attachment materialization, skills/MCP interpretation, permission policy, and group-scoped Orchestrator dispatch for validated custom Agents.
+- F should start from stop-button UX, upload queue/cross-platform picker behavior, attachment blocks, Workspace import confirmation, and no-code custom Agent wizard.
+- Capacitor upload constraints are recorded in `docs/frontend/spec/frontend-capacitor-shell.spec.md`.
+## 2026-06-07 Handoff Addendum: User Interrupt Is Implemented
+
+Conversation interrupt is now a first-class lifecycle terminal state.
+
+- Public API: `POST /api/v1/messages/{msg_id}/interrupt`.
+- Response state: `interrupted | already_terminal | interrupting`.
+- Message status: `pending | streaming | done | error | interrupted`.
+- SSE terminal events: top-level `interrupted`; Orchestrator child message `message_interrupted`.
+- `StreamRunManager` is now shared by the stream route and interrupt route. It owns per-message runtime session state, subscriber queues, terminal state, and the `interrupt_event`.
+- User Stop differs from client disconnect. Switching conversations, refreshing subscribers, StrictMode remount, and transport close must not interrupt backend runtime work.
+- Pending agent messages without an active runtime can be finalized as `interrupted`. Streaming messages with an active runtime set the session interrupt event and wait briefly for terminalization. Streaming messages without a session remain stale/orphan cleanup and become retryable `error`, not fake user interrupt.
+- Interrupted content preserves accumulated blocks. If no content exists, B1 writes a neutral text fallback instead of an empty red box.
+- Running `task_card`, `process`, and process steps are finalized as `interrupted`.
+- Orchestrator interrupt uses `interrupt_active_run()` and `interrupt_open_messages()`: active run/task attempts/child messages become `interrupted`; replanner, repair, fallback, and success summary are skipped.
+- Frontend Stop replaces Send only for the current conversation active stream. Other conversation streams continue. Interrupted messages render neutral `已打断`, clear active stream state, and never show retry.
+
+Validation already covers pending interrupt, active streaming interrupt with partial content preservation, non-agent rejection, interrupted content block finalization, frontend Stop behavior, stream/store terminal handling, and neutral rendering.
+
+## 2026-06-07 Handoff Addendum: Orchestrator Clarification Repeat Semantics
+
+Auto clarification remains the intended behavior for broad artifact/build requests such as "design a web game"; Orchestrator should not dispatch implementation agents until the user confirms delivery boundaries.
+
+- Repeating the original request during a pending clarification is not confirmation to start.
+- Repeated current requests should restate the current clarification question and ask the user to choose a boundary, add details, or cancel.
+- Only explicit control phrases such as "按这个做", "开始实现", "go ahead", or "proceed" may resolve clarification and continue to planning/execution.
+- A clearly different artifact/build request during pending clarification should route to topic confirmation, so the user can continue the current clarification, switch to the new request, or use it as reference.
+- Identical clarification cards in separate conversations are deterministic template behavior, not evidence of cross-conversation message or SSE stream leakage. Each response must still have its own conversation/message/run identity.
+
+## 2026-06-07 Handoff Addendum: Queued Next Turn Phase 1
+
+Running-time submit is now implemented as a persisted same-conversation queue.
+
+- Message status now includes `queued`.
+- New table: `message_queue_entries`.
+- Public APIs:
+  - `POST /api/v1/conversations/{conversation_id}/queued-messages`
+  - `PATCH /api/v1/queued-messages/{message_id}`
+  - `DELETE /api/v1/queued-messages/{message_id}`
+- Queue API is only for active conversations with a `pending` or `streaming` agent response. Normal `POST /messages` still returns `409 CONVERSATION_BUSY` in that state.
+- The active turn remains serial. Queued user messages are not injected into the current agent runtime context.
+- On `done`, `error`, or `interrupted`, B1 dispatches the queue head: queued user message becomes `done`, a new pending agent message is created, and terminal SSE may include `queued_next`.
+- Frontend consumes `queued_next` to replace the queued bubble, append the new pending agent message, and start streaming it immediately.
+- Queued bubbles are neutral, editable, and deletable before dispatch. Deleted queued messages are physically removed.
+- If the queued target agent is no longer in the conversation at dispatch time, B1 creates a visible agent error message and continues queue processing instead of silently falling back to a global agent.
+- Phase 1 intentionally excludes "guide current thinking"; that will need a separate runtime-control contract if implemented later.
+
+Validation run for this slice:
+
+- `uv run ruff check app tests`
+- `uv run pytest -q tests/test_conversation_api.py tests/test_stream_tool_calls.py tests/test_b1_quality.py`
+- `uv run pytest -q tests/test_orchestrator.py tests/test_orchestrator_react.py tests/test_stream_content_blocks.py`
+- `pnpm exec tsc -b`
+- `pnpm exec vitest run`

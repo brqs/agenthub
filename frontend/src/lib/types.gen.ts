@@ -256,6 +256,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/{conv_id}/queued-messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue Message */
+        post: operations["queue_message_api_v1_conversations__conv_id__queued_messages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queued-messages/{msg_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Queued Message */
+        delete: operations["delete_queued_message_api_v1_queued_messages__msg_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Queued Message */
+        patch: operations["update_queued_message_api_v1_queued_messages__msg_id__patch"];
+        trace?: never;
+    };
     "/api/v1/messages/{msg_id}": {
         parameters: {
             query?: never;
@@ -272,6 +307,23 @@ export interface paths {
         head?: never;
         /** Update Message */
         patch: operations["update_message_api_v1_messages__msg_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/messages/{msg_id}/interrupt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Interrupt Message */
+        post: operations["interrupt_message_api_v1_messages__msg_id__interrupt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/messages/{msg_id}/regenerate": {
@@ -303,6 +355,58 @@ export interface paths {
          * @description SSE stream for an agent message.
          */
         get: operations["stream_message_api_v1_messages__msg_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Upload */
+        post: operations["create_upload_api_v1_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Upload */
+        get: operations["get_upload_api_v1_uploads__upload_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Upload */
+        delete: operations["delete_upload_api_v1_uploads__upload_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{upload_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Upload */
+        get: operations["download_upload_api_v1_uploads__upload_id__download_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -762,6 +866,66 @@ export interface components {
              */
             created_at: string;
         };
+        /** AttachmentBlock */
+        AttachmentBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "attachment";
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "message_attachment" | "workspace_file";
+            /**
+             * Safety Status
+             * @enum {string}
+             */
+            safety_status: "pending" | "passed" | "blocked" | "manual_review_required";
+            preview?: components["schemas"]["AttachmentPreview"] | null;
+        };
+        /** AttachmentPreview */
+        AttachmentPreview: {
+            /**
+             * Kind
+             * @default unknown
+             * @enum {string}
+             */
+            kind: "image" | "archive" | "document" | "text" | "code" | "unknown";
+            /** Url */
+            url?: string | null;
+            /** Thumbnail Url */
+            thumbnail_url?: string | null;
+            /** Text Preview */
+            text_preview?: string | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Entries Preview */
+            entries_preview?: string[];
+            /** Width */
+            width?: number | null;
+            /** Height */
+            height?: number | null;
+            /** Page Count */
+            page_count?: number | null;
+        };
         /** AuthResponse */
         AuthResponse: {
             /** Access Token */
@@ -774,6 +938,74 @@ export interface components {
             /** Expires In */
             expires_in: number;
             user: components["schemas"]["UserOut"];
+        };
+        /** Body Create Upload Api V1 Uploads Post */
+        Body_create_upload_api_v1_uploads_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
+            /**
+             * Purpose
+             * @default message_attachment
+             * @enum {string}
+             */
+            purpose: "message_attachment" | "workspace_file";
+            /** Conversation Id */
+            conversation_id?: string | null;
+        };
+        /** ClarificationBlock */
+        ClarificationBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "clarification";
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "auto" | "grill_me" | "grill_with_docs" | "setup_matt_pocock_skills";
+            /** Title */
+            title: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "waiting" | "resolved" | "cancelled";
+            current_question?: components["schemas"]["ClarificationQuestion"] | null;
+            /** Questions */
+            questions?: components["schemas"]["ClarificationQuestion"][];
+            /** Summary */
+            summary?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ClarificationQuestion */
+        ClarificationQuestion: {
+            /** Id */
+            id: string;
+            /** Question */
+            question: string;
+            /** Reason */
+            reason?: string | null;
+            /** Recommended Answer */
+            recommended_answer?: string | null;
+            /** Options */
+            options?: string[];
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "answered" | "skipped";
+            /** Answer */
+            answer?: string | null;
         };
         /** CodeBlock */
         CodeBlock: {
@@ -1060,6 +1292,15 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** InterruptMessageResponse */
+        InterruptMessageResponse: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "interrupted" | "already_terminal" | "interrupting";
+            message: components["schemas"]["MessageOut"];
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Username */
@@ -1099,7 +1340,7 @@ export interface components {
             /** Agent Id */
             agent_id?: string | null;
             /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Reply To Id */
             reply_to_id?: string | null;
             /**
@@ -1107,7 +1348,7 @@ export interface components {
              * @default done
              * @enum {string}
              */
-            status: "pending" | "streaming" | "done" | "error";
+            status: "pending" | "streaming" | "done" | "error" | "interrupted" | "queued";
             /**
              * Is Pinned
              * @default false
@@ -1311,7 +1552,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "running" | "done" | "partial" | "error";
+            status: "running" | "done" | "partial" | "error" | "interrupted";
             /** Default Collapsed */
             default_collapsed: boolean;
             /** Steps */
@@ -1325,6 +1566,8 @@ export interface components {
         };
         /** ProcessStep */
         ProcessStep: {
+            /** Id */
+            id?: string | null;
             /** Label */
             label: string;
             /**
@@ -1336,7 +1579,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "done" | "running" | "error" | "skipped";
+            status: "done" | "running" | "error" | "skipped" | "interrupted";
             /** Detail */
             detail?: string | null;
             /** Agent Id */
@@ -1349,17 +1592,41 @@ export interface components {
             /** Password */
             password: string;
         };
+        /** QueueMessageRequest */
+        QueueMessageRequest: {
+            /** Content */
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
+            /** Target Agent Id */
+            target_agent_id?: string | null;
+            /** Attachment Ids */
+            attachment_ids?: string[];
+        };
+        /** QueueMessageResponse */
+        QueueMessageResponse: {
+            queued_message: components["schemas"]["MessageOut"];
+            /** Queue Position */
+            queue_position: number;
+        };
         /** SendMessageRequest */
         SendMessageRequest: {
             /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Target Agent Id */
             target_agent_id?: string | null;
+            /** Attachment Ids */
+            attachment_ids?: string[];
         };
         /** SendMessageResponse */
         SendMessageResponse: {
             user_message: components["schemas"]["MessageOut"];
             agent_message: components["schemas"]["MessageOut"];
+        };
+        /** UpdateQueuedMessageRequest */
+        UpdateQueuedMessageRequest: {
+            /** Content */
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[] | null;
+            /** Target Agent Id */
+            target_agent_id?: string | null;
         };
         /** TaskCardBlock */
         TaskCardBlock: {
@@ -1387,7 +1654,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "running" | "done" | "error";
+            status: "pending" | "running" | "done" | "error" | "interrupted";
         };
         /** TextBlock */
         TextBlock: {
@@ -1475,6 +1742,49 @@ export interface components {
         UpdateMessageRequest: {
             /** Is Pinned */
             is_pinned?: boolean | null;
+        };
+        /** UploadOut */
+        UploadOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Detected Content Type */
+            detected_content_type?: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "message_attachment" | "workspace_file";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "processing" | "failed" | "deleted";
+            /**
+             * Safety Status
+             * @enum {string}
+             */
+            safety_status: "pending" | "passed" | "blocked" | "manual_review_required";
+            preview?: components["schemas"]["AttachmentPreview"] | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** UserOut */
         UserOut: {
@@ -2047,261 +2357,6 @@ export interface components {
             created_at: string;
             /** Completed At */
             completed_at?: string | null;
-        };
-        /** AgentConfig */
-        AgentConfig: {
-            /**
-             * Model Backend
-             * @description ModelGateway backend for builtin agents.
-             * @default null
-             */
-            model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Answer Model Backend
-             * @description ModelGateway backend for orchestrator direct answers.
-             * @default null
-             */
-            answer_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Planner Model Backend
-             * @description ModelGateway backend for orchestrator LLM planning.
-             * @default null
-             */
-            planner_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Llm Planning
-             * @default null
-             */
-            llm_planning: boolean | null;
-            /**
-             * Planner Fallback To Template
-             * @default null
-             */
-            planner_fallback_to_template: boolean | null;
-            /**
-             * Orchestrator Llm Config
-             * @default null
-             */
-            orchestrator_llm_config: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Max Iterations
-             * @default null
-             */
-            max_iterations: number | null;
-            /**
-             * React Enabled
-             * @default null
-             */
-            react_enabled: boolean | null;
-            /**
-             * React Trace Visible
-             * @default null
-             */
-            react_trace_visible: boolean | null;
-            /**
-             * React Decision Max Tokens
-             * @default null
-             */
-            react_decision_max_tokens: number | null;
-            /**
-             * Mcp Servers
-             * @default null
-             */
-            mcp_servers: {
-                [key: string]: unknown;
-            }[] | null;
-            /**
-             * Allowed Tools
-             * @description Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools.
-             * @default null
-             */
-            allowed_tools: string[] | null;
-            /**
-             * Command
-             * @default null
-             */
-            command: string | string[] | null;
-            /**
-             * Args
-             * @default null
-             */
-            args: string[] | null;
-            /**
-             * Timeout Seconds
-             * @default null
-             */
-            timeout_seconds: number | null;
-            /**
-             * Max Runtime Seconds
-             * @default null
-             */
-            max_runtime_seconds: number | null;
-            /**
-             * Idle Timeout Seconds
-             * @default null
-             */
-            idle_timeout_seconds: number | null;
-            /**
-             * Heartbeat Interval Seconds
-             * @default null
-             */
-            heartbeat_interval_seconds: number | null;
-            /**
-             * Qa Short Circuit Enabled
-             * @default null
-             */
-            qa_short_circuit_enabled: boolean | null;
-            /**
-             * Qa Model Backend
-             * @description ModelGateway backend for external direct chat.
-             * @default null
-             */
-            qa_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Qa Model
-             * @default null
-             */
-            qa_model: string | null;
-            /**
-             * Qa Classifier Model
-             * @default null
-             */
-            qa_classifier_model: string | null;
-            /**
-             * Qa Max Tokens
-             * @default null
-             */
-            qa_max_tokens: number | null;
-            /**
-             * Qa Classifier Max Tokens
-             * @default null
-             */
-            qa_classifier_max_tokens: number | null;
-            /**
-             * Qa Temperature
-             * @default null
-             */
-            qa_temperature: number | null;
-            /**
-             * Qa Request Timeout Seconds
-             * @default null
-             */
-            qa_request_timeout_seconds: number | null;
-            /**
-             * Task Fallback Agent Ids
-             * @default null
-             */
-            task_fallback_agent_ids: string[] | null;
-            /**
-             * Max Task Attempts
-             * @default null
-             */
-            max_task_attempts: number | null;
-            /**
-             * Task Result Context Max Chars
-             * @default null
-             */
-            task_result_context_max_chars: number | null;
-            /**
-             * Task Result Item Max Chars
-             * @default null
-             */
-            task_result_item_max_chars: number | null;
-            /**
-             * Orchestrator Memory Enabled
-             * @default null
-             */
-            orchestrator_memory_enabled: boolean | null;
-            /**
-             * Orchestrator Memory Recent Runs
-             * @default null
-             */
-            orchestrator_memory_recent_runs: number | null;
-            /**
-             * Orchestrator Memory Context Max Chars
-             * @default null
-             */
-            orchestrator_memory_context_max_chars: number | null;
-            /**
-             * Orchestrator Tool Calling Enabled
-             * @default null
-             */
-            orchestrator_tool_calling_enabled: boolean | null;
-            /**
-             * Orchestrator Tool Trace Visible
-             * @default null
-             */
-            orchestrator_tool_trace_visible: boolean | null;
-            /**
-             * Orchestrator Tool Max Iterations
-             * @default null
-             */
-            orchestrator_tool_max_iterations: number | null;
-            /**
-             * Orchestrator Tool Result Max Chars
-             * @default null
-             */
-            orchestrator_tool_result_max_chars: number | null;
-            /**
-             * Orchestrator Tool Read Max Bytes
-             * @default null
-             */
-            orchestrator_tool_read_max_bytes: number | null;
-            /**
-             * Orchestrator Process Block Enabled
-             * @default null
-             */
-            orchestrator_process_block_enabled: boolean | null;
-            /**
-             * Orchestrator Response Polish Enabled
-             * @default null
-             */
-            orchestrator_response_polish_enabled: boolean | null;
-            /**
-             * Orchestrator Response Polish Model Backend
-             * @description ModelGateway backend for Orchestrator final response polish.
-             * @default null
-             */
-            orchestrator_response_polish_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Orchestrator Response Polish Max Tokens
-             * @default null
-             */
-            orchestrator_response_polish_max_tokens: number | null;
-            /**
-             * Orchestrator Parallel Enabled
-             * @default null
-             */
-            orchestrator_parallel_enabled: boolean | null;
-            /**
-             * Orchestrator Parallel Max Concurrency
-             * @default null
-             */
-            orchestrator_parallel_max_concurrency: number | null;
-            /**
-             * Orchestrator Evaluation Enabled
-             * @default null
-             */
-            orchestrator_evaluation_enabled: boolean | null;
-            /**
-             * Orchestrator Evaluation Read Max Bytes
-             * @default null
-             */
-            orchestrator_evaluation_read_max_bytes: number | null;
-            /**
-             * Orchestrator Test Runner Enabled
-             * @default null
-             */
-            orchestrator_test_runner_enabled: boolean | null;
-            /**
-             * Orchestrator Test Command Allowlist
-             * @default null
-             */
-            orchestrator_test_command_allowlist: string[] | null;
-        } & {
-            [key: string]: unknown;
         };
     };
     responses: never;
@@ -2903,6 +2958,105 @@ export interface operations {
             };
         };
     };
+    queue_message_api_v1_conversations__conv_id__queued_messages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conv_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_queued_message_api_v1_queued_messages__msg_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                msg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_queued_message_api_v1_queued_messages__msg_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                msg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateQueuedMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_message_api_v1_messages__msg_id__delete: {
         parameters: {
             query?: never;
@@ -2967,6 +3121,37 @@ export interface operations {
             };
         };
     };
+    interrupt_message_api_v1_messages__msg_id__interrupt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                msg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterruptMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     regenerate_message_api_v1_messages__msg_id__regenerate_post: {
         parameters: {
             query?: never;
@@ -3016,6 +3201,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_upload_api_v1_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_upload_api_v1_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_upload_api_v1_uploads__upload_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_upload_api_v1_uploads__upload_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_upload_api_v1_uploads__upload_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
                 };
             };
             /** @description Validation Error */

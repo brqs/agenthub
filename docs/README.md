@@ -16,6 +16,7 @@
 | [ai-skills/b2-ai-collaboration/SKILL.md](ai-skills/b2-ai-collaboration/SKILL.md) | B2 AI 任务分发与 Codex 复审 Skill |
 | [ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md](ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md) | Orchestrator 真实 E2E 失败修复闭环 Skill |
 | [spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md) | Agent Runtime Pivot 决策记录 |
+| [spec/next-major-modules.spec.md](spec/next-major-modules.spec.md) | 下一阶段三大模块：打断对话、跨端文件上传、深度自定义 Agent |
 
 ## 角色文档
 

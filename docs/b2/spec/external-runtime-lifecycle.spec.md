@@ -213,3 +213,13 @@ StreamChunk(
 - 卡死任务会被 idle timeout 终止。
 - SSE 断开不会留下长期运行的 SDK/CLI。
 - 所有 timeout/cancel/error 都有可诊断但脱敏的日志。
+## 2026-06-07 User Interrupt Addendum
+
+This addendum overrides older wording that mapped every cancellation to `error/runtime_cancelled`.
+
+- User Stop uses `POST /api/v1/messages/{msg_id}/interrupt` and must terminalize the agent turn as `interrupted`, not `error`.
+- B1 injects `runtime_interrupt_event` / `runtime_control.interrupt_event` into adapter config. External runtimes should watch this signal while waiting on SDK streams, CLI stdout/stderr, process exit, and heartbeat deadlines.
+- On user interrupt, SDK/CLI adapters should close the async iterator or terminate the subprocess tree quietly. They must not emit a retryable `runtime_cancelled` error chunk for the user-facing message.
+- Partial content and completed tool events remain visible; empty interrupted turns get a neutral fallback text from B1.
+- Client disconnect, backend shutdown, stale orphan cleanup, timeout, and adapter failure are still distinct from user interrupt. Those paths may use `error` / timeout codes / retryable cleanup according to their existing contracts.
+- Orchestrator interrupt propagates to active child attempts and open child messages as `interrupted`, and it must not trigger replanner, repair, fallback, or success summary.

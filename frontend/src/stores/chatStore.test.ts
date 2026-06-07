@@ -194,6 +194,134 @@ describe('chatStore', () => {
     });
   });
 
+  it('marks streaming messages interrupted without converting them to errors', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'task_card',
+        metadata: {
+          title: 'Plan',
+          tasks: [{ id: 'build', agent_id: 'codex-helper', title: 'Build', status: 'running' }],
+        },
+      },
+    });
+    store.applyStreamEvent(messageId, { event: 'interrupted', data: { message_id: messageId } });
+
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow'][0]).toMatchObject({
+      status: 'interrupted',
+      content: [
+        {
+          type: 'task_card',
+          tasks: [{ id: 'build', status: 'interrupted' }],
+        },
+      ],
+    });
+  });
+
+  it('appends and removes queued user messages locally', () => {
+    useChatStore.getState().hydrateConversations(structuredClone(mockConversations));
+    const queued = createMessage({
+      id: '00000000-0000-4000-8000-000000000251',
+      role: 'user',
+      status: 'queued',
+      content: [{ type: 'text', text: 'queued next' }],
+    });
+
+    useChatStore.getState().appendQueuedMessage('conv-demo-flow', queued);
+
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow']).toEqual([queued]);
+    expect(
+      useChatStore
+        .getState()
+        .conversations.find((conversation) => conversation.id === 'conv-demo-flow')
+        ?.last_message_preview,
+    ).toBe('1 条消息已排队');
+
+    useChatStore.getState().removeMessageLocal(queued.id);
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow']).toEqual([]);
+  });
+
+  it('starts the next queued exchange from terminal stream payload', () => {
+    const currentMessageId = addStreamingMessage(
+      'conv-demo-flow',
+      '00000000-0000-4000-8000-000000000252',
+    );
+    useChatStore.getState().startActiveStream({
+      id: currentMessageId,
+      conversation_id: 'conv-demo-flow',
+      agent_id: 'orchestrator',
+    });
+    const queuedUser = createMessage({
+      id: '00000000-0000-4000-8000-000000000253',
+      role: 'user',
+      status: 'done',
+      created_at: '2026-05-31T00:01:00.000Z',
+      content: [{ type: 'text', text: 'queued next' }],
+    });
+    const queuedAgent = createMessage({
+      id: '00000000-0000-4000-8000-000000000254',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      reply_to_id: queuedUser.id,
+      status: 'pending',
+      created_at: '2026-05-31T00:01:00.000Z',
+      content: [],
+    });
+
+    useChatStore.getState().applyStreamEvent(currentMessageId, {
+      event: 'done',
+      data: {
+        message_id: currentMessageId,
+        total_blocks: 0,
+        queued_next: {
+          user_message: queuedUser,
+          agent_message: queuedAgent,
+          queue_remaining_count: 0,
+        },
+      },
+    });
+
+    const messages = useChatStore.getState().messagesByConversation['conv-demo-flow'];
+    expect(messages.map((message) => message.id)).toEqual([
+      currentMessageId,
+      queuedUser.id,
+      queuedAgent.id,
+    ]);
+    expect(useChatStore.getState().activeStreams[queuedAgent.id]).toMatchObject({
+      messageId: queuedAgent.id,
+      conversationId: 'conv-demo-flow',
+      agentId: 'orchestrator',
+    });
+  });
+
+  it('clears active streams when hydrate returns interrupted', () => {
+    const message = createMessage({
+      id: '00000000-0000-4000-8000-000000000301',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      status: 'streaming',
+    });
+    useChatStore.getState().hydrateMessages('conv-demo-flow', [message]);
+
+    expect(useChatStore.getState().activeStreams[message.id]).toBeDefined();
+
+    useChatStore.getState().hydrateMessages('conv-demo-flow', [
+      {
+        ...message,
+        status: 'interrupted',
+        content: [{ type: 'text', text: '已打断本次回复，可以继续补充要求。' }],
+      },
+    ]);
+
+    expect(useChatStore.getState().activeStreams[message.id]).toBeUndefined();
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow'][0].status).toBe(
+      'interrupted',
+    );
+  });
+
   it('applies workflow stream events as workflow blocks', () => {
     const messageId = addStreamingMessage();
     const store = useChatStore.getState();
@@ -311,6 +439,50 @@ describe('chatStore', () => {
     expect(
       useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
     ).not.toHaveProperty('text');
+  });
+
+  it('applies clarification stream events as clarification blocks', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'clarification',
+        agent_id: 'orchestrator',
+        metadata: {
+          agent_id: 'orchestrator',
+          mode: 'grill_me',
+          title: 'Needs clarification',
+          status: 'waiting',
+          current_question: {
+            id: 'scope',
+            question: 'What scope should we implement?',
+            reason: 'This changes the implementation plan.',
+            recommended_answer: 'Use the recommended static web app scope.',
+            options: ['Use recommendation'],
+            status: 'pending',
+          },
+          questions: [],
+          metadata: { original_request: 'build a game' },
+        },
+      },
+    });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'clarification',
+      agent_id: 'orchestrator',
+      mode: 'grill_me',
+      title: 'Needs clarification',
+      status: 'waiting',
+      current_question: {
+        id: 'scope',
+        question: 'What scope should we implement?',
+        recommended_answer: 'Use the recommended static web app scope.',
+      },
+    });
   });
 
   it('routes orchestrator child message events into independent agent messages', () => {
@@ -703,6 +875,159 @@ describe('chatStore', () => {
     expect(useChatStore.getState().messagesByConversation['conv-active-missing'][1].content).toEqual([
       { type: 'code', agent_id: null, language: 'html', code: '<!doctype html>' },
     ]);
+  });
+
+  it('keeps the parent user message when an active stream is missing from hydration', () => {
+    const userMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000125',
+      conversation_id: 'conv-active-parent-empty',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+      content: [{ type: 'text', text: 'build a game' }],
+    }) as DemoMessage;
+    const agentMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000126',
+      conversation_id: 'conv-active-parent-empty',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      reply_to_id: userMessage.id,
+      status: 'streaming',
+      created_at: '2026-05-31T00:00:01.000Z',
+      content: [{ type: 'text', text: 'working' }],
+    }) as DemoMessage;
+
+    useChatStore.setState((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        'conv-active-parent-empty': [userMessage, agentMessage],
+      },
+    }));
+    useChatStore.getState().startActiveStream({
+      id: agentMessage.id,
+      conversation_id: 'conv-active-parent-empty',
+      agent_id: 'orchestrator',
+    });
+
+    useChatStore.getState().hydrateMessages('conv-active-parent-empty', []);
+
+    expect(
+      useChatStore
+        .getState()
+        .messagesByConversation['conv-active-parent-empty'].map((message) => message.id),
+    ).toEqual([userMessage.id, agentMessage.id]);
+  });
+
+  it('keeps the parent user message when hydration only includes the active stream', () => {
+    const userMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000127',
+      conversation_id: 'conv-active-parent-partial',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+      content: [{ type: 'text', text: 'make a page' }],
+    }) as DemoMessage;
+    const agentMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000128',
+      conversation_id: 'conv-active-parent-partial',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      reply_to_id: userMessage.id,
+      status: 'streaming',
+      created_at: '2026-05-31T00:00:01.000Z',
+      content: [{ type: 'text', text: 'local partial' }],
+    }) as DemoMessage;
+
+    useChatStore.setState((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        'conv-active-parent-partial': [userMessage, agentMessage],
+      },
+    }));
+    useChatStore.getState().startActiveStream({
+      id: agentMessage.id,
+      conversation_id: 'conv-active-parent-partial',
+      agent_id: 'orchestrator',
+    });
+
+    useChatStore.getState().hydrateMessages('conv-active-parent-partial', [
+      {
+        ...agentMessage,
+        content: [],
+      },
+    ]);
+
+    expect(
+      useChatStore
+        .getState()
+        .messagesByConversation['conv-active-parent-partial'].map((message) => message.id),
+    ).toEqual([userMessage.id, agentMessage.id]);
+    expect(
+      useChatStore.getState().messagesByConversation['conv-active-parent-partial'][1].content,
+    ).toEqual([{ type: 'text', text: 'local partial' }]);
+  });
+
+  it('does not keep unrelated local user messages missing from hydration', () => {
+    const userMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000129',
+      conversation_id: 'conv-unrelated-local',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+      content: [{ type: 'text', text: 'stale local only' }],
+    }) as DemoMessage;
+
+    useChatStore.setState((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        'conv-unrelated-local': [userMessage],
+      },
+    }));
+
+    useChatStore.getState().hydrateMessages('conv-unrelated-local', []);
+
+    expect(useChatStore.getState().messagesByConversation['conv-unrelated-local']).toEqual([]);
+  });
+
+  it('uses the server snapshot when hydration includes the same user message', () => {
+    const userMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000130',
+      conversation_id: 'conv-server-user-wins',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+      content: [{ type: 'text', text: 'local pending text' }],
+    }) as DemoMessage;
+    const agentMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000131',
+      conversation_id: 'conv-server-user-wins',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      reply_to_id: userMessage.id,
+      status: 'streaming',
+      created_at: '2026-05-31T00:00:01.000Z',
+      content: [{ type: 'text', text: 'local partial' }],
+    }) as DemoMessage;
+
+    useChatStore.setState((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        'conv-server-user-wins': [userMessage, agentMessage],
+      },
+    }));
+    useChatStore.getState().startActiveStream({
+      id: agentMessage.id,
+      conversation_id: 'conv-server-user-wins',
+      agent_id: 'orchestrator',
+    });
+
+    useChatStore.getState().hydrateMessages('conv-server-user-wins', [
+      {
+        ...userMessage,
+        content: [{ type: 'text', text: 'server text' }],
+      },
+    ]);
+
+    expect(useChatStore.getState().messagesByConversation['conv-server-user-wins'][0]).toMatchObject({
+      id: userMessage.id,
+      content: [{ type: 'text', text: 'server text' }],
+    });
   });
 
   it('recovers hydrated streaming messages as active streams', () => {

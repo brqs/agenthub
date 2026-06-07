@@ -93,8 +93,9 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
         "config": {
             "command": "opencode",
             "args": [],
+            "model": "deepseek/deepseek-chat",
             "max_runtime_seconds": 600,
-            "idle_timeout_seconds": 180,
+            "idle_timeout_seconds": 360,
             "heartbeat_interval_seconds": 15,
             **EXTERNAL_DIRECT_CHAT_DEFAULTS,
         },

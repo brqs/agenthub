@@ -15,6 +15,8 @@ import { useConversations } from '@/hooks/useConversations';
 import { useMessages } from '@/hooks/useMessages';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useInterruptMessage } from '@/hooks/useInterruptMessage';
+import { useQueueMessage } from '@/hooks/useQueueMessage';
 import { useRegenerateMessage } from '@/hooks/useRegenerateMessage';
 import { useSendMessage } from '@/hooks/useSendMessage';
 import { useUpdateConversation } from '@/hooks/useUpdateConversation';
@@ -41,6 +43,7 @@ export function ChatPage() {
   const setSearch = useChatStore((state) => state.setSearch);
   const setSelectedConversationId = useChatStore((state) => state.setSelectedConversationId);
   const highlightedMessageId = useChatStore((state) => state.highlightedMessageId);
+  const activeStreams = useChatStore((state) => state.activeStreams);
   const startActiveStream = useChatStore((state) => state.startActiveStream);
   const setHighlightedMessageId = useChatStore((state) => state.setHighlightedMessageId);
   const conversationSidebarCollapsed = useUiStore((state) => state.conversationSidebarCollapsed);
@@ -53,6 +56,7 @@ export function ChatPage() {
   const openMobileSheet = useUiStore((state) => state.openMobileSheet);
   const closeMobileSheet = useUiStore((state) => state.closeMobileSheet);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
+  const queueMessage = useQueueMessage();
   const isDesktopWorkspace = useMediaQuery('(min-width: 1280px)');
   const isOnline = useNetworkStatus();
 
@@ -72,6 +76,17 @@ export function ChatPage() {
   const updateConversation = useUpdateConversation();
   const updateMessage = useUpdateMessage();
   const regenerateMessage = useRegenerateMessage();
+  const interruptMessage = useInterruptMessage();
+  const currentActiveStream = conversation
+    ? Object.values(activeStreams)
+        .filter((stream) => stream.conversationId === conversation.id)
+        .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0]
+    : undefined;
+  const interruptingMessageIds = Object.fromEntries(
+    Object.entries(activeStreams)
+      .filter(([, stream]) => stream.interrupting)
+      .map(([messageId]) => [messageId, true]),
+  );
 
   useEffect(() => {
     if (!conversationId && conversation?.id) {
@@ -176,15 +191,35 @@ export function ChatPage() {
                   });
                 }
               }}
+              onUpdateQueuedMessage={async (messageId, text) => {
+                await queueMessage.updateQueuedMessage(messageId, text);
+              }}
+              onDeleteQueuedMessage={async (messageId) => {
+                await queueMessage.deleteQueuedMessage(messageId);
+              }}
+              interruptingMessageIds={interruptingMessageIds}
             />
             <MessageInput
               conversation={conversation}
               agents={agents}
               isSending={sendingMessage}
+              isQueueing={queueMessage.isPending}
               isOffline={!isOnline}
+              isStreaming={Boolean(currentActiveStream)}
+              isInterrupting={Boolean(currentActiveStream?.interrupting)}
+              onInterrupt={
+                currentActiveStream
+                  ? async () => {
+                      await interruptMessage.interrupt(currentActiveStream.messageId);
+                    }
+                  : undefined
+              }
               mentionInsertRequest={mentionInsertRequest}
-              onSend={async (text) => {
-                await sendMessage(conversation.id, text);
+              onQueue={async (text, attachmentIds) => {
+                await queueMessage.queueMessage(conversation.id, text, attachmentIds);
+              }}
+              onSend={async (text, attachmentIds) => {
+                await sendMessage(conversation.id, text, attachmentIds);
               }}
             />
           </>
@@ -196,6 +231,7 @@ export function ChatPage() {
       </section>
       {conversation && rightPanelOpen && isDesktopWorkspace && (
         <RightAgentPanel
+          key={`desktop-${conversation.id}`}
           conversation={conversation}
           messages={messages}
           agents={agents}
@@ -240,6 +276,7 @@ export function ChatPage() {
       {conversation && (
         <MobileSheet open={mobileSheet === 'workspace'} hiddenAt="xl" onClose={closeMobileSheet}>
           <RightAgentPanel
+            key={`mobile-${conversation.id}`}
             conversation={conversation}
             messages={messages}
             agents={agents}
