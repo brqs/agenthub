@@ -1,5 +1,6 @@
 import { Archive, Download, FileText, Image as ImageIcon, ShieldAlert } from 'lucide-react';
-import { uploadDownloadUrl } from '@/lib/adapters/uploads';
+import { useEffect, useState } from 'react';
+import { downloadUpload } from '@/lib/adapters/uploads';
 import type { AttachmentBlock as AttachmentBlockData } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -17,7 +18,52 @@ export function AttachmentBlock({ block }: { block: AttachmentBlockData }) {
   const kind = preview?.kind ?? 'unknown';
   const Icon = kind === 'image' ? ImageIcon : kind === 'archive' ? Archive : FileText;
   const blocked = block.safety_status === 'blocked';
-  const downloadUrl = preview?.url ?? uploadDownloadUrl(block.upload_id);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  useEffect(() => {
+    if (blocked || kind !== 'image') {
+      setImageUrl(null);
+      return;
+    }
+    let active = true;
+    let objectUrl: string | null = null;
+    void downloadUpload(block.upload_id)
+      .then((blob) => {
+        if (!active) return;
+        objectUrl = URL.createObjectURL(blob);
+        setImageUrl(objectUrl);
+      })
+      .catch(() => {
+        if (active) setImageUrl(null);
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [block.upload_id, blocked, kind]);
+
+  async function handleDownload() {
+    if (blocked || isDownloading) return;
+    setDownloadError(null);
+    setIsDownloading(true);
+    try {
+      const blob = await downloadUpload(block.upload_id);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = block.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch {
+      setDownloadError('下载失败，请稍后重试。');
+    } finally {
+      setIsDownloading(false);
+    }
+  }
 
   return (
     <section className="mobile-text-safe my-3 overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950/70">
@@ -53,27 +99,33 @@ export function AttachmentBlock({ block }: { block: AttachmentBlockData }) {
               包含：{preview.entries_preview.slice(0, 5).join(', ')}
             </p>
           ) : null}
-          {kind === 'image' && (preview?.thumbnail_url || preview?.url) && (
+          {kind === 'image' && imageUrl && (
             <img
-              src={preview.thumbnail_url ?? preview.url}
+              src={imageUrl}
               alt={block.filename}
               className="mt-3 max-h-56 max-w-full rounded-md border border-slate-200 object-contain dark:border-slate-800"
             />
           )}
+          {downloadError && (
+            <p className="mt-2 text-xs font-medium text-rose-600 dark:text-rose-300">
+              {downloadError}
+            </p>
+          )}
         </div>
-        <a
-          href={blocked ? undefined : downloadUrl}
-          target="_blank"
-          rel="noreferrer"
+        <button
+          type="button"
+          onClick={() => void handleDownload()}
+          disabled={blocked || isDownloading}
           aria-disabled={blocked}
           className={cn(
             'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-200 text-slate-500 transition hover:border-brand/40 hover:bg-brand/10 hover:text-brand dark:border-slate-800 dark:text-slate-400 dark:hover:text-brand-light',
-            blocked && 'pointer-events-none opacity-40',
+            (blocked || isDownloading) && 'cursor-not-allowed opacity-40',
           )}
-          title="下载附件"
+          title={isDownloading ? '正在下载' : '下载附件'}
+          aria-label={isDownloading ? '正在下载附件' : '下载附件'}
         >
           <Download className="h-4 w-4" />
-        </a>
+        </button>
       </div>
     </section>
   );

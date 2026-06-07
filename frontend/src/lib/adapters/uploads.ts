@@ -33,6 +33,13 @@ export async function deleteUpload(uploadId: string): Promise<void> {
   await api.delete(`/api/v1/uploads/${uploadId}`);
 }
 
+export async function downloadUpload(uploadId: string): Promise<Blob> {
+  const { data } = await api.get<Blob>(`/api/v1/uploads/${uploadId}/download`, {
+    responseType: 'blob',
+  });
+  return data;
+}
+
 export function uploadDownloadUrl(uploadId: string, variant: 'original' | 'thumbnail' = 'original') {
   const query = variant === 'original' ? '' : `?variant=${variant}`;
   return `/api/v1/uploads/${uploadId}/download${query}`;

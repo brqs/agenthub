@@ -57,6 +57,7 @@ interface LocalUploadItem {
 }
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
 export function MessageInput({
   conversation,
@@ -222,7 +223,20 @@ export function MessageInput({
   }
 
   async function addFiles(files: File[]) {
-    const nextItems = files.map(createLocalUploadItem);
+    if (isOffline) {
+      setSubmitError('当前离线，恢复网络后再上传附件。');
+      return;
+    }
+    const availableSlots = MAX_ATTACHMENTS_PER_MESSAGE - uploadItems.length;
+    if (availableSlots <= 0) {
+      setSubmitError(`每条消息最多添加 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件。`);
+      return;
+    }
+    const acceptedFiles = files.slice(0, availableSlots);
+    if (acceptedFiles.length < files.length) {
+      setSubmitError(`每条消息最多添加 ${MAX_ATTACHMENTS_PER_MESSAGE} 个附件，已忽略多余文件。`);
+    }
+    const nextItems = acceptedFiles.map(createLocalUploadItem);
     setUploadItems((current) => [...current, ...nextItems]);
     await Promise.all(nextItems.map((item) => uploadLocalItem(item)));
   }
@@ -374,7 +388,8 @@ export function MessageInput({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="shrink-0 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+          disabled={isOffline || uploadItems.length >= MAX_ATTACHMENTS_PER_MESSAGE}
+          className="shrink-0 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-white"
           title="添加附件"
           aria-label="添加附件"
         >
