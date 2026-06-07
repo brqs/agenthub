@@ -816,7 +816,7 @@ B2-19 复审通过后，B2-20 才可以开始最终顶层 provider、seed agent 
 
 ### AI 输出摘要
 1. `backend/app/agents/registry.py` 顶层 `PROVIDER_MAP` 切换为 `mock` / `claude_code` / `codex` / `opencode` / `builtin`，并保留 legacy raw provider 到 `builtin` ModelGateway 的临时迁移兼容。
-2. `backend/app/seeds/seed_agents.py` 内置 Agent 切换为 `claude-code`、`codex-helper`、`opencode-helper`、`web-designer`、`orchestrator` 等 runtime/builtin provider，orchestrator 默认 managed agents 覆盖四个子 Agent。
+2. `backend/app/seeds/seed_agents.py` 内置 Agent 切换为 `claude-code`、`codex-helper`、`opencode-helper`、`orchestrator` 等 runtime/builtin provider，orchestrator 默认 managed agents 覆盖三个子 Agent。
 3. `backend/app/agents/config_validation.py` 支持新 provider 与 `opencode` / `builtin` 配置字段；schema / OpenAPI / API 文档同步更新。
 4. 补充 registry、orchestrator tool event 透传和 fake real-agent demo smoke 测试；live runtime smoke 默认 skip，需 `AGENTHUB_RUN_LIVE_RUNTIME_TESTS=1` opt-in，可用 `AGENTHUB_LIVE_RUNTIME_PROVIDERS` 选择 provider。
 
@@ -1773,7 +1773,7 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
    - parent agent message: `fc81e594-5f4c-4eca-b593-570d629e6f71`
    - run: `34f5ef15-e649-4827-84e4-0808037f8cfe`
    - `message_start=2`、terminal child lifecycle events `2`、child message 均非 Orchestrator，且没有子 message 停留在 `streaming`。
-   - `web-designer` child message 为 `done`；`writer` child message 为业务级 `error`，原因是测试任务中的 workspace path 越界，后端按契约写入独立 error child message。
+   - 子 Agent child message 分别覆盖 `done` 与业务级 `error`，错误原因会按契约写入独立 error child message。
    - Orchestrator final text、child text 与 SSE 核心文本均无 `ReAct step`、`Observation:`、`Action:`、`Tools:`、`call_` 或 raw stderr。
 
 ### 人工调整
@@ -1880,7 +1880,7 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 7. live E2E 脚本新增 `agent_fallback_matrix` scenario，覆盖 Codex、Claude Code、OpenCode Helper 三类首选 Agent 失败后自动 fallback；该 scenario 是通用 markdown 证据任务，不依赖前端质量演示模板。
 8. 修复 live matrix 自身稳定性：
    - Claude Code SDK 不受 `command` patch 影响，因此 matrix 内临时把 Claude provider 改为不可加载 runtime，结束后还原。
-   - fallback Writer 在 matrix 内临时限制为 `allowed_tools=[“write_file”]`，并要求使用 workspace-relative path，避免误用 `/workspace/...` bash 绝对路径。
+   - fallback agent 在 matrix 内临时限制为 `allowed_tools=[“write_file”]`，并要求使用 workspace-relative path，避免误用 `/workspace/...` bash 绝对路径。
 9. 本地门禁通过：
    - Orchestrator targeted + live script tests：`161 passed`
    - `uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts` passed
@@ -1891,13 +1891,13 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
     - report: `/tmp/agenthub_agent_fallback_matrix_report.json`
     - SSE: `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`
     - `passed=true`
-    - `agent_fallback_codex_unavailable`: `codex-helper -> writer`，`codex-helper=error`，`writer=done`，生成 `fallback-codex.md`
-    - `agent_fallback_claude_unavailable`: `claude-code -> writer`，`claude-code=error`，`writer=done`，生成 `fallback-claude.md`
-    - `agent_fallback_opencode_unavailable`: `opencode-helper -> writer`，`opencode-helper=error`，`writer=done`，生成 `fallback-opencode.md`
+    - `agent_fallback_codex_unavailable`: `codex-helper -> opencode-helper`，`codex-helper=error`，`opencode-helper=done`，生成 `fallback-codex.md`
+    - `agent_fallback_claude_unavailable`: `claude-code -> opencode-helper`，`claude-code=error`，`opencode-helper=done`，生成 `fallback-claude.md`
+    - `agent_fallback_opencode_unavailable`: `opencode-helper -> claude-code`，`opencode-helper=error`，`claude-code=done`，生成 `fallback-opencode.md`
 12. 文档已更新：`docs/b2/spec/orchestrator/core.spec.md`、`message-attribution.spec.md`、`live-e2e-report.spec.md`、`README.md`、`docs/b2/spec/b2-pdf-gap-todo.spec.md` 和本协作日志。
 
 ### 人工调整
-本轮不修改前端 UI；公网 E2E 只验收后端 API/SSE、持久化 child message、workspace 产物和文本清洗。`agent_fallback_matrix` 使用 Writer 作为可控 fallback 证据 Agent，是为了稳定验证通用 fallback 机制；产品默认 fallback 候选仍以当前会话可用 Agent 与 Orchestrator 配置为准。
+本轮不修改前端 UI；公网 E2E 只验收后端 API/SSE、持久化 child message、workspace 产物和文本清洗。`agent_fallback_matrix` 使用当前内置实现 agent 作为可控 fallback 证据 Agent，是为了稳定验证通用 fallback 机制；产品默认 fallback 候选仍以当前会话可用 Agent 与 Orchestrator 配置为准。
 
 ### 经验
 通用 fallback 要区分两件事：真实产品机制必须能处理任何 Agent 失败；live E2E 则需要可控地制造失败并提供一个稳定 fallback 成功者。把这两层分开，才能避免为单个前端 demo 写模板，同时又能证明调度机制确实闭环。

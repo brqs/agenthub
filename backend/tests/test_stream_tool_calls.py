@@ -95,7 +95,6 @@ async def _ensure_orchestrator_group_agents() -> None:
                     "claude-code",
                     "codex-helper",
                     "opencode-helper",
-                    "web-designer",
                 ],
             },
         },
@@ -350,7 +349,6 @@ async def test_stream_orchestrator_group_agents_uses_conversation_members(
     assert "OpenCode Helper" in text
     assert "Planner" not in text
     assert "Specialist Agents" not in text
-    assert "web-designer" not in text
 
 
 async def test_stream_orchestrator_group_models_uses_safe_agent_context(
@@ -405,7 +403,6 @@ async def test_stream_orchestrator_group_models_uses_safe_agent_context(
     assert "qa_model_backend: deepseek" in text
     assert "qa_model: deepseek-chat" in text
     assert "OpenCode Helper" in text
-    assert "web-designer" not in text
     assert "api_key" not in text
     assert "should-not-leak" not in text
     assert "TOKEN" not in text
@@ -471,7 +468,6 @@ async def test_stream_orchestrator_combined_group_agents_and_self_model(
     assert "direct answer backend: deepseek" in text
     assert "planner backend: claude" in text
     assert "可见的模型/运行时配置" not in text
-    assert "web-designer" not in text
 
 
 async def test_stream_heartbeat_is_sse_only_not_persisted(

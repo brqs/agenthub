@@ -115,7 +115,7 @@ async def stream(
 生产接线：
 
 - `registry.get_adapter("orchestrator")` 对 Orchestrator special-case，不走普通 provider map。
-- registry 注入 `adapter_factory`，并默认设置 `managed_agent_ids` 为 `claude-code`、`codex-helper`、`opencode-helper`、`web-designer`。
+- registry 注入 `adapter_factory`，并默认设置 `managed_agent_ids` 为 `claude-code`、`codex-helper`、`opencode-helper`。
 - `adapter_factory` 禁止 Orchestrator 调度自身，避免递归。
 - Orchestrator 顶层 `provider` 为 `builtin`，但 registry 对 `agent_id == "orchestrator"` 的 special-case 优先。
 
