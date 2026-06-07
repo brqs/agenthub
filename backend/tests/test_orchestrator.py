@@ -723,6 +723,7 @@ async def test_orchestrator_parallel_executes_independent_tasks_concurrently() -
                 _task("task-b", "agent-b", "Task B", "Do B", priority=1),
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "max_task_attempts": 1,
         },
     )
 
@@ -986,6 +987,7 @@ async def test_orchestrator_parallel_skips_failed_dependency() -> None:
                 ),
             ],
             "sub_adapters": {"agent-a": failing, "agent-b": dependent},
+            "max_task_attempts": 1,
         },
     )
 
@@ -1043,6 +1045,7 @@ async def test_orchestrator_remaps_block_indices_without_collisions() -> None:
                 _task("task-b", "agent-b", "Frontend UI", "Build UI"),
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "max_task_attempts": 1,
         },
     )
 
@@ -1721,6 +1724,7 @@ async def test_orchestrator_injects_dependency_result_context() -> None:
                 ),
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "max_task_attempts": 1,
         },
     )
 
@@ -1756,6 +1760,7 @@ async def test_orchestrator_include_history_false_still_injects_dependency_conte
                 ),
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "max_task_attempts": 1,
         },
     )
 
@@ -2387,6 +2392,7 @@ async def test_orchestrator_parallel_evaluation_failure_skips_dependency(
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
             "orchestrator_parallel_enabled": True,
+            "max_task_attempts": 1,
         },
     )
 
@@ -2432,6 +2438,132 @@ async def test_orchestrator_subagent_error_triggers_per_task_fallback() -> None:
     assert "idle timeout" in adapter_b.received_messages[-2].content
     assert "Work" in summary
     assert "A retry/repair completed successfully." in summary
+
+
+async def test_orchestrator_runtime_failure_falls_back_to_available_agent_without_list() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="rate_limit",
+                error="too many requests",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered by agent-b"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert "Recovered by agent-b" in summary
+    assert "A retry/repair completed successfully." in summary
+
+
+async def test_orchestrator_dependency_continues_after_fallback_success() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="external_runtime_error",
+                error="runtime failed",
+            ),
+        ],
+    )
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Fallback created plan.md"),
+        "plan.md",
+        "# Plan\n\nRecovered by fallback.",
+    )
+    adapter_c = FakeSubAdapter("agent-c", _text_chunks("Dependent task ran"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write plan",
+                    "Write plan.md",
+                    expected_output="plan.md",
+                ),
+                _task(
+                    "task-b",
+                    "agent-c",
+                    "Use plan",
+                    "Use plan.md",
+                    depends_on=["task-a"],
+                ),
+            ],
+            "sub_adapters": {
+                "agent-a": adapter_a,
+                "agent-b": adapter_b,
+                "agent-c": adapter_c,
+            },
+        },
+    )
+
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-c"]
+    assert adapter_c.received_messages
+    assert "Write plan" in summary
+    assert "Use plan" in summary
+    assert "skipped because an earlier step did not complete" not in summary
+
+
+async def test_orchestrator_runtime_cooldown_skips_failed_agent_for_later_task() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="external_runtime_error",
+                error="runtime quota exceeded",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("agent-b completed"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "First task", "Do first task"),
+                _task("task-b", "agent-a", "Second task", "Do second task"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-b"]
 
 
 async def test_orchestrator_fallbacks_are_limited_to_current_agents() -> None:
@@ -2572,6 +2704,7 @@ async def test_orchestrator_continues_after_subagent_stream_exception() -> None:
                 _task("task-b", "agent-b", "Frontend UI", "Build UI"),
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "max_task_attempts": 1,
         },
     )
 
@@ -2617,6 +2750,7 @@ async def test_orchestrator_continues_after_subagent_error_chunk() -> None:
                 _task("task-b", "agent-b", "Frontend UI", "Build UI"),
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "max_task_attempts": 1,
         },
     )
 
@@ -2666,6 +2800,7 @@ async def test_orchestrator_skips_tasks_with_failed_dependencies() -> None:
                 ),
             ],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "max_task_attempts": 1,
         },
     )
 
@@ -2755,6 +2890,7 @@ async def test_orchestrator_adapter_factory_exception_is_task_failure() -> None:
                 _task("task-b", "agent-b", "Frontend UI", "Build UI"),
             ],
             "adapter_factory": adapter_factory,
+            "max_task_attempts": 1,
         },
     )
 

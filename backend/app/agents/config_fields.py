@@ -105,7 +105,7 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "react_trace_visible": False,
     "direct_answer_on_planner_failure": True,
     "task_fallback_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
-    "max_task_attempts": 2,
+    "max_task_attempts": 3,
     "max_iterations": 10,
     "orchestrator_memory_enabled": True,
     "orchestrator_memory_recent_runs": 3,

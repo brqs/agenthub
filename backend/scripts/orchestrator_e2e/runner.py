@@ -47,6 +47,7 @@ GENERIC_GROUP_PROCESS_SCENARIOS = {
 }
 GENERIC_GROUP_PROCESS_SCENARIO = SCENARIO in GENERIC_GROUP_PROCESS_SCENARIOS
 GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO = SCENARIO == "group_process_frontend_preview"
+AGENT_FALLBACK_MATRIX_SCENARIO = SCENARIO == "agent_fallback_matrix"
 P1_SCENARIO = (
     P1_ATTRIBUTION_SCENARIO
     or P1_WORKFLOW_SCENARIO
@@ -98,6 +99,9 @@ DEFAULT_GROUP_PROCESS_FAILURE_READABLE_SSE_PATH = (  # noqa: S108
 DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_group_process_frontend_preview_sse.jsonl"  # noqa: S108
 )
+DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_fallback_matrix_sse.jsonl"  # noqa: S108
+)
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
@@ -141,6 +145,9 @@ DEFAULT_GROUP_PROCESS_FAILURE_READABLE_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_process_frontend_preview_report.json"  # noqa: S108
+)
+DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_fallback_matrix_report.json"  # noqa: S108
 )
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
@@ -375,6 +382,11 @@ GROUP_PROCESS_FAILURE_READABLE_PROMPT = (
     "路径限制、后续是否可重试；不要输出 raw stderr、stack trace、call id 或内部 prompt。"
     "最终由 Orchestrator 总结可完成产物和失败归属。"
 )
+AGENT_FALLBACK_MATRIX_PROMPT = (
+    "@orchestrator 请执行通用 Agent fallback 验收任务。首选 Agent 可能不可用；"
+    "如果它失败，请自动调配其他可用 Agent 继续，创建指定 markdown 文件，并在最终总结"
+    "说明 fallback 归属。不要预览、不要部署。"
+)
 
 PROMPT = SETTINGS.prompt_override or (
     P1_ATTRIBUTION_PROMPT
@@ -401,6 +413,8 @@ PROMPT = SETTINGS.prompt_override or (
     if SCENARIO == "group_process_workflow_delivery"
     else GROUP_PROCESS_FAILURE_READABLE_PROMPT
     if SCENARIO == "group_process_failure_readable"
+    else AGENT_FALLBACK_MATRIX_PROMPT
+    if AGENT_FALLBACK_MATRIX_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -469,6 +483,27 @@ GENERIC_GROUP_PROCESS_CASES: dict[str, dict[str, Any]] = {
         "require_failure_text": True,
     },
 }
+AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
+    {
+        "name": "agent_fallback_codex_unavailable",
+        "target_agent_id": "codex-helper",
+        "artifact_path": "fallback-codex.md",
+        "agent_config_patch": {"runtime": "unavailable-runtime"},
+    },
+    {
+        "name": "agent_fallback_claude_unavailable",
+        "target_agent_id": "claude-code",
+        "artifact_path": "fallback-claude.md",
+        "agent_config_patch": {"command": "/tmp/agenthub-missing-claude-cli"},  # noqa: S108
+        "agent_provider_patch": "agenthub_missing_runtime",
+    },
+    {
+        "name": "agent_fallback_opencode_unavailable",
+        "target_agent_id": "opencode-helper",
+        "artifact_path": "fallback-opencode.md",
+        "agent_config_patch": {"command": "/tmp/agenthub-missing-opencode-cli"},  # noqa: S108
+    },
+)
 FORBIDDEN_VISIBLE_TRACE_TERMS = (
     "ReAct step",
     "Observation:",
@@ -1081,17 +1116,120 @@ async def _patch_orchestrator_review_config(
 
 
 async def _restore_orchestrator_config(config: dict[str, Any]) -> dict[str, Any]:
+    result = await _restore_builtin_agent_config("orchestrator", config)
+    return {
+        "restored": result["restored"],
+        "restored_config_summary": config_summary(config),
+    }
+
+
+async def _restore_builtin_agent_config(
+    agent_id: str,
+    config: dict[str, Any],
+) -> dict[str, Any]:
     from app.core.database import SessionFactory, engine
     from app.models.agent import Agent
 
     async with SessionFactory() as db:
-        agent = await db.get(Agent, "orchestrator")
+        agent = await db.get(Agent, agent_id)
         if agent is None:
-            raise RuntimeError("orchestrator agent not found")
+            raise RuntimeError(f"{agent_id} agent not found")
         agent.config = dict(config)
         await db.commit()
     await engine.dispose()
-    return {"restored": True, "restored_config_summary": config_summary(config)}
+    return {"restored": True, "agent_id": agent_id}
+
+
+async def _patch_builtin_agent_config(
+    agent_id: str,
+    updates: dict[str, Any],
+) -> dict[str, Any]:
+    from app.core.database import SessionFactory, engine
+    from app.models.agent import Agent
+
+    async with SessionFactory() as db:
+        agent = await db.get(Agent, agent_id)
+        if agent is None:
+            raise RuntimeError(f"{agent_id} agent not found")
+        original_config = dict(agent.config or {})
+        agent.config = {**original_config, **updates}
+        await db.commit()
+    await engine.dispose()
+    return original_config
+
+
+async def _patch_agent_provider(agent_id: str, provider: str) -> str:
+    from app.core.database import SessionFactory, engine
+    from app.models.agent import Agent
+
+    async with SessionFactory() as db:
+        agent = await db.get(Agent, agent_id)
+        if agent is None:
+            raise RuntimeError(f"{agent_id} agent not found")
+        original_provider = agent.provider
+        agent.provider = provider
+        await db.commit()
+    await engine.dispose()
+    return original_provider
+
+
+async def _restore_agent_provider(agent_id: str, provider: str) -> dict[str, Any]:
+    from app.core.database import SessionFactory, engine
+    from app.models.agent import Agent
+
+    async with SessionFactory() as db:
+        agent = await db.get(Agent, agent_id)
+        if agent is None:
+            raise RuntimeError(f"{agent_id} agent not found")
+        agent.provider = provider
+        await db.commit()
+    await engine.dispose()
+    return {"restored": True, "agent_id": agent_id, "provider": provider}
+
+
+async def _patch_orchestrator_static_task_config(
+    *,
+    target_agent_id: str,
+    artifact_path: str,
+) -> dict[str, Any]:
+    return await _patch_builtin_agent_config(
+        "orchestrator",
+        {
+            "react_enabled": False,
+            "llm_planning": False,
+            "orchestrator_parallel_enabled": False,
+            "max_task_attempts": 3,
+            "managed_agent_ids": [
+                "claude-code",
+                "opencode-helper",
+                "codex-helper",
+                "writer",
+            ],
+            "task_fallback_agent_ids": [
+                "claude-code",
+                "opencode-helper",
+                "codex-helper",
+                "writer",
+            ],
+            "tasks": [
+                {
+                    "task_id": "fallback-task",
+                    "agent_id": target_agent_id,
+                    "title": "Create fallback evidence",
+                    "instruction": (
+                        f"Create `{artifact_path}` as a markdown file in the current "
+                        "workspace. Use the native `write_file` tool with path exactly "
+                        f"`{artifact_path}`; do not use bash, shell commands, absolute "
+                        "paths, `/workspace`, or `file_path`. Include the line "
+                        f"`AGENT_FALLBACK_SENTINEL={target_agent_id}`. If a previous "
+                        "Agent failed, continue from the failure context and finish "
+                        "the same artifact."
+                    ),
+                    "expected_output": artifact_path,
+                }
+            ],
+        },
+    )
 
 
 def event_data(event: dict[str, Any]) -> dict[str, Any]:
@@ -1319,7 +1457,8 @@ def child_messages_for_user(
         if item.get("role") == "agent"
         and item.get("id") != parent_message_id
         and item.get("reply_to_id") == user_message_id
-        and item.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
+        and item.get("agent_id")
+        in {"codex-helper", "claude-code", "opencode-helper", "writer", "web-designer"}
     ]
 
 
@@ -1364,7 +1503,8 @@ def group_process_report(
     parent_embedded_child_blocks = [
         block
         for block in message_blocks(parent_message)
-        if block.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
+        if block.get("agent_id")
+        in {"codex-helper", "claude-code", "opencode-helper", "writer", "web-designer"}
     ]
     return {
         "message_start_agents": message_start_agents,
@@ -2417,6 +2557,197 @@ def run_generic_group_process_case(
     evaluate_generic_group_process(client, headers, report, events, files)
 
 
+def run_agent_fallback_matrix_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    case_reports: list[dict[str, Any]] = []
+    for case in AGENT_FALLBACK_MATRIX_CASES:
+        target_agent_id = str(case["target_agent_id"])
+        artifact_path = str(case["artifact_path"])
+        case_report: dict[str, Any] = {
+            "name": case["name"],
+            "target_agent_id": target_agent_id,
+            "artifact_path": artifact_path,
+            "checks": {},
+        }
+        original_orchestrator_config: dict[str, Any] | None = None
+        original_agent_config: dict[str, Any] | None = None
+        original_agent_provider: str | None = None
+        original_writer_config: dict[str, Any] | None = None
+        try:
+            original_agent_config = asyncio.run(
+                _patch_builtin_agent_config(
+                    target_agent_id,
+                    dict(case["agent_config_patch"]),
+                )
+            )
+            provider_patch = case.get("agent_provider_patch")
+            if isinstance(provider_patch, str) and provider_patch.strip():
+                original_agent_provider = asyncio.run(
+                    _patch_agent_provider(target_agent_id, provider_patch.strip())
+                )
+            original_writer_config = asyncio.run(
+                _patch_builtin_agent_config(
+                    "writer",
+                    {
+                        "allowed_tools": ["write_file"],
+                        "max_iterations": 4,
+                    },
+                )
+            )
+            original_orchestrator_config = asyncio.run(
+                _patch_orchestrator_static_task_config(
+                    target_agent_id=target_agent_id,
+                    artifact_path=artifact_path,
+                )
+            )
+            conversation = client.post(
+                "/api/v1/conversations",
+                headers=headers,
+                json={
+                    "title": f"{case['name']} Live E2E {int(started_at)}",
+                    "mode": "group",
+                    "agent_ids": ["orchestrator", target_agent_id, "writer"],
+                },
+            )
+            conversation.raise_for_status()
+            conv = conversation.json()
+            conv_id = conv["id"]
+            case_report["conversation"] = conv
+            case_report["conversation_id"] = conv_id
+
+            sent, events, target = send_message_and_stream(
+                client,
+                headers,
+                conv_id,
+                content=AGENT_FALLBACK_MATRIX_PROMPT,
+                target_agent_id="orchestrator",
+                started_at=started_at,
+            )
+            user_message_id = sent["user_message"]["id"]
+            parent_message_id = sent["agent_message"]["id"]
+            case_report["user_message_id"] = user_message_id
+            case_report["agent_message_id"] = parent_message_id
+            case_report["target_agent_message"] = target
+            case_report["stream_event_count"] = len(events)
+            case_report["agent_switch_to_agents"] = [
+                event_data(event).get("to_agent")
+                for event in events
+                if event.get("event") == "agent_switch"
+            ]
+            fetch_orchestrator_run_detail(client, headers, conv_id, case_report)
+            files = fetch_workspace_evidence(client, headers, conv_id, case_report)
+            messages = fetch_conversation_messages(client, headers, conv_id, case_report)
+            child_messages = child_messages_for_user(
+                messages,
+                parent_message_id=parent_message_id,
+                user_message_id=user_message_id,
+            )
+            case_report["child_agent_messages"] = child_messages
+            case_report["group_chat"] = group_process_report(
+                events,
+                target or {},
+                child_messages,
+            )
+            visible_text = all_visible_message_text([target or {}, *child_messages])
+            forbidden_terms = forbidden_visible_terms(visible_text)
+            file_names = {str(item.get("path", "")).rsplit("/", 1)[-1] for item in files}
+            switches = [
+                str(agent_id)
+                for agent_id in case_report["agent_switch_to_agents"]
+                if isinstance(agent_id, str)
+            ]
+            fallback_agents = [
+                agent_id for agent_id in switches[1:] if agent_id != target_agent_id
+            ]
+            child_statuses = {
+                str(item.get("agent_id")): item.get("status") for item in child_messages
+            }
+            checks = case_report["checks"]
+            checks["parent_done"] = bool(target and target.get("status") == "done")
+            checks["target_attempted_first"] = bool(switches and switches[0] == target_agent_id)
+            checks["fallback_agent_selected"] = bool(fallback_agents)
+            checks["target_child_error_seen"] = child_statuses.get(target_agent_id) == "error"
+            checks["fallback_child_done_seen"] = any(
+                item.get("agent_id") in fallback_agents and item.get("status") == "done"
+                for item in child_messages
+            )
+            checks["artifact_created"] = artifact_path in file_names
+            checks["visible_text_no_forbidden_terms"] = not forbidden_terms
+            checks["parent_not_embedding_child_blocks"] = (
+                int(case_report["group_chat"]["parent_embedded_child_block_count"]) == 0
+            )
+            case_report["fallback_agents"] = fallback_agents
+            case_report["forbidden_visible_terms"] = forbidden_terms
+            case_report["passed"] = all(checks.values())
+        except Exception as exc:  # noqa: BLE001
+            case_report["error"] = str(exc)
+            case_report["passed"] = False
+        finally:
+            restores: dict[str, Any] = {}
+            if original_orchestrator_config is not None:
+                try:
+                    restores["orchestrator"] = asyncio.run(
+                        _restore_orchestrator_config(original_orchestrator_config)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    restores["orchestrator"] = {"restored": False, "error": str(exc)}
+            if original_agent_config is not None:
+                try:
+                    restores[target_agent_id] = asyncio.run(
+                        _restore_builtin_agent_config(
+                            target_agent_id,
+                            original_agent_config,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    restores[target_agent_id] = {"restored": False, "error": str(exc)}
+            if original_agent_provider is not None:
+                try:
+                    restores[f"{target_agent_id}.provider"] = asyncio.run(
+                        _restore_agent_provider(target_agent_id, original_agent_provider)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    restores[f"{target_agent_id}.provider"] = {
+                        "restored": False,
+                        "error": str(exc),
+                    }
+            if original_writer_config is not None:
+                try:
+                    restores["writer"] = asyncio.run(
+                        _restore_builtin_agent_config(
+                            "writer",
+                            original_writer_config,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    restores["writer"] = {"restored": False, "error": str(exc)}
+            case_report["restores"] = restores
+        case_reports.append(case_report)
+
+    report["agent_fallback_matrix"] = case_reports
+    checks = report["checks"]
+    checks["agent_fallback_matrix_all_cases_ran"] = (
+        len(case_reports) == len(AGENT_FALLBACK_MATRIX_CASES)
+    )
+    checks["agent_fallback_matrix_all_passed"] = all(
+        bool(item.get("passed")) for item in case_reports
+    )
+    report["acceptance"] = {
+        "target_agents_present": bool(checks.get("target_agents_present")),
+        "agent_fallback_matrix_all_cases_ran": bool(
+            checks.get("agent_fallback_matrix_all_cases_ran")
+        ),
+        "agent_fallback_matrix_all_passed": bool(
+            checks.get("agent_fallback_matrix_all_passed")
+        ),
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
 def run_custom_agent_tools_case(
     client: httpx.Client,
     headers: dict[str, str],
@@ -2715,6 +3046,16 @@ def main() -> None:
         report["checks"]["orchestrator_parallel_concurrency_3"] = (
             orchestrator_config.get("orchestrator_parallel_max_concurrency") == 3
         )
+        if AGENT_FALLBACK_MATRIX_SCENARIO:
+            run_agent_fallback_matrix_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
         if GENERIC_GROUP_PROCESS_SCENARIO:
             run_generic_group_process_case(client, headers, report, started_at)
             maybe_run_frontend_ui_smoke(report)

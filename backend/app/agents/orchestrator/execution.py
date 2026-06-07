@@ -130,13 +130,16 @@ from app.agents.orchestrator._internal.memory import (
 from app.agents.orchestrator._internal.memory import (
     record_task_started as _memory_record_task_started,
 )
-from app.agents.orchestrator._internal.streams import remapped_sub_stream as _remapped_sub_stream
+from app.agents.orchestrator._internal.streams import (
+    remapped_sub_stream as _remapped_sub_stream,
+)
 from app.agents.orchestrator.artifacts import (
     check_attempt_artifacts as _check_attempt_artifacts,
 )
 from app.agents.orchestrator.artifacts import (
     finalize_artifact_candidates as _finalize_artifact_candidates,
 )
+from app.agents.orchestrator.availability import mark_runtime_cooldown
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
     SubTask,
@@ -277,6 +280,36 @@ def _visible_failure_reason(reason: str) -> str:
     return "执行结果没有满足本阶段验收条件。"
 
 
+def _is_runtime_hard_failure(reason: str | None) -> bool:
+    lowered = str(reason or "").lower()
+    if not lowered:
+        return False
+    markers = (
+        "api key",
+        "api_key",
+        "auth",
+        "claude.json",
+        "codex cli",
+        "command",
+        "credential",
+        "external_runtime",
+        "idle timeout",
+        "login",
+        "not authenticated",
+        "not found",
+        "permission denied",
+        "quota",
+        "rate limit",
+        "runtime",
+        "timed out",
+        "timeout",
+        "too many requests",
+        "unauthorized",
+        "usage limit",
+    )
+    return any(marker in lowered for marker in markers)
+
+
 @dataclass(slots=True)
 class _ParallelTaskEvent:
     task_id: str
@@ -344,7 +377,7 @@ def _child_process_finish_chunks(
     )
     status = "error" if failed else "done"
     summary = (
-        "这个阶段需要注意，Orchestrator 会在最终总结里说明影响。"
+        "这个阶段需要注意，Orchestrator 会评估并调配其他可用 Agent 继续。"
         if failed
         else "这个阶段已完成。"
     )
@@ -738,7 +771,9 @@ async def _run_task(
                         next_block_index = artifact_next_block_index
 
             if child_message_id:
-                finish_status = "error" if attempt.state == TaskState.FAILED else "done"
+                finish_status = (
+                    "done" if attempt.state == TaskState.SUCCEEDED else "error"
+                )
                 for process_chunk in _child_process_finish_chunks(
                     config,
                     child_message_id=child_message_id,
@@ -802,6 +837,21 @@ async def _run_task(
                 "changes": attempt.file_changes,
             },
         )
+        if attempt.state != TaskState.SUCCEEDED and _is_runtime_hard_failure(
+            attempt.error
+        ):
+            mark_runtime_cooldown(agent_id, attempt.error or "runtime unavailable")
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="agent_runtime_cooldown",
+                task_id=task.task_id,
+                agent_id=agent_id,
+                payload={
+                    "attempt_index": attempt_index,
+                    "reason": _visible_failure_reason(attempt.error or ""),
+                },
+            )
         task_result.final_state = attempt.state
         if attempt.state == TaskState.SUCCEEDED:
             break

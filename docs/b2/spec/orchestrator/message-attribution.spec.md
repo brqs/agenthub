@@ -258,8 +258,16 @@ Orchestrator
 
 - `agent_switch.to_agent` 使用实际 attempt agent。
 - fallback attempt 的所有输出 chunk 使用 fallback agent id。
+- 真实群聊模式下，失败 attempt 和 fallback attempt 分别写入各自 Agent 的独立 child message；失败 Agent message 以 `message_error` / `status="error"` 结束，fallback Agent 成功时以 `message_done` / `status="done"` 结束。
+- 父 Orchestrator message 只记录调度过程、fallback 决策、平台工具和最终总结，不把失败 Agent 或 fallback Agent 的输出嵌回父消息正文。
 - summary 仍由 Orchestrator 输出，`agent_id="orchestrator"`。
 - tool_call `call_id` 继续使用当前 `<task_id>.attempt-N.<call_id>` 规则，避免冲突。
+
+2026-06-06 live evidence：
+
+- `agent_fallback_matrix` 公网 API/SSE E2E 已通过，report `/tmp/agenthub_agent_fallback_matrix_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`。
+- 覆盖 `codex-helper`、`claude-code`、`opencode-helper` 三个首选 Agent 失败后自动切换到可用 fallback Agent 的路径。
+- 三个 case 均满足：首选 Agent 先 `message_start` 后 `message_error`，fallback Agent 再 `message_start` 后 `message_done`，workspace 产物生成，父 Orchestrator 不内嵌子 Agent block，可见文本无内部 trace forbidden terms。
 
 ## 7. Memory / Summary 影响
 

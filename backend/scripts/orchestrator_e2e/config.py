@@ -46,6 +46,9 @@ DEFAULT_GROUP_PROCESS_FAILURE_READABLE_SSE_PATH = (  # noqa: S108
 DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_group_process_frontend_preview_sse.jsonl"  # noqa: S108
 )
+DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_fallback_matrix_sse.jsonl"  # noqa: S108
+)
 
 DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
 DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
@@ -81,6 +84,9 @@ DEFAULT_GROUP_PROCESS_FAILURE_READABLE_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_process_frontend_preview_report.json"  # noqa: S108
+)
+DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_fallback_matrix_report.json"  # noqa: S108
 )
 
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
@@ -148,6 +154,10 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
         DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH,
         DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH,
         DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH,
+    ),
+    "agent_fallback_matrix": ScenarioDefaults(
+        DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH,
+        DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH,
     ),
     "p1_attribution": ScenarioDefaults(
         DEFAULT_P1_ATTRIBUTION_REPORT_PATH,

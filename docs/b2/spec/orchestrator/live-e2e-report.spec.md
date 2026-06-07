@@ -46,6 +46,8 @@
 - `/tmp/agenthub_fullstack_flow_report.json`
 - `/tmp/agenthub_frontend_ui_smoke_report.json`
 - `/tmp/agenthub_group_messages_report.json`
+- `/tmp/agenthub_agent_fallback_matrix_report.json`
+- `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`
 
 最终结论：`passed=true`。
 
@@ -82,6 +84,7 @@ instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`
 | Case 7 - Custom Agent Tool Allowlist | 真实聊天创建 builtin 自建 Agent，`allowed_tools=["read_file"]` 持久化；后续运行可读文件，未授权 `write_file` / `bash` 不进入模型 tool list | passed |
 | Case 8 - Agent Capability Profile v1 | 当前 conversation 内形成 Claude failure / Opencode success 画像；planner 看到画像后将未点名的 follow-up 唯一 task/attempt 直接分配给 Opencode | passed |
 | Case 9 - True Agent Group Messages | group + Orchestrator 运行中为实际负责 Agent 创建独立 child message；SSE 输出 `message_start` / `message_done` / `message_error` 与子 `message_id`；父 Orchestrator final text 无内部 trace | passed |
+| Case 10 - Generic Agent Fallback Matrix | Codex / Claude Code / OpenCode Helper 任一首选 Agent 失败后，Orchestrator 自动切换到可用 fallback Agent；失败与成功 attempt 分别写入独立 child message | passed |
 
 Case 5 证据：
 
@@ -921,6 +924,54 @@ uv run python -m mypy \
     主要失败层为 planner/live runtime 仍选择 Codex 并被额度限制阻断。
 - 本轮不把上述 live 阻断伪装为通过；后续需要先确认公网 8000 落点与 Codex quota /
   runtime policy，再重跑五个新增场景。
+
+2026-06-06 通用 Agent fallback matrix repair loop：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: agent_fallback_matrix
+report: /tmp/agenthub_agent_fallback_matrix_report.json
+sse: /tmp/agenthub_agent_fallback_matrix_sse.jsonl
+backend_pid: 1688851
+alembic_current: 7e8f9012abcd (head)
+local_health: {"status":"ok"}
+public_health: {"status":"ok"}
+passed: true
+```
+
+Case evidence：
+
+```text
+agent_fallback_codex_unavailable:
+  conversation_id: cad4c511-81d4-4b65-8478-7bca741feee3
+  parent_message_id: fb162108-218c-4179-b529-d9649eced613
+  switches: codex-helper -> writer
+  child_messages: codex-helper=error, writer=done
+  artifact: fallback-codex.md
+
+agent_fallback_claude_unavailable:
+  conversation_id: 8e05abfc-0f95-49b9-89f0-56e359a21b6b
+  parent_message_id: e9c94c8e-20ab-420b-a94d-4f889378b633
+  switches: claude-code -> writer
+  child_messages: claude-code=error, writer=done
+  artifact: fallback-claude.md
+
+agent_fallback_opencode_unavailable:
+  conversation_id: 216b5061-cf5e-430f-aff0-d4d319bb344a
+  parent_message_id: 8e5de0b8-fe6b-491b-ba65-f82bd5cdd939
+  switches: opencode-helper -> writer
+  child_messages: opencode-helper=error, writer=done
+  artifact: fallback-opencode.md
+```
+
+验收结论：
+
+- 三个 case 均先尝试首选 Agent，再自动调配 fallback Agent。
+- 失败 Agent 独立 child message 以 `message_error` / `status="error"` 结束；fallback Agent 独立 child message 以 `message_done` / `status="done"` 结束。
+- persisted workspace 均包含对应 fallback markdown 产物。
+- 父 Orchestrator message 不内嵌子 Agent block；最终可见文本不包含 `ReAct step`、`Observation:`、`Action:`、`Tools:`、`call_`、raw stderr 或 stack trace。
+- 本轮验证的是通用 fallback 调度、message attribution 和可见文本清洗，不依赖前端质量演示模板，也不验收前端 UI。
 
 ---
 

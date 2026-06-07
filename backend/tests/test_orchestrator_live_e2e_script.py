@@ -1,8 +1,12 @@
 import pytest
 
 from scripts.orchestrator_e2e.config import SCENARIO_DEFAULTS, load_settings
+from scripts.orchestrator_e2e.runner import AGENT_FALLBACK_MATRIX_CASES
 from scripts.orchestrator_e2e.scenarios import SCENARIOS
 from scripts.orchestrator_live_e2e import (
+    AGENT_FALLBACK_MATRIX_PROMPT,
+    DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH,
+    DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
     DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH,
@@ -117,6 +121,10 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "group_process_frontend_preview": (
             "/tmp/agenthub_group_process_frontend_preview_report.json",
             "/tmp/agenthub_group_process_frontend_preview_sse.jsonl",
+        ),
+        "agent_fallback_matrix": (
+            "/tmp/agenthub_agent_fallback_matrix_report.json",
+            "/tmp/agenthub_agent_fallback_matrix_sse.jsonl",
         ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",
@@ -263,6 +271,25 @@ def test_group_process_scenarios_cover_distinct_non_template_tasks() -> None:
     assert "codex-helper" not in combined
     assert "Claude Code" in combined
     assert "OpenCode Helper" in combined
+
+
+def test_agent_fallback_matrix_defaults_and_prompt_are_generic() -> None:
+    assert DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH == (
+        "/tmp/agenthub_agent_fallback_matrix_report.json"
+    )
+    assert DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH == (
+        "/tmp/agenthub_agent_fallback_matrix_sse.jsonl"
+    )
+    assert "fallback" in AGENT_FALLBACK_MATRIX_PROMPT.lower()
+    assert "markdown" in AGENT_FALLBACK_MATRIX_PROMPT
+    assert "前端开发演示" not in AGENT_FALLBACK_MATRIX_PROMPT
+    assert "8082" not in AGENT_FALLBACK_MATRIX_PROMPT
+    claude_case = next(
+        case
+        for case in AGENT_FALLBACK_MATRIX_CASES
+        if case["target_agent_id"] == "claude-code"
+    )
+    assert claude_case["agent_provider_patch"] == "agenthub_missing_runtime"
 
 
 def test_evaluate_p1_agent_capability_profile_checks_actual_selected_agent() -> None:

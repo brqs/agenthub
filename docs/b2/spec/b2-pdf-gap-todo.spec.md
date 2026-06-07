@@ -50,6 +50,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-06 真实 Agent 群聊 + OpenCode 式过程展示 repair loop：B2 已完成后端调度、SSE/persistence 和前端 stream/store 消费修复。每个子 Agent 有独立 message、独立 `process` block 和流式 `process_delta`，父 Orchestrator 仅保留调度/平台工具/质量门/最终总结。公网 API/SSE E2E `architected_frontend_group_chat_repair` 已通过：report `/tmp/agenthub_architected_frontend_group_chat_report.json`、SSE `/tmp/agenthub_architected_frontend_group_chat_sse.jsonl`、browser `/tmp/agenthub_architected_frontend_group_chat_browser.json`，conversation `fbcd2fc5-ef65-4e0a-971a-6f700437a82c`，run `aa968e64-aeb4-4eca-b74b-ab51d26dff53`，`passed=true`。该 E2E 只保留为真实群聊、process delta、preview/browser verify 的集成证据；后续已按用户反馈撤销前端质量演示专用 planner override、`frontend-architecture` fallback 和 static demo scaffold，避免把示例 prompt 固化为产品模板。前端本地 targeted tests、`tsc --noEmit`、`pnpm build` 通过；公网 `154.44.25.94:1573` 静态资源不在当前后端主机，本轮未执行远端前端发布。
 
+2026-06-06 通用 Agent 失败自动调度 repair loop：B2 已将 fallback 扩展为所有 Orchestrator 委派任务的通用执行层能力。任意首选 Agent 出现 runtime 不可用、认证/权限/CLI/timeout 等硬失败、产物缺失或 evaluation failed 时，Orchestrator 会短期 cooldown 该 Agent 并选择其他可用 Agent 继续；失败 attempt 与 fallback attempt 分别持久化为对应 Agent 的独立 child message。公网 API/SSE `agent_fallback_matrix` 已通过：report `/tmp/agenthub_agent_fallback_matrix_report.json`、SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`，`passed=true`，覆盖 `codex-helper`、`claude-code`、`opencode-helper` 三个首选 Agent 失败后切换到可用 fallback Agent。该能力不依赖前端质量演示模板。
+
 2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
 
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
@@ -747,3 +749,63 @@ Orchestrator 真实群聊能力：
   的 uvicorn access log；公网 `/health` 只能说明有服务存活，不能证明已加载本轮代码。
 - 本轮不将新增 live scenarios 标记为通过；后续需先处理公网落点与 Codex runtime
   可用性，再重跑新增 case。
+
+## 10. 2026-06-06 通用 Agent Fallback Matrix 通过记录
+
+本轮完成“任意 Agent 失败后自动调配其他可用 Agent”的通用 fallback repair loop：
+
+- 调度层新增 runtime cooldown：quota/auth/permission/CLI missing/runtime crash/timeout 等硬失败会让对应 Agent 短期退出 planner / fallback selection。
+- fallback 候选不限定 Codex；Codex、Claude Code、OpenCode Helper 任一首选失败后都可切到当前会话可用 fallback Agent。
+- 依赖任务不再因为首选 Agent 首次失败就直接 skipped；只要 fallback attempt 最终成功，该 task 视为完成。
+- 真实群聊中失败 attempt 和 fallback attempt 分别写入对应 Agent 的独立 child message，父 Orchestrator message 只保留调度过程和最终总结。
+- 用户可见失败说明继续清洗内部 trace、raw stderr、stack trace 和 call id。
+
+本地门禁：
+
+```text
+cd backend
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_orchestrator_tool_calling.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_live_e2e_script.py -q
+# 161 passed
+
+uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts
+# passed
+
+uv run python -m mypy app/agents app/api/v1 app/schemas
+# passed
+
+git diff --check
+# passed
+```
+
+部署与公网 evidence：
+
+```text
+old_backend_pid: 1683235
+new_backend_pid: 1688851
+seed_agents: done
+alembic_current: 7e8f9012abcd (head)
+local_health: {"status":"ok"}
+public_health: {"status":"ok"}
+
+scenario: agent_fallback_matrix
+base_url: http://111.229.151.159:8000
+report: /tmp/agenthub_agent_fallback_matrix_report.json
+sse: /tmp/agenthub_agent_fallback_matrix_sse.jsonl
+passed: true
+```
+
+Matrix case 结果：
+
+| Case | Switch | Child messages | Artifact | Result |
+|---|---|---|---|---|
+| `agent_fallback_codex_unavailable` | `codex-helper -> writer` | `codex-helper=error`, `writer=done` | `fallback-codex.md` | passed |
+| `agent_fallback_claude_unavailable` | `claude-code -> writer` | `claude-code=error`, `writer=done` | `fallback-claude.md` | passed |
+| `agent_fallback_opencode_unavailable` | `opencode-helper -> writer` | `opencode-helper=error`, `writer=done` | `fallback-opencode.md` | passed |
+
+该 matrix 是通用 fallback 验收，不为前端质量演示创建模板，不验收前端 UI。

@@ -11,8 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.external.claude_code import claude_code_runtime_status
+from app.agents.external.codex import codex_runtime_status
 from app.agents.external.opencode import opencode_runtime_status
-from app.agents.orchestrator.availability import is_runnable_agent_context
+from app.agents.orchestrator.availability import (
+    is_runnable_agent_context,
+    runtime_cooldown_status,
+)
 from app.agents.registry import ORCHESTRATOR_AGENT_ID
 from app.agents.types import ChatMessage
 from app.api.v1.orchestrator_group_messages import OrchestratorGroupMessageWriter
@@ -67,6 +71,19 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         context["runtime_available"] = status == "ready"
         if error:
             context["runtime_error"] = error
+    if agent.provider == "codex":
+        status, error = codex_runtime_status(
+            agent.config if isinstance(agent.config, dict) else None
+        )
+        context["runtime_status"] = status
+        context["runtime_available"] = status == "ready"
+        if error:
+            context["runtime_error"] = error
+    cooldown_status, cooldown_error = runtime_cooldown_status(agent.id)
+    if cooldown_status:
+        context["runtime_status"] = cooldown_status
+        context["runtime_available"] = False
+        context["runtime_error"] = cooldown_error
     return context
 
 
