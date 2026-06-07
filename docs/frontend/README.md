@@ -18,6 +18,7 @@
 | [agent-review-thread-handoff.md](agent-review-thread-handoff.md) | Handoff | Agent-to-Agent review / handoff / repair timeline 前端产品化交接 | 🟢 后端 E2E 已过，前端待产品化 |
 | [rich-artifact-preview-handoff.md](rich-artifact-preview-handoff.md) | Handoff | Rich artifact card、manifest API、evaluation status 前端产品化交接 | 🟢 后端 E2E 已过，前端待产品化 |
 | [changelog.md](changelog.md) | Log | 前端更新流水账 + 顶部"当前状态"总览 | — |
+| [../spec/next-major-modules.spec.md](../spec/next-major-modules.spec.md) | Spec | 下一阶段三大前端模块：停止当前回复、跨端附件上传、无代码自定义 Agent 向导 | 🟡 Draft |
 
 ---
 
@@ -34,6 +35,13 @@
 | [deployment-release-handoff](spec/deployment-release-handoff.spec.md) | Deployment / Release 状态卡与可选 metadata 展示 |
 | [mobile-development](spec/frontend-mobile-development.spec.md) | 移动 Web、PWA 与 Capacitor 分阶段适配 |
 | [capacitor-shell](spec/frontend-capacitor-shell.spec.md) | Capacitor v8 iOS / Android 壳层、HTTPS 构建约束与原生桥接 |
+| [file-upload](spec/frontend-file-upload.spec.md) | Web / iOS / Android 文件上传、附件队列、AttachmentBlock 和 Workspace 导入 UX |
+
+## 下一阶段前端职责
+
+- 打断对话：当前会话 streaming 时将发送按钮切换为 stop，展示 `interrupted` 终态，不把用户打断渲染成错误/重试。
+- 文件上传：实现桌面拖拽/粘贴/文件选择、移动端选择器、上传队列、附件预览、Workspace 显式导入确认。
+- 深度自定义 Agent：提供面向非代码用户的向导式创建体验，隐藏 JSON/YAML 细节，把角色、功能、知识、skills、MCP、权限和测试发布组织成可理解步骤。
 
 ---
 
@@ -57,3 +65,19 @@
 3. 看 [changelog.md](changelog.md) 顶部"当前状态"了解到哪了
 4. 看 [api-adapter-plan.md](api-adapter-plan.md) 理解 Mock / 真后端切换边界
 5. 起前端：`cd frontend && pnpm dev`（详见 [frontend/README.md](../../frontend/README.md)）
+## 2026-06-07 Conversation Interrupt UI Contract
+
+- The current conversation input switches from Send to Stop while there is an active stream.
+- Stop calls `POST /api/v1/messages/{msg_id}/interrupt` exactly once per click and shows a disabled stopping state while the request is in flight.
+- The textarea remains editable during streaming. With text, Enter submits a queued next turn; with no text, the primary control remains Stop.
+- Hydrated or streamed `interrupted` messages clear local active stream state, render a neutral `已打断` label, preserve partial content, and never show retry/error styling.
+- Background streams in other conversations continue unless their own message is explicitly interrupted.
+
+## 2026-06-07 Queued Next Turn UI Contract
+
+- While the current conversation is streaming, typing text changes the primary action to "send to queue" instead of Stop.
+- Stop remains available as a separate control while there is queued text, and remains the primary control when the input is empty.
+- Queued user bubbles render with a neutral `排队中` state and small edit/delete controls.
+- Terminal stream events with `queued_next` replace the queued user bubble with the dispatched user message, append the next pending agent message, and start streaming it.
+- A queued message is the next turn, not an instruction injected into the active agent's current reasoning.
+- Queues are conversation-scoped; queueing in one conversation must not disturb active streams in another conversation.

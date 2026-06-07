@@ -316,6 +316,8 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "react_trace_visible")
     _validate_bool(config, "llm_planning")
     _validate_bool(config, "planner_fallback_to_template")
+    _validate_bool(config, "clarification_gate_enabled")
+    _validate_bool(config, "workspace_docs_enabled")
     _validate_string_list(config, "task_fallback_agent_ids")
     _validate_bool(config, "orchestrator_memory_enabled")
     _validate_bool(config, "orchestrator_tool_calling_enabled")

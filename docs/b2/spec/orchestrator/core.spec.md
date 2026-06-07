@@ -659,3 +659,24 @@ Orchestrator v1.5+ Evaluation / Reflection MVP：
 | [agent-runtime-adapter.spec.md](../agent-runtime-adapter.spec.md) | Adapter 总体事件契约。 |
 | [external-runtime-lifecycle.spec.md](../external-runtime-lifecycle.spec.md) | external runtime timeout、heartbeat、cancel 规则。 |
 | [../workspace-artifact-preview.spec.md](../workspace-artifact-preview.spec.md) | workspace artifact 与 preview/deploy 平台边界。 |
+## 2026-06-07 User Interrupt Addendum
+
+Current Orchestrator behavior includes a first-class user interrupt terminal state.
+
+- When the parent agent message receives `POST /api/v1/messages/{msg_id}/interrupt`, the stream layer calls `interrupt_active_run()` instead of the older cancellation/error path.
+- `orchestrator_runs.status` and open task attempts can become `interrupted`.
+- Open child agent messages are finalized with `message_interrupted` and persisted as `interrupted`.
+- User interrupt must not run replanner, repair, per-task fallback, or final success summary.
+- User interrupt is neutral UI state, not a failed task retry state.
+- Group-scoped dispatch remains authoritative: in group conversations, `available_agents` / `managed_agent_ids` are derived from runnable current conversation members. An unavailable or non-member agent must not be pulled back in by global defaults during planning, fallback, or recovery.
+
+## 2026-06-07 Queued Next Turn Addendum
+
+Queued next turns are owned by B1/F message lifecycle, not by Orchestrator planning:
+
+- While an Orchestrator run is active, new user text can be persisted as a `queued` user message, but it must not be injected into the active run, planner, replanner, repair loop, or child agent context.
+- Orchestrator still sees exactly one user turn per run.
+- When the active parent message reaches `done`, `error`, or `interrupted`, B1 may dispatch the queue head and create a new pending Orchestrator agent message.
+- The new pending message is a normal fresh Orchestrator turn and should rebuild context from persisted conversation history.
+- Queue dispatch must preserve group-scoped scheduling rules. A queued message with an invalid or removed target agent should become a visible platform error turn, not a silent fallback to a global agent.
+- Phase 1 does not implement "guide current thinking"; that future feature will require a separate runtime-control contract.

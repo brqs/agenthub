@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from typing import Any
@@ -129,6 +130,8 @@ def blocks_to_text(blocks: list[dict[str, Any]]) -> str:
             )
         elif block_type == "file":
             parts.append(f"[File: {block.get('filename')}]")
+        elif block_type == "clarification":
+            parts.append(_clarification_block_to_text(block))
         elif block_type == "tool_call":
             parts.append(_tool_call_block_to_text(block))
     return "\n".join(part for part in parts if part)
@@ -148,6 +151,29 @@ def _tool_call_block_to_text(block: dict[str, Any]) -> str:
     if isinstance(output, str) and output.strip():
         details.append(f"output={truncate_text(output, 240)}")
     return "[" + "; ".join(details) + "]"
+
+
+def _clarification_block_to_text(block: dict[str, Any]) -> str:
+    current_question = block.get("current_question")
+    if not isinstance(current_question, dict):
+        current_question = None
+    questions = block.get("questions")
+    if not isinstance(questions, list):
+        questions = []
+    payload = {
+        "mode": block.get("mode"),
+        "status": block.get("status"),
+        "title": block.get("title"),
+        "current_question": current_question,
+        "questions": [question for question in questions if isinstance(question, dict)],
+        "summary": block.get("summary"),
+        "metadata": block.get("metadata") if isinstance(block.get("metadata"), dict) else {},
+    }
+    if current_question is not None:
+        payload["question_id"] = current_question.get("id")
+        payload["question"] = current_question.get("question")
+        payload["recommended_answer"] = current_question.get("recommended_answer")
+    return "[Clarification state] " + json.dumps(payload, ensure_ascii=False)
 
 
 def _tool_call_argument_paths(arguments: object) -> list[str]:

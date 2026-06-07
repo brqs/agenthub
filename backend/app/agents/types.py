@@ -19,11 +19,13 @@ StreamEventType = Literal[
     "message_start",
     "message_done",
     "message_error",
+    "message_interrupted",
     "block_start",
     "delta",
     "block_end",
     "done",
     "error",
+    "interrupted",
     "agent_switch",
     "heartbeat",
     "tool_call",
@@ -41,6 +43,7 @@ BlockType = Literal[
     "workflow",
     "task_card",
     "process",
+    "clarification",
 ]
 
 
@@ -74,9 +77,10 @@ class StreamChunk(BaseModel):
     conversation_id: str | None = None
     reply_to_id: str | None = None
     created_at: str | None = None
-    status: Literal["pending", "streaming", "done", "error"] | None = None
+    status: Literal["pending", "streaming", "done", "error", "interrupted"] | None = None
     agent_id: str | None = None
     total_blocks: int | None = None
+    queued_next: dict[str, Any] | None = None
     # for tool_call / tool_result events
     call_id: str | None = None
     tool_name: str | None = None

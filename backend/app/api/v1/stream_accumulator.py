@@ -202,6 +202,9 @@ class StreamContentAccumulator:
                 if chunk.block_index is not None:
                     self.process_blocks[chunk.block_index] = block
                 self.current = None
+            elif chunk.block_type == "clarification":
+                meta = chunk.metadata or {}
+                self.current.update(_clarification_block_from_metadata(meta))
         elif chunk.event_type == "delta" and self.current is not None:
             if self.current.get("type") == "process":
                 return None
@@ -323,6 +326,31 @@ class StreamContentAccumulator:
             for task in tasks:
                 if isinstance(task, dict) and task.get("status") == "running":
                     task["status"] = terminal_status
+
+    def finalize_interrupted(self) -> None:
+        self._finalize_current()
+        for block in self.blocks:
+            block_type = block.get("type")
+            if block_type == "task_card":
+                tasks = block.get("tasks")
+                if not isinstance(tasks, list):
+                    continue
+                for task in tasks:
+                    if isinstance(task, dict) and task.get("status") in {
+                        "pending",
+                        "running",
+                    }:
+                        task["status"] = "interrupted"
+                continue
+            if block_type == "process":
+                if block.get("status") in {"running", "partial"}:
+                    block["status"] = "interrupted"
+                steps = block.get("steps")
+                if not isinstance(steps, list):
+                    continue
+                for step in steps:
+                    if isinstance(step, dict) and step.get("status") == "running":
+                        step["status"] = "interrupted"
 
     def to_list(self) -> list[dict[str, Any]]:
         self._finalize_current()
@@ -533,7 +561,7 @@ def _looks_like_workflow_definition(payload: Any) -> bool:
 
 
 def _task_status(value: object) -> str:
-    if value in {"pending", "running", "done", "error"}:
+    if value in {"pending", "running", "done", "error", "interrupted"}:
         return str(value)
     return "pending"
 
@@ -568,6 +596,68 @@ def _process_block_from_metadata(meta: Mapping[str, Any]) -> dict[str, Any]:
             step["agent_id"] = agent_id
         block["steps"].append(step)
     return block
+
+
+def _clarification_block_from_metadata(meta: Mapping[str, Any]) -> dict[str, Any]:
+    block: dict[str, Any] = {
+        "mode": _clarification_mode(meta.get("mode")),
+        "title": str(meta.get("title") or "需求澄清"),
+        "status": _clarification_status(meta.get("status")),
+        "questions": [],
+        "metadata": meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {},
+    }
+    agent_id = meta.get("agent_id")
+    if isinstance(agent_id, str) and agent_id:
+        block["agent_id"] = agent_id
+    current_question = _clarification_question(meta.get("current_question"))
+    if current_question is not None:
+        block["current_question"] = current_question
+    for raw_question in meta.get("questions", []):
+        question = _clarification_question(raw_question)
+        if question is not None:
+            block["questions"].append(question)
+    summary = meta.get("summary")
+    if isinstance(summary, str):
+        block["summary"] = summary
+    return block
+
+
+def _clarification_question(raw_question: object) -> dict[str, Any] | None:
+    if not isinstance(raw_question, Mapping):
+        return None
+    question = {
+        "id": str(raw_question.get("id") or "question"),
+        "question": str(raw_question.get("question") or ""),
+        "options": [
+            str(option)
+            for option in raw_question.get("options", [])
+            if isinstance(option, str) and option.strip()
+        ],
+        "status": _clarification_question_status(raw_question.get("status")),
+    }
+    for key in ("reason", "recommended_answer", "answer"):
+        value = raw_question.get(key)
+        if isinstance(value, str):
+            question[key] = value
+    return question
+
+
+def _clarification_mode(value: object) -> str:
+    if value in {"auto", "grill_me", "grill_with_docs", "setup_matt_pocock_skills"}:
+        return str(value)
+    return "auto"
+
+
+def _clarification_status(value: object) -> str:
+    if value in {"waiting", "resolved", "cancelled"}:
+        return str(value)
+    return "waiting"
+
+
+def _clarification_question_status(value: object) -> str:
+    if value in {"pending", "answered", "skipped"}:
+        return str(value)
+    return "pending"
 
 
 def _apply_process_delta(
@@ -622,13 +712,13 @@ def _process_step_from_mapping(raw_step: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _process_status(value: object) -> str:
-    if value in {"running", "done", "partial", "error"}:
+    if value in {"running", "done", "partial", "error", "interrupted"}:
         return str(value)
     return "done"
 
 
 def _process_step_status(value: object) -> str:
-    if value in {"done", "running", "error", "skipped"}:
+    if value in {"done", "running", "error", "skipped", "interrupted"}:
         return str(value)
     return "done"
 

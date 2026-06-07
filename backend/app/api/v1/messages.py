@@ -9,38 +9,139 @@ TODO(B1):
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 
 from app.api.v1.conversations import _get_owned_conversation, _validate_visible_agent_ids
 from app.core.deps import DbSession, get_current_user
 from app.models.message import Message
+from app.models.message_queue import MessageQueueEntry
+from app.models.upload import Upload
 from app.models.user import User
 from app.schemas.message import (
+    InterruptMessageResponse,
     MessageList,
     MessageOut,
+    QueueMessageRequest,
+    QueueMessageResponse,
     SendMessageRequest,
     SendMessageResponse,
     UpdateMessageRequest,
+    UpdateQueuedMessageRequest,
 )
 from app.services.message_lifecycle import cleanup_stale_streaming_messages
+from app.services.queued_messages import (
+    delete_queued_user_message,
+    dispatch_next_queued_message,
+    enqueue_user_message,
+    get_active_agent_message,
+    get_queue_entry_for_user_message,
+    update_queued_user_message,
+)
+from app.services.stream_run_manager import stream_run_manager
+from app.services.upload_service import upload_service
 
 router = APIRouter()
+INTERRUPTED_FALLBACK_BLOCK = {
+    "type": "text",
+    "text": "已打断本次回复，可以继续补充要求。",
+}
 
 
 async def _get_active_agent_message(db: DbSession, conv_id: UUID) -> Message | None:
-    stmt = (
-        select(Message)
-        .where(Message.conversation_id == conv_id)
-        .where(Message.role == "agent")
-        .where(Message.status.in_(("pending", "streaming")))
-        .order_by(Message.created_at.desc())
-        .limit(1)
+    return await get_active_agent_message(db, conv_id)
+
+
+async def _resolve_target_agent_id(
+    db: DbSession,
+    user_id: UUID,
+    conv,
+    target_agent_id: str | None,
+) -> str:
+    resolved_target_agent_id = target_agent_id
+    if not resolved_target_agent_id:
+        if conv.mode == "single" and len(conv.agent_ids) == 1:
+            resolved_target_agent_id = conv.agent_ids[0]
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": {
+                        "code": "MISSING_TARGET_AGENT",
+                        "message": "target_agent_id required for group mode",
+                    }
+                },
+            )
+    if resolved_target_agent_id not in conv.agent_ids:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "code": "AGENT_NOT_FOUND",
+                    "message": "target_agent_id is not part of this conversation",
+                }
+            },
+        )
+    await _validate_visible_agent_ids(db, user_id, [resolved_target_agent_id])
+    return resolved_target_agent_id
+
+
+async def _get_queued_user_message(db: DbSession, user_id: UUID, msg_id: UUID) -> Message:
+    msg = await db.get(Message, msg_id)
+    if not msg:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}},
+        )
+    await _get_owned_conversation(db, user_id, msg.conversation_id)
+    if msg.role != "user" or msg.status != "queued":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "MESSAGE_NOT_QUEUED",
+                    "message": "Only queued user messages can be modified",
+                }
+            },
+        )
+    return msg
+
+
+async def _get_queued_entry_or_409(db: DbSession, msg_id: UUID) -> MessageQueueEntry:
+    entry = await get_queue_entry_for_user_message(db, user_message_id=msg_id)
+    if entry is None or entry.state != "queued":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "QUEUE_ENTRY_NOT_QUEUED",
+                    "message": "Queued message has already been dispatched",
+                }
+            },
+        )
+    return entry
+
+
+async def _content_with_attachments(
+    db: DbSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    content: list[Any],
+    attachment_ids: list[UUID],
+) -> tuple[list[dict[str, Any]], list[Upload]]:
+    uploads = await upload_service.validate_ready_uploads(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        upload_ids=attachment_ids,
     )
-    return (await db.execute(stmt)).scalar_one_or_none()
+    blocks = [block.model_dump() for block in content]
+    blocks.extend(upload_service.attachment_blocks(uploads))
+    return blocks, uploads
 
 
 # ─── List messages in conversation ───
@@ -131,32 +232,12 @@ async def send_message(
 ) -> SendMessageResponse:
     conv = await _get_owned_conversation(db, user.id, conv_id)
 
-    # Resolve target agent
-    target_agent_id = payload.target_agent_id
-    if not target_agent_id:
-        if conv.mode == "single" and len(conv.agent_ids) == 1:
-            target_agent_id = conv.agent_ids[0]
-        else:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": {
-                        "code": "MISSING_TARGET_AGENT",
-                        "message": "target_agent_id required for group mode",
-                    }
-                },
-            )
-    if target_agent_id not in conv.agent_ids:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": {
-                    "code": "AGENT_NOT_FOUND",
-                    "message": "target_agent_id is not part of this conversation",
-                }
-            },
-        )
-    await _validate_visible_agent_ids(db, user.id, [target_agent_id])
+    target_agent_id = await _resolve_target_agent_id(
+        db,
+        user.id,
+        conv,
+        payload.target_agent_id,
+    )
 
     await cleanup_stale_streaming_messages(db)
     active_message = await _get_active_agent_message(db, conv_id)
@@ -176,15 +257,24 @@ async def send_message(
             },
         )
 
+    content, uploads = await _content_with_attachments(
+        db,
+        user_id=user.id,
+        conversation_id=conv_id,
+        content=payload.content,
+        attachment_ids=payload.attachment_ids,
+    )
+
     # Create user message
     user_msg = Message(
         conversation_id=conv_id,
         role="user",
-        content=[b.model_dump() for b in payload.content],
+        content=content,
         status="done",
     )
     db.add(user_msg)
     await db.flush()
+    await upload_service.link_message_attachments(db, message_id=user_msg.id, uploads=uploads)
 
     # Create pending agent message
     agent_msg = Message(
@@ -207,6 +297,119 @@ async def send_message(
     )
 
 
+# ─── Queued next-turn messages ───
+@router.post(
+    "/conversations/{conv_id}/queued-messages",
+    response_model=QueueMessageResponse,
+    status_code=201,
+)
+async def queue_message(
+    conv_id: UUID,
+    payload: QueueMessageRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> QueueMessageResponse:
+    conv = await _get_owned_conversation(db, user.id, conv_id)
+    target_agent_id = await _resolve_target_agent_id(
+        db,
+        user.id,
+        conv,
+        payload.target_agent_id,
+    )
+    await cleanup_stale_streaming_messages(db)
+    active_message = await _get_active_agent_message(db, conv_id)
+    if active_message is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": {
+                    "code": "NO_ACTIVE_AGENT_RESPONSE",
+                    "message": "Queued messages require an active agent response",
+                }
+            },
+        )
+    content, uploads = await _content_with_attachments(
+        db,
+        user_id=user.id,
+        conversation_id=conv_id,
+        content=payload.content,
+        attachment_ids=payload.attachment_ids,
+    )
+    queued_message, _entry, position = await enqueue_user_message(
+        db,
+        conversation=conv,
+        target_agent_id=target_agent_id,
+        content=content,
+    )
+    await upload_service.link_message_attachments(
+        db,
+        message_id=queued_message.id,
+        uploads=uploads,
+    )
+    await db.commit()
+    await db.refresh(queued_message)
+    return QueueMessageResponse(
+        queued_message=MessageOut.model_validate(queued_message),
+        queue_position=position,
+    )
+
+
+@router.patch("/queued-messages/{msg_id}", response_model=QueueMessageResponse)
+async def update_queued_message(
+    msg_id: UUID,
+    payload: UpdateQueuedMessageRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> QueueMessageResponse:
+    msg = await _get_queued_user_message(db, user.id, msg_id)
+    conv = await _get_owned_conversation(db, user.id, msg.conversation_id)
+    entry = await _get_queued_entry_or_409(db, msg.id)
+    if payload.content is None and payload.target_agent_id is None:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": {
+                    "code": "EMPTY_QUEUED_MESSAGE_UPDATE",
+                    "message": "content or target_agent_id is required",
+                }
+            },
+        )
+    target_agent_id = (
+        await _resolve_target_agent_id(db, user.id, conv, payload.target_agent_id)
+        if payload.target_agent_id is not None
+        else None
+    )
+    position = await update_queued_user_message(
+        db,
+        user_message=msg,
+        queue_entry=entry,
+        content=(
+            [block.model_dump() for block in payload.content]
+            if payload.content is not None
+            else None
+        ),
+        target_agent_id=target_agent_id,
+    )
+    await db.commit()
+    await db.refresh(msg)
+    return QueueMessageResponse(
+        queued_message=MessageOut.model_validate(msg),
+        queue_position=position,
+    )
+
+
+@router.delete("/queued-messages/{msg_id}", status_code=204)
+async def delete_queued_message(
+    msg_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> None:
+    msg = await _get_queued_user_message(db, user.id, msg_id)
+    entry = await _get_queued_entry_or_409(db, msg.id)
+    await delete_queued_user_message(db, user_message=msg, queue_entry=entry)
+    await db.commit()
+
+
 # ─── Pin / Unpin message ───
 @router.patch("/messages/{msg_id}", response_model=MessageOut)
 async def update_message(
@@ -227,6 +430,99 @@ async def update_message(
         msg.is_pinned = payload.is_pinned
     await db.flush()
     return MessageOut.model_validate(msg)
+
+
+@router.post("/messages/{msg_id}/interrupt", response_model=InterruptMessageResponse)
+async def interrupt_message(
+    msg_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    response: Response,
+) -> InterruptMessageResponse:
+    msg = await db.get(Message, msg_id)
+    if not msg:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}},
+        )
+    await _get_owned_conversation(db, user.id, msg.conversation_id)
+    if msg.role != "agent":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "code": "NOT_AGENT_MESSAGE",
+                    "message": "Only agent messages can be interrupted",
+                }
+            },
+        )
+
+    if msg.status in {"done", "error", "interrupted"}:
+        return InterruptMessageResponse(
+            state="already_terminal",
+            message=MessageOut.model_validate(msg),
+        )
+
+    session = await stream_run_manager.request_interrupt(
+        msg.id,
+        reason="user_interrupt",
+    )
+    if session is not None:
+        terminal = await session.wait_terminal(timeout=0.25)
+        await db.refresh(msg)
+        if terminal and msg.status == "interrupted":
+            return InterruptMessageResponse(
+                state="interrupted",
+                message=MessageOut.model_validate(msg),
+            )
+        if terminal and msg.status in {"done", "error"}:
+            return InterruptMessageResponse(
+                state="already_terminal",
+                message=MessageOut.model_validate(msg),
+            )
+        response.status_code = status.HTTP_202_ACCEPTED
+        return InterruptMessageResponse(
+            state="interrupting",
+            message=MessageOut.model_validate(msg),
+        )
+
+    if msg.status == "pending":
+        msg.status = "interrupted"
+        if not msg.content:
+            msg.content = [dict(INTERRUPTED_FALLBACK_BLOCK)]
+        await db.commit()
+        queued_next = await dispatch_next_queued_message(db, conversation_id=msg.conversation_id)
+        if queued_next is not None:
+            await db.commit()
+        await db.refresh(msg)
+        return InterruptMessageResponse(
+            state="interrupted",
+            message=MessageOut.model_validate(msg),
+        )
+
+    if msg.status == "streaming":
+        msg.status = "error"
+        if not msg.content:
+            msg.content = [
+                {
+                    "type": "text",
+                    "text": "Agent stream was interrupted before completion. Please retry.",
+                }
+            ]
+        await db.commit()
+        queued_next = await dispatch_next_queued_message(db, conversation_id=msg.conversation_id)
+        if queued_next is not None:
+            await db.commit()
+        await db.refresh(msg)
+        return InterruptMessageResponse(
+            state="already_terminal",
+            message=MessageOut.model_validate(msg),
+        )
+
+    return InterruptMessageResponse(
+        state="already_terminal",
+        message=MessageOut.model_validate(msg),
+    )
 
 
 # ─── Delete message ───

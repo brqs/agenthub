@@ -1,3 +1,20 @@
+## 2026-06-07 — Codex 设计 Orchestrator 代码前需求澄清闸门
+
+### 任务
+阅读 `mattpocock/skills` 中 `/grill-me`、`/grill-with-docs`、`/setup-matt-pocock-skills` 的工作方式，判断其“实现前不断追问需求”的能力能否应用到 AgentHub Orchestrator，并先更新 spec/rules/skill 工作文档，不进入代码实现。
+
+### 关键 Prompt
+> 我现在需要其中的一个功能，就是使得agent在开始项目代码的编写前能够不断追问你的具体要求的一个功能。
+
+### AI 输出摘要
+新增 `docs/b2/spec/orchestrator/clarification-gate.spec.md`，把该能力定义为 Orchestrator planner 前的 clarification gate：先判断 artifact/build/code/design 请求是否足够明确；能从代码、workspace、structured memory、spec/rules/docs 推断的问题不问用户；确实缺少关键约束时一次只问一个最高价值问题，并提供推荐默认。同步更新 B2 spec 索引、Orchestrator spec package、B2 README、`AGENTS.md`、`CLAUDE.md` 和 `docs/ai-skills/b2-ai-collaboration/SKILL.md`。
+
+### 人工调整
+本轮只做理论分析和任务规划，不改后端/前端运行代码，不新增公开 API，不改 OpenAPI。现有 `ask_user` tool 被确认只能作为 v1 文本补充语义，不能替代 planner 前的确定性 clarification gate。
+
+### 经验
+把“追问需求”做成产品级能力时，重点不是让模型自由发挥多问问题，而是定义一个可恢复的状态机：何时问、问什么、如何给默认值、如何沉淀答案、何时进入 planner。该规则应优先沉淀到 Orchestrator spec 和 AI 协作宪法，避免后续实现直接把欠规格需求派给子 Agent。
+
 ## 2026-06-01 — Codex 补强 B1 AI 协作范式四件套
 
 ### 任务
@@ -1848,7 +1865,7 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 ## 2026-06-06 — Codex 完成通用 Agent 失败自动调度 Repair Loop
 
 ### 任务
-执行“Orchestrator 通用 Agent 失败自动调度 Repair Loop 计划”：把 fallback 从 Codex 专项降级扩展为所有 Orchestrator 委派任务的通用能力，任意 Agent 失败后自动调配其他可用 Agent 继续，并通过公网 `agent_fallback_matrix` E2E 验收。
+执行”Orchestrator 通用 Agent 失败自动调度 Repair Loop 计划”：把 fallback 从 Codex 专项降级扩展为所有 Orchestrator 委派任务的通用能力，任意 Agent 失败后自动调配其他可用 Agent 继续，并通过公网 `agent_fallback_matrix` E2E 验收。
 
 ### 关键 Prompt
 > PLEASE IMPLEMENT THIS PLAN: Orchestrator 通用 Agent 失败自动调度 Repair Loop 计划
@@ -1858,18 +1875,18 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 2. `available_agents` / managed agents / `task_fallback_agent_ids` / `sub_adapters` 统一进入 fallback 候选选择；在 group conversation 中仍受当前会话可用 Agent 范围约束。
 3. 默认 Orchestrator `task_fallback_agent_ids` 保持 Claude Code / OpenCode Helper / Codex Helper，`max_task_attempts` 提升为 3；`evaluation_failed` 与 `artifact_missing` 一样可进入 fallback。
 4. `_run_task()` 在硬失败后写入 memory event `agent_runtime_cooldown`，并继续尝试下一个可用 Agent；只要 fallback attempt 最终成功，依赖任务可继续执行。
-5. 失败 child message 改为 `message_error` / `status="error"`，fallback Agent 以独立 child message 继续流式 process 和结果；父 Orchestrator message 不嵌入子 Agent 输出。
+5. 失败 child message 改为 `message_error` / `status=”error”`，fallback Agent 以独立 child message 继续流式 process 和结果；父 Orchestrator message 不嵌入子 Agent 输出。
 6. 子 Agent 失败文案改为可读中文，不再重复粗糙的 `The delegated task did not complete successfully.`，并继续清洗内部 trace、raw stderr、stack trace 和 call id。
 7. live E2E 脚本新增 `agent_fallback_matrix` scenario，覆盖 Codex、Claude Code、OpenCode Helper 三类首选 Agent 失败后自动 fallback；该 scenario 是通用 markdown 证据任务，不依赖前端质量演示模板。
 8. 修复 live matrix 自身稳定性：
    - Claude Code SDK 不受 `command` patch 影响，因此 matrix 内临时把 Claude provider 改为不可加载 runtime，结束后还原。
-   - fallback Writer 在 matrix 内临时限制为 `allowed_tools=["write_file"]`，并要求使用 workspace-relative path，避免误用 `/workspace/...` bash 绝对路径。
+   - fallback Writer 在 matrix 内临时限制为 `allowed_tools=[“write_file”]`，并要求使用 workspace-relative path，避免误用 `/workspace/...` bash 绝对路径。
 9. 本地门禁通过：
    - Orchestrator targeted + live script tests：`161 passed`
    - `uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts` passed
    - `uv run python -m mypy app/agents app/api/v1 app/schemas` passed
    - `git diff --check` passed
-10. 后端运行代码已同步：旧 PID `1683235`，新 PID `1688851`；已执行 `uv run python -m app.seeds.seed_agents`；`alembic current = 7e8f9012abcd (head)`；本机与公网 `/health` 均为 `{"status":"ok"}`。
+10. 后端运行代码已同步：旧 PID `1683235`，新 PID `1688851`；已执行 `uv run python -m app.seeds.seed_agents`；`alembic current = 7e8f9012abcd (head)`；本机与公网 `/health` 均为 `{“status”:”ok”}`。
 11. 公网 `agent_fallback_matrix` E2E 通过：
     - report: `/tmp/agenthub_agent_fallback_matrix_report.json`
     - SSE: `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`
@@ -1884,3 +1901,24 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 
 ### 经验
 通用 fallback 要区分两件事：真实产品机制必须能处理任何 Agent 失败；live E2E 则需要可控地制造失败并提供一个稳定 fallback 成功者。把这两层分开，才能避免为单个前端 demo 写模板，同时又能证明调度机制确实闭环。
+
+## 2026-06-07 — Codex 实现 Web 文件上传前后端 MVP
+
+### 任务
+让 AgentHub 支持 PC / 移动端文件作为对话附件上传，并在消息中持久化为 `attachment` ContentBlock。
+
+### 关键 Prompt
+> Web 文件上传：支持图片、压缩包、文档、代码文件，覆盖 PC、iOS、Android；先实现前端部分，再实现后端。
+
+### AI 输出摘要
+1. 补充前后端 spec：`docs/frontend/spec/frontend-file-upload.spec.md`、`docs/b1/spec/file-upload-backend.spec.md`。
+2. 前端实现点击选择、拖拽、粘贴图片、上传队列、失败重试/删除、附件卡片展示，并把 `attachment_ids` 随 send/queue message 提交。
+3. 后端新增 uploads 数据模型、`message_attachments` 关联表、Alembic migration、本地文件存储 service、上传/元数据/下载/删除 API。
+4. 消息 schema 新增 `AttachmentBlock`，`SendMessageRequest` / `QueueMessageRequest` 新增 `attachment_ids`，发送与排队消息都会把上传文件转换为持久化附件 block。
+5. `shared/openapi.yaml` 和 `frontend/src/lib/types.gen.ts` 已同步上传端点与附件 block 契约。
+
+### 人工调整
+本轮 MVP 不做安全扫描异步队列、压缩包解包、workspace 导入、OCR/文档解析；这些保留在 B1 spec 后续阶段。当前实现只允许 owner 下载/删除/绑定自己的上传，且附件绑定时校验 conversation 归属。
+
+### 经验
+上传功能必须先明确”附件归属”和”消息上下文注入”边界：文件本体属于 upload 资源，消息只持久化稳定的 attachment block 和关联表。这样前端展示、Agent 上下文、后续安全扫描与 workspace 导入可以分阶段演进。

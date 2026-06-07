@@ -199,6 +199,56 @@ describe('RightAgentPanel', () => {
     expect(screen.getByText('发布历史')).toBeInTheDocument();
   });
 
+  it('keeps the last workspace tree visible when background refresh fails', async () => {
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockRejectedValue(new Error('tree unavailable'));
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(['workspace-tree', 'conv-demo-flow'], {
+      root: '/workspaces/conv-demo-flow',
+      tree: {
+        type: 'directory',
+        name: 'conv-demo-flow',
+        path: '',
+        children: [
+          { type: 'file', name: 'cached.html', path: 'cached.html', size: 10, mime_type: 'text/html' },
+        ],
+      },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RightAgentPanel
+          conversation={{ ...conversation, id: 'conv-demo-flow' }}
+          agents={mockAgents}
+          messages={messages}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findAllByText('cached.html')).not.toHaveLength(0);
+    expect(
+      await screen.findByText('Workspace 刷新失败，已保留上一次可用内容。', {}, { timeout: 4000 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Workspace 加载失败，请稍后重试。')).not.toBeInTheDocument();
+    expect(screen.getByText('发布历史')).toBeInTheDocument();
+  });
+
+  it('shows the main workspace error only when no tree data exists', async () => {
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockRejectedValue(new Error('tree unavailable'));
+
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    expect(
+      await screen.findByText('Workspace 加载失败，请稍后重试。', {}, { timeout: 4000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('发布历史')).toBeInTheDocument();
+  });
+
   it('does not reuse the selected file path after switching conversations', async () => {
     vi.mocked(workspacesAdapter.getWorkspaceTree).mockImplementation(async (conversationId) => ({
       root: `/workspaces/${conversationId}`,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -25,6 +26,7 @@ from app.main import app
 from app.models.agent import Agent
 from app.models.message import Message
 from app.schemas.message import MessageOut
+from app.services.context.compression import blocks_to_text
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -222,6 +224,100 @@ async def test_stream_chunk_and_accumulator_persist_process_block() -> None:
             "metadata": {"source": "orchestrator_process"},
         }
     ]
+
+
+async def test_stream_accumulator_persists_clarification_block() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="clarification",
+            agent_id="orchestrator",
+            metadata={
+                "mode": "grill_me",
+                "title": "需求追问",
+                "status": "waiting",
+                "current_question": {
+                    "id": "audience_goal",
+                    "question": "目标用户是谁？",
+                    "reason": "先锁定使用场景。",
+                    "recommended_answer": "普通用户，桌面和移动端都可用。",
+                    "options": ["使用推荐答案"],
+                    "status": "pending",
+                },
+                "questions": [],
+                "metadata": {"original_request": "做一个网页游戏"},
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+
+    assert accumulator.to_list() == [
+        {
+            "type": "clarification",
+            "agent_id": "orchestrator",
+            "mode": "grill_me",
+            "title": "需求追问",
+            "status": "waiting",
+            "current_question": {
+                "id": "audience_goal",
+                "question": "目标用户是谁？",
+                "reason": "先锁定使用场景。",
+                "recommended_answer": "普通用户，桌面和移动端都可用。",
+                "options": ["使用推荐答案"],
+                "status": "pending",
+            },
+            "questions": [],
+            "metadata": {"original_request": "做一个网页游戏"},
+        }
+    ]
+
+
+async def test_blocks_to_text_preserves_full_clarification_state() -> None:
+    text = blocks_to_text(
+        [
+            {
+                "type": "clarification",
+                "mode": "auto",
+                "title": "确认澄清方向",
+                "status": "waiting",
+                "current_question": {
+                    "id": "topic_route",
+                    "question": "继续当前需求还是切换？",
+                    "recommended_answer": "继续澄清当前需求",
+                    "options": ["继续澄清当前需求", "切换到新需求"],
+                    "status": "pending",
+                },
+                "questions": [
+                    {
+                        "id": "delivery_defaults",
+                        "question": "交付边界？",
+                        "status": "answered",
+                        "answer": "静态前端产物",
+                    },
+                    {
+                        "id": "topic_route",
+                        "question": "继续当前需求还是切换？",
+                        "status": "pending",
+                    },
+                ],
+                "summary": "等待方向确认。",
+                "metadata": {
+                    "original_request": "项目 A 做网页游戏",
+                    "route_pending_user_request": "项目 B 的登录体验怎么改？",
+                },
+            }
+        ]
+    )
+
+    payload = json.loads(text.removeprefix("[Clarification state] "))
+    assert payload["current_question"]["id"] == "topic_route"
+    assert payload["current_question"]["options"] == ["继续澄清当前需求", "切换到新需求"]
+    assert payload["questions"][0]["answer"] == "静态前端产物"
+    assert payload["questions"][1]["id"] == "topic_route"
+    assert payload["metadata"]["route_pending_user_request"] == "项目 B 的登录体验怎么改？"
+    assert payload["question_id"] == "topic_route"
 
 
 async def test_stream_accumulator_persists_workflow_block() -> None:
@@ -495,6 +591,60 @@ async def test_stream_accumulator_marks_running_task_cards_error_on_failure() ->
     accumulator.finalize_task_cards(success=False)
 
     assert accumulator.to_list()[0]["tasks"][0]["status"] == "error"
+
+
+async def test_stream_accumulator_marks_running_blocks_interrupted() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="task_card",
+            metadata={
+                "title": "Orchestrator plan",
+                "tasks": [
+                    {
+                        "id": "task-a",
+                        "agent_id": "claude-code",
+                        "title": "Build HTML",
+                        "status": "running",
+                    },
+                    {
+                        "id": "task-b",
+                        "agent_id": "claude-code",
+                        "title": "Review HTML",
+                        "status": "done",
+                    },
+                ],
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=1,
+            block_type="process",
+            metadata={
+                "title": "Execution",
+                "status": "running",
+                "steps": [
+                    {"label": "Plan", "kind": "planning", "status": "done"},
+                    {"label": "Run", "kind": "dispatch", "status": "running"},
+                ],
+            },
+        )
+    )
+
+    accumulator.finalize_interrupted()
+    task_card, process = accumulator.to_list()
+
+    assert task_card["tasks"][0]["status"] == "interrupted"
+    assert task_card["tasks"][1]["status"] == "done"
+    assert process["status"] == "interrupted"
+    assert process["steps"][0]["status"] == "done"
+    assert process["steps"][1]["status"] == "interrupted"
+
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
 async def ensure_tables() -> None:

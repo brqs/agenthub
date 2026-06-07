@@ -165,6 +165,58 @@ async def test_write_file_creates_parent_directories() -> None:
     assert (Path(workspace.root_path) / "nested" / "a" / "b" / "demo.txt").exists()
 
 
+async def test_list_tree_skips_file_that_disappears_during_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conversation_id = await _create_conversation()
+    service = WorkspaceService()
+    async with SessionFactory() as db:
+        workspace = await service.get_or_create(db, conversation_id)
+        service.write_file(workspace, "stable.txt", b"stable")
+        service.write_file(workspace, "transient.txt", b"transient")
+
+    original_is_file = Path.is_file
+
+    def flaky_is_file(path: Path) -> bool:
+        if path.name == "transient.txt":
+            raise FileNotFoundError("transient disappeared")
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", flaky_is_file)
+
+    tree = service.list_tree(workspace)
+    names = {child["name"] for child in tree["children"]}
+
+    assert "stable.txt" in names
+    assert "transient.txt" not in names
+
+
+async def test_list_tree_tolerates_directory_changing_during_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conversation_id = await _create_conversation()
+    service = WorkspaceService()
+    async with SessionFactory() as db:
+        workspace = await service.get_or_create(db, conversation_id)
+        service.write_file(workspace, "stable.txt", b"stable")
+    (Path(workspace.root_path) / "changing").mkdir()
+
+    original_iterdir = Path.iterdir
+
+    def flaky_iterdir(path: Path):
+        if path.name == "changing":
+            raise NotADirectoryError("changed while scanning")
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", flaky_iterdir)
+
+    tree = service.list_tree(workspace)
+    names = {child["name"] for child in tree["children"]}
+
+    assert "stable.txt" in names
+    assert "changing" in names
+
+
 async def test_rejects_path_traversal() -> None:
     conversation_id = await _create_conversation()
     async with SessionFactory() as db:

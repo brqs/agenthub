@@ -3,7 +3,7 @@
 > 目的：作为 B2 Agent Runtime Layer 的当前 spec 总入口。
 >
 > 状态：Current index
-> 最后更新：2026-06-04
+> 最后更新：2026-06-07
 
 ---
 
@@ -35,16 +35,18 @@ B2 当前只保留必要契约和当前验证报告：
 
 下一阶段工作：
 
-1. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) 的 `B2-TODO-08 Capability Profile v2 / User Preference Memory` 完成状态和后续前端消费边界
-2. [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md)
+1. [../../spec/next-major-modules.spec.md](../../spec/next-major-modules.spec.md) 的 interrupt、uploads、自定义 Agent/skills/MCP 三大模块
+2. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) 的 `B2-TODO-08 Capability Profile v2 / User Preference Memory` 完成状态和后续前端消费边界
+3. [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md)
 
 修改 Orchestrator：
 
 1. [orchestrator/core.spec.md](orchestrator/core.spec.md)
 2. [orchestrator/task-planning.spec.md](orchestrator/task-planning.spec.md)
-3. [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)
-4. [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md)
-5. [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)
+3. [orchestrator/clarification-gate.spec.md](orchestrator/clarification-gate.spec.md)
+4. [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)
+5. [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md)
+6. [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)
 
 修改 Agent Runtime：
 
@@ -106,6 +108,7 @@ B2 当前只保留必要契约和当前验证报告：
 | [orchestrator/README.md](orchestrator/README.md) | Current package index | Orchestrator spec 总入口 |
 | [orchestrator/core.spec.md](orchestrator/core.spec.md) | Current contract | 规划、DAG 并行、调度、summary、conflict、preview/deploy 边界 |
 | [orchestrator/task-planning.spec.md](orchestrator/task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、fallback 的规划顺序 |
+| [orchestrator/clarification-gate.spec.md](orchestrator/clarification-gate.spec.md) | Implemented MVP | 代码产物请求进入 planner/子 Agent 调度前的结构化需求澄清闸门 |
 | [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent 与 deployment platform tools |
 | [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md) | Current contract | 通用 Evaluation / Reflection 闭环 |
 | [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md) | Current contract | Orchestrator structured memory、Capability Profile v1、Capability Profile v2 / User Preference Memory 当前契约与 E2E 证据 |
@@ -153,7 +156,8 @@ B2 当前只保留必要契约和当前验证报告：
 3. 改 External Runtime：更新 [external-runtime-adapters.spec.md](external-runtime-adapters.spec.md) 或 [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)。
 4. 改 Builtin Agent：更新 [builtin-agent-framework.spec.md](builtin-agent-framework.spec.md)。
 5. 改 Orchestrator 执行行为：更新 [orchestrator/core.spec.md](orchestrator/core.spec.md)。
-6. 改 Orchestrator tool：更新 [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)。
-7. 改 Evaluation / Reflection：更新 [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md)。
-8. 改 preview / deployment / artifact：更新 [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) 和相关 deployment spec。
-9. 完成 PDF gap 或里程碑：更新 [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) 与 [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)。
+6. 改 Orchestrator 代码前需求澄清：更新 [orchestrator/clarification-gate.spec.md](orchestrator/clarification-gate.spec.md) 和 [orchestrator/task-planning.spec.md](orchestrator/task-planning.spec.md)。
+7. 改 Orchestrator tool：更新 [orchestrator/tool-calling.spec.md](orchestrator/tool-calling.spec.md)。
+8. 改 Evaluation / Reflection：更新 [orchestrator/evaluation-reflection.spec.md](orchestrator/evaluation-reflection.spec.md)。
+9. 改 preview / deployment / artifact：更新 [workspace-artifact-preview.spec.md](workspace-artifact-preview.spec.md) 和相关 deployment spec。
+10. 完成 PDF gap 或里程碑：更新 [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) 与 [orchestrator/live-e2e-report.spec.md](orchestrator/live-e2e-report.spec.md)。

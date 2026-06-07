@@ -157,6 +157,18 @@ class AgentConfig(BaseModel):
     orchestrator_group_messages_enabled: bool | None = None
     orchestrator_process_block_enabled: bool | None = None
     orchestrator_response_polish_enabled: bool | None = None
+    clarification_gate_enabled: bool | None = None
+    auto_clarification_max_questions: int | None = Field(
+        default=None,
+        ge=numeric_field("auto_clarification_max_questions").minimum,
+        le=numeric_field("auto_clarification_max_questions").maximum,
+    )
+    grill_max_questions: int | None = Field(
+        default=None,
+        ge=numeric_field("grill_max_questions").minimum,
+        le=numeric_field("grill_max_questions").maximum,
+    )
+    workspace_docs_enabled: bool | None = None
     orchestrator_response_polish_model_backend: ModelBackend | None = Field(
         default=None,
         description="ModelGateway backend for Orchestrator final response polish.",
