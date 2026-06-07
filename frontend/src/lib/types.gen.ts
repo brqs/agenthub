@@ -363,6 +363,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Upload */
+        post: operations["create_upload_api_v1_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Upload */
+        get: operations["get_upload_api_v1_uploads__upload_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Upload */
+        delete: operations["delete_upload_api_v1_uploads__upload_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{upload_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Upload */
+        get: operations["download_upload_api_v1_uploads__upload_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents": {
         parameters: {
             query?: never;
@@ -814,6 +866,66 @@ export interface components {
              */
             created_at: string;
         };
+        /** AttachmentBlock */
+        AttachmentBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "attachment";
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "message_attachment" | "workspace_file";
+            /**
+             * Safety Status
+             * @enum {string}
+             */
+            safety_status: "pending" | "passed" | "blocked" | "manual_review_required";
+            preview?: components["schemas"]["AttachmentPreview"] | null;
+        };
+        /** AttachmentPreview */
+        AttachmentPreview: {
+            /**
+             * Kind
+             * @default unknown
+             * @enum {string}
+             */
+            kind: "image" | "archive" | "document" | "text" | "code" | "unknown";
+            /** Url */
+            url?: string | null;
+            /** Thumbnail Url */
+            thumbnail_url?: string | null;
+            /** Text Preview */
+            text_preview?: string | null;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+            /** Entries Preview */
+            entries_preview?: string[];
+            /** Width */
+            width?: number | null;
+            /** Height */
+            height?: number | null;
+            /** Page Count */
+            page_count?: number | null;
+        };
         /** AuthResponse */
         AuthResponse: {
             /** Access Token */
@@ -826,6 +938,22 @@ export interface components {
             /** Expires In */
             expires_in: number;
             user: components["schemas"]["UserOut"];
+        };
+        /** Body Create Upload Api V1 Uploads Post */
+        Body_create_upload_api_v1_uploads_post: {
+            /**
+             * File
+             * Format: binary
+             */
+            file: string;
+            /**
+             * Purpose
+             * @default message_attachment
+             * @enum {string}
+             */
+            purpose: "message_attachment" | "workspace_file";
+            /** Conversation Id */
+            conversation_id?: string | null;
         };
         /** ClarificationBlock */
         ClarificationBlock: {
@@ -1212,7 +1340,7 @@ export interface components {
             /** Agent Id */
             agent_id?: string | null;
             /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Reply To Id */
             reply_to_id?: string | null;
             /**
@@ -1467,9 +1595,11 @@ export interface components {
         /** QueueMessageRequest */
         QueueMessageRequest: {
             /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Target Agent Id */
             target_agent_id?: string | null;
+            /** Attachment Ids */
+            attachment_ids?: string[];
         };
         /** QueueMessageResponse */
         QueueMessageResponse: {
@@ -1480,9 +1610,11 @@ export interface components {
         /** SendMessageRequest */
         SendMessageRequest: {
             /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Target Agent Id */
             target_agent_id?: string | null;
+            /** Attachment Ids */
+            attachment_ids?: string[];
         };
         /** SendMessageResponse */
         SendMessageResponse: {
@@ -1492,7 +1624,7 @@ export interface components {
         /** UpdateQueuedMessageRequest */
         UpdateQueuedMessageRequest: {
             /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[] | null;
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[] | null;
             /** Target Agent Id */
             target_agent_id?: string | null;
         };
@@ -1610,6 +1742,49 @@ export interface components {
         UpdateMessageRequest: {
             /** Is Pinned */
             is_pinned?: boolean | null;
+        };
+        /** UploadOut */
+        UploadOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Detected Content Type */
+            detected_content_type?: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "message_attachment" | "workspace_file";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "processing" | "failed" | "deleted";
+            /**
+             * Safety Status
+             * @enum {string}
+             */
+            safety_status: "pending" | "passed" | "blocked" | "manual_review_required";
+            preview?: components["schemas"]["AttachmentPreview"] | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** UserOut */
         UserOut: {
@@ -3026,6 +3201,130 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_upload_api_v1_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_upload_api_v1_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_upload_api_v1_uploads__upload_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_upload_api_v1_uploads__upload_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_upload_api_v1_uploads__upload_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
                 };
             };
             /** @description Validation Error */

@@ -36,6 +36,7 @@ export function useSendMessage() {
   async function sendMessage(
     conversationId: string,
     text: string,
+    attachmentIds: string[] = [],
   ): Promise<{ agentMessageId: string } | null> {
     setIsPending(true);
     setError(null);
@@ -48,7 +49,8 @@ export function useSendMessage() {
       const response = await messagesAdapter.sendMessage(conversationId, {
         content: [{ type: 'text', text }],
         target_agent_id: targetAgentId,
-      });
+        ...(attachmentIds.length ? { attachment_ids: attachmentIds } : {}),
+      } as messagesAdapter.SendMessageWithAttachments);
       appendRemoteExchange(conversationId, response.user_message, response.agent_message);
       startActiveStream(response.agent_message);
       return { agentMessageId: response.agent_message.id };

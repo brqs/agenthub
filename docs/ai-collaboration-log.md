@@ -1861,3 +1861,24 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 
 ### 经验
 新增 E2E case 不能只看 `/health`。这次明确证明公网 health 正常不等于命中了当前重启的后端进程。真实 Agent 群聊的 E2E 还必须把外部 runtime 额度/认证状态纳入环境前置，否则会把调度问题和第三方 runtime 阻断混在一起。
+
+## 2026-06-07 — Codex 实现 Web 文件上传前后端 MVP
+
+### 任务
+让 AgentHub 支持 PC / 移动端文件作为对话附件上传，并在消息中持久化为 `attachment` ContentBlock。
+
+### 关键 Prompt
+> Web 文件上传：支持图片、压缩包、文档、代码文件，覆盖 PC、iOS、Android；先实现前端部分，再实现后端。
+
+### AI 输出摘要
+1. 补充前后端 spec：`docs/frontend/spec/frontend-file-upload.spec.md`、`docs/b1/spec/file-upload-backend.spec.md`。
+2. 前端实现点击选择、拖拽、粘贴图片、上传队列、失败重试/删除、附件卡片展示，并把 `attachment_ids` 随 send/queue message 提交。
+3. 后端新增 uploads 数据模型、`message_attachments` 关联表、Alembic migration、本地文件存储 service、上传/元数据/下载/删除 API。
+4. 消息 schema 新增 `AttachmentBlock`，`SendMessageRequest` / `QueueMessageRequest` 新增 `attachment_ids`，发送与排队消息都会把上传文件转换为持久化附件 block。
+5. `shared/openapi.yaml` 和 `frontend/src/lib/types.gen.ts` 已同步上传端点与附件 block 契约。
+
+### 人工调整
+本轮 MVP 不做安全扫描异步队列、压缩包解包、workspace 导入、OCR/文档解析；这些保留在 B1 spec 后续阶段。当前实现只允许 owner 下载/删除/绑定自己的上传，且附件绑定时校验 conversation 归属。
+
+### 经验
+上传功能必须先明确“附件归属”和“消息上下文注入”边界：文件本体属于 upload 资源，消息只持久化稳定的 attachment block 和关联表。这样前端展示、Agent 上下文、后续安全扫描与 workspace 导入可以分阶段演进。
