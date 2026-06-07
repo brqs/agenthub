@@ -3070,6 +3070,100 @@ async def test_orchestrator_auto_clarification_plain_answer_waits_for_confirmati
     assert adapter.received_messages == []
 
 
+async def test_orchestrator_repeated_auto_clarification_request_reasks_current_question() -> None:
+    adapter = FakeSubAdapter("codex-helper", _text_chunks("implemented"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting",'
+        '"title":"Orchestrator clarification",'
+        '"current_question":{"id":"delivery_defaults","question":"Confirm delivery boundary",'
+        '"recommended_answer":"Static frontend files","status":"pending"},'
+        '"questions":[{"id":"delivery_defaults","question":"Confirm delivery boundary",'
+        '"recommended_answer":"Static frontend files","status":"pending"}],'
+        '"metadata":{"original_request":"Please design a web Pac-Man game",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="please help me design a web pacman game"),
+        ],
+        config={
+            "react_enabled": False,
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": adapter},
+        },
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert chunks[-1].event_type == "done"
+    assert block.metadata is not None
+    assert block.metadata["status"] == "waiting"
+    assert block.metadata["current_question"]["id"] == "delivery_defaults"
+    assert block.metadata["metadata"]["repeated_request"] == (
+        "please help me design a web pacman game"
+    )
+    assert not any(
+        chunk.event_type == "block_start"
+        and chunk.block_type == "task_card"
+        for chunk in chunks
+    )
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert adapter.received_messages == []
+
+
+async def test_orchestrator_different_auto_clarification_request_routes_topic() -> None:
+    adapter = FakeSubAdapter("codex-helper", _text_chunks("implemented"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    pending_state = (
+        '[Clarification state] {"mode":"auto","status":"waiting",'
+        '"title":"Orchestrator clarification",'
+        '"current_question":{"id":"delivery_defaults","question":"Confirm delivery boundary",'
+        '"recommended_answer":"Static frontend files","status":"pending"},'
+        '"questions":[{"id":"delivery_defaults","question":"Confirm delivery boundary",'
+        '"recommended_answer":"Static frontend files","status":"pending"}],'
+        '"metadata":{"original_request":"Please design a web Pac-Man game",'
+        '"question_count":1,"max_questions":3}}'
+    )
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="assistant", content=pending_state),
+            ChatMessage(role="user", content="Please design a web blog"),
+        ],
+        config={
+            "react_enabled": False,
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": adapter},
+        },
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert chunks[-1].event_type == "done"
+    assert block.metadata is not None
+    assert block.metadata["current_question"]["id"] == "topic_route"
+    assert block.metadata["metadata"]["route_pending_user_request"] == "Please design a web blog"
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert adapter.received_messages == []
+
+
 async def test_orchestrator_negated_default_confirmation_does_not_continue() -> None:
     adapter = FakeSubAdapter("codex-helper", _text_chunks("implemented"))
     orchestrator = OrchestratorAdapter(agent_id="orchestrator")

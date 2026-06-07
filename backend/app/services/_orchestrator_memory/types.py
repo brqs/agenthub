@@ -18,7 +18,7 @@ MAX_AGENT_FAILURE_REASONS = 5
 MAX_USER_PREFERENCE_ITEMS = 8
 MAX_TEXT_PREVIEW_CHARS = 4000
 MAX_EVENT_PAYLOAD_TEXT_CHARS = 2000
-TERMINAL_RUN_STATUSES = {"done", "error", "cancelled"}
+TERMINAL_RUN_STATUSES = {"done", "error", "cancelled", "interrupted"}
 FAILED_TASK_STATES = {"failed", "artifact_missing", "evaluation_failed"}
 TIMEOUT_MARKERS = ("timeout", "timed out", "idle timeout", "request timeout")
 

@@ -36,6 +36,12 @@ const STATUS_META = {
       'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-400/10 dark:text-rose-200',
     icon: AlertTriangle,
   },
+  interrupted: {
+    label: '已打断',
+    className:
+      'border-slate-300 bg-slate-50 text-slate-600 dark:border-slate-600/40 dark:bg-slate-400/10 dark:text-slate-300',
+    icon: CircleDashed,
+  },
 } as const;
 
 const STEP_STATUS_META = {
@@ -43,6 +49,7 @@ const STEP_STATUS_META = {
   running: { className: 'text-sky-600 dark:text-sky-300', icon: Clock3 },
   error: { className: 'text-rose-600 dark:text-rose-300', icon: AlertTriangle },
   skipped: { className: 'text-slate-500 dark:text-slate-400', icon: CircleDashed },
+  interrupted: { className: 'text-slate-500 dark:text-slate-300', icon: CircleDashed },
 } as const;
 
 const KIND_LABELS: Record<ProcessStep['kind'], string> = {
