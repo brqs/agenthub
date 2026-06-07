@@ -81,3 +81,13 @@
 - Terminal stream events with `queued_next` replace the queued user bubble with the dispatched user message, append the next pending agent message, and start streaming it.
 - A queued message is the next turn, not an instruction injected into the active agent's current reasoning.
 - Queues are conversation-scoped; queueing in one conversation must not disturb active streams in another conversation.
+
+## 2026-06-07 Conversation Control Plane UI Contract
+
+- While streaming with text in the input, the primary action remains "send to queue".
+- A secondary active-turn menu exposes explicit controls: guide current reply, side question, and stop current reply then run this draft.
+- Guidance creates a visible `turn_control` card with states such as waiting for safe point, applied, expired, or failed. It is not shown as an error/retry state.
+- Side chat is rendered as compact visible status Q&A and must not look like a new main task response.
+- Queued user bubbles expose edit/delete plus advanced actions: convert to guidance and stop current reply then run this queued message.
+- Frontend state must treat `turn_control` SSE events as status updates for an existing control block. Refresh/hydrate should recover the same state from persisted message content.
+- None of these controls should affect active streams in other conversations.

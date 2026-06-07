@@ -36,9 +36,11 @@ from app.models.message import Message
 from app.models.user import User
 from app.schemas.message import MessageOut
 from app.services.context_builder import build_context
+from app.services.memory_hub import MemoryHubService
 from app.services.message_lifecycle import cleanup_stale_streaming_messages
 from app.services.queued_messages import QueuedDispatch, dispatch_next_queued_message
 from app.services.stream_run_manager import StreamRunSession, stream_run_manager
+from app.services.turn_controls import expire_pending_controls
 from app.services.workspace_service import WorkspaceService
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 
@@ -335,9 +337,12 @@ async def _dispatch_queued_next_payload(
     db: AsyncSession,
     message: Message,
 ) -> dict[str, Any] | None:
+    conversation_id = message.conversation_id
+    if message.status in {"done", "error", "interrupted"}:
+        await _extract_terminal_memories(db, message)
     dispatch = await dispatch_next_queued_message(
         db,
-        conversation_id=message.conversation_id,
+        conversation_id=conversation_id,
     )
     if dispatch is None:
         return None
@@ -350,6 +355,17 @@ def _queued_dispatch_payload(dispatch: QueuedDispatch) -> dict[str, Any]:
         "agent_message": MessageOut.model_validate(dispatch.agent_message).model_dump(mode="json"),
         "queue_remaining_count": dispatch.queue_remaining_count,
     }
+
+
+async def _extract_terminal_memories(db: AsyncSession, message: Message) -> None:
+    try:
+        await MemoryHubService().extract_candidates_for_terminal_message(
+            db,
+            agent_message=message,
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
 
 
 async def _mark_orphaned_stream_error(db: AsyncSession, message: Message) -> None:
@@ -466,6 +482,7 @@ async def _runtime_event_generator(
             db,
             message.conversation_id,
             current_agent_id=message.agent_id,
+            agent_message_id=message.id,
         )
         workspace = await WorkspaceService().get_or_create(db, message.conversation_id)
         history, stream_config = await apply_orchestrator_stream_context(
@@ -492,7 +509,10 @@ async def _runtime_event_generator(
         }
         if session is not None:
             stream_config["runtime_interrupt_event"] = session.interrupt_event
-            stream_config["runtime_control"] = {"interrupt_event": session.interrupt_event}
+            stream_config["runtime_control"] = {
+                "interrupt_event": session.interrupt_event,
+                "active_agent_message_id": str(message.id),
+            }
         adapter_iterator = adapter.stream(
             history,
             config=stream_config,
@@ -687,6 +707,8 @@ async def _runtime_event_generator(
             queued_next = await _dispatch_queued_next_payload(db, message)
             if queued_next is not None:
                 await db.commit()
+        if message.status in {"done", "error", "interrupted"}:
+            await expire_pending_controls(message.id)
 
 
 async def _run_stream_session(session: StreamRunSession) -> None:

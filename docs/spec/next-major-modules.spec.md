@@ -33,6 +33,18 @@ Phase 1 of Codex-style "submit while running" is now an implemented contract:
 - The same conversation remains strictly serial: one active agent response at a time. Different conversations can continue streaming independently.
 - Phase 1 is not "guide current thinking"; queued text is the next user turn and is not injected into the currently running agent context.
 
+## 2026-06-07 Implementation Note: Conversation Control Plane
+
+Phase 2/3 are now implemented as a conversation control plane layered on top of interrupt and queue:
+
+- New persisted table: `conversation_turn_controls`.
+- New content block: `turn_control`, with `kind=guidance | side_chat | queue_action | stop_and_run` and lifecycle `received | waiting_safe_point | applied | answered | cancelled | expired | failed`.
+- Guidance is explicit. The default streaming submit path still creates a queued next turn; users must choose "guide current reply" to affect the active turn.
+- Guidance is currently Orchestrator-only and safe-point based. Safe points include direct-answer/planner/task-dispatch/tool-result/replanner boundaries. External CLI/SDK runtimes do not receive live prompt injection.
+- Side chat is a compact status question/answer about the active turn. It is persisted visibly but excluded from future main-task context.
+- Queue actions include reorder, merge, convert queued message to guidance, and stop current reply then run a queued message.
+- Same-conversation serial execution remains a hard invariant. Control actions do not create parallel active agent turns.
+
 ## 0. Summary
 
 The next AgentHub work should be split into three product modules:

@@ -22,13 +22,19 @@ from app.models.message_queue import MessageQueueEntry
 from app.models.upload import Upload
 from app.models.user import User
 from app.schemas.message import (
+    GuidanceRequest,
     InterruptMessageResponse,
     MessageList,
     MessageOut,
+    QueueMergeRequest,
     QueueMessageRequest,
     QueueMessageResponse,
+    QueueReorderRequest,
+    QueueReorderResponse,
     SendMessageRequest,
     SendMessageResponse,
+    SideChatRequest,
+    TurnControlResponse,
     UpdateMessageRequest,
     UpdateQueuedMessageRequest,
 )
@@ -39,9 +45,16 @@ from app.services.queued_messages import (
     enqueue_user_message,
     get_active_agent_message,
     get_queue_entry_for_user_message,
+    merge_queued_messages,
+    promote_queued_message_to_front,
+    reorder_queued_messages,
     update_queued_user_message,
 )
 from app.services.stream_run_manager import stream_run_manager
+from app.services.turn_controls import (
+    create_guidance_control,
+    create_side_chat_control,
+)
 from app.services.upload_service import upload_service
 
 router = APIRouter()
@@ -144,6 +157,64 @@ async def _content_with_attachments(
     return blocks, uploads
 
 
+async def _get_active_agent_message_for_control(
+    db: DbSession,
+    user_id: UUID,
+    msg_id: UUID,
+) -> Message:
+    msg = await db.get(Message, msg_id)
+    if not msg:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": {"code": "MESSAGE_NOT_FOUND", "message": "Not found"}},
+        )
+    await _get_owned_conversation(db, user_id, msg.conversation_id)
+    if msg.role != "agent" or msg.status not in {"pending", "streaming"}:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "NO_ACTIVE_AGENT_RESPONSE",
+                    "message": "Turn controls require an active agent response",
+                }
+            },
+        )
+    return msg
+
+
+def _content_text(content: list[object]) -> str:
+    parts: list[str] = []
+    for block in content:
+        value = block.model_dump() if hasattr(block, "model_dump") else block
+        if isinstance(value, dict) and value.get("type") == "text":
+            parts.append(str(value.get("text") or ""))
+    return "\n".join(part for part in parts if part.strip()).strip()
+
+
+async def _queue_position_map(
+    db: DbSession,
+    message_ids: list[UUID],
+) -> dict[UUID, int]:
+    if not message_ids:
+        return {}
+    stmt = select(MessageQueueEntry.user_message_id, MessageQueueEntry.position).where(
+        MessageQueueEntry.user_message_id.in_(message_ids)
+    )
+    rows = (await db.execute(stmt)).all()
+    return {row[0]: int(row[1]) for row in rows}
+
+
+def _message_out(message: Message, *, queue_position: int | None = None) -> MessageOut:
+    out = MessageOut.model_validate(message)
+    out.queue_position = queue_position
+    return out
+
+
+async def _touch_conversation(db: DbSession, user_id: UUID, conv_id: UUID) -> None:
+    conv = await _get_owned_conversation(db, user_id, conv_id)
+    conv.last_message_at = datetime.now(UTC)
+
+
 # ─── List messages in conversation ───
 @router.get(
     "/conversations/{conv_id}/messages",
@@ -211,8 +282,15 @@ async def list_messages(
         items = list(reversed(page[:limit]))
         next_cursor = str(items[0].id) if has_more and items else None
 
+    queue_positions = await _queue_position_map(
+        db,
+        [message.id for message in items if message.status == "queued"],
+    )
     return MessageList(
-        items=[MessageOut.model_validate(m) for m in items],
+        items=[
+            _message_out(message, queue_position=queue_positions.get(message.id))
+            for message in items
+        ],
         next_cursor=next_cursor,
         has_more=has_more,
     )
@@ -349,7 +427,7 @@ async def queue_message(
     await db.commit()
     await db.refresh(queued_message)
     return QueueMessageResponse(
-        queued_message=MessageOut.model_validate(queued_message),
+        queued_message=_message_out(queued_message, queue_position=position),
         queue_position=position,
     )
 
@@ -393,7 +471,7 @@ async def update_queued_message(
     await db.commit()
     await db.refresh(msg)
     return QueueMessageResponse(
-        queued_message=MessageOut.model_validate(msg),
+        queued_message=_message_out(msg, queue_position=position),
         queue_position=position,
     )
 
@@ -408,6 +486,239 @@ async def delete_queued_message(
     entry = await _get_queued_entry_or_409(db, msg.id)
     await delete_queued_user_message(db, user_message=msg, queue_entry=entry)
     await db.commit()
+
+
+@router.post(
+    "/conversations/{conv_id}/queued-messages/reorder",
+    response_model=QueueReorderResponse,
+)
+async def reorder_queued_message_api(
+    conv_id: UUID,
+    payload: QueueReorderRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> QueueReorderResponse:
+    await _get_owned_conversation(db, user.id, conv_id)
+    try:
+        messages = await reorder_queued_messages(
+            db,
+            conversation_id=conv_id,
+            ordered_user_message_ids=payload.message_ids,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "QUEUE_REORDER_INVALID", "message": str(exc)}},
+        ) from exc
+    await db.commit()
+    for message in messages:
+        await db.refresh(message)
+    positions = await _queue_position_map(db, [message.id for message in messages])
+    return QueueReorderResponse(
+        messages=[
+            _message_out(message, queue_position=positions.get(message.id))
+            for message in messages
+        ],
+    )
+
+
+@router.post(
+    "/conversations/{conv_id}/queued-messages/merge",
+    response_model=QueueMessageResponse,
+)
+async def merge_queued_message_api(
+    conv_id: UUID,
+    payload: QueueMergeRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> QueueMessageResponse:
+    await _get_owned_conversation(db, user.id, conv_id)
+    try:
+        merged, position = await merge_queued_messages(
+            db,
+            conversation_id=conv_id,
+            user_message_ids=payload.message_ids,
+            separator=payload.separator,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "QUEUE_MERGE_INVALID", "message": str(exc)}},
+        ) from exc
+    await db.commit()
+    await db.refresh(merged)
+    return QueueMessageResponse(
+        queued_message=_message_out(merged, queue_position=position),
+        queue_position=position,
+    )
+
+
+@router.post(
+    "/messages/{msg_id}/guidance",
+    response_model=TurnControlResponse,
+    status_code=201,
+)
+async def create_guidance(
+    msg_id: UUID,
+    payload: GuidanceRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> TurnControlResponse:
+    active_message = await _get_active_agent_message_for_control(db, user.id, msg_id)
+    content = [block.model_dump() for block in payload.content]
+    body = _content_text(payload.content)
+    try:
+        control, user_message = await create_guidance_control(
+            db,
+            active_message=active_message,
+            body=body,
+            source_content=content,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": str(exc),
+                    "message": "Guidance is not supported for this active agent",
+                }
+            },
+        ) from exc
+    await _touch_conversation(db, user.id, active_message.conversation_id)
+    await db.commit()
+    await db.refresh(control)
+    await db.refresh(user_message)
+    return TurnControlResponse(
+        control=control,
+        user_message=MessageOut.model_validate(user_message),
+    )
+
+
+@router.post(
+    "/messages/{msg_id}/side-chat",
+    response_model=TurnControlResponse,
+    status_code=201,
+)
+async def create_side_chat(
+    msg_id: UUID,
+    payload: SideChatRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> TurnControlResponse:
+    active_message = await _get_active_agent_message_for_control(db, user.id, msg_id)
+    content = [block.model_dump() for block in payload.content]
+    body = _content_text(payload.content)
+    control, user_message, agent_message = await create_side_chat_control(
+        db,
+        active_message=active_message,
+        body=body,
+        source_content=content,
+    )
+    await _touch_conversation(db, user.id, active_message.conversation_id)
+    await db.commit()
+    await db.refresh(control)
+    await db.refresh(user_message)
+    await db.refresh(agent_message)
+    return TurnControlResponse(
+        control=control,
+        user_message=MessageOut.model_validate(user_message),
+        agent_message=MessageOut.model_validate(agent_message),
+    )
+
+
+@router.post(
+    "/queued-messages/{msg_id}/convert-to-guidance",
+    response_model=TurnControlResponse,
+)
+async def convert_queued_message_to_guidance(
+    msg_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> TurnControlResponse:
+    msg = await _get_queued_user_message(db, user.id, msg_id)
+    entry = await _get_queued_entry_or_409(db, msg.id)
+    active_message = await _get_active_agent_message(db, msg.conversation_id)
+    if active_message is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "NO_ACTIVE_AGENT_RESPONSE",
+                    "message": "Queued guidance requires an active agent response",
+                }
+            },
+        )
+    try:
+        await db.delete(entry)
+        msg.status = "done"
+        control, user_message = await create_guidance_control(
+            db,
+            active_message=active_message,
+            body=_content_text(msg.content),
+            source_content=[
+                block
+                for block in msg.content
+                if not (isinstance(block, dict) and block.get("type") == "turn_control")
+            ],
+            created_by_message=msg,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": str(exc),
+                    "message": "Guidance is not supported for this active agent",
+                }
+            },
+        ) from exc
+    await _touch_conversation(db, user.id, active_message.conversation_id)
+    await db.commit()
+    await db.refresh(control)
+    await db.refresh(user_message)
+    return TurnControlResponse(
+        control=control,
+        user_message=MessageOut.model_validate(user_message),
+    )
+
+
+@router.post(
+    "/queued-messages/{msg_id}/stop-and-run",
+    response_model=InterruptMessageResponse,
+)
+async def stop_current_and_run_queued_message(
+    msg_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    response: Response,
+) -> InterruptMessageResponse:
+    msg = await _get_queued_user_message(db, user.id, msg_id)
+    await _get_queued_entry_or_409(db, msg.id)
+    try:
+        await promote_queued_message_to_front(
+            db,
+            conversation_id=msg.conversation_id,
+            user_message_id=msg.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "QUEUE_PROMOTE_INVALID", "message": str(exc)}},
+        ) from exc
+    await db.flush()
+    active_message = await _get_active_agent_message(db, msg.conversation_id)
+    if active_message is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": {
+                    "code": "NO_ACTIVE_AGENT_RESPONSE",
+                    "message": "Stop-and-run requires an active agent response",
+                }
+            },
+        )
+    await db.commit()
+    return await interrupt_message(active_message.id, db, user, response)
 
 
 # ─── Pin / Unpin message ───

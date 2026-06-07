@@ -30,6 +30,7 @@
 | 群聊旁观者身份强化 | Done | `tests/test_context_builder.py`, `tests/test_stream_tool_calls.py` |
 | 对话打断 API / 终态 | Done | `POST /messages/{id}/interrupt`、`message.status=interrupted`、StreamRunManager interrupt token、`tests/test_b1_quality.py` |
 | 运行中提交排队 | Done | `message.status=queued`、`message_queue_entries`、`POST /conversations/{id}/queued-messages`、`tests/test_conversation_api.py` |
+| Conversation control plane | Done | `conversation_turn_controls`、`turn_control` block、guidance/side-chat/queue action APIs、`tests/test_conversation_api.py` |
 | 文件上传与 Workspace 导入 | Planned | `uploads` metadata/storage、multipart upload、archive safe extraction、owner permission |
 | 自定义 Agent 配置持久化 | Planned | Agent profile、knowledge uploads、skill package metadata、MCP secret refs / health status |
 
@@ -80,3 +81,16 @@ B1 now persists same-conversation queued user turns:
 - Current `POST /messages` busy protection remains unchanged; queueing is explicit and does not bypass serial execution.
 - After `done`, `error`, or `interrupted`, B1 dispatches the queue head and may include `queued_next` in the terminal SSE payload.
 - Queued messages do not enter the active turn's context. They become normal `done` user messages only when dispatched as the next turn.
+
+## 2026-06-07 Conversation Control Plane Contract
+
+B1 now persists active-turn controls separately from next-turn queue entries:
+
+- `conversation_turn_controls` stores guidance, side-chat, queue-action, and stop-and-run control state.
+- `message_queue_entries.position` is the queue ordering source; dispatch uses `position, created_at, id`.
+- `turn_control` content blocks allow the frontend to recover guidance/side-chat state after refresh.
+- `POST /api/v1/messages/{active_message_id}/guidance` is accepted only for active Orchestrator messages that support safe-point guidance.
+- `POST /api/v1/messages/{active_message_id}/side-chat` creates visible side-chat messages but B1 context building excludes them from future main-task context.
+- Queue reorder/merge/convert-to-guidance/stop-and-run APIs only operate on undispatched queued messages in the current conversation.
+- Terminal stream cleanup marks unapplied guidance as `expired`, preserving the fact that the user tried to guide a turn that finished first.
+- These controls never create a second active agent message in the same conversation.

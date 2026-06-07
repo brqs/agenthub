@@ -26,7 +26,13 @@ interface StreamingBlock {
     | 'waiting'
     | 'resolved'
     | 'cancelled'
-    | 'interrupted';
+    | 'interrupted'
+    | 'received'
+    | 'waiting_safe_point'
+    | 'applied'
+    | 'answered'
+    | 'expired'
+    | 'failed';
   text?: string;
   code?: string;
   language?: string;
@@ -109,6 +115,16 @@ export function useStream(
                 newBlock.summary =
                   typeof d.metadata?.summary === 'string' ? d.metadata.summary : null;
                 newBlock.metadata = d.metadata?.metadata ?? {};
+              } else if (d.block_type === 'turn_control') {
+                newBlock.agent_id = d.agent_id ?? null;
+                newBlock.kind = turnControlKind(d.metadata?.kind);
+                newBlock.status = turnControlStatus(d.metadata?.status);
+                newBlock.control_id = d.metadata?.control_id ?? null;
+                newBlock.active_agent_message_id = d.metadata?.active_agent_message_id ?? '';
+                newBlock.title = d.metadata?.title ?? 'Turn control';
+                newBlock.body = d.metadata?.body ?? null;
+                newBlock.source_message_ids = d.metadata?.source_message_ids ?? [];
+                newBlock.metadata = d.metadata?.metadata ?? {};
               } else if (d.block_type === 'workflow') {
                 newBlock.raw_definition = '';
                 newBlock.last_run_id = (d.metadata?.last_run_id as string) || null;
@@ -146,6 +162,7 @@ export function useStream(
                 b.type !== 'file' &&
                 b.type !== 'process' &&
                 b.type !== 'clarification' &&
+                b.type !== 'turn_control' &&
                 d.text_delta
               ) {
                 b.text = (b.text || '') + d.text_delta;
@@ -155,6 +172,7 @@ export function useStream(
                 b.type !== 'file' &&
                 b.type !== 'process' &&
                 b.type !== 'clarification' &&
+                b.type !== 'turn_control' &&
                 d.code_delta
               ) {
                 b.code = (b.code || '') + d.code_delta;
@@ -416,4 +434,31 @@ function clarificationQuestion(value: unknown) {
 function clarificationQuestions(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value.map((item) => clarificationQuestion(item)).filter(Boolean);
+}
+
+function turnControlKind(value: unknown) {
+  if (
+    value === 'guidance' ||
+    value === 'side_chat' ||
+    value === 'queue_action' ||
+    value === 'stop_and_run'
+  ) {
+    return value;
+  }
+  return 'guidance';
+}
+
+function turnControlStatus(value: unknown) {
+  if (
+    value === 'received' ||
+    value === 'waiting_safe_point' ||
+    value === 'applied' ||
+    value === 'answered' ||
+    value === 'cancelled' ||
+    value === 'expired' ||
+    value === 'failed'
+  ) {
+    return value;
+  }
+  return 'received';
 }
