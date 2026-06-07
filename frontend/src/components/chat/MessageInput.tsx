@@ -196,7 +196,7 @@ export function MessageInput({
           rows={1}
           disabled={isUnavailable}
           placeholder={isOffline ? '当前离线，恢复网络后可继续发送' : `发消息到 ${conversation.title}`}
-          className="mobile-text-safe max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-600 [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
+          className="mobile-text-safe max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-base text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-600 sm:text-sm [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
         />
         <button
           type="button"
