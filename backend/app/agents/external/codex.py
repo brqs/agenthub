@@ -6,6 +6,7 @@ import importlib
 import inspect
 import json
 import logging
+import shutil
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -50,6 +51,10 @@ DEFAULT_RUNTIME = "cli"
 DEFAULT_CLI_SANDBOX_MODE = "danger-full-access"
 SUPPORTED_RUNTIMES = {"cli", "sdk"}
 SUPPORTED_CLI_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
+CODEX_CLI_MISSING_ERROR = (
+    "Codex CLI command 'codex' was not found in backend container PATH. "
+    "Install Codex in the backend image or configure this agent to use an available runtime."
+)
 TEXT_EVENT_NAMES = {
     "text_delta",
     "text",
@@ -78,6 +83,26 @@ SKIP_EVENT_NAMES = {
 }
 
 logger = logging.getLogger(__name__)
+
+
+def codex_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str | None]:
+    runtime = str((config or {}).get("runtime") or DEFAULT_RUNTIME).strip().lower()
+    if runtime not in SUPPORTED_RUNTIMES:
+        return "invalid", "Codex runtime must be one of: cli, sdk"
+    cli_available = shutil.which("codex") is not None
+    if runtime == "cli":
+        return ("ready", None) if cli_available else ("unavailable", CODEX_CLI_MISSING_ERROR)
+    try:
+        importlib.import_module(SDK_MODULE_NAME)
+    except ModuleNotFoundError:
+        if cli_available:
+            return "ready", None
+        return "unavailable", CODEX_CLI_MISSING_ERROR
+    except Exception as exc:  # noqa: BLE001
+        if cli_available:
+            return "ready", None
+        return "unavailable", str(exc) or exc.__class__.__name__
+    return "ready", None
 
 
 class CodexAdapter(BaseAgentAdapter):

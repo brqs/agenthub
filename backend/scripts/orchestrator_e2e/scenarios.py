@@ -93,6 +93,11 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         QUALITY_PROMPT,
         runner.main,
     ),
+    "agent_fallback_matrix": _spec(
+        "agent_fallback_matrix",
+        runner.AGENT_FALLBACK_MATRIX_PROMPT,
+        runner.run_agent_fallback_matrix_case,
+    ),
     "fullstack": _spec("fullstack", runner.FULLSTACK_PROMPT, runner.main),
     "deployment": _spec("deployment", runner.DEPLOYMENT_PROMPT, runner.main),
     "deployment_repair": _spec(

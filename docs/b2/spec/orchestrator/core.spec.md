@@ -388,14 +388,16 @@ per-task fallback 是 v1.2 的子任务级重试机制，和规划失败 fallbac
 
 | 字段 | 默认 | 说明 |
 |---|---:|---|
-| `task_fallback_agent_ids` | `[]` | 可用于子任务 fallback 的 Agent id 列表。 |
-| `max_task_attempts` | `1` | 单任务最大 attempt 数；建议限制 `1..3`。 |
+| `task_fallback_agent_ids` | `["claude-code", "opencode-helper", "codex-helper"]` | 可用于子任务 fallback 的 Agent id 列表；运行时会按当前会话可用性、cooldown 和显式配置过滤。 |
+| `max_task_attempts` | `3` | 单任务最大 attempt 数；限制 `1..3`。 |
 
 规则：
 
-- 默认关闭；`task_fallback_agent_ids=[]` 或 `max_task_attempts=1` 时不重试。
-- 只有 `failed` 或 `artifact_missing` 会触发 fallback。
+- 配置 `task_fallback_agent_ids=[]` 或 `max_task_attempts=1` 时不重试。
+- `failed`、`artifact_missing` 或 `evaluation_failed` 会触发 fallback。
 - fallback agent 不能与本 attempt 使用的 agent 相同。
+- 任意 Agent 出现 quota/auth/permission/CLI missing/runtime crash/timeout 等硬失败后，Orchestrator 会将该 Agent 放入短期 cooldown，后续 planner 与 fallback selection 会跳过它，避免反复派给已失败 runtime。
+- 首选 Agent 会先尝试；失败后从当前会话可用 Agent、配置 fallback Agent、managed/default Agent 中选择能力范围内的替代者。显式 Orchestrator-routed mention 也会先尝试被点名 Agent，失败后透明 fallback。
 - fallback attempt 使用同一 `task.instruction`，并额外注入上一次失败原因。
 - fallback attempt 的 tool call id 前缀使用 `<task_id>.attempt-<n>.<child_call_id>`。
 - 所有 attempts 失败后，任务最终状态为最后一次失败状态。
