@@ -5,6 +5,11 @@
 @layer base {
   :root {
     --native-safe-area-top: 0px;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+      "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+    --font-mono: "SFMono-Regular", "SF Mono", "Cascadia Code", "JetBrains Mono",
+      Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   }
 
   html.is-native-shell {
@@ -15,10 +20,21 @@
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
     scrollbar-color: #334155 #020617;
     scrollbar-width: thin;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
     @apply font-sans;
+    font-variant-numeric: tabular-nums;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
   }
 
   html:not(.dark) {
