@@ -487,12 +487,14 @@ AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
     {
         "name": "agent_fallback_codex_unavailable",
         "target_agent_id": "codex-helper",
+        "fallback_agent_id": "opencode-helper",
         "artifact_path": "fallback-codex.md",
         "agent_config_patch": {"runtime": "unavailable-runtime"},
     },
     {
         "name": "agent_fallback_claude_unavailable",
         "target_agent_id": "claude-code",
+        "fallback_agent_id": "opencode-helper",
         "artifact_path": "fallback-claude.md",
         "agent_config_patch": {"command": "/tmp/agenthub-missing-claude-cli"},  # noqa: S108
         "agent_provider_patch": "agenthub_missing_runtime",
@@ -500,6 +502,7 @@ AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
     {
         "name": "agent_fallback_opencode_unavailable",
         "target_agent_id": "opencode-helper",
+        "fallback_agent_id": "claude-code",
         "artifact_path": "fallback-opencode.md",
         "agent_config_patch": {"command": "/tmp/agenthub-missing-opencode-cli"},  # noqa: S108
     },
@@ -1190,6 +1193,7 @@ async def _restore_agent_provider(agent_id: str, provider: str) -> dict[str, Any
 async def _patch_orchestrator_static_task_config(
     *,
     target_agent_id: str,
+    fallback_agent_id: str,
     artifact_path: str,
 ) -> dict[str, Any]:
     return await _patch_builtin_agent_config(
@@ -1199,18 +1203,8 @@ async def _patch_orchestrator_static_task_config(
             "llm_planning": False,
             "orchestrator_parallel_enabled": False,
             "max_task_attempts": 3,
-            "managed_agent_ids": [
-                "claude-code",
-                "opencode-helper",
-                "codex-helper",
-                "writer",
-            ],
-            "task_fallback_agent_ids": [
-                "claude-code",
-                "opencode-helper",
-                "codex-helper",
-                "writer",
-            ],
+            "managed_agent_ids": [target_agent_id, fallback_agent_id],
+            "task_fallback_agent_ids": [fallback_agent_id],
             "tasks": [
                 {
                     "task_id": "fallback-task",
@@ -1457,8 +1451,7 @@ def child_messages_for_user(
         if item.get("role") == "agent"
         and item.get("id") != parent_message_id
         and item.get("reply_to_id") == user_message_id
-        and item.get("agent_id")
-        in {"codex-helper", "claude-code", "opencode-helper", "writer", "web-designer"}
+        and item.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
     ]
 
 
@@ -1503,8 +1496,7 @@ def group_process_report(
     parent_embedded_child_blocks = [
         block
         for block in message_blocks(parent_message)
-        if block.get("agent_id")
-        in {"codex-helper", "claude-code", "opencode-helper", "writer", "web-designer"}
+        if block.get("agent_id") in {"codex-helper", "claude-code", "opencode-helper"}
     ]
     return {
         "message_start_agents": message_start_agents,
@@ -2576,7 +2568,8 @@ def run_agent_fallback_matrix_case(
         original_orchestrator_config: dict[str, Any] | None = None
         original_agent_config: dict[str, Any] | None = None
         original_agent_provider: str | None = None
-        original_writer_config: dict[str, Any] | None = None
+        fallback_agent_id = str(case["fallback_agent_id"])
+        original_fallback_agent_config: dict[str, Any] | None = None
         try:
             original_agent_config = asyncio.run(
                 _patch_builtin_agent_config(
@@ -2589,9 +2582,9 @@ def run_agent_fallback_matrix_case(
                 original_agent_provider = asyncio.run(
                     _patch_agent_provider(target_agent_id, provider_patch.strip())
                 )
-            original_writer_config = asyncio.run(
+            original_fallback_agent_config = asyncio.run(
                 _patch_builtin_agent_config(
-                    "writer",
+                    fallback_agent_id,
                     {
                         "allowed_tools": ["write_file"],
                         "max_iterations": 4,
@@ -2601,6 +2594,7 @@ def run_agent_fallback_matrix_case(
             original_orchestrator_config = asyncio.run(
                 _patch_orchestrator_static_task_config(
                     target_agent_id=target_agent_id,
+                    fallback_agent_id=fallback_agent_id,
                     artifact_path=artifact_path,
                 )
             )
@@ -2610,7 +2604,7 @@ def run_agent_fallback_matrix_case(
                 json={
                     "title": f"{case['name']} Live E2E {int(started_at)}",
                     "mode": "group",
-                    "agent_ids": ["orchestrator", target_agent_id, "writer"],
+                    "agent_ids": ["orchestrator", target_agent_id, fallback_agent_id],
                 },
             )
             conversation.raise_for_status()
@@ -2715,16 +2709,16 @@ def run_agent_fallback_matrix_case(
                         "restored": False,
                         "error": str(exc),
                     }
-            if original_writer_config is not None:
+            if original_fallback_agent_config is not None:
                 try:
-                    restores["writer"] = asyncio.run(
+                    restores[fallback_agent_id] = asyncio.run(
                         _restore_builtin_agent_config(
-                            "writer",
-                            original_writer_config,
+                            fallback_agent_id,
+                            original_fallback_agent_config,
                         )
                     )
                 except Exception as exc:  # noqa: BLE001
-                    restores["writer"] = {"restored": False, "error": str(exc)}
+                    restores[fallback_agent_id] = {"restored": False, "error": str(exc)}
             case_report["restores"] = restores
         case_reports.append(case_report)
 

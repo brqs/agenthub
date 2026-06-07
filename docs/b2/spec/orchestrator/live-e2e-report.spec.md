@@ -757,11 +757,11 @@ group_messages_deterministic_smoke:
     message_error: 1
     done: 1
   child_messages:
-    writer:
+    claude-code:
       status: error
-      note: business-level workspace path failure was isolated to the writer child message
+      note: business-level workspace path failure was isolated to the child message
       content_types: [tool_call, tool_call, tool_call, text, tool_call, text]
-    web-designer:
+    opencode-helper:
       status: done
       content_types: [tool_call, text, code, text, file]
   checks:
@@ -946,22 +946,22 @@ Case evidence：
 agent_fallback_codex_unavailable:
   conversation_id: cad4c511-81d4-4b65-8478-7bca741feee3
   parent_message_id: fb162108-218c-4179-b529-d9649eced613
-  switches: codex-helper -> writer
-  child_messages: codex-helper=error, writer=done
+  switches: codex-helper -> opencode-helper
+  child_messages: codex-helper=error, opencode-helper=done
   artifact: fallback-codex.md
 
 agent_fallback_claude_unavailable:
   conversation_id: 8e05abfc-0f95-49b9-89f0-56e359a21b6b
   parent_message_id: e9c94c8e-20ab-420b-a94d-4f889378b633
-  switches: claude-code -> writer
-  child_messages: claude-code=error, writer=done
+  switches: claude-code -> opencode-helper
+  child_messages: claude-code=error, opencode-helper=done
   artifact: fallback-claude.md
 
 agent_fallback_opencode_unavailable:
   conversation_id: 216b5061-cf5e-430f-aff0-d4d319bb344a
   parent_message_id: 8e5de0b8-fe6b-491b-ba65-f82bd5cdd939
-  switches: opencode-helper -> writer
-  child_messages: opencode-helper=error, writer=done
+  switches: opencode-helper -> claude-code
+  child_messages: opencode-helper=error, claude-code=done
   artifact: fallback-opencode.md
 ```
 

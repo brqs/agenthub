@@ -21,13 +21,6 @@ const customAgent: Agent = {
   provider: 'custom',
 };
 
-const designerAgent: Agent = {
-  ...openAiAgent,
-  id: 'web-designer',
-  name: 'Web Designer',
-  provider: 'custom',
-};
-
 describe('AgentAvatar', () => {
   it('uses provider logo assets for supported AI companies', () => {
     render(<AgentAvatar agent={openAiAgent} />);
@@ -49,13 +42,6 @@ describe('AgentAvatar', () => {
 
     expect(screen.queryByAltText('Orchestrator logo')).not.toBeInTheDocument();
     expect(screen.queryByText('O')).not.toBeInTheDocument();
-  });
-
-  it('uses the local Web Designer role icon', () => {
-    render(<AgentAvatar agent={designerAgent} />);
-
-    expect(screen.queryByAltText('Web Designer logo')).not.toBeInTheDocument();
-    expect(screen.queryByText('W')).not.toBeInTheDocument();
   });
 
   it('falls back to initials for unknown custom agents', () => {

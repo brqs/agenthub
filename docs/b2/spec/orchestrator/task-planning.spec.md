@@ -174,7 +174,6 @@ MVP 由 `orchestrator/clarification.py` 实现，并通过 `clarification` Conte
 | `claude-code` | `@claude-code`, `claude code`, `claudecode` |
 | `codex-helper` | `@codex-helper`, `codex helper`, `codex` |
 | `opencode-helper` | `@opencode-helper`, `open code`, `opencode` |
-| `web-designer` | `@web-designer`, `web designer` |
 
 命中后会按 mention 在消息中的出现顺序创建一组 `direct-*` 任务：
 

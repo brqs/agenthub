@@ -33,6 +33,29 @@ from app.services.orchestrator_memory import (
 from app.services.orchestrator_platform_tools import OrchestratorPlatformToolExecutor
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 
+AGENT_PLANNING_TEXT_MAX_CHARS = 1200
+AGENT_PLANNING_CONFIG_TEXT_KEYS = (
+    "description",
+    "planning_profile",
+    "planner_description",
+    "planning_notes",
+    "role_description",
+)
+AGENT_PLANNING_CONFIG_LIST_KEYS = (
+    "allowed_tools",
+    "planning_strengths",
+    "planning_weaknesses",
+    "preferred_task_types",
+)
+AGENT_PLANNING_CONFIG_SCALAR_KEYS = (
+    "model_backend",
+    "answer_model_backend",
+    "planner_model_backend",
+    "qa_model_backend",
+    "qa_model",
+    "runtime",
+)
+
 
 def _agent_context(agent: Agent) -> dict[str, Any]:
     capabilities = agent.capabilities if isinstance(agent.capabilities, list) else []
@@ -43,18 +66,28 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         "capabilities": [item for item in capabilities if isinstance(item, str)],
         "is_builtin": agent.is_builtin,
     }
+    system_prompt_summary = _planning_text(agent.system_prompt)
+    if system_prompt_summary:
+        context["system_prompt_summary"] = system_prompt_summary
     if isinstance(agent.config, dict):
-        for key in (
-            "model_backend",
-            "answer_model_backend",
-            "planner_model_backend",
-            "qa_model_backend",
-            "qa_model",
-            "runtime",
-        ):
+        for key in AGENT_PLANNING_CONFIG_SCALAR_KEYS:
             value = agent.config.get(key)
             if isinstance(value, str) and value.strip():
                 context[key] = value.strip()
+        for key in AGENT_PLANNING_CONFIG_TEXT_KEYS:
+            value = _planning_text(agent.config.get(key))
+            if value:
+                context[key] = value
+        for key in AGENT_PLANNING_CONFIG_LIST_KEYS:
+            value = agent.config.get(key)
+            if isinstance(value, list):
+                items = [
+                    item.strip()
+                    for item in value
+                    if isinstance(item, str) and item.strip()
+                ]
+                if items:
+                    context[key] = items[:40]
     if agent.provider == "opencode":
         status, error = opencode_runtime_status(
             agent.config if isinstance(agent.config, dict) else None
@@ -85,6 +118,17 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         context["runtime_available"] = False
         context["runtime_error"] = cooldown_error
     return context
+
+
+def _planning_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.replace("\x00", "").split())
+    if not normalized:
+        return None
+    if len(normalized) > AGENT_PLANNING_TEXT_MAX_CHARS:
+        return f"{normalized[:AGENT_PLANNING_TEXT_MAX_CHARS].rstrip()}..."
+    return normalized
 
 
 async def _orchestrator_conversation_config(

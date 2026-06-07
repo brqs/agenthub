@@ -71,7 +71,7 @@ const conversation: DemoConversation = {
   id: 'conv-panel',
   title: '右栏状态测试',
   mode: 'group',
-  agent_ids: ['orchestrator', 'web-designer', 'codex-helper', 'claude-code'],
+  agent_ids: ['orchestrator', 'opencode-helper', 'codex-helper', 'claude-code'],
   is_pinned: false,
   is_archived: false,
   last_message_at: new Date().toISOString(),
@@ -94,7 +94,7 @@ const messages: DemoMessage[] = [
         title: '右栏任务流',
         tasks: [
           { id: 'task-1', agent_id: 'orchestrator', title: '拆解任务', status: 'done' },
-          { id: 'task-2', agent_id: 'web-designer', title: '优化层级', status: 'done' },
+          { id: 'task-2', agent_id: 'opencode-helper', title: '优化层级', status: 'done' },
           { id: 'task-3', agent_id: 'codex-helper', title: '输出实现', status: 'running' },
           { id: 'task-4', agent_id: 'claude-code', title: '复核风险', status: 'pending' },
         ],

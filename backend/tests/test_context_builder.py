@@ -343,7 +343,7 @@ async def test_key_facts_survive_long_history_summary() -> None:
 async def test_group_long_history_creates_shared_memory_with_agent_labels() -> None:
     conversation_id = await _create_conversation(
         mode="group",
-        agent_ids=["claude-code", "codex-helper", "web-designer"],
+        agent_ids=["claude-code", "codex-helper", "opencode-helper"],
     )
     rows: list[tuple[str, str, str | None, str, bool]] = [
         (
