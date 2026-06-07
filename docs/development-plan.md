@@ -461,7 +461,6 @@ ContentBlock = Annotated[
 | `claude-code` | Claude Code | claude_code | 编码助手，擅长写/改代码 |
 | `codex-helper` | Codex Helper | codex | Codex runtime，通用编码助手 |
 | `opencode-helper` | OpenCode Helper | opencode | OpenCode runtime，CLI 型编码助手 |
-| `web-designer` | Web Designer | builtin | System Prompt 设定为 UI 设计专家 |
 | `orchestrator` | Orchestrator | builtin / orchestrator 特例 | 任务拆解+分派的主 Agent |
 
 ---

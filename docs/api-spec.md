@@ -1092,7 +1092,7 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
       "avatar_url": "/avatars/orchestrator.png",
       "capabilities": ["task_decomposition", "coordination"],
       "system_prompt": "你是任务协调专家...",
-      "config": {"model_backend": "claude", "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper", "web-designer"]},
+      "config": {"model_backend": "claude", "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper"]},
       "is_builtin": true,
       "created_at": "2026-05-22T00:00:00Z"
     }
