@@ -313,4 +313,52 @@ describe('MessageInput', () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(input).toHaveValue('带附件发送');
   });
+
+  it('limits attachments to ten files before upload', async () => {
+    uploadFileMock.mockImplementation(async ({ filename }) => ({
+      id: `upload-${filename}`,
+      filename,
+      content_type: 'text/plain',
+      detected_content_type: 'text/plain',
+      size_bytes: 4,
+      sha256: 'hash',
+      purpose: 'message_attachment',
+      status: 'ready',
+      safety_status: 'passed',
+      preview: { kind: 'text', text_preview: filename },
+    }));
+    const { container } = render(
+      <MessageInput conversation={singleConversation} onSend={vi.fn()} />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: Array.from({ length: 11 }, (_, index) =>
+          new File(['demo'], `file-${index}.txt`, { type: 'text/plain' }),
+        ),
+      },
+    });
+
+    expect(await screen.findByText(/已忽略多余文件/)).toBeInTheDocument();
+    await waitFor(() => expect(uploadFileMock).toHaveBeenCalledTimes(10));
+    expect(screen.queryByText('file-10.txt')).not.toBeInTheDocument();
+  });
+
+  it('does not open uploads while offline', () => {
+    const { container } = render(
+      <MessageInput conversation={singleConversation} onSend={vi.fn()} isOffline />,
+    );
+    const addButton = screen.getByRole('button', { name: '添加附件' });
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    expect(addButton).toBeDisabled();
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(['demo'], 'offline.txt', { type: 'text/plain' })],
+      },
+    });
+    expect(screen.getByText(/恢复网络后再上传附件/)).toBeInTheDocument();
+    expect(uploadFileMock).not.toHaveBeenCalled();
+  });
 });

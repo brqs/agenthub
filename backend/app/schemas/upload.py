@@ -8,7 +8,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-
 UploadPurpose = Literal["message_attachment", "workspace_file"]
 UploadStatus = Literal["ready", "processing", "failed", "deleted"]
 UploadSafetyStatus = Literal["pending", "passed", "blocked", "manual_review_required"]
