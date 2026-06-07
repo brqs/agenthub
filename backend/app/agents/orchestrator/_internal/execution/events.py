@@ -110,7 +110,11 @@ def append_limited(existing: str, addition: str, max_chars: int) -> str:
 
 
 def error_reason(chunk: StreamChunk) -> str:
-    return chunk.error or chunk.error_code or "unknown error"
+    error = str(chunk.error or "").strip()
+    error_code = str(chunk.error_code or "").strip()
+    if error and error_code and error_code not in error:
+        return f"{error} ({error_code})"
+    return error or error_code or "unknown error"
 
 
 def is_read_before_write_error(text: str | None) -> bool:

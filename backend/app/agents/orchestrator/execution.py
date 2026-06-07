@@ -34,6 +34,9 @@ from app.agents.orchestrator._internal.execution.attempts import (
     parallel_max_concurrency as _parallel_max_concurrency,
 )
 from app.agents.orchestrator._internal.execution.attempts import (
+    preferred_agent_for_task as _preferred_agent_for_task,
+)
+from app.agents.orchestrator._internal.execution.attempts import (
     task_fallback_agent_ids as _task_fallback_agent_ids,
 )
 from app.agents.orchestrator._internal.execution.attempts import (
@@ -280,34 +283,71 @@ def _visible_failure_reason(reason: str) -> str:
     return "执行结果没有满足本阶段验收条件。"
 
 
+def _unavailable_agent_reason(
+    run_context: OrchestratorRunContext,
+    agent_id: str,
+) -> str:
+    failure_reason = run_context.runtime_agent_failure_reasons.get(agent_id)
+    if failure_reason:
+        return _visible_failure_reason(failure_reason)
+    return "该 Agent 当前不在本次群聊可执行范围内，或运行时暂不可用。"
+
+
 def _is_runtime_hard_failure(reason: str | None) -> bool:
     lowered = str(reason or "").lower()
     if not lowered:
         return False
-    markers = (
+    auth_markers = (
         "api key",
         "api_key",
         "auth",
         "claude.json",
-        "codex cli",
-        "command",
         "credential",
-        "external_runtime",
-        "idle timeout",
         "login",
         "not authenticated",
-        "not found",
+        "unauthorized",
         "permission denied",
+    )
+    quota_markers = (
         "quota",
         "rate limit",
-        "runtime",
-        "timed out",
-        "timeout",
         "too many requests",
-        "unauthorized",
         "usage limit",
     )
-    return any(marker in lowered for marker in markers)
+    runtime_markers = (
+        "external_runtime",
+        "runtime unavailable",
+        "provider runtime unavailable",
+        "runtime not available",
+        "runtime_idle_timeout",
+        "idle timeout",
+        "timed out before agent finished",
+    )
+    cli_missing_markers = (
+        "codex cli",
+        "claude cli",
+        "opencode cli",
+        "command not found",
+        "executable not found",
+        "cli missing",
+        "runtime binary missing",
+    )
+    timeout_markers = (
+        "runtime timeout",
+        "stream timeout",
+        "agent timeout",
+        "timed out before agent finished",
+    )
+    return any(
+        marker in lowered
+        for marker in (
+            *auth_markers,
+            *quota_markers,
+            *runtime_markers,
+            *cli_missing_markers,
+            *timeout_markers,
+        )
+    )
 
 
 @dataclass(slots=True)
@@ -567,14 +607,41 @@ async def _run_task(
     task_result = TaskResult(task_id=task.task_id, title=task.title)
     fallback_agents = _task_fallback_agent_ids(config)
     max_attempts = _max_task_attempts(config)
-    attempted_agents: set[str] = set()
+    considered_agents: set[str] = set()
 
-    for attempt_index in range(1, max_attempts + 1):
-        agent_id = _agent_for_attempt(task, fallback_agents, attempted_agents)
+    while len(task_result.attempts) < max_attempts:
+        selection = _agent_for_attempt(
+            task,
+            fallback_agents,
+            considered_agents,
+            config,
+            run_context,
+        )
+        for skipped_agent_id in selection.skipped_agent_ids:
+            considered_agents.add(skipped_agent_id)
+            reason = _unavailable_agent_reason(run_context, skipped_agent_id)
+            if skipped_agent_id not in task_result.skipped_unavailable_agents:
+                task_result.skipped_unavailable_agents.append(skipped_agent_id)
+            run_context.record_runtime_agent_skip(
+                task.task_id,
+                skipped_agent_id,
+                reason,
+            )
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="agent_runtime_unavailable_skipped",
+                task_id=task.task_id,
+                agent_id=skipped_agent_id,
+                payload={"reason": reason},
+            )
+
+        agent_id = selection.agent_id
         if agent_id is None:
             break
-        attempted_agents.add(agent_id)
+        considered_agents.add(agent_id)
 
+        attempt_index = len(task_result.attempts) + 1
         attempt = TaskAttempt(attempt_index=attempt_index, agent_id=agent_id)
         task_result.attempts.append(attempt)
         before_snapshot = snapshot_workspace(workspace_path)
@@ -840,6 +907,10 @@ async def _run_task(
         if attempt.state != TaskState.SUCCEEDED and _is_runtime_hard_failure(
             attempt.error
         ):
+            run_context.mark_runtime_failed(
+                agent_id,
+                attempt.error or "runtime unavailable",
+            )
             mark_runtime_cooldown(agent_id, attempt.error or "runtime unavailable")
             await _memory_record_event(
                 config,
@@ -961,9 +1032,12 @@ async def _run_parallel_tasks(
                     yield skipped_chunk, next_block_index
             break
 
-        batch = sorted(runnable, key=lambda task: (task.priority, task.task_id))[
-            :max_concurrency
-        ]
+        batch = _select_parallel_batch(
+            config,
+            run_context,
+            runnable,
+            max_concurrency,
+        )
         for task in batch:
             running_chunk = _process_step_delta(
                 config,
@@ -1039,6 +1113,29 @@ async def _run_parallel_tasks(
         presented_summary,
     ):
         yield chunk, updated_block_index
+
+
+def _select_parallel_batch(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    runnable: list[SubTask],
+    max_concurrency: int,
+) -> list[SubTask]:
+    ordered = sorted(runnable, key=lambda task: (task.priority, task.task_id))
+    selected: list[SubTask] = []
+    reserved_agents: set[str] = set()
+    for task in ordered:
+        agent_id = _preferred_agent_for_task(config, run_context, task)
+        if agent_id is not None and agent_id in reserved_agents:
+            continue
+        selected.append(task)
+        if agent_id is not None:
+            reserved_agents.add(agent_id)
+        if len(selected) >= max_concurrency:
+            break
+    if selected:
+        return selected
+    return ordered[:1]
 
 
 async def _stream_parallel_batch(

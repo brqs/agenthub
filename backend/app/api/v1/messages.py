@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from app.api.v1.conversations import _get_owned_conversation, _validate_visible_agent_ids
 from app.core.deps import DbSession, get_current_user
+from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.message_queue import MessageQueueEntry
 from app.models.upload import Upload
@@ -58,7 +59,7 @@ async def _get_active_agent_message(db: DbSession, conv_id: UUID) -> Message | N
 async def _resolve_target_agent_id(
     db: DbSession,
     user_id: UUID,
-    conv,
+    conv: Conversation,
     target_agent_id: str | None,
 ) -> str:
     resolved_target_agent_id = target_agent_id

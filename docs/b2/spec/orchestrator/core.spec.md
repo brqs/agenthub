@@ -396,12 +396,16 @@ per-task fallback 是 v1.2 的子任务级重试机制，和规划失败 fallbac
 - 配置 `task_fallback_agent_ids=[]` 或 `max_task_attempts=1` 时不重试。
 - `failed`、`artifact_missing` 或 `evaluation_failed` 会触发 fallback。
 - fallback agent 不能与本 attempt 使用的 agent 相同。
-- 任意 Agent 出现 quota/auth/permission/CLI missing/runtime crash/timeout 等硬失败后，Orchestrator 会将该 Agent 放入短期 cooldown，后续 planner 与 fallback selection 会跳过它，避免反复派给已失败 runtime。
-- 首选 Agent 会先尝试；失败后从当前会话可用 Agent、配置 fallback Agent、managed/default Agent 中选择能力范围内的替代者。显式 Orchestrator-routed mention 也会先尝试被点名 Agent，失败后透明 fallback。
+- 每次 attempt 前必须过滤当前会话不可运行 Agent、全局 cooldown Agent、本次 run 内已硬失败 Agent，以及不在 group scope 内的 Agent。
+- 如果首选 Agent 已由 `available_agents` 声明为不可运行，Orchestrator 不创建该 Agent child message，也不先输出失败气泡；process / memory 只记录“检测到不可用并改派”。
+- 任意 Agent 出现 auth/quota/credential/CLI missing/provider runtime unavailable/明确 runtime timeout 等硬失败后，Orchestrator 会将该 Agent 写入本次 run-local unavailable，并可放入短期 cooldown；本次 run 的后续 task、后续并行 batch 和 fallback selection 会跳过 run-local unavailable Agent，全局 cooldown 则可影响后续 planner / fallback selection。
+- `artifact_missing`、普通文件 `not found`、业务验证失败、构建/test 失败不等同 runtime hard failure；这些状态只触发当前 task fallback / repair，不让 Agent 进入 runtime cooldown。
+- 首选 Agent 会先尝试，除非执行前已知不可运行；失败后从当前会话可用 Agent、配置 fallback Agent、managed/default Agent 中选择能力范围内的替代者。显式 Orchestrator-routed mention 也会先尝试被点名 Agent，失败后透明 fallback。
 - fallback attempt 使用同一 `task.instruction`，并额外注入上一次失败原因。
 - fallback attempt 的 tool call id 前缀使用 `<task_id>.attempt-<n>.<child_call_id>`。
 - 所有 attempts 失败后，任务最终状态为最后一次失败状态。
 - summary 必须列出每次 attempt 的 agent、状态和原因。
+- 真实群聊中，失败 child message 与 `message_error.error` 必须走用户可见错误清洗，不暴露 `Permission denied`、`[Errno`、`.claude.json`、`/root/.agenthub`、raw stderr、stack trace 或 `call_`。
 
 ---
 

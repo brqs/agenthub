@@ -14,10 +14,23 @@ from tests.orchestrator_fakes import (
     FakeAnswerGateway,
     FakePlannerGateway,
     FakeSubAdapter,
-    _collect,
     _task,
     _text_chunks,
 )
+from tests.orchestrator_fakes import (
+    _collect as _collect_base,
+)
+
+
+async def _collect(adapter, config=None, messages=None, workspace_path=None):
+    stream_config = dict(config or {})
+    stream_config.setdefault("clarification_gate_enabled", False)
+    return await _collect_base(
+        adapter,
+        config=stream_config,
+        messages=messages,
+        workspace_path=workspace_path,
+    )
 
 
 def test_planner_prompt_references_agent_capability_profile_rule() -> None:
@@ -577,11 +590,48 @@ async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
     assert any("Implement frontend artifacts" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Implement backend artifacts" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Review fullstack delivery" in (chunk.text_delta or "") for chunk in chunks)
-    assert "Do not automatically request /api/okrs" in claude.received_messages[-1].content
+    assert "Do not automatically request same-origin API URLs" in (
+        claude.received_messages[-1].content
+    )
     assert "backend_app.py, api.md, backend_tests.md" in (
         opencode.received_messages[-1].content
     )
     assert "frontend/backend API consistency" in codex.received_messages[-1].content
+
+
+async def test_fullstack_delivery_template_does_not_hardcode_okr_theme() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("created frontend"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("created backend"))
+    codex = FakeSubAdapter("codex-helper", _text_chunks("created review"))
+    request = (
+        "@orchestrator 请完成一个前后端产品交付演示，主题是“客户支持工单平台”。"
+        "产出 planning.md、index.html、styles.css、app.js、backend_app.py、api.md、"
+        "backend_tests.md 和 review.md。"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+                "codex-helper": codex,
+            },
+        },
+    )
+
+    all_instructions = "\n".join(
+        message.content
+        for adapter in (claude, opencode, codex)
+        for message in adapter.received_messages
+    )
+    assert chunks[-1].event_type == "done"
+    assert "客户支持工单平台" in all_instructions
+    assert "团队 OKR 轻量看板" not in all_instructions
+    assert "/api/okrs" not in all_instructions
 
 
 async def test_orchestrator_filters_planner_port_service_tasks() -> None:

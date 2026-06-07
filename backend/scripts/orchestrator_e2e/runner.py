@@ -2661,16 +2661,27 @@ def run_agent_fallback_matrix_case(
                 if isinstance(agent_id, str)
             ]
             fallback_agents = [
-                agent_id for agent_id in switches[1:] if agent_id != target_agent_id
+                agent_id for agent_id in switches if agent_id != target_agent_id
             ]
             child_statuses = {
                 str(item.get("agent_id")): item.get("status") for item in child_messages
             }
+            target_attempted = bool(switches and switches[0] == target_agent_id)
+            target_skipped_before_attempt = bool(
+                switches
+                and switches[0] != target_agent_id
+                and child_statuses.get(target_agent_id) is None
+            )
             checks = case_report["checks"]
             checks["parent_done"] = bool(target and target.get("status") == "done")
-            checks["target_attempted_first"] = bool(switches and switches[0] == target_agent_id)
+            checks["target_attempted_or_skipped"] = (
+                target_attempted or target_skipped_before_attempt
+            )
             checks["fallback_agent_selected"] = bool(fallback_agents)
-            checks["target_child_error_seen"] = child_statuses.get(target_agent_id) == "error"
+            checks["target_child_error_or_preflight_skip_seen"] = (
+                child_statuses.get(target_agent_id) == "error"
+                or target_skipped_before_attempt
+            )
             checks["fallback_child_done_seen"] = any(
                 item.get("agent_id") in fallback_agents and item.get("status") == "done"
                 for item in child_messages
@@ -2681,6 +2692,8 @@ def run_agent_fallback_matrix_case(
                 int(case_report["group_chat"]["parent_embedded_child_block_count"]) == 0
             )
             case_report["fallback_agents"] = fallback_agents
+            case_report["target_attempted"] = target_attempted
+            case_report["target_skipped_before_attempt"] = target_skipped_before_attempt
             case_report["forbidden_visible_terms"] = forbidden_terms
             case_report["passed"] = all(checks.values())
         except Exception as exc:  # noqa: BLE001
