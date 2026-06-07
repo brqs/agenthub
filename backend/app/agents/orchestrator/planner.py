@@ -28,7 +28,9 @@ AGENT_CAPABILITY_PROFILE_HEADER = (
     "Agent capability profile from recent Orchestrator runs:"
 )
 ORCHESTRATOR_MEMORY_HEADER = "Previous Orchestrator structured memory:"
+MEMORYHUB_CONTEXT_HEADER = "MemoryHub mounted context:"
 PLANNER_MEMORY_SECTION_HEADERS = (
+    MEMORYHUB_CONTEXT_HEADER,
     AGENT_CAPABILITY_PROFILE_V2_HEADER,
     USER_PREFERENCE_MEMORY_HEADER,
     AGENT_CAPABILITY_PROFILE_HEADER,
@@ -247,6 +249,7 @@ def _planner_memory_context(messages: list[ChatMessage]) -> str:
         if message.role != "system":
             continue
         for header in (
+            MEMORYHUB_CONTEXT_HEADER,
             AGENT_CAPABILITY_PROFILE_V2_HEADER,
             USER_PREFERENCE_MEMORY_HEADER,
             AGENT_CAPABILITY_PROFILE_HEADER,

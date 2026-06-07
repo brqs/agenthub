@@ -685,3 +685,43 @@ uv run python -m mypy app/agents app/services app/schemas/agent.py
 ## 2026-06-07 Memory Status Addendum
 
 Structured Orchestrator memory now treats `interrupted` as a terminal run/task-attempt state. It is distinct from `cancelled`: `interrupted` means the user explicitly clicked Stop on the agent turn; `cancelled` remains legacy/system cancellation language. Recent-run memory injection may include interrupted runs so Orchestrator can answer follow-up questions about stopped work.
+
+## 2026-06-07 MemoryHub Addendum
+
+AgentHub now has a local Supermemory-style `MemoryHub` layer for important memory and dynamic context mounting.
+
+Core contract:
+
+- `MemoryHub` is the primary long-term semantic memory source for normal agent context. `ConversationMemory.summary_text` remains as legacy fallback/debug context when MemoryHub has no useful mounted context.
+- `orchestrator_runs`, `orchestrator_tasks`, `orchestrator_task_attempts`, and `orchestrator_run_events` remain the authoritative execution fact source. Semantic memory must not override run/task status, group-scoped dispatch boundaries, retry/interrupt/queue state, or workspace audit facts.
+- Each turn may mount relevant active memories into a temporary system message headed `MemoryHub mounted context:`. The mount is per turn and is recorded in `memory_mounts`; it does not permanently pin those memories into every future prompt.
+- Memory scopes are explicit: `user`, `conversation`, `workspace`, `agent`, `group`, and `system`. Recall must only use memories visible to the current owner and relevant current scope.
+- Secret-like content such as API keys, tokens, credentials, authorization headers, and password material must not be auto-promoted into active memory.
+- Temporary facts must carry expiry semantics when detected. User forget/delete marks a memory as `forgotten`; forgotten memories are excluded from recall and mount.
+
+Data model:
+
+- `memories` stores important/candidate semantic memories with source, scope, kind, importance, confidence, status, `container_tag`, normalized conflict key, and metadata.
+- `memory_mounts` stores which memories were mounted for a specific `agent_message_id`, including reason and score.
+
+Context order:
+
+```text
+conversation/group facts
+-> MemoryHub important memories
+-> MemoryHub dynamically mounted related memories
+-> pinned messages
+-> recent raw messages
+-> legacy ConversationMemory summary only if MemoryHub produced no context
+```
+
+Planner boundary:
+
+- The Orchestrator planner may read the `MemoryHub mounted context:` section.
+- Mounted memories are soft background signals. They must not add non-member agents back into a group, bypass runtime availability, or reinterpret a local run/task fact.
+
+Extraction boundary:
+
+- Terminal agent messages may produce deterministic candidate memories.
+- Low-risk stable user preferences and constraints may become active memories; higher-risk or ambiguous facts should remain candidates until user confirmation.
+- Internal ReAct trace, transient runtime errors, raw tool JSON, and unconfirmed guesses should not become important memory.

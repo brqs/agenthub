@@ -379,6 +379,63 @@ Authorization: Bearer eyJhbGc...
 
 ---
 
+### 3.6.1 MemoryHub APIs
+
+MemoryHub is the primary long-term semantic memory layer. It stores important/candidate memories separately from authoritative Orchestrator run/task records.
+
+#### GET `/api/v1/memories`
+
+Returns memories owned by the current user.
+
+Query:
+
+| Parameter | Default | Notes |
+|---|---:|---|
+| `status` | `active` | `candidate`, `active`, `archived`, or `forgotten` |
+| `scope_type` | optional | `user`, `conversation`, `workspace`, `agent`, `group`, or `system` |
+| `scope_id` | optional | UUID for the selected scope |
+| `kind` | optional | memory kind filter |
+| `limit` | `50` | `1..200` |
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "scope_type": "user",
+      "scope_id": "uuid",
+      "kind": "preference",
+      "content": "User prefers concise Chinese explanations.",
+      "importance": "normal",
+      "confidence": 0.75,
+      "status": "active",
+      "source_type": "message",
+      "source_id": "uuid",
+      "metadata": {},
+      "created_at": "2026-06-07T12:00:00Z",
+      "updated_at": "2026-06-07T12:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+#### PATCH `/api/v1/memories/{id}`
+
+Updates a user-owned memory. Supported fields include `content`, `importance`, `confidence`, `status`, and metadata.
+
+#### DELETE `/api/v1/memories/{id}`
+
+Soft-deletes a memory by setting `status="forgotten"`. Forgotten memories are excluded from recall and dynamic mounts.
+
+#### GET `/api/v1/conversations/{id}/memory-mounts`
+
+Returns recent memories dynamically mounted into turns for this conversation. This is a debugging/audit endpoint for explaining why a turn saw a given memory.
+
+---
+
 ### 3.7 GET `/api/v1/conversations/{id}/orchestrator-runs` — Orchestrator 结构化编排记录
 
 **鉴权**：✅
@@ -1931,3 +1988,19 @@ Deployment 是一次可追踪发布记录。Preview 是临时开发预览，Depl
 - When the current agent response reaches `done`, `error`, or `interrupted`, B1 dispatches the queue head and terminal SSE data may include `queued_next`.
 - `queued_next.user_message` replaces the queued bubble with a normal user message; `queued_next.agent_message` is the next pending agent response to stream.
 - Queued messages are next-turn intent. They are not appended to the current runtime context and do not enable parallel agent turns inside the same conversation.
+
+## 2026-06-07 Conversation Control Plane API Addendum
+
+`shared/openapi.yaml` is the machine-readable source of truth for this contract.
+
+- Content blocks now include `turn_control`.
+- `turn_control.kind` is one of `guidance`, `side_chat`, `queue_action`, or `stop_and_run`.
+- `turn_control.status` is one of `received`, `waiting_safe_point`, `applied`, `answered`, `cancelled`, `expired`, or `failed`.
+- `POST /api/v1/messages/{active_message_id}/guidance` records an explicit guide-current-turn instruction. It is currently accepted only for active Orchestrator agent messages that support safe-point guidance.
+- `POST /api/v1/messages/{active_message_id}/side-chat` creates a compact visible side question/answer about current active status without modifying main task context.
+- `POST /api/v1/conversations/{conversation_id}/queued-messages/reorder` updates undispatched queue order.
+- `POST /api/v1/conversations/{conversation_id}/queued-messages/merge` merges multiple undispatched queued user messages into the first selected message.
+- `POST /api/v1/queued-messages/{message_id}/convert-to-guidance` removes the queued entry and converts that text into guidance for the active Orchestrator turn.
+- `POST /api/v1/queued-messages/{message_id}/stop-and-run` promotes a queued message to the front, interrupts the current active turn, and lets normal queued dispatch start it after interruption terminalizes.
+- SSE can emit `turn_control` events to update guidance/side-chat/queue-action state during an active stream.
+- The same conversation still has at most one active agent message. Control-plane operations do not bypass the busy guard.

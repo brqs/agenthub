@@ -17,6 +17,7 @@ from app.core.deps import DbSession, get_current_user
 from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
+from app.models.memory import Memory
 from app.models.user import User
 from app.schemas.conversation import (
     AgentCapabilityProfileItemOut,
@@ -36,6 +37,8 @@ from app.schemas.conversation import (
     UpdateConversationRequest,
     UserPreferenceMemoryOut,
 )
+from app.schemas.memory import MemoryMountList, MemoryMountOut, MemoryOut
+from app.services.memory_hub import MemoryHubService
 from app.services.orchestrator_memory import (
     build_agent_capability_profile,
     build_agent_capability_profile_v2,
@@ -256,6 +259,53 @@ async def get_conversation_agent_capability_profile_v2(
         runs_considered=profile.runs_considered,
         generated_at=profile.generated_at,
         total=len(profile.items),
+    )
+
+
+@router.get("/{conv_id}/memory-mounts", response_model=MemoryMountList)
+async def list_conversation_memory_mounts(
+    conv_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> MemoryMountList:
+    await _get_owned_conversation(db, user.id, conv_id)
+    mounts, total = await MemoryHubService().list_mounts(
+        db,
+        conversation_id=conv_id,
+        limit=limit,
+    )
+    memory_ids = [mount.memory_id for mount in mounts]
+    memories = {}
+    if memory_ids:
+        rows = (
+            await db.execute(
+                select(Memory)
+                .where(Memory.id.in_(memory_ids))
+                .where(Memory.owner_user_id == user.id)
+                .where(Memory.status != "forgotten")
+            )
+        ).scalars().all()
+        memories = {memory.id: memory for memory in rows}
+    return MemoryMountList(
+        items=[
+            MemoryMountOut(
+                id=mount.id,
+                conversation_id=mount.conversation_id,
+                agent_message_id=mount.agent_message_id,
+                memory_id=mount.memory_id,
+                mount_reason=mount.mount_reason,
+                rank_score=mount.rank_score,
+                created_at=mount.created_at,
+                memory=(
+                    MemoryOut.model_validate(memories[mount.memory_id])
+                    if mount.memory_id in memories
+                    else None
+                ),
+            )
+            for mount in mounts
+        ],
+        total=total,
     )
 
 

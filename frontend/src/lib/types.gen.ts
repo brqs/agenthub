@@ -160,6 +160,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/{conv_id}/memory-mounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversation Memory Mounts */
+        get: operations["list_conversation_memory_mounts_api_v1_conversations__conv_id__memory_mounts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations/{conv_id}/orchestrator-runs": {
         parameters: {
             query?: never;
@@ -291,6 +308,108 @@ export interface paths {
         patch: operations["update_queued_message_api_v1_queued_messages__msg_id__patch"];
         trace?: never;
     };
+    "/api/v1/conversations/{conv_id}/queued-messages/reorder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reorder Queued Message Api */
+        post: operations["reorder_queued_message_api_api_v1_conversations__conv_id__queued_messages_reorder_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{conv_id}/queued-messages/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Merge Queued Message Api */
+        post: operations["merge_queued_message_api_api_v1_conversations__conv_id__queued_messages_merge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/messages/{msg_id}/guidance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Guidance */
+        post: operations["create_guidance_api_v1_messages__msg_id__guidance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/messages/{msg_id}/side-chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Side Chat */
+        post: operations["create_side_chat_api_v1_messages__msg_id__side_chat_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queued-messages/{msg_id}/convert-to-guidance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Convert Queued Message To Guidance */
+        post: operations["convert_queued_message_to_guidance_api_v1_queued_messages__msg_id__convert_to_guidance_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queued-messages/{msg_id}/stop-and-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Current And Run Queued Message */
+        post: operations["stop_current_and_run_queued_message_api_v1_queued_messages__msg_id__stop_and_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/messages/{msg_id}": {
         parameters: {
             query?: never;
@@ -363,6 +482,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Agents */
+        get: operations["list_agents_api_v1_agents_get"];
+        put?: never;
+        /** Create Agent */
+        post: operations["create_agent_api_v1_agents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Agent */
+        get: operations["get_agent_api_v1_agents__agent_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Agent */
+        delete: operations["delete_agent_api_v1_agents__agent_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Agent */
+        patch: operations["update_agent_api_v1_agents__agent_id__patch"];
+        trace?: never;
+    };
     "/api/v1/uploads": {
         parameters: {
             query?: never;
@@ -415,41 +571,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/agents": {
+    "/api/v1/memories": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List Agents */
-        get: operations["list_agents_api_v1_agents_get"];
+        /** List Memories */
+        get: operations["list_memories_api_v1_memories_get"];
         put?: never;
-        /** Create Agent */
-        post: operations["create_agent_api_v1_agents_post"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/agents/{agent_id}": {
+    "/api/v1/memories/{memory_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Agent */
-        get: operations["get_agent_api_v1_agents__agent_id__get"];
+        get?: never;
         put?: never;
         post?: never;
-        /** Delete Agent */
-        delete: operations["delete_agent_api_v1_agents__agent_id__delete"];
+        /** Forget Memory */
+        delete: operations["forget_memory_api_v1_memories__memory_id__delete"];
         options?: never;
         head?: never;
-        /** Update Agent */
-        patch: operations["update_agent_api_v1_agents__agent_id__patch"];
+        /** Update Memory */
+        patch: operations["update_memory_api_v1_memories__memory_id__patch"];
         trace?: never;
     };
     "/api/v1/workspaces/{conversation_id}/tree": {
@@ -939,12 +1093,9 @@ export interface components {
             expires_in: number;
             user: components["schemas"]["UserOut"];
         };
-        /** Body Create Upload Api V1 Uploads Post */
+        /** Body_create_upload_api_v1_uploads_post */
         Body_create_upload_api_v1_uploads_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /**
              * Purpose
@@ -1287,6 +1438,11 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** GuidanceRequest */
+        GuidanceRequest: {
+            /** Content */
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1307,6 +1463,120 @@ export interface components {
             username: string;
             /** Password */
             password: string;
+        };
+        /** MemoryList */
+        MemoryList: {
+            /** Items */
+            items: components["schemas"]["MemoryOut"][];
+            /** Total */
+            total: number;
+        };
+        /** MemoryMountList */
+        MemoryMountList: {
+            /** Items */
+            items: components["schemas"]["MemoryMountOut"][];
+            /** Total */
+            total: number;
+        };
+        /** MemoryMountOut */
+        MemoryMountOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Agent Message Id */
+            agent_message_id?: string | null;
+            /**
+             * Memory Id
+             * Format: uuid
+             */
+            memory_id: string;
+            /** Mount Reason */
+            mount_reason: string;
+            /** Rank Score */
+            rank_score: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            memory?: components["schemas"]["MemoryOut"] | null;
+        };
+        /** MemoryOut */
+        MemoryOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Owner User Id
+             * Format: uuid
+             */
+            owner_user_id: string;
+            /**
+             * Scope Type
+             * @enum {string}
+             */
+            scope_type: "user" | "conversation" | "workspace" | "agent" | "group" | "system";
+            /** Scope Id */
+            scope_id?: string | null;
+            /** Container Tag */
+            container_tag: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "preference" | "fact" | "decision" | "constraint" | "project_context" | "agent_profile" | "artifact_note" | "runtime_note";
+            /** Content */
+            content: string;
+            /**
+             * Importance
+             * @enum {string}
+             */
+            importance: "critical" | "high" | "normal" | "low";
+            /** Confidence */
+            confidence: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "candidate" | "active" | "archived" | "forgotten";
+            /** Normalized Key */
+            normalized_key?: string | null;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Supersedes Memory Id */
+            supersedes_memory_id?: string | null;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "message" | "orchestrator_run" | "workspace_file" | "upload" | "manual";
+            /** Source Id */
+            source_id?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** MessageList */
         MessageList: {
@@ -1340,7 +1610,7 @@ export interface components {
             /** Agent Id */
             agent_id?: string | null;
             /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Reply To Id */
             reply_to_id?: string | null;
             /**
@@ -1359,6 +1629,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Queue Position */
+            queue_position?: number | null;
         };
         /** OrchestratorRunDetailOut */
         OrchestratorRunDetailOut: {
@@ -1585,17 +1857,20 @@ export interface components {
             /** Agent Id */
             agent_id?: string | null;
         };
-        /** RegisterRequest */
-        RegisterRequest: {
-            /** Username */
-            username: string;
-            /** Password */
-            password: string;
+        /** QueueMergeRequest */
+        QueueMergeRequest: {
+            /** Message Ids */
+            message_ids: string[];
+            /**
+             * Separator
+             * @default
+             */
+            separator: string;
         };
         /** QueueMessageRequest */
         QueueMessageRequest: {
             /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Target Agent Id */
             target_agent_id?: string | null;
             /** Attachment Ids */
@@ -1607,10 +1882,27 @@ export interface components {
             /** Queue Position */
             queue_position: number;
         };
+        /** QueueReorderRequest */
+        QueueReorderRequest: {
+            /** Message Ids */
+            message_ids: string[];
+        };
+        /** QueueReorderResponse */
+        QueueReorderResponse: {
+            /** Messages */
+            messages: components["schemas"]["MessageOut"][];
+        };
+        /** RegisterRequest */
+        RegisterRequest: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
         /** SendMessageRequest */
         SendMessageRequest: {
             /** Content */
-            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[];
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[];
             /** Target Agent Id */
             target_agent_id?: string | null;
             /** Attachment Ids */
@@ -1621,12 +1913,10 @@ export interface components {
             user_message: components["schemas"]["MessageOut"];
             agent_message: components["schemas"]["MessageOut"];
         };
-        /** UpdateQueuedMessageRequest */
-        UpdateQueuedMessageRequest: {
+        /** SideChatRequest */
+        SideChatRequest: {
             /** Content */
-            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["ToolCallBlock"])[] | null;
-            /** Target Agent Id */
-            target_agent_id?: string | null;
+            content: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[];
         };
         /** TaskCardBlock */
         TaskCardBlock: {
@@ -1697,6 +1987,95 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
         };
+        /** TurnControlBlock */
+        TurnControlBlock: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "turn_control";
+            /** Agent Id */
+            agent_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "guidance" | "side_chat" | "queue_action" | "stop_and_run";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "received" | "waiting_safe_point" | "applied" | "answered" | "cancelled" | "expired" | "failed";
+            /** Control Id */
+            control_id?: string | null;
+            /**
+             * Active Agent Message Id
+             * Format: uuid
+             */
+            active_agent_message_id: string;
+            /** Title */
+            title: string;
+            /** Body */
+            body?: string | null;
+            /** Source Message Ids */
+            source_message_ids?: string[];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** TurnControlOut */
+        TurnControlOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /**
+             * Active Agent Message Id
+             * Format: uuid
+             */
+            active_agent_message_id: string;
+            /** Created By Message Id */
+            created_by_message_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "guidance" | "side_chat" | "queue_action" | "stop_and_run";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "received" | "waiting_safe_point" | "applied" | "answered" | "cancelled" | "expired" | "failed";
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+            /** Applied At */
+            applied_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** TurnControlResponse */
+        TurnControlResponse: {
+            control: components["schemas"]["TurnControlOut"];
+            user_message?: components["schemas"]["MessageOut"] | null;
+            agent_message?: components["schemas"]["MessageOut"] | null;
+        };
         /** UpdateAgentRequest */
         UpdateAgentRequest: {
             /** Name */
@@ -1738,10 +2117,34 @@ export interface components {
             /** Is Archived */
             is_archived?: boolean | null;
         };
+        /** UpdateMemoryRequest */
+        UpdateMemoryRequest: {
+            /** Content */
+            content?: string | null;
+            /** Importance */
+            importance?: ("critical" | "high" | "normal" | "low") | null;
+            /** Status */
+            status?: ("candidate" | "active" | "archived" | "forgotten") | null;
+            /** Kind */
+            kind?: ("preference" | "fact" | "decision" | "constraint" | "project_context" | "agent_profile" | "artifact_note" | "runtime_note") | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** UpdateMessageRequest */
         UpdateMessageRequest: {
             /** Is Pinned */
             is_pinned?: boolean | null;
+        };
+        /** UpdateQueuedMessageRequest */
+        UpdateQueuedMessageRequest: {
+            /** Content */
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[] | null;
+            /** Target Agent Id */
+            target_agent_id?: string | null;
         };
         /** UploadOut */
         UploadOut: {
@@ -2737,6 +3140,39 @@ export interface operations {
             };
         };
     };
+    list_conversation_memory_mounts_api_v1_conversations__conv_id__memory_mounts_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                conv_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryMountList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_conversation_orchestrator_runs_api_v1_conversations__conv_id__orchestrator_runs_get: {
         parameters: {
             query?: {
@@ -3057,6 +3493,208 @@ export interface operations {
             };
         };
     };
+    reorder_queued_message_api_api_v1_conversations__conv_id__queued_messages_reorder_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conv_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueReorderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueReorderResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merge_queued_message_api_api_v1_conversations__conv_id__queued_messages_merge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conv_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueMergeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_guidance_api_v1_messages__msg_id__guidance_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                msg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GuidanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnControlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_side_chat_api_v1_messages__msg_id__side_chat_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                msg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SideChatRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnControlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    convert_queued_message_to_guidance_api_v1_queued_messages__msg_id__convert_to_guidance_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                msg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TurnControlResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_current_and_run_queued_message_api_v1_queued_messages__msg_id__stop_and_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                msg_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InterruptMessageResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_message_api_v1_messages__msg_id__delete: {
         parameters: {
             query?: never;
@@ -3201,130 +3839,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_upload_api_v1_uploads_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_create_upload_api_v1_uploads_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_upload_api_v1_uploads__upload_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                upload_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UploadOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_upload_api_v1_uploads__upload_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                upload_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    download_upload_api_v1_uploads__upload_id__download_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                upload_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": string;
                 };
             };
             /** @description Validation Error */
@@ -3487,6 +4001,231 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_upload_api_v1_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_upload_api_v1_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_upload_api_v1_uploads__upload_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_upload_api_v1_uploads__upload_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_upload_api_v1_uploads__upload_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_memories_api_v1_memories_get: {
+        parameters: {
+            query?: {
+                scope_type?: ("user" | "conversation" | "workspace" | "agent" | "group" | "system") | null;
+                scope_id?: string | null;
+                kind?: ("preference" | "fact" | "decision" | "constraint" | "project_context" | "agent_profile" | "artifact_note" | "runtime_note") | null;
+                status?: ("candidate" | "active" | "archived" | "forgotten") | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forget_memory_api_v1_memories__memory_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_memory_api_v1_memories__memory_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMemoryRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemoryOut"];
                 };
             };
             /** @description Validation Error */

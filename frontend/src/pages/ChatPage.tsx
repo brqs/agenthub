@@ -19,6 +19,7 @@ import { useInterruptMessage } from '@/hooks/useInterruptMessage';
 import { useQueueMessage } from '@/hooks/useQueueMessage';
 import { useRegenerateMessage } from '@/hooks/useRegenerateMessage';
 import { useSendMessage } from '@/hooks/useSendMessage';
+import { useTurnControlActions } from '@/hooks/useTurnControlActions';
 import { useUpdateConversation } from '@/hooks/useUpdateConversation';
 import { useUpdateMessage } from '@/hooks/useUpdateMessage';
 import type { Agent } from '@/lib/types';
@@ -57,6 +58,7 @@ export function ChatPage() {
   const closeMobileSheet = useUiStore((state) => state.closeMobileSheet);
   const { sendMessage, isPending: sendingMessage } = useSendMessage();
   const queueMessage = useQueueMessage();
+  const turnControlActions = useTurnControlActions();
   const isDesktopWorkspace = useMediaQuery('(min-width: 1280px)');
   const isOnline = useNetworkStatus();
 
@@ -197,13 +199,25 @@ export function ChatPage() {
               onDeleteQueuedMessage={async (messageId) => {
                 await queueMessage.deleteQueuedMessage(messageId);
               }}
+              onReorderQueuedMessages={async (conversationId, messageIds) => {
+                await turnControlActions.reorderQueuedMessages(conversationId, messageIds);
+              }}
+              onMergeQueuedMessages={async (conversationId, messageIds) => {
+                await turnControlActions.mergeQueuedMessages(conversationId, messageIds);
+              }}
+              onConvertQueuedToGuidance={async (messageId) => {
+                await turnControlActions.convertQueuedToGuidance(messageId);
+              }}
+              onStopAndRunQueuedMessage={async (messageId) => {
+                await turnControlActions.stopAndRunQueuedMessage(messageId);
+              }}
               interruptingMessageIds={interruptingMessageIds}
             />
             <MessageInput
               conversation={conversation}
               agents={agents}
               isSending={sendingMessage}
-              isQueueing={queueMessage.isPending}
+              isQueueing={queueMessage.isPending || turnControlActions.isPending}
               isOffline={!isOnline}
               isStreaming={Boolean(currentActiveStream)}
               isInterrupting={Boolean(currentActiveStream?.interrupting)}
@@ -218,6 +232,28 @@ export function ChatPage() {
               onQueue={async (text, attachmentIds) => {
                 await queueMessage.queueMessage(conversation.id, text, attachmentIds);
               }}
+              onGuidance={
+                currentActiveStream
+                  ? async (text) => {
+                      await turnControlActions.sendGuidance(currentActiveStream.messageId, text);
+                    }
+                  : undefined
+              }
+              onSideChat={
+                currentActiveStream
+                  ? async (text) => {
+                      await turnControlActions.sendSideChat(currentActiveStream.messageId, text);
+                    }
+                  : undefined
+              }
+              onStopAndRun={
+                currentActiveStream
+                  ? async (text) => {
+                      const queued = await queueMessage.queueMessage(conversation.id, text);
+                      await turnControlActions.stopAndRunQueuedMessage(queued.queued_message.id);
+                    }
+                  : undefined
+              }
               onSend={async (text, attachmentIds) => {
                 await sendMessage(conversation.id, text, attachmentIds);
               }}

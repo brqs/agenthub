@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,7 +16,13 @@ class MessageQueueEntry(Base):
     __tablename__ = "message_queue_entries"
     __table_args__ = (
         UniqueConstraint("user_message_id", name="uq_message_queue_user_message"),
-        Index("idx_msg_queue_conv_state_time", "conversation_id", "state", "created_at"),
+        Index(
+            "idx_msg_queue_conv_state_position",
+            "conversation_id",
+            "state",
+            "position",
+            "created_at",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -33,6 +39,7 @@ class MessageQueueEntry(Base):
     )
     target_agent_id: Mapped[str] = mapped_column(String(64), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     dispatched_agent_message_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("messages.id", ondelete="SET NULL"),

@@ -4,12 +4,16 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  MessageCircleQuestion,
+  MoreHorizontal,
   Paperclip,
   RotateCcw,
+  Route,
   Send,
   Slash,
   Square,
   X,
+  Zap,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentMentionPicker } from './AgentMentionPicker';
@@ -68,6 +72,9 @@ export function MessageInput({
   isStreaming = false,
   isInterrupting = false,
   onInterrupt,
+  onGuidance,
+  onSideChat,
+  onStopAndRun,
   agents = [],
   mentionInsertRequest = null,
 }: {
@@ -80,12 +87,16 @@ export function MessageInput({
   isStreaming?: boolean;
   isInterrupting?: boolean;
   onInterrupt?: () => void | Promise<void>;
+  onGuidance?: (text: string) => void | Promise<void>;
+  onSideChat?: (text: string) => void | Promise<void>;
+  onStopAndRun?: (text: string) => void | Promise<void>;
   agents?: Agent[];
   mentionInsertRequest?: MentionInsertRequest | null;
 }) {
   const [text, setText] = useState('');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadItems, setUploadItems] = useState<LocalUploadItem[]>([]);
+  const [controlMenuOpen, setControlMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadControllers = useRef<Map<string, AbortController>>(new Map());
@@ -139,6 +150,7 @@ export function MessageInput({
       }
       setText('');
       setUploadItems([]);
+      setControlMenuOpen(false);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : String(error));
     }
@@ -149,6 +161,22 @@ export function MessageInput({
     setSubmitError(null);
     try {
       await onInterrupt();
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function submitControl(action: 'guidance' | 'side_chat' | 'stop_and_run') {
+    const value = text.trim();
+    if (!value || isUnavailable) return;
+    const handler =
+      action === 'guidance' ? onGuidance : action === 'side_chat' ? onSideChat : onStopAndRun;
+    if (!handler) return;
+    setSubmitError(null);
+    try {
+      await handler(value);
+      setText('');
+      setControlMenuOpen(false);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : String(error));
     }
@@ -394,6 +422,57 @@ export function MessageInput({
           placeholder={isOffline ? '当前离线，恢复网络后可继续发送' : `发消息到 ${conversation.title}`}
           className="mobile-text-safe max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-base text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-600 sm:text-sm [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
         />
+        {isStreaming && hasText && (onGuidance || onSideChat || onStopAndRun) && (
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setControlMenuOpen((open) => !open)}
+              disabled={isUnavailable}
+              className="flex h-10 w-10 items-center justify-center rounded-md border border-slate-300 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              title="更多运行中操作"
+              aria-label="More active turn actions"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+            {controlMenuOpen && (
+              <div className="absolute bottom-12 right-0 z-30 w-56 overflow-hidden rounded-md border border-slate-200 bg-white p-1 text-sm shadow-xl dark:border-slate-800 dark:bg-slate-900">
+                {onGuidance && (
+                  <button
+                    type="button"
+                    onClick={() => void submitControl('guidance')}
+                    aria-label="Guide current reply"
+                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <Route className="h-4 w-4 text-brand" />
+                    引导当前回复
+                  </button>
+                )}
+                {onSideChat && (
+                  <button
+                    type="button"
+                    onClick={() => void submitControl('side_chat')}
+                    aria-label="Ask side question"
+                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <MessageCircleQuestion className="h-4 w-4 text-brand" />
+                    旁路询问
+                  </button>
+                )}
+                {onStopAndRun && (
+                  <button
+                    type="button"
+                    onClick={() => void submitControl('stop_and_run')}
+                    aria-label="Stop and run draft"
+                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    <Zap className="h-4 w-4 text-brand" />
+                    停止并立即执行
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {isStreaming && canSubmitMessage && (
           <button
             type="button"
