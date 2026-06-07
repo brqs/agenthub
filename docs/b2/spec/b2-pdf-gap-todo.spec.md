@@ -46,7 +46,7 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-05 Process Block 流式后端升级：B2 将一次性最终 process 总结升级为后端流式公开过程流，不新增 SSE event，复用 `delta.metadata.process_delta` 发送 `upsert_step` / `set_summary`。`ProcessStep` 新增公开 `id` 字段用于前端原地更新；该 id 不使用内部 task id 或 tool call id。direct answer / platform fact 会先输出 process start + route delta；static / parallel / ReAct / native tool-loop 在执行中持续 upsert 公开步骤，最终 text 仍由 response presentation 输出。本轮不做前端 renderer / 折叠交互 / 前端部署。公网 smoke report `/tmp/agenthub_streaming_process_report.json`、SSE `/tmp/agenthub_streaming_process_sse.jsonl` `passed=true`，覆盖 direct answer `process_delta_count=1` 与轻量任务 `process_delta_count=7`。
 
-2026-06-05 真实 Agent 群聊后端契约：B2/API stream runner 已把 Orchestrator 子 Agent 输出从“父 Orchestrator message 内的 block attribution”升级为“独立 child `messages` 行”。新增 SSE lifecycle `message_start` / `message_done` / `message_error`，后续 block/tool event 通过子 `message_id` 归属到对应 Agent；`orchestrator_group_messages_enabled=false` 可回退旧合流模式。公网 deterministic smoke `/tmp/agenthub_group_messages_report.json` 与 `/tmp/agenthub_group_messages_sse.jsonl` `passed=true`：conversation `0948e3a6-1fc4-40a2-8cf7-3e348b2047ae`、run `34f5ef15-e649-4827-84e4-0808037f8cfe`，2 个 child message 均为 terminal 状态且无 `streaming` 残留；其中 `writer` 为业务级 `error` child message，`web-designer` 为 `done` child message。本轮不做前端消费，旧 UI 若未处理 message lifecycle，实时阶段仍可能把子 block 临时显示在父 Orchestrator 气泡内。
+2026-06-05 真实 Agent 群聊后端契约：B2/API stream runner 已把 Orchestrator 子 Agent 输出从“父 Orchestrator message 内的 block attribution”升级为“独立 child `messages` 行”。新增 SSE lifecycle `message_start` / `message_done` / `message_error`，后续 block/tool event 通过子 `message_id` 归属到对应 Agent；`orchestrator_group_messages_enabled=false` 可回退旧合流模式。公网 deterministic smoke `/tmp/agenthub_group_messages_report.json` 与 `/tmp/agenthub_group_messages_sse.jsonl` `passed=true`：conversation `0948e3a6-1fc4-40a2-8cf7-3e348b2047ae`、run `34f5ef15-e649-4827-84e4-0808037f8cfe`，2 个 child message 均为 terminal 状态且无 `streaming` 残留。本轮不做前端消费，旧 UI 若未处理 message lifecycle，实时阶段仍可能把子 block 临时显示在父 Orchestrator 气泡内。
 
 2026-06-06 真实 Agent 群聊 + OpenCode 式过程展示 repair loop：B2 已完成后端调度、SSE/persistence 和前端 stream/store 消费修复。每个子 Agent 有独立 message、独立 `process` block 和流式 `process_delta`，父 Orchestrator 仅保留调度/平台工具/质量门/最终总结。公网 API/SSE E2E `architected_frontend_group_chat_repair` 已通过：report `/tmp/agenthub_architected_frontend_group_chat_report.json`、SSE `/tmp/agenthub_architected_frontend_group_chat_sse.jsonl`、browser `/tmp/agenthub_architected_frontend_group_chat_browser.json`，conversation `fbcd2fc5-ef65-4e0a-971a-6f700437a82c`，run `aa968e64-aeb4-4eca-b74b-ab51d26dff53`，`passed=true`。该 E2E 只保留为真实群聊、process delta、preview/browser verify 的集成证据；后续已按用户反馈撤销前端质量演示专用 planner override、`frontend-architecture` fallback 和 static demo scaffold，避免把示例 prompt 固化为产品模板。前端本地 targeted tests、`tsc --noEmit`、`pnpm build` 通过；公网 `154.44.25.94:1573` 静态资源不在当前后端主机，本轮未执行远端前端发布。
 
@@ -804,8 +804,8 @@ Matrix case 结果：
 
 | Case | Switch | Child messages | Artifact | Result |
 |---|---|---|---|---|
-| `agent_fallback_codex_unavailable` | `codex-helper -> writer` | `codex-helper=error`, `writer=done` | `fallback-codex.md` | passed |
-| `agent_fallback_claude_unavailable` | `claude-code -> writer` | `claude-code=error`, `writer=done` | `fallback-claude.md` | passed |
-| `agent_fallback_opencode_unavailable` | `opencode-helper -> writer` | `opencode-helper=error`, `writer=done` | `fallback-opencode.md` | passed |
+| `agent_fallback_codex_unavailable` | `codex-helper -> opencode-helper` | `codex-helper=error`, `opencode-helper=done` | `fallback-codex.md` | passed |
+| `agent_fallback_claude_unavailable` | `claude-code -> opencode-helper` | `claude-code=error`, `opencode-helper=done` | `fallback-claude.md` | passed |
+| `agent_fallback_opencode_unavailable` | `opencode-helper -> claude-code` | `opencode-helper=error`, `claude-code=done` | `fallback-opencode.md` | passed |
 
 该 matrix 是通用 fallback 验收，不为前端质量演示创建模板，不验收前端 UI。

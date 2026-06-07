@@ -55,7 +55,7 @@ export const mockAgents: Agent[] = [
   {
     id: 'orchestrator',
     name: 'Orchestrator',
-    provider: 'custom',
+    provider: 'builtin',
     avatar_url: '',
     capabilities: ['任务拆解', '多 Agent 调度', '结果汇总'],
     system_prompt: '你是 AgentHub 群聊中的任务协调员。',
@@ -66,7 +66,7 @@ export const mockAgents: Agent[] = [
   {
     id: 'claude-code',
     name: 'Claude Code',
-    provider: 'claude',
+    provider: 'claude_code',
     avatar_url: '',
     capabilities: ['架构设计', '代码生成', '代码审查'],
     system_prompt: null,
@@ -77,7 +77,7 @@ export const mockAgents: Agent[] = [
   {
     id: 'codex-helper',
     name: 'Codex Helper',
-    provider: 'openai',
+    provider: 'codex',
     avatar_url: '',
     capabilities: ['前端实现', '测试补齐', '重构'],
     system_prompt: null,
@@ -86,24 +86,13 @@ export const mockAgents: Agent[] = [
     created_at: minutesAgo(500),
   },
   {
-    id: 'deepseek-assistant',
-    name: 'DeepSeek Assistant',
-    provider: 'deepseek',
+    id: 'opencode-helper',
+    name: 'OpenCode Helper',
+    provider: 'opencode',
     avatar_url: '',
-    capabilities: ['通用问答', '代码辅助', '分析'],
+    capabilities: ['CLI 实现', '文件修改', '独立验证'],
     system_prompt: null,
-    config: { model: 'deepseek-v4-flash', temperature: 0.7 },
-    is_builtin: true,
-    created_at: minutesAgo(500),
-  },
-  {
-    id: 'web-designer',
-    name: 'Web Designer',
-    provider: 'custom',
-    avatar_url: '',
-    capabilities: ['UI 设计', '交互打磨', '视觉规范'],
-    system_prompt: '你是一位注重产品感的 UI 设计专家。',
-    config: { model: 'claude-sonnet-4-6', temperature: 0.7 },
+    config: { model: 'deepseek/deepseek-chat' },
     is_builtin: true,
     created_at: minutesAgo(500),
   },
@@ -114,7 +103,7 @@ export const mockConversations: DemoConversation[] = [
     id: 'conv-discord-shell',
     title: 'Discord 风格前端壳',
     mode: 'group',
-    agent_ids: ['orchestrator', 'claude-code', 'web-designer'],
+    agent_ids: ['orchestrator', 'claude-code', 'opencode-helper'],
     is_pinned: true,
     is_archived: false,
     last_message_at: minutesAgo(2),
@@ -136,18 +125,18 @@ export const mockConversations: DemoConversation[] = [
     id: 'conv-markdown-test',
     title: 'Markdown 公式长回复',
     mode: 'single',
-    agent_ids: ['deepseek-assistant'],
+    agent_ids: ['opencode-helper'],
     is_pinned: false,
     is_archived: false,
     last_message_at: minutesAgo(28),
-    last_message_preview: 'DeepSeek Assistant: 中国剩余定理、公式、表格和代码示例。',
+    last_message_preview: 'OpenCode Helper: 中国剩余定理、公式、表格和代码示例。',
     created_at: minutesAgo(300),
   },
   {
     id: 'conv-product-copy',
     title: '产品介绍文案',
     mode: 'single',
-    agent_ids: ['web-designer'],
+    agent_ids: ['claude-code'],
     is_pinned: false,
     is_archived: false,
     last_message_at: minutesAgo(62),
@@ -159,7 +148,7 @@ export const mockConversations: DemoConversation[] = [
     id: 'conv-demo-flow',
     title: 'AgentHub 比赛演示',
     mode: 'group',
-    agent_ids: ['orchestrator', 'web-designer', 'codex-helper', 'claude-code'],
+    agent_ids: ['orchestrator', 'opencode-helper', 'codex-helper', 'claude-code'],
     is_pinned: false,
     is_archived: false,
     last_message_at: minutesAgo(120),
@@ -177,7 +166,7 @@ export const markdownQaMessages: DemoMessage[] = [
     content: [
       {
         type: 'text',
-        text: '@deepseek-assistant 请告诉我中国剩余定理是什么，尽量用 Markdown、公式和例子说明。',
+        text: '@opencode-helper 请告诉我中国剩余定理是什么，尽量用 Markdown、公式和例子说明。',
       },
     ],
     reply_to_id: null,
@@ -189,7 +178,7 @@ export const markdownQaMessages: DemoMessage[] = [
     id: 'msg-markdown-agent-1',
     conversation_id: 'conv-markdown-test',
     role: 'agent',
-    agent_id: 'deepseek-assistant',
+    agent_id: 'opencode-helper',
     content: [
       {
         type: 'text',
@@ -262,7 +251,7 @@ $$`,
     id: 'msg-markdown-agent-2',
     conversation_id: 'conv-markdown-test',
     role: 'agent',
-    agent_id: 'deepseek-assistant',
+    agent_id: 'opencode-helper',
     content: [
       {
         type: 'text',
@@ -332,7 +321,7 @@ export function chineseRemainder(mods: number[], remainders: number[]) {
     id: 'msg-markdown-agent-3',
     conversation_id: 'conv-markdown-test',
     role: 'agent',
-    agent_id: 'deepseek-assistant',
+    agent_id: 'opencode-helper',
     content: [
       {
         type: 'text',
@@ -394,7 +383,7 @@ export const mockMessages: Record<string, DemoMessage[]> = {
           type: 'task_card',
           title: '前端桌面 Demo 任务规划',
           tasks: [
-            { id: 'task-layout', agent_id: 'web-designer', title: '确定四栏布局和深色主题', status: 'done' },
+            { id: 'task-layout', agent_id: 'opencode-helper', title: '确定四栏布局和深色主题', status: 'done' },
             { id: 'task-chat', agent_id: 'claude-code', title: '实现会话列表、消息区、输入框', status: 'running' },
             { id: 'task-stream', agent_id: 'codex-helper', title: '模拟流式回复并预留 SSE 接口', status: 'pending' },
           ],
@@ -487,7 +476,7 @@ export function TodoPanel() {
       id: 'msg-copy-1',
       conversation_id: 'conv-product-copy',
       role: 'agent',
-      agent_id: 'web-designer',
+      agent_id: 'claude-code',
       content: [
         {
           type: 'text',
@@ -528,7 +517,7 @@ export function TodoPanel() {
           title: 'AgentHub 比赛演示任务流',
           tasks: [
             { id: 'task-plan-demo', agent_id: 'orchestrator', title: '拆解 3 分钟演示路径', status: 'done' },
-            { id: 'task-polish-ui', agent_id: 'web-designer', title: '强调多 Agent 协作状态与界面层级', status: 'done' },
+            { id: 'task-polish-ui', agent_id: 'opencode-helper', title: '强调多 Agent 协作状态与界面层级', status: 'done' },
             { id: 'task-output-code', agent_id: 'codex-helper', title: '输出可复制的前端代码与 Diff 产物', status: 'running' },
             { id: 'task-review', agent_id: 'claude-code', title: '检查演示讲述和交互风险', status: 'pending' },
           ],
@@ -540,7 +529,7 @@ export function TodoPanel() {
         {
           type: 'agent_switch',
           from_agent: 'orchestrator',
-          to_agent: 'web-designer',
+          to_agent: 'opencode-helper',
           task: '先把右侧栏和消息流的协作状态讲清楚。',
         },
       ],
@@ -557,7 +546,7 @@ export function TodoPanel() {
       content: [
         {
           type: 'agent_switch',
-          from_agent: 'web-designer',
+          from_agent: 'opencode-helper',
           to_agent: 'codex-helper',
           task: '把界面建议落成可复制的前端代码和变更预览。',
         },

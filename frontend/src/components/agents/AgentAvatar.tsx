@@ -1,4 +1,4 @@
-import { Bot, PanelsTopLeft, Workflow } from 'lucide-react';
+import { Bot, Workflow } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { ComponentType } from 'react';
 import anthropicLogo from '@/assets/agent-logos/anthropic.svg';
@@ -29,7 +29,6 @@ const PROVIDER_LOGOS: Partial<Record<Agent['provider'], string>> = {
 
 const AGENT_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   orchestrator: Workflow,
-  'web-designer': PanelsTopLeft,
 };
 
 export function AgentAvatar({

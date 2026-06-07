@@ -95,7 +95,6 @@ PREFERRED_MULTI_AGENT_ORDER = (
     "codex-helper",
     "claude-code",
     "opencode-helper",
-    "web-designer",
 )
 
 

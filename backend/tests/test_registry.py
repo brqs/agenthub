@@ -66,14 +66,12 @@ async def test_registry_returns_runtime_adapters_by_seed_id() -> None:
             "claude-code": _agent("claude-code", "claude_code"),
             "codex-helper": _agent("codex-helper", "codex"),
             "opencode-helper": _agent("opencode-helper", "opencode"),
-            "web-designer": _agent("web-designer", "builtin", {"model_backend": "claude"}),
         }
     )
 
     assert isinstance(await get_adapter("claude-code", db), ClaudeCodeAdapter)  # type: ignore[arg-type]
     assert isinstance(await get_adapter("codex-helper", db), CodexAdapter)  # type: ignore[arg-type]
     assert isinstance(await get_adapter("opencode-helper", db), OpenCodeAdapter)  # type: ignore[arg-type]
-    assert isinstance(await get_adapter("web-designer", db), BuiltinAgentAdapter)  # type: ignore[arg-type]
 
 
 async def test_orchestrator_adapter_factory_resolves_runtime_adapters() -> None:
@@ -87,7 +85,6 @@ async def test_orchestrator_adapter_factory_resolves_runtime_adapters() -> None:
             "claude-code": _agent("claude-code", "claude_code"),
             "codex-helper": _agent("codex-helper", "codex"),
             "opencode-helper": _agent("opencode-helper", "opencode"),
-            "web-designer": _agent("web-designer", "builtin", {"model_backend": "claude"}),
         }
     )
 
@@ -100,7 +97,6 @@ async def test_orchestrator_adapter_factory_resolves_runtime_adapters() -> None:
     assert isinstance(await adapter_factory("claude-code"), ClaudeCodeAdapter)
     assert isinstance(await adapter_factory("codex-helper"), CodexAdapter)
     assert isinstance(await adapter_factory("opencode-helper"), OpenCodeAdapter)
-    assert isinstance(await adapter_factory("web-designer"), BuiltinAgentAdapter)
 
 
 async def test_legacy_raw_provider_migrates_to_builtin_adapter() -> None:

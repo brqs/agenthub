@@ -454,7 +454,7 @@ async def test_tool_calling_rejects_group_external_agent() -> None:
             _tool_call(
                 "dispatch_agent",
                 {
-                    "agent_id": "web-designer",
+                    "agent_id": "outside-agent",
                     "title": "Out of group",
                     "instruction": "Do work.",
                 },

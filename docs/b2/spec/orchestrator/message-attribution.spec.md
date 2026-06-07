@@ -364,8 +364,8 @@ message_start: 2
 message_done: 1
 message_error: 1
 child_statuses:
-  web-designer: done
-  writer: error
+  opencode-helper: done
+  claude-code: error
 checks:
   child_agents_are_not_orchestrator: true
   child_content_present: true
