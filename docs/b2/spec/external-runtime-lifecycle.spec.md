@@ -223,3 +223,13 @@ This addendum overrides older wording that mapped every cancellation to `error/r
 - Partial content and completed tool events remain visible; empty interrupted turns get a neutral fallback text from B1.
 - Client disconnect, backend shutdown, stale orphan cleanup, timeout, and adapter failure are still distinct from user interrupt. Those paths may use `error` / timeout codes / retryable cleanup according to their existing contracts.
 - Orchestrator interrupt propagates to active child attempts and open child messages as `interrupted`, and it must not trigger replanner, repair, fallback, or success summary.
+
+## 2026-06-07 Conversation Control Plane Addendum
+
+Guidance is intentionally not a generic external-runtime injection channel in this phase:
+
+- `guidance` controls are consumed only by the Orchestrator adapter at safe points.
+- Claude Code, OpenCode, Codex, and other SDK/CLI adapters should continue watching interrupt signals, but they should not receive mid-run prompt mutations through `guidance`.
+- If the active agent message is an external runtime message, B1 should reject guidance with `409 GUIDANCE_NOT_SUPPORTED`; the frontend should offer queueing, interrupting, or stop-and-run instead.
+- `side_chat` is answered by platform status summaries and must not call external runtimes.
+- `stop_and_run` uses the existing interrupt path first, then normal queued dispatch. External runtimes only see the subsequent fresh turn after the current one has terminalized.

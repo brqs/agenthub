@@ -20,8 +20,10 @@ from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.message_queue import MessageQueueEntry
+from app.models.turn_control import ConversationTurnControl
 from app.services.orchestrator_memory import OrchestratorMemoryStore
 from app.services.queued_messages import dispatch_next_queued_message
+from app.services.turn_controls import poll_pending_guidance_for_message
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -72,6 +74,27 @@ async def _insert_agent() -> str:
             )
         )
         await db.commit()
+    return agent_id
+
+
+async def _ensure_agent(agent_id: str) -> str:
+    async with SessionFactory() as db:
+        existing = await db.get(Agent, agent_id)
+        if existing is None:
+            db.add(
+                Agent(
+                    id=agent_id,
+                    user_id=None,
+                    name=agent_id,
+                    provider="mock",
+                    avatar_url="/avatars/test.png",
+                    capabilities=["testing"],
+                    system_prompt=None,
+                    config={},
+                    is_builtin=True,
+                )
+            )
+            await db.commit()
     return agent_id
 
 
@@ -251,6 +274,141 @@ async def test_dispatch_next_queued_message_after_terminal_turn(client: AsyncCli
         ).scalar_one()
         assert queue_entry.state == "dispatched"
         assert queue_entry.dispatched_agent_message_id == dispatch.agent_message.id
+
+
+async def test_reorder_queued_messages_changes_dispatch_order(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation_id, _agent_id = await _create_single_conversation(client, headers)
+    send_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "first"}]},
+    )
+    assert send_response.status_code == 201, send_response.text
+    active_agent_id = send_response.json()["agent_message"]["id"]
+    first_queue = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "queued one"}]},
+    )
+    second_queue = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "queued two"}]},
+    )
+    assert first_queue.status_code == 201, first_queue.text
+    assert second_queue.status_code == 201, second_queue.text
+    first_id = first_queue.json()["queued_message"]["id"]
+    second_id = second_queue.json()["queued_message"]["id"]
+
+    reorder_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages/reorder",
+        headers=headers,
+        json={"message_ids": [second_id, first_id]},
+    )
+    assert reorder_response.status_code == 200, reorder_response.text
+
+    async with SessionFactory() as db:
+        active_agent = await db.get(Message, UUID(active_agent_id))
+        assert active_agent is not None
+        active_agent.status = "done"
+        active_agent.content = [{"type": "text", "text": "done"}]
+        await db.commit()
+        dispatch = await dispatch_next_queued_message(db, conversation_id=UUID(conversation_id))
+        assert dispatch is not None
+        assert str(dispatch.user_message.id) == second_id
+
+
+async def test_merge_queued_messages_keeps_single_entry(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation_id, _agent_id = await _create_single_conversation(client, headers)
+    send_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "first"}]},
+    )
+    assert send_response.status_code == 201, send_response.text
+    first_queue = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "queued one"}]},
+    )
+    second_queue = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "queued two"}]},
+    )
+    first_id = first_queue.json()["queued_message"]["id"]
+    second_id = second_queue.json()["queued_message"]["id"]
+
+    merge_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages/merge",
+        headers=headers,
+        json={"message_ids": [first_id, second_id]},
+    )
+    assert merge_response.status_code == 200, merge_response.text
+    merged = merge_response.json()["queued_message"]
+    assert merged["id"] == first_id
+    assert merged["content"][0]["text"] == "queued one\n\nqueued two"
+
+    async with SessionFactory() as db:
+        entries = (
+            await db.execute(
+                select(MessageQueueEntry).where(
+                    MessageQueueEntry.conversation_id == UUID(conversation_id),
+                    MessageQueueEntry.state == "queued",
+                )
+            )
+        ).scalars().all()
+        assert len(entries) == 1
+        assert entries[0].user_message_id == UUID(first_id)
+
+
+async def test_guidance_control_waits_for_safe_point_and_applies(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    await _ensure_agent("orchestrator")
+    response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Guidance group",
+            "mode": "single",
+            "agent_ids": ["orchestrator"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    conversation_id = response.json()["id"]
+    send_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "build a page"}]},
+    )
+    assert send_response.status_code == 201, send_response.text
+    active_message_id = send_response.json()["agent_message"]["id"]
+
+    guidance_response = await client.post(
+        f"/api/v1/messages/{active_message_id}/guidance",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "make it dark"}]},
+    )
+    assert guidance_response.status_code == 201, guidance_response.text
+    control = guidance_response.json()["control"]
+    assert control["state"] == "waiting_safe_point"
+    user_message = guidance_response.json()["user_message"]
+    assert user_message["content"][-1]["type"] == "turn_control"
+
+    applied = await poll_pending_guidance_for_message(
+        UUID(active_message_id),
+        safe_point="planner_before",
+    )
+    assert applied == "make it dark"
+
+    async with SessionFactory() as db:
+        stored = await db.get(ConversationTurnControl, UUID(control["id"]))
+        assert stored is not None
+        assert stored.state == "applied"
 
 
 async def test_dispatch_skips_removed_target_and_continues_queue(

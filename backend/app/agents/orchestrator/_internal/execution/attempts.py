@@ -111,6 +111,8 @@ def _expected_paths(task: SubTask) -> list[str]:
 
 
 def task_fallback_agent_ids(config: Mapping[str, Any]) -> list[str]:
+    if config.get("task_auto_fallback_enabled") is False:
+        return []
     ordered_runnable_ids = _ordered_runnable_agent_ids(config)
     strict_scope = scoped_runnable_agent_ids(config)
     strict_allowed = set(strict_scope) if strict_scope is not None else None
