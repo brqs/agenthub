@@ -7,6 +7,7 @@ import os
 import pytest
 from sqlalchemy.engine import make_url
 
+from app.agents.orchestrator.availability import clear_runtime_cooldowns
 from app.core.config import settings
 
 
@@ -32,3 +33,10 @@ def pytest_configure(config: pytest.Config) -> None:
             "'agenthub'. Use an isolated test database/schema, or set "
             "AGENTHUB_ALLOW_DEV_DB_TESTS=1 for an intentional one-off run."
         )
+
+
+@pytest.fixture(autouse=True)
+def _clear_orchestrator_runtime_cooldowns() -> None:
+    clear_runtime_cooldowns()
+    yield
+    clear_runtime_cooldowns()

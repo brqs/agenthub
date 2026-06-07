@@ -217,3 +217,10 @@
   到 `2026-06-11 17:54`，且公网 `111.229.151.159:8000` 请求未命中本机
   已重启 PID `1650213` 的 uvicorn access log。后续重跑前需先修正公网落点和 Codex
   runtime 可用性。
+
+2026-06-06 通用 Agent fallback repair loop：
+
+- 所有 Orchestrator 委派任务共享同一套失败自动调度机制：首选 Agent 失败、runtime 不可用、认证/权限/CLI/timeout 等硬失败、产物缺失或 evaluation failed 均可进入 fallback。
+- 失败 Agent 会进入短期 cooldown；planner 和 fallback selection 会跳过 cooldown / unavailable Agent，避免反复派给已失败 runtime。
+- `agent_fallback_matrix` 公网 API/SSE E2E 已通过：report `/tmp/agenthub_agent_fallback_matrix_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`，`passed=true`。
+- Matrix 覆盖 `codex-helper`、`claude-code`、`opencode-helper` 三个首选 Agent 失败后自动切换到可用 fallback Agent；失败 attempt 与 fallback attempt 分别持久化为独立 child message，父 Orchestrator 不内嵌子 Agent 输出，可见文本无内部 trace。

@@ -664,6 +664,15 @@ def _task_detail(state: TaskState, result: TaskResult | None) -> str:
     if state == TaskState.SUCCEEDED:
         attempts = len(result.attempts) if result is not None else 0
         if attempts > 1:
+            failed_agents = [
+                attempt.agent_id
+                for attempt in (result.attempts if result is not None else [])
+                if attempt.state != TaskState.SUCCEEDED
+            ]
+            final_agent = result.attempts[-1].agent_id if result is not None else ""
+            if failed_agents and final_agent:
+                failed_label = ", ".join(_dedupe(failed_agents))
+                return f"{failed_label} 未完成，已切换到 {final_agent} 后完成。"
             return "重试或修复后已完成。"
         return "已完成。"
     if state == TaskState.SKIPPED:
