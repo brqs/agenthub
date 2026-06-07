@@ -215,11 +215,11 @@ export function ChatPage() {
                   : undefined
               }
               mentionInsertRequest={mentionInsertRequest}
-              onQueue={async (text) => {
-                await queueMessage.queueMessage(conversation.id, text);
+              onQueue={async (text, attachmentIds) => {
+                await queueMessage.queueMessage(conversation.id, text, attachmentIds);
               }}
-              onSend={async (text) => {
-                await sendMessage(conversation.id, text);
+              onSend={async (text, attachmentIds) => {
+                await sendMessage(conversation.id, text, attachmentIds);
               }}
             />
           </>

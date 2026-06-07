@@ -1,6 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MessageInput } from './MessageInput';
 import { mockAgents, type DemoConversation } from '@/lib/mockData';
+import { uploadFile } from '@/lib/adapters/uploads';
+
+vi.mock('@/lib/adapters/uploads', () => ({
+  uploadFile: vi.fn(),
+}));
+
+const uploadFileMock = vi.mocked(uploadFile);
 
 const singleConversation: DemoConversation = {
   id: 'conv-test-single',
@@ -22,6 +29,10 @@ const groupConversation: DemoConversation = {
 };
 
 describe('MessageInput', () => {
+  beforeEach(() => {
+    uploadFileMock.mockReset();
+  });
+
   it('sends trimmed text by click', async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
     render(<MessageInput conversation={singleConversation} onSend={onSend} />);
@@ -241,5 +252,65 @@ describe('MessageInput', () => {
     );
 
     expect(screen.getByPlaceholderText('发消息到 单聊测试')).toHaveValue('');
+  });
+
+  it('uploads selected files and sends attachment ids with the message', async () => {
+    uploadFileMock.mockResolvedValue({
+      id: 'upload-1',
+      filename: 'mockup.png',
+      content_type: 'image/png',
+      detected_content_type: 'image/png',
+      size_bytes: 4,
+      sha256: 'hash',
+      purpose: 'message_attachment',
+      status: 'ready',
+      safety_status: 'passed',
+      preview: { kind: 'image', thumbnail_url: '/thumb.png' },
+    });
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <MessageInput conversation={singleConversation} onSend={onSend} />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(['demo'], 'mockup.png', { type: 'image/png' })],
+      },
+    });
+
+    expect(await screen.findByText('mockup.png')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('已就绪')).toBeInTheDocument());
+
+    fireEvent.change(input, { target: { value: '参考这个图' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('参考这个图', ['upload-1']);
+    });
+    expect(screen.queryByText('mockup.png')).not.toBeInTheDocument();
+  });
+
+  it('keeps text and blocks send while an attachment upload has failed', async () => {
+    uploadFileMock.mockRejectedValue(new Error('上传失败'));
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <MessageInput conversation={singleConversation} onSend={onSend} />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(['bad'], 'bad.zip', { type: 'application/zip' })],
+      },
+    });
+    fireEvent.change(input, { target: { value: '带附件发送' } });
+
+    expect(await screen.findByText('上传失败')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '发送' })).toBeDisabled();
+    expect(onSend).not.toHaveBeenCalled();
+    expect(input).toHaveValue('带附件发送');
   });
 });

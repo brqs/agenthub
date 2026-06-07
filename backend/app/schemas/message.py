@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import CursorPagination
+from app.schemas.upload import AttachmentPreview, UploadPurpose, UploadSafetyStatus
 
 
 # ─── ContentBlock 联合类型 ───────────────────────────────────────
@@ -56,6 +57,18 @@ class FileBlock(BaseModel):
     preview_text: str | None = None
     preview_truncated: bool | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttachmentBlock(BaseModel):
+    type: Literal["attachment"] = "attachment"
+    agent_id: str | None = None
+    upload_id: UUID
+    filename: str
+    content_type: str
+    size_bytes: int
+    purpose: UploadPurpose
+    safety_status: UploadSafetyStatus
+    preview: AttachmentPreview | None = None
 
 
 class DeploymentStatusBlock(BaseModel):
@@ -185,6 +198,7 @@ ContentBlock = Annotated[
     | DiffBlock
     | WebPreviewBlock
     | FileBlock
+    | AttachmentBlock
     | DeploymentStatusBlock
     | WorkflowBlock
     | TaskCardBlock
@@ -217,6 +231,7 @@ class MessageOut(BaseModel):
 class SendMessageRequest(BaseModel):
     content: list[ContentBlock] = Field(..., min_length=1)
     target_agent_id: str | None = None
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class SendMessageResponse(BaseModel):
@@ -227,6 +242,7 @@ class SendMessageResponse(BaseModel):
 class QueueMessageRequest(BaseModel):
     content: list[ContentBlock] = Field(..., min_length=1)
     target_agent_id: str | None = None
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
 
 
 class UpdateQueuedMessageRequest(BaseModel):

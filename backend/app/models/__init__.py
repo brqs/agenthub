@@ -11,6 +11,7 @@ from app.models.orchestrator_memory import (
     OrchestratorTask,
     OrchestratorTaskAttempt,
 )
+from app.models.upload import MessageAttachment, Upload
 from app.models.user import User
 from app.models.workspace import (
     Workspace,
@@ -24,11 +25,13 @@ __all__ = [
     "Conversation",
     "ConversationMemory",
     "Message",
+    "MessageAttachment",
     "MessageQueueEntry",
     "OrchestratorRun",
     "OrchestratorRunEvent",
     "OrchestratorTask",
     "OrchestratorTaskAttempt",
+    "Upload",
     "User",
     "Workspace",
     "WorkspaceDeployment",

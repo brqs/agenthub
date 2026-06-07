@@ -9,7 +9,7 @@ TODO(B1):
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -19,6 +19,7 @@ from app.api.v1.conversations import _get_owned_conversation, _validate_visible_
 from app.core.deps import DbSession, get_current_user
 from app.models.message import Message
 from app.models.message_queue import MessageQueueEntry
+from app.models.upload import Upload
 from app.models.user import User
 from app.schemas.message import (
     InterruptMessageResponse,
@@ -41,6 +42,7 @@ from app.services.queued_messages import (
     update_queued_user_message,
 )
 from app.services.stream_run_manager import stream_run_manager
+from app.services.upload_service import upload_service
 
 router = APIRouter()
 INTERRUPTED_FALLBACK_BLOCK = {
@@ -121,6 +123,25 @@ async def _get_queued_entry_or_409(db: DbSession, msg_id: UUID) -> MessageQueueE
             },
         )
     return entry
+
+
+async def _content_with_attachments(
+    db: DbSession,
+    *,
+    user_id: UUID,
+    conversation_id: UUID,
+    content: list[Any],
+    attachment_ids: list[UUID],
+) -> tuple[list[dict[str, Any]], list[Upload]]:
+    uploads = await upload_service.validate_ready_uploads(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        upload_ids=attachment_ids,
+    )
+    blocks = [block.model_dump() for block in content]
+    blocks.extend(upload_service.attachment_blocks(uploads))
+    return blocks, uploads
 
 
 # ─── List messages in conversation ───
@@ -236,15 +257,24 @@ async def send_message(
             },
         )
 
+    content, uploads = await _content_with_attachments(
+        db,
+        user_id=user.id,
+        conversation_id=conv_id,
+        content=payload.content,
+        attachment_ids=payload.attachment_ids,
+    )
+
     # Create user message
     user_msg = Message(
         conversation_id=conv_id,
         role="user",
-        content=[b.model_dump() for b in payload.content],
+        content=content,
         status="done",
     )
     db.add(user_msg)
     await db.flush()
+    await upload_service.link_message_attachments(db, message_id=user_msg.id, uploads=uploads)
 
     # Create pending agent message
     agent_msg = Message(
@@ -298,11 +328,23 @@ async def queue_message(
                 }
             },
         )
+    content, uploads = await _content_with_attachments(
+        db,
+        user_id=user.id,
+        conversation_id=conv_id,
+        content=payload.content,
+        attachment_ids=payload.attachment_ids,
+    )
     queued_message, _entry, position = await enqueue_user_message(
         db,
         conversation=conv,
         target_agent_id=target_agent_id,
-        content=[block.model_dump() for block in payload.content],
+        content=content,
+    )
+    await upload_service.link_message_attachments(
+        db,
+        message_id=queued_message.id,
+        uploads=uploads,
     )
     await db.commit()
     await db.refresh(queued_message)

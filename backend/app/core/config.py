@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     workspace_base_dir: str = Field(default="/workspaces")
     workspace_max_read_bytes: int = Field(default=1_048_576)
 
+    # User uploads
+    upload_storage_dir: str = Field(default="data/uploads")
+    upload_max_file_bytes: int = Field(default=100_000_000)
+    upload_preview_max_bytes: int = Field(default=1_048_576)
+
     # Workspace preview service
     preview_enabled: bool = Field(default=True)
     preview_port_start: int = Field(default=8082)
