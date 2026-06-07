@@ -327,6 +327,31 @@ class StreamContentAccumulator:
                 if isinstance(task, dict) and task.get("status") == "running":
                     task["status"] = terminal_status
 
+    def finalize_interrupted(self) -> None:
+        self._finalize_current()
+        for block in self.blocks:
+            block_type = block.get("type")
+            if block_type == "task_card":
+                tasks = block.get("tasks")
+                if not isinstance(tasks, list):
+                    continue
+                for task in tasks:
+                    if isinstance(task, dict) and task.get("status") in {
+                        "pending",
+                        "running",
+                    }:
+                        task["status"] = "interrupted"
+                continue
+            if block_type == "process":
+                if block.get("status") in {"running", "partial"}:
+                    block["status"] = "interrupted"
+                steps = block.get("steps")
+                if not isinstance(steps, list):
+                    continue
+                for step in steps:
+                    if isinstance(step, dict) and step.get("status") == "running":
+                        step["status"] = "interrupted"
+
     def to_list(self) -> list[dict[str, Any]]:
         self._finalize_current()
         return self.blocks
@@ -536,7 +561,7 @@ def _looks_like_workflow_definition(payload: Any) -> bool:
 
 
 def _task_status(value: object) -> str:
-    if value in {"pending", "running", "done", "error"}:
+    if value in {"pending", "running", "done", "error", "interrupted"}:
         return str(value)
     return "pending"
 
@@ -687,13 +712,13 @@ def _process_step_from_mapping(raw_step: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _process_status(value: object) -> str:
-    if value in {"running", "done", "partial", "error"}:
+    if value in {"running", "done", "partial", "error", "interrupted"}:
         return str(value)
     return "done"
 
 
 def _process_step_status(value: object) -> str:
-    if value in {"done", "running", "error", "skipped"}:
+    if value in {"done", "running", "error", "skipped", "interrupted"}:
         return str(value)
     return "done"
 

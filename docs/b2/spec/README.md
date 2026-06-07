@@ -35,8 +35,9 @@ B2 当前只保留必要契约和当前验证报告：
 
 下一阶段工作：
 
-1. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) 的 `B2-TODO-08 Capability Profile v2 / User Preference Memory` 完成状态和后续前端消费边界
-2. [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md)
+1. [../../spec/next-major-modules.spec.md](../../spec/next-major-modules.spec.md) 的 interrupt、uploads、自定义 Agent/skills/MCP 三大模块
+2. [b2-pdf-gap-todo.spec.md](b2-pdf-gap-todo.spec.md) 的 `B2-TODO-08 Capability Profile v2 / User Preference Memory` 完成状态和后续前端消费边界
+3. [orchestrator/memory-context.spec.md](orchestrator/memory-context.spec.md)
 
 修改 Orchestrator：
 

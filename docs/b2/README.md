@@ -15,6 +15,7 @@
 | [spec/external-runtime-adapters.spec.md](spec/external-runtime-adapters.spec.md) | Claude Code / Codex / OpenCode adapter 细节 |
 | [spec/external-direct-chat-routing.spec.md](spec/external-direct-chat-routing.spec.md) | External Agent 纯问答 / Runtime 路由 |
 | [spec/model-gateway.spec.md](spec/model-gateway.spec.md) | ModelGateway backend 与 resilience |
+| [../spec/next-major-modules.spec.md](../spec/next-major-modules.spec.md) | 下一阶段：interrupt 传播、附件进入 runtime context、深度自定义 Agent/skills/MCP |
 
 ## 当前模块地图
 
@@ -67,6 +68,12 @@
 - If Claude Code is unauthenticated, Orchestrator must mark `claude-code`
   unavailable for dispatch and surface a retryable runtime error. Do not expose
   SDK wrapper text such as `Claude Code returned an error result: success`.
+
+## Next major modules ownership
+
+- Interrupt conversation: B2 adapters must accept cancellation signals from B1, stop SDK/CLI/tool loops, and report `interrupted` as a user-requested terminal state rather than runtime failure.
+- File uploads: B2 should consume attachments through explicit metadata/workspace materialization. Images may enter multimodal context when a backend supports them; archives/documents should not be unpacked or indexed unless B1/F record explicit user intent.
+- Deep custom Agent: B2 owns runtime interpretation of custom Agent profiles, including instructions, skills, MCP tool registry, permission policy, memory scope, and health-aware availability. Orchestrator must keep group-scoped dispatch and may only call validated conversation members.
 
 ## 重构状态
 
@@ -123,3 +130,11 @@
 | [spec/external-runtime-adapters.spec.md](spec/external-runtime-adapters.spec.md) | Claude Code / Codex / OpenCode adapter 细节 |
 | [spec/external-runtime-lifecycle.spec.md](spec/external-runtime-lifecycle.spec.md) | External runtime timeout / heartbeat / cancel / cleanup |
 | [spec/workspace-artifact-preview.spec.md](spec/workspace-artifact-preview.spec.md) | Workspace artifact / preview / deploy 边界 |
+## 2026-06-07 Interrupt Runtime Contract
+
+B2 adapters and Orchestrator must treat user Stop as `interrupted`, not as runtime failure.
+
+- Adapter config can receive `runtime_interrupt_event` / `runtime_control.interrupt_event`.
+- SDK/CLI loops should stop at safe wait boundaries and clean up child processes or async iterators quietly.
+- User interrupt must not emit user-facing `runtime_cancelled` errors.
+- Orchestrator interrupt marks active run/task attempts and open child messages as `interrupted`, and must not start replanner, repair, fallback, or final success summary.

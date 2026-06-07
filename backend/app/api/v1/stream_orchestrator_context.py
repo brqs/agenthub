@@ -103,8 +103,8 @@ async def _orchestrator_conversation_config(
     ]
     managed_agent_ids = [
         agent["id"]
-        for agent in conversation_agents
-        if agent.get("id") != ORCHESTRATOR_AGENT_ID and isinstance(agent.get("id"), str)
+        for agent in available_agents
+        if isinstance(agent.get("id"), str)
     ]
     config: dict[str, Any] = {
         "conversation_agents": conversation_agents,
@@ -214,5 +214,18 @@ async def cancel_orchestrator_run(config: dict[str, Any] | None) -> None:
         return
     try:
         await cancel()
+    except Exception:  # noqa: BLE001
+        return
+
+
+async def interrupt_orchestrator_run(config: dict[str, Any] | None) -> None:
+    if not config:
+        return
+    writer = config.get("orchestrator_memory_writer")
+    interrupt = getattr(writer, "interrupt_active_run", None)
+    if interrupt is None:
+        return
+    try:
+        await interrupt()
     except Exception:  # noqa: BLE001
         return

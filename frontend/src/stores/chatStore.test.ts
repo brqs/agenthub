@@ -194,6 +194,134 @@ describe('chatStore', () => {
     });
   });
 
+  it('marks streaming messages interrupted without converting them to errors', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'task_card',
+        metadata: {
+          title: 'Plan',
+          tasks: [{ id: 'build', agent_id: 'codex-helper', title: 'Build', status: 'running' }],
+        },
+      },
+    });
+    store.applyStreamEvent(messageId, { event: 'interrupted', data: { message_id: messageId } });
+
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow'][0]).toMatchObject({
+      status: 'interrupted',
+      content: [
+        {
+          type: 'task_card',
+          tasks: [{ id: 'build', status: 'interrupted' }],
+        },
+      ],
+    });
+  });
+
+  it('appends and removes queued user messages locally', () => {
+    useChatStore.getState().hydrateConversations(structuredClone(mockConversations));
+    const queued = createMessage({
+      id: '00000000-0000-4000-8000-000000000251',
+      role: 'user',
+      status: 'queued',
+      content: [{ type: 'text', text: 'queued next' }],
+    });
+
+    useChatStore.getState().appendQueuedMessage('conv-demo-flow', queued);
+
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow']).toEqual([queued]);
+    expect(
+      useChatStore
+        .getState()
+        .conversations.find((conversation) => conversation.id === 'conv-demo-flow')
+        ?.last_message_preview,
+    ).toBe('1 条消息已排队');
+
+    useChatStore.getState().removeMessageLocal(queued.id);
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow']).toEqual([]);
+  });
+
+  it('starts the next queued exchange from terminal stream payload', () => {
+    const currentMessageId = addStreamingMessage(
+      'conv-demo-flow',
+      '00000000-0000-4000-8000-000000000252',
+    );
+    useChatStore.getState().startActiveStream({
+      id: currentMessageId,
+      conversation_id: 'conv-demo-flow',
+      agent_id: 'orchestrator',
+    });
+    const queuedUser = createMessage({
+      id: '00000000-0000-4000-8000-000000000253',
+      role: 'user',
+      status: 'done',
+      created_at: '2026-05-31T00:01:00.000Z',
+      content: [{ type: 'text', text: 'queued next' }],
+    });
+    const queuedAgent = createMessage({
+      id: '00000000-0000-4000-8000-000000000254',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      reply_to_id: queuedUser.id,
+      status: 'pending',
+      created_at: '2026-05-31T00:01:00.000Z',
+      content: [],
+    });
+
+    useChatStore.getState().applyStreamEvent(currentMessageId, {
+      event: 'done',
+      data: {
+        message_id: currentMessageId,
+        total_blocks: 0,
+        queued_next: {
+          user_message: queuedUser,
+          agent_message: queuedAgent,
+          queue_remaining_count: 0,
+        },
+      },
+    });
+
+    const messages = useChatStore.getState().messagesByConversation['conv-demo-flow'];
+    expect(messages.map((message) => message.id)).toEqual([
+      currentMessageId,
+      queuedUser.id,
+      queuedAgent.id,
+    ]);
+    expect(useChatStore.getState().activeStreams[queuedAgent.id]).toMatchObject({
+      messageId: queuedAgent.id,
+      conversationId: 'conv-demo-flow',
+      agentId: 'orchestrator',
+    });
+  });
+
+  it('clears active streams when hydrate returns interrupted', () => {
+    const message = createMessage({
+      id: '00000000-0000-4000-8000-000000000301',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      status: 'streaming',
+    });
+    useChatStore.getState().hydrateMessages('conv-demo-flow', [message]);
+
+    expect(useChatStore.getState().activeStreams[message.id]).toBeDefined();
+
+    useChatStore.getState().hydrateMessages('conv-demo-flow', [
+      {
+        ...message,
+        status: 'interrupted',
+        content: [{ type: 'text', text: '已打断本次回复，可以继续补充要求。' }],
+      },
+    ]);
+
+    expect(useChatStore.getState().activeStreams[message.id]).toBeUndefined();
+    expect(useChatStore.getState().messagesByConversation['conv-demo-flow'][0].status).toBe(
+      'interrupted',
+    );
+  });
+
   it('applies workflow stream events as workflow blocks', () => {
     const messageId = addStreamingMessage();
     const store = useChatStore.getState();

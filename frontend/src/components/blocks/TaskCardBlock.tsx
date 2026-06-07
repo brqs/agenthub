@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Circle, CircleDashed, Loader2, XCircle } from 'lucide-react';
 import type { TaskCardBlock as TaskCardBlockData, TaskStatus } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -8,6 +8,7 @@ const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }
   running: Loader2,
   done: CheckCircle2,
   error: XCircle,
+  interrupted: CircleDashed,
 };
 
 const STATUS_CLASS: Record<TaskStatus, string> = {
@@ -15,6 +16,7 @@ const STATUS_CLASS: Record<TaskStatus, string> = {
   running: 'animate-spin text-amber-400',
   done: 'text-emerald-400',
   error: 'text-red-400',
+  interrupted: 'text-slate-400',
 };
 
 export function TaskCardBlock({
@@ -27,13 +29,16 @@ export function TaskCardBlock({
   const doneCount = block.tasks.filter((task) => task.status === 'done').length;
   const runningTask = block.tasks.find((task) => task.status === 'running');
   const hasError = block.tasks.some((task) => task.status === 'error');
+  const hasInterrupted = block.tasks.some((task) => task.status === 'interrupted');
   const stage = hasError
     ? '执行失败'
-    : runningTask
-      ? `正在调度 @${agents.find((item) => item.id === runningTask.agent_id)?.name ?? runningTask.agent_id}`
-      : doneCount === block.tasks.length && block.tasks.length > 0
-        ? '执行结果已汇总'
-        : '等待调度';
+    : hasInterrupted
+      ? '已打断'
+      : runningTask
+        ? `正在调度 @${agents.find((item) => item.id === runningTask.agent_id)?.name ?? runningTask.agent_id}`
+        : doneCount === block.tasks.length && block.tasks.length > 0
+          ? '执行结果已汇总'
+          : '等待调度';
 
   return (
     <div className="my-3 min-w-0 rounded-md border border-brand/30 bg-brand/10 p-4 shadow-[0_0_0_1px_rgba(99,102,241,0.08)]">
@@ -57,6 +62,7 @@ export function TaskCardBlock({
                 'task-row-enter flex min-w-0 items-center gap-3 rounded bg-slate-950/70 px-3 py-2 transition-colors',
                 task.status === 'running' && 'task-running bg-amber-400/10',
                 task.status === 'done' && 'task-done',
+                task.status === 'interrupted' && 'bg-slate-400/10',
               )}
             >
               <Icon className={`h-4 w-4 ${STATUS_CLASS[task.status]}`} />

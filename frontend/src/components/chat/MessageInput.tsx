@@ -1,4 +1,4 @@
-import { AtSign, Paperclip, Send, Slash } from 'lucide-react';
+import { AtSign, Paperclip, Send, Slash, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentMentionPicker } from './AgentMentionPicker';
 import type { DemoConversation } from '@/lib/mockData';
@@ -30,15 +30,25 @@ const slashCommands = [
 export function MessageInput({
   conversation,
   onSend,
+  onQueue,
   isSending = false,
+  isQueueing = false,
   isOffline = false,
+  isStreaming = false,
+  isInterrupting = false,
+  onInterrupt,
   agents = [],
   mentionInsertRequest = null,
 }: {
   conversation: DemoConversation;
   onSend: (text: string) => void | Promise<void>;
+  onQueue?: (text: string) => void | Promise<void>;
   isSending?: boolean;
+  isQueueing?: boolean;
   isOffline?: boolean;
+  isStreaming?: boolean;
+  isInterrupting?: boolean;
+  onInterrupt?: () => void | Promise<void>;
   agents?: Agent[];
   mentionInsertRequest?: MentionInsertRequest | null;
 }) {
@@ -60,15 +70,31 @@ export function MessageInput({
     );
   }, [text]);
   const availableAgents = agents.filter((agent) => conversation.agent_ids.includes(agent.id));
-  const isUnavailable = isSending || isOffline;
+  const isUnavailable = isSending || isQueueing || isOffline;
+  const hasText = Boolean(text.trim());
 
   async function submit() {
     const value = text.trim();
     if (!value || isUnavailable) return;
     setSubmitError(null);
     try {
-      await onSend(value);
+      if (isStreaming) {
+        if (!onQueue) return;
+        await onQueue(value);
+      } else {
+        await onSend(value);
+      }
       setText('');
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function interrupt() {
+    if (!isStreaming || isInterrupting || !onInterrupt) return;
+    setSubmitError(null);
+    try {
+      await onInterrupt();
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : String(error));
     }
@@ -198,15 +224,35 @@ export function MessageInput({
           placeholder={isOffline ? '当前离线，恢复网络后可继续发送' : `发消息到 ${conversation.title}`}
           className="mobile-text-safe max-h-28 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-base text-slate-950 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-600 sm:text-sm [@media(max-height:800px)]:min-h-8 [@media(max-height:800px)]:py-1.5"
         />
+        {isStreaming && hasText && (
+          <button
+            type="button"
+            onClick={() => void interrupt()}
+            disabled={isOffline || isInterrupting || !onInterrupt}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-slate-300 text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+            title={isInterrupting ? '正在停止' : '停止回复'}
+            aria-label={isInterrupting ? '正在停止' : '停止回复'}
+          >
+            <Square className="h-4 w-4 fill-current" />
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => void submit()}
-          disabled={!text.trim() || isUnavailable}
+          onClick={() => void (isStreaming && !hasText ? interrupt() : submit())}
+          disabled={
+            isStreaming && !hasText
+              ? isOffline || isInterrupting || !onInterrupt
+              : !hasText || isUnavailable || (isStreaming && !onQueue)
+          }
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-brand text-white transition hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
-          title="发送"
-          aria-label="发送"
+          title={isStreaming ? (hasText ? '发送到队列' : '停止回复') : '发送'}
+          aria-label={isStreaming ? (hasText ? '发送到队列' : '停止回复') : '发送'}
         >
-          <Send className="h-4 w-4" />
+          {isStreaming && !hasText ? (
+            <Square className="h-4 w-4 fill-current" />
+          ) : (
+            <Send className="h-4 w-4" />
+          )}
         </button>
       </div>
     </footer>

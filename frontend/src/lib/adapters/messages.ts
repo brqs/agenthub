@@ -2,8 +2,12 @@ import { api } from '@/lib/api';
 import type {
   Message,
   MessageList,
+  InterruptMessageResponse,
+  QueueMessageRequest,
+  QueueMessageResponse,
   SendMessageRequest,
   SendMessageResponse,
+  UpdateQueuedMessageRequest,
   UpdateMessageRequest,
 } from '@/lib/types';
 import { normalizeMessage } from './normalizers';
@@ -49,6 +53,38 @@ export async function sendMessage(
   };
 }
 
+export async function queueMessage(
+  conversationId: string,
+  input: QueueMessageRequest,
+): Promise<QueueMessageResponse> {
+  const { data } = await api.post<QueueMessageResponse>(
+    `/api/v1/conversations/${conversationId}/queued-messages`,
+    input,
+  );
+  return {
+    ...data,
+    queued_message: normalizeMessage(data.queued_message),
+  };
+}
+
+export async function updateQueuedMessage(
+  messageId: string,
+  input: UpdateQueuedMessageRequest,
+): Promise<QueueMessageResponse> {
+  const { data } = await api.patch<QueueMessageResponse>(
+    `/api/v1/queued-messages/${messageId}`,
+    input,
+  );
+  return {
+    ...data,
+    queued_message: normalizeMessage(data.queued_message),
+  };
+}
+
+export async function deleteQueuedMessage(messageId: string): Promise<void> {
+  await api.delete(`/api/v1/queued-messages/${messageId}`);
+}
+
 export async function updateMessage(
   messageId: string,
   input: UpdateMessageRequest,
@@ -64,4 +100,14 @@ export async function deleteMessage(messageId: string): Promise<void> {
 export async function regenerateMessage(messageId: string): Promise<Message> {
   const { data } = await api.post<Message>(`/api/v1/messages/${messageId}/regenerate`);
   return normalizeMessage(data);
+}
+
+export async function interruptMessage(messageId: string): Promise<InterruptMessageResponse> {
+  const { data } = await api.post<InterruptMessageResponse>(
+    `/api/v1/messages/${messageId}/interrupt`,
+  );
+  return {
+    ...data,
+    message: normalizeMessage(data.message),
+  };
 }

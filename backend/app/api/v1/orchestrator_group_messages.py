@@ -78,7 +78,12 @@ class OrchestratorGroupMessageWriter:
             message_id = chunk.message_id
             if not message_id or message_id == str(self.parent_message_id):
                 return None
-            if chunk.event_type in {"message_start", "message_done", "message_error"}:
+            if chunk.event_type in {
+                "message_start",
+                "message_done",
+                "message_error",
+                "message_interrupted",
+            }:
                 return None
 
             state = self._states.get(message_id)
@@ -126,9 +131,16 @@ class OrchestratorGroupMessageWriter:
         if message is None:
             return None
 
-        has_orphaned_tool_call = state.accumulator.finalize_orphaned_tools()
+        if status == "interrupted":
+            state.accumulator.finalize_interrupted()
+            has_orphaned_tool_call = False
+        else:
+            has_orphaned_tool_call = state.accumulator.finalize_orphaned_tools()
         content = state.accumulator.to_list()
-        final_status = "error" if status == "error" or has_orphaned_tool_call else "done"
+        if status == "interrupted":
+            final_status = "interrupted"
+        else:
+            final_status = "error" if status == "error" or has_orphaned_tool_call else "done"
         if final_status == "error" and not content:
             content = [
                 {
@@ -137,10 +149,28 @@ class OrchestratorGroupMessageWriter:
                     "text": _safe_error_text(error),
                 }
             ]
+        if final_status == "interrupted" and not content:
+            content = [
+                {
+                    "type": "text",
+                    "agent_id": state.agent_id,
+                    "text": "已打断本次回复，可以继续补充要求。",
+                }
+            ]
         message.content = content
         message.status = final_status
         await self.db.commit()
 
+        if final_status == "interrupted":
+            return StreamChunk(
+                event_type="message_interrupted",
+                message_id=message_id,
+                conversation_id=str(self.conversation_id),
+                reply_to_id=str(self.user_message_id) if self.user_message_id else None,
+                status="interrupted",
+                agent_id=state.agent_id,
+                total_blocks=len(content),
+            )
         if final_status == "error":
             return StreamChunk(
                 event_type="message_error",
@@ -170,6 +200,18 @@ class OrchestratorGroupMessageWriter:
                     message_id,
                     status="error",
                     error=error,
+                )
+                if chunk is not None:
+                    chunks.append(chunk)
+            return chunks
+
+    async def interrupt_open_messages(self) -> list[StreamChunk]:
+        async with self._lock:
+            chunks: list[StreamChunk] = []
+            for message_id in list(self._states):
+                chunk = await self._finish_message_unlocked(
+                    message_id,
+                    status="interrupted",
                 )
                 if chunk is not None:
                     chunks.append(chunk)

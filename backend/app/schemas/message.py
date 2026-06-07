@@ -103,7 +103,7 @@ class TaskCardTask(BaseModel):
     id: str
     agent_id: str
     title: str
-    status: Literal["pending", "running", "done", "error"]
+    status: Literal["pending", "running", "done", "error", "interrupted"]
 
 
 class TaskCardBlock(BaseModel):
@@ -129,7 +129,7 @@ class ProcessStep(BaseModel):
         "repair",
         "summary",
     ]
-    status: Literal["done", "running", "error", "skipped"]
+    status: Literal["done", "running", "error", "skipped", "interrupted"]
     detail: str | None = None
     agent_id: str | None = None
 
@@ -138,7 +138,7 @@ class ProcessBlock(BaseModel):
     type: Literal["process"] = "process"
     agent_id: str | None = None
     title: str
-    status: Literal["running", "done", "partial", "error"]
+    status: Literal["running", "done", "partial", "error", "interrupted"]
     default_collapsed: bool
     steps: list[ProcessStep] = Field(default_factory=list)
     summary: str | None = None
@@ -197,7 +197,7 @@ ContentBlock = Annotated[
 
 # ─── Message DTOs ────────────────────────────────────────────────
 MessageRole = Literal["user", "agent", "system"]
-MessageStatus = Literal["pending", "streaming", "done", "error"]
+MessageStatus = Literal["pending", "streaming", "done", "error", "interrupted", "queued"]
 
 
 class MessageOut(BaseModel):
@@ -222,6 +222,29 @@ class SendMessageRequest(BaseModel):
 class SendMessageResponse(BaseModel):
     user_message: MessageOut
     agent_message: MessageOut
+
+
+class QueueMessageRequest(BaseModel):
+    content: list[ContentBlock] = Field(..., min_length=1)
+    target_agent_id: str | None = None
+
+
+class UpdateQueuedMessageRequest(BaseModel):
+    content: list[ContentBlock] | None = Field(default=None, min_length=1)
+    target_agent_id: str | None = None
+
+
+class QueueMessageResponse(BaseModel):
+    queued_message: MessageOut
+    queue_position: int
+
+
+InterruptMessageState = Literal["interrupted", "already_terminal", "interrupting"]
+
+
+class InterruptMessageResponse(BaseModel):
+    state: InterruptMessageState
+    message: MessageOut
 
 
 class UpdateMessageRequest(BaseModel):

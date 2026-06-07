@@ -88,6 +88,77 @@ describe('MessageInput', () => {
     expect(screen.getByPlaceholderText('发消息到 单聊测试')).toBeDisabled();
   });
 
+  it('shows a stop button while streaming and keeps the textarea editable', async () => {
+    const onSend = vi.fn();
+    const onInterrupt = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessageInput
+        conversation={singleConversation}
+        onSend={onSend}
+        isStreaming
+        onInterrupt={onInterrupt}
+      />,
+    );
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+
+    expect(input).not.toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '停止回复' }));
+
+    await waitFor(() => {
+      expect(onInterrupt).toHaveBeenCalledTimes(1);
+    });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('queues text with Enter while streaming', async () => {
+    const onSend = vi.fn();
+    const onQueue = vi.fn().mockResolvedValue(undefined);
+    const onInterrupt = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessageInput
+        conversation={singleConversation}
+        onSend={onSend}
+        onQueue={onQueue}
+        isStreaming
+        onInterrupt={onInterrupt}
+      />,
+    );
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+
+    fireEvent.change(input, { target: { value: '  补充要求  ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(onQueue).toHaveBeenCalledWith('补充要求');
+      expect(input).toHaveValue('');
+    });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onInterrupt).not.toHaveBeenCalled();
+  });
+
+  it('shows separate stop and queue actions while streaming with text', async () => {
+    const onQueue = vi.fn().mockResolvedValue(undefined);
+    const onInterrupt = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessageInput
+        conversation={singleConversation}
+        onSend={vi.fn()}
+        onQueue={onQueue}
+        isStreaming
+        onInterrupt={onInterrupt}
+      />,
+    );
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+
+    fireEvent.change(input, { target: { value: '下一步' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送到队列' }));
+
+    await waitFor(() => {
+      expect(onQueue).toHaveBeenCalledWith('下一步');
+    });
+    expect(onInterrupt).not.toHaveBeenCalled();
+  });
+
   it('disables input and sending while offline', () => {
     const onSend = vi.fn();
     render(<MessageInput conversation={singleConversation} onSend={onSend} isOffline />);

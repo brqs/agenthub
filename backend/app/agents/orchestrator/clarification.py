@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Literal
 
@@ -24,6 +25,7 @@ ClarificationReplyRoute = Literal[
     "new_topic",
     "explicit_switch",
     "control",
+    "repeat_current",
     "ambiguous",
 ]
 
@@ -418,6 +420,13 @@ async def _handle_pending_answer(
             user_request=_switch_request_text(user_request),
             has_task_intent=has_task_intent,
         )
+    if route == "repeat_current":
+        return await _repeat_current_clarification(
+            config,
+            next_block_index,
+            state=state,
+            user_request=user_request,
+        )
     if route in {"new_topic", "ambiguous"}:
         return await _ask_topic_route_confirmation(
             config,
@@ -739,6 +748,8 @@ def classify_pending_clarification_reply(
         return "control"
     if _is_explicit_switch_request(user_request):
         return "explicit_switch"
+    if _is_repeated_current_request(state, user_request):
+        return "repeat_current"
 
     original = _original_request(state)
     current_question = state.get("current_question")
@@ -909,6 +920,50 @@ async def _ask_topic_route_confirmation(
     )
     await _record_clarification(config, "clarification_question_asked", state, user_request)
     return ClarificationOutcome(chunks=chunks, next_block_index=next_block_index + 1, done=True)
+
+
+async def _repeat_current_clarification(
+    config: Mapping[str, Any],
+    next_block_index: int,
+    *,
+    state: dict[str, Any],
+    user_request: str,
+) -> ClarificationOutcome:
+    raw_question = state.get("current_question")
+    current_question = dict(raw_question) if isinstance(raw_question, dict) else None
+    questions = [
+        dict(item)
+        for item in state.get("questions", [])
+        if isinstance(item, dict)
+    ]
+    if current_question is not None and not any(
+        item.get("id") == current_question.get("id") for item in questions
+    ):
+        questions.append(current_question)
+    summary = (
+        "我理解你仍在描述同一个需求；请直接选择推荐默认、补充交付边界，"
+        "或发送“取消”。只有明确发送“按这个做”或“开始实现”后，我才会进入实现。"
+    )
+    chunks = (
+        *_clarification_block_chunks(
+            next_block_index,
+            mode=_mode(state),
+            title=str(state.get("title") or "Orchestrator 需求澄清"),
+            status="waiting",
+            question=current_question,
+            questions=questions,
+            summary=summary,
+            metadata={**_metadata(state), "repeated_request": user_request},
+        ),
+        *_text_block(next_block_index + 1, summary),
+    )
+    await _record_clarification(
+        config,
+        "clarification_repeated_request",
+        state,
+        user_request,
+    )
+    return ClarificationOutcome(chunks=chunks, next_block_index=next_block_index + 2, done=True)
 
 
 async def _ask_proceed_confirmation(
@@ -1306,9 +1361,107 @@ def _looks_like_question_or_task(text: str) -> bool:
 
 def _looks_like_short_answer(text: str) -> bool:
     stripped = text.strip()
+    if _looks_like_question_or_task(stripped):
+        return False
     if len(stripped) <= 24 and not _contains_any(stripped, QUESTION_MARKERS):
         return True
     return _contains_any(stripped, ("使用推荐", "完整主流程", "克制精致", "移动端", "桌面端"))
+
+
+COMMON_REQUEST_TERMS = (
+    "please",
+    "help",
+    "me",
+    "a",
+    "an",
+    "the",
+    "build",
+    "create",
+    "generate",
+    "implement",
+    "design",
+    "make",
+    "write",
+    "web",
+    "website",
+    "webpage",
+    "page",
+    "html",
+    "css",
+    "javascript",
+    "js",
+    "frontend",
+    "game",
+    "file",
+    "files",
+    "请你",
+    "请",
+    "帮我",
+    "帮",
+    "我",
+    "设计",
+    "制作",
+    "开发",
+    "做一个",
+    "做",
+    "生成",
+    "创建",
+    "写",
+    "实现",
+    "一个",
+    "的",
+    "网页版",
+    "网页",
+    "页面",
+    "网站",
+    "前端",
+    "游戏",
+    "文件",
+)
+
+
+def _is_repeated_current_request(state: dict[str, Any], user_request: str) -> bool:
+    if not _looks_like_question_or_task(user_request):
+        return False
+    candidates = [_original_request(state)]
+    pending = _metadata(state).get("pending_answer")
+    if isinstance(pending, str):
+        candidates.append(pending)
+    return any(_same_request_intent(user_request, candidate) for candidate in candidates)
+
+
+def _same_request_intent(left: str, right: str) -> bool:
+    left_compact = _compact_request_text(left)
+    right_compact = _compact_request_text(right)
+    if not left_compact or not right_compact:
+        return False
+    if left_compact == right_compact:
+        return True
+
+    left_signature = _distinctive_request_signature(left_compact)
+    right_signature = _distinctive_request_signature(right_compact)
+    if left_signature and right_signature:
+        if left_signature == right_signature:
+            return True
+        shorter, longer = sorted((left_signature, right_signature), key=len)
+        if len(shorter) >= 3 and shorter in longer:
+            return True
+        return SequenceMatcher(None, left_signature, right_signature).ratio() >= 0.88
+
+    return SequenceMatcher(None, left_compact, right_compact).ratio() >= 0.95
+
+
+def _compact_request_text(text: str) -> str:
+    return re.sub(r"[\W_]+", "", text.lower(), flags=re.UNICODE)
+
+
+def _distinctive_request_signature(compact_text: str) -> str:
+    signature = compact_text
+    for term in sorted(COMMON_REQUEST_TERMS, key=len, reverse=True):
+        compact_term = _compact_request_text(term)
+        if compact_term:
+            signature = signature.replace(compact_term, "")
+    return signature
 
 
 def _project_labels(text: str) -> set[str]:
