@@ -14,6 +14,9 @@ export function MessageList({
   onTogglePin,
   onRetry,
   retryingMessageIds = {},
+  interruptingMessageIds = {},
+  onUpdateQueuedMessage,
+  onDeleteQueuedMessage,
   onMentionAgent,
   agents = [],
 }: {
@@ -26,6 +29,9 @@ export function MessageList({
   onTogglePin?: (messageId: string) => void;
   onRetry?: (messageId: string) => void;
   retryingMessageIds?: Record<string, boolean>;
+  interruptingMessageIds?: Record<string, boolean>;
+  onUpdateQueuedMessage?: (messageId: string, text: string) => void | Promise<void>;
+  onDeleteQueuedMessage?: (messageId: string) => void | Promise<void>;
   onMentionAgent?: (agent: Agent) => void;
   agents?: Agent[];
 }) {
@@ -129,6 +135,9 @@ export function MessageList({
             onTogglePin={onTogglePin}
             onRetry={onRetry}
             isRetrying={Boolean(retryingMessageIds[message.id])}
+            isInterrupting={Boolean(interruptingMessageIds[message.id])}
+            onUpdateQueuedMessage={onUpdateQueuedMessage}
+            onDeleteQueuedMessage={onDeleteQueuedMessage}
             onMentionAgent={onMentionAgent}
           />
         ))}

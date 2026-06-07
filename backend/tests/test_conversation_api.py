@@ -11,13 +11,17 @@ import pytest
 import pytest_asyncio
 import yaml
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.agents.orchestrator.types import SubTask, TaskAttempt, TaskResult, TaskState
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
+from app.models.conversation import Conversation
+from app.models.message import Message
+from app.models.message_queue import MessageQueueEntry
 from app.services.orchestrator_memory import OrchestratorMemoryStore
+from app.services.queued_messages import dispatch_next_queued_message
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -90,6 +94,24 @@ async def _create_group_conversation(
     return str(response.json()["id"])
 
 
+async def _create_single_conversation(
+    client: AsyncClient,
+    headers: dict[str, str],
+) -> tuple[str, str]:
+    agent_id = await _insert_agent()
+    response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Queued single chat",
+            "mode": "single",
+            "agent_ids": [agent_id],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return str(response.json()["id"]), agent_id
+
+
 async def _seed_profile_run(conversation_id: str, agent_id: str) -> None:
     async with SessionFactory() as db:
         store = OrchestratorMemoryStore(
@@ -131,6 +153,193 @@ async def _seed_profile_run(conversation_id: str, agent_id: str) -> None:
             final_summary="Execution summary\n- succeeded",
         )
         await db.commit()
+
+
+async def test_queue_message_requires_active_agent_response(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation_id, _agent_id = await _create_single_conversation(client, headers)
+
+    response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "next"}]},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["error"]["code"] == "NO_ACTIVE_AGENT_RESPONSE"
+
+
+async def test_queue_message_can_be_updated_and_deleted(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation_id, _agent_id = await _create_single_conversation(client, headers)
+    send_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "first"}]},
+    )
+    assert send_response.status_code == 201, send_response.text
+
+    queue_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "second"}]},
+    )
+    assert queue_response.status_code == 201, queue_response.text
+    queued = queue_response.json()["queued_message"]
+    assert queued["status"] == "queued"
+    assert queue_response.json()["queue_position"] == 1
+
+    update_response = await client.patch(
+        f"/api/v1/queued-messages/{queued['id']}",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "second edited"}]},
+    )
+    assert update_response.status_code == 200, update_response.text
+    assert update_response.json()["queued_message"]["content"][0]["text"] == "second edited"
+
+    delete_response = await client.delete(
+        f"/api/v1/queued-messages/{queued['id']}",
+        headers=headers,
+    )
+    assert delete_response.status_code == 204
+    list_response = await client.get(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+    )
+    assert list_response.status_code == 200, list_response.text
+    assert queued["id"] not in {item["id"] for item in list_response.json()["items"]}
+
+
+async def test_dispatch_next_queued_message_after_terminal_turn(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation_id, agent_id = await _create_single_conversation(client, headers)
+    send_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "first"}]},
+    )
+    assert send_response.status_code == 201, send_response.text
+    active_agent_id = send_response.json()["agent_message"]["id"]
+    queue_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={"content": [{"type": "text", "text": "queued next"}]},
+    )
+    assert queue_response.status_code == 201, queue_response.text
+    queued_user_id = queue_response.json()["queued_message"]["id"]
+
+    async with SessionFactory() as db:
+        active_agent = await db.get(Message, UUID(active_agent_id))
+        assert active_agent is not None
+        active_agent.status = "done"
+        active_agent.content = [{"type": "text", "text": "done"}]
+        await db.commit()
+        dispatch = await dispatch_next_queued_message(db, conversation_id=UUID(conversation_id))
+        assert dispatch is not None
+        await db.commit()
+        assert dispatch.user_message.id == UUID(queued_user_id)
+        assert dispatch.user_message.status == "done"
+        assert dispatch.agent_message.agent_id == agent_id
+        assert dispatch.agent_message.reply_to_id == UUID(queued_user_id)
+        assert dispatch.agent_message.status == "pending"
+        queue_entry = (
+            await db.execute(
+                select(MessageQueueEntry).where(
+                    MessageQueueEntry.user_message_id == UUID(queued_user_id)
+                )
+            )
+        ).scalar_one()
+        assert queue_entry.state == "dispatched"
+        assert queue_entry.dispatched_agent_message_id == dispatch.agent_message.id
+
+
+async def test_dispatch_skips_removed_target_and_continues_queue(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    invalid_agent_id = await _insert_agent()
+    valid_agent_id = await _insert_agent()
+    create_response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Queued group chat",
+            "mode": "group",
+            "agent_ids": [invalid_agent_id, valid_agent_id],
+        },
+    )
+    assert create_response.status_code == 201, create_response.text
+    conversation_id = create_response.json()["id"]
+    send_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={
+            "content": [{"type": "text", "text": "first"}],
+            "target_agent_id": valid_agent_id,
+        },
+    )
+    assert send_response.status_code == 201, send_response.text
+    active_agent_id = send_response.json()["agent_message"]["id"]
+    invalid_queue_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={
+            "content": [{"type": "text", "text": "invalid target"}],
+            "target_agent_id": invalid_agent_id,
+        },
+    )
+    valid_queue_response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/queued-messages",
+        headers=headers,
+        json={
+            "content": [{"type": "text", "text": "valid target"}],
+            "target_agent_id": valid_agent_id,
+        },
+    )
+    assert invalid_queue_response.status_code == 201, invalid_queue_response.text
+    assert valid_queue_response.status_code == 201, valid_queue_response.text
+    invalid_user_id = UUID(invalid_queue_response.json()["queued_message"]["id"])
+    valid_user_id = UUID(valid_queue_response.json()["queued_message"]["id"])
+
+    async with SessionFactory() as db:
+        conversation = await db.get(Conversation, UUID(conversation_id))
+        assert conversation is not None
+        conversation.agent_ids = [valid_agent_id]
+        active_agent = await db.get(Message, UUID(active_agent_id))
+        assert active_agent is not None
+        active_agent.status = "done"
+        active_agent.content = [{"type": "text", "text": "done"}]
+        await db.commit()
+
+        dispatch = await dispatch_next_queued_message(db, conversation_id=UUID(conversation_id))
+        assert dispatch is not None
+        await db.commit()
+
+        assert dispatch.user_message.id == valid_user_id
+        assert dispatch.agent_message.agent_id == valid_agent_id
+        assert dispatch.agent_message.status == "pending"
+        invalid_error = (
+            await db.execute(
+                select(Message)
+                .where(Message.reply_to_id == invalid_user_id)
+                .where(Message.status == "error")
+            )
+        ).scalar_one()
+        assert invalid_error.agent_id == invalid_agent_id
+        invalid_entry = (
+            await db.execute(
+                select(MessageQueueEntry).where(
+                    MessageQueueEntry.user_message_id == invalid_user_id
+                )
+            )
+        ).scalar_one()
+        valid_entry = (
+            await db.execute(
+                select(MessageQueueEntry).where(MessageQueueEntry.user_message_id == valid_user_id)
+            )
+        ).scalar_one()
+        assert invalid_entry.state == "dispatched"
+        assert valid_entry.state == "dispatched"
 
 
 async def test_agent_capability_profile_api_returns_items_for_owner(

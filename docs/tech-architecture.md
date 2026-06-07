@@ -7,6 +7,8 @@
 > ⚠️ **2026-05-26 Agent Runtime Pivot 生效**：Agent 层重新分为三层（External / Builtin Framework / ModelGateway 底座）；BaseAgentAdapter v2 接口升级；新增 Workspace 沙箱。决策依据见 [docs/spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md)。
 >
 > 本文档已就地同步的章节：§3（核心组件）/ §6（Adapter 与 Orchestrator）/ §13（ADR 索引）。其他章节（§1 总览、§2 分层、§4 数据流、§5 数据架构、§7 SSE、§8 安全、§9 前端、§10 部署、§11-12 性能与可观测、§14 演进）保留 v1.0 内容，待 pivot 后小幅同步，主要影响是 §4 数据流需要补 tool_call / tool_result 链路、§7 SSE 事件枚举需要扩展、§9 前端需要补 ToolCallBlock / ArtifactPreview。
+>
+> 📌 **2026-06-07 下一阶段三大模块 Draft**：对话打断、跨端文件上传、深度自定义 Agent/skills/MCP 的完整设计见 [docs/spec/next-major-modules.spec.md](spec/next-major-modules.spec.md)。实现时以该 spec 作为 B1/B2/F 共同入口，再同步 OpenAPI 与分模块 spec。
 
 ---
 
@@ -1667,6 +1669,8 @@ logger.info("message_streamed",
 - 🟡 PWA / 移动端体验优化
 - 🟡 Orchestrator 任务图可视化
 - 🟡 内置 Skill 市场
+- 🟡 对话打断：`interrupted` 终态、Stop 控件、runtime cancellation
+- 🟡 文件上传：图片 / 文档 / 压缩包作为 message attachment 与 Workspace import
 
 ### Phase 3（生产化，1-2 个月）
 - 🟢 多用户协作（团队空间、共享会话）
@@ -1674,6 +1678,7 @@ logger.info("message_streamed",
 - 🟢 用量计费 / 配额管理
 - 🟢 完善监控告警
 - 🟢 多模态（图片、语音输入）
+- 🟢 无代码自定义 Agent：角色、知识、skills、MCP、权限、测试发布
 
 ### Phase 4（开放生态，长期）
 - 🟢 第三方 Agent SDK

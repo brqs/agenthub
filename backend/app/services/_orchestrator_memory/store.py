@@ -243,6 +243,15 @@ class OrchestratorMemoryStore:
             final_summary="Stream disconnected before Orchestrator finished.",
         )
 
+    async def interrupt_active_run(self) -> None:
+        if self._active_run_id is None:
+            return
+        await self.finish_run(
+            run_id=self._active_run_id,
+            status="interrupted",
+            final_summary="User interrupted this Orchestrator run.",
+        )
+
     def _task_row(self, run_id: UUID, task: SubTask) -> OrchestratorTask:
         key = (run_id, task.task_id)
         row = self._task_rows.get(key)

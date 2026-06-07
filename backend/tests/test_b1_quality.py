@@ -429,8 +429,14 @@ async def test_stream_run_manager_reuses_runtime_for_multiple_subscribers(
         assert message is not None
         message.status = "streaming"
         await db.commit()
-        session = await stream_module.stream_run_manager.start(message)
-        reused = await stream_module.stream_run_manager.start(message)
+        session = await stream_module.stream_run_manager.start(
+            message,
+            stream_module._run_stream_session,
+        )
+        reused = await stream_module.stream_run_manager.start(
+            message,
+            stream_module._run_stream_session,
+        )
 
     assert reused is session
     first = stream_module.stream_run_manager.subscribe(session).__aiter__()
@@ -449,6 +455,103 @@ async def test_stream_run_manager_reuses_runtime_for_multiple_subscribers(
         assert message is not None
         assert message.status == "done"
         assert message.content == [{"type": "text", "text": "hello"}]
+
+
+async def test_interrupt_pending_agent_message_marks_interrupted_and_releases_busy(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = messages["agent_message"]["id"]
+
+    response = await client.post(
+        f"/api/v1/messages/{agent_message_id}/interrupt",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["state"] == "interrupted"
+    assert body["message"]["status"] == "interrupted"
+    assert body["message"]["content"][0]["text"].startswith("已打断")
+
+    next_messages = await _send_message(client, headers, conversation["id"], agent_id)
+    assert next_messages["agent_message"]["status"] == "pending"
+
+
+async def test_interrupt_streaming_agent_message_stops_runtime_and_preserves_partial_content(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path))
+
+    async def fake_get_adapter(agent_id: str, db: Any) -> _HangingAdapter:
+        _ = agent_id, db
+        return _HangingAdapter()
+
+    monkeypatch.setattr(stream_module, "get_adapter", fake_get_adapter)
+
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        message.status = "streaming"
+        await db.commit()
+        session = await stream_module.stream_run_manager.start(
+            message,
+            stream_module._run_stream_session,
+        )
+
+    subscription = stream_module.stream_run_manager.subscribe(session).__aiter__()
+    assert (await anext(subscription))["event"] == "start"
+    assert (await anext(subscription))["event"] == "block_start"
+    assert (await anext(subscription))["event"] == "delta"
+
+    response = await client.post(
+        f"/api/v1/messages/{agent_message_id}/interrupt",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["state"] == "interrupted"
+    assert body["message"]["status"] == "interrupted"
+    assert body["message"]["content"][0]["type"] == "text"
+    assert body["message"]["content"][0]["text"] == "partial"
+
+    interrupted_event = await anext(subscription)
+    assert interrupted_event["event"] == "interrupted"
+    await session.task
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "interrupted"
+        assert message.content == [{"type": "text", "text": "partial"}]
+
+
+async def test_interrupt_user_message_is_rejected(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    user_message_id = messages["user_message"]["id"]
+
+    response = await client.post(
+        f"/api/v1/messages/{user_message_id}/interrupt",
+        headers=headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["error"]["code"] == "NOT_AGENT_MESSAGE"
 
 
 async def test_streaming_message_without_manager_terminalizes_as_error(

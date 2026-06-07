@@ -122,7 +122,7 @@ export interface ProcessStep {
     | 'artifact'
     | 'repair'
     | 'summary';
-  status: 'done' | 'running' | 'error' | 'skipped';
+  status: 'done' | 'running' | 'error' | 'skipped' | 'interrupted';
   detail?: string | null;
   agent_id?: string | null;
 }
@@ -130,7 +130,7 @@ export interface ProcessBlock {
   type: 'process';
   agent_id?: string | null;
   title: string;
-  status: 'running' | 'done' | 'partial' | 'error';
+  status: 'running' | 'done' | 'partial' | 'error' | 'interrupted';
   default_collapsed: boolean;
   steps: ProcessStep[];
   summary?: string | null;
@@ -182,7 +182,7 @@ export interface TaskCardBlock {
     id: string;
     agent_id: string;
     title: string;
-    status: 'pending' | 'running' | 'done' | 'error';
+    status: 'pending' | 'running' | 'done' | 'error' | 'interrupted';
   }>;
 }
 
@@ -210,10 +210,26 @@ export type SendMessageResponse = Override<
   Schemas['SendMessageResponse'],
   { user_message: Message; agent_message: Message }
 >;
+export type QueueMessageRequest = Schemas['QueueMessageRequest'];
+export type UpdateQueuedMessageRequest = Schemas['UpdateQueuedMessageRequest'];
+export type QueueMessageResponse = Override<
+  Schemas['QueueMessageResponse'],
+  { queued_message: Message }
+>;
 export type UpdateMessageRequest = Schemas['UpdateMessageRequest'];
+export type InterruptMessageResponse = Override<
+  Schemas['InterruptMessageResponse'],
+  { message: Message }
+>;
 
 export type MessageRole = Message['role'];
-export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error';
+export type MessageStatus =
+  | 'pending'
+  | 'streaming'
+  | 'done'
+  | 'error'
+  | 'interrupted'
+  | 'queued';
 
 // ─── Agents ───
 export type Agent = Override<
@@ -231,6 +247,12 @@ export type CreatableAgentProvider = CreateAgentRequest['provider'];
 export type UpdateAgentRequest = Schemas['UpdateAgentRequest'];
 
 // ─── SSE events (hand-written; not in OpenAPI) ───
+export interface QueuedNextPayload {
+  user_message: Message;
+  agent_message: Message;
+  queue_remaining_count: number;
+}
+
 export type StreamEvent =
   | { event: 'start'; data: { message_id?: string; agent_id?: string } }
   | {
@@ -268,6 +290,17 @@ export type StreamEvent =
       };
     }
   | {
+      event: 'message_interrupted';
+      data: {
+        message_id: string;
+        conversation_id?: string;
+        agent_id?: string;
+        reply_to_id?: string | null;
+        status?: 'interrupted';
+        total_blocks?: number;
+      };
+    }
+  | {
       event: 'block_start';
       data: {
         block_index: number;
@@ -289,8 +322,35 @@ export type StreamEvent =
       };
     }
   | { event: 'block_end'; data: { block_index: number; agent_id?: string; message_id?: string } }
-  | { event: 'done'; data: { message_id?: string; total_blocks?: number; agent_id?: string } }
-  | { event: 'error'; data: { error_code?: string; error?: string; agent_id?: string } }
+  | {
+      event: 'done';
+      data: {
+        message_id?: string;
+        total_blocks?: number;
+        agent_id?: string;
+        queued_next?: QueuedNextPayload;
+      };
+    }
+  | {
+      event: 'error';
+      data: {
+        error_code?: string;
+        error?: string;
+        agent_id?: string;
+        queued_next?: QueuedNextPayload;
+      };
+    }
+  | {
+      event: 'interrupted';
+      data: {
+        message_id?: string;
+        conversation_id?: string;
+        total_blocks?: number;
+        agent_id?: string;
+        status?: 'interrupted';
+        queued_next?: QueuedNextPayload;
+      };
+    }
   | { event: 'agent_switch'; data: { from_agent: string; to_agent: string; task?: string } }
   | {
       event: 'tool_call';

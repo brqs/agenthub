@@ -86,7 +86,7 @@ export function subscribeMessageStream(
       try {
         const data = msg.data ? JSON.parse(msg.data) : {};
         const event = { event: msg.event as StreamEvent['event'], data } as StreamEvent;
-        if (event.event === 'done' || event.event === 'error') {
+        if (event.event === 'done' || event.event === 'error' || event.event === 'interrupted') {
           current.completed = true;
         }
         for (const subscriber of current.subscribers) {

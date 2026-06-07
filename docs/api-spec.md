@@ -1906,3 +1906,28 @@ Deployment 是一次可追踪发布记录。Preview 是临时开发预览，Depl
 | 2026-05-26 | v1.1（B1-PIVOT-4/5） | SSE `tool_call` / `tool_result` 已落地：B1 stream 网关注入 `workspace_path`，配对持久化为 `ToolCallBlock`，并同步 `shared/openapi.yaml`。|
 | 2026-05-27 | v1.1（B2-20） | Agent provider / config schema 已切换为真实 runtime / builtin：顶层 creatable provider 为 `claude_code` / `codex` / `opencode` / `builtin`，legacy raw provider 仅作为历史数据或 BuiltinAgent ModelGateway backend；同步 `shared/openapi.yaml` 与本文 §6。|
 | 2026-06-03 | v1.2（B1 收口） | 同步 ContentBlock block-level `agent_id`、`DeploymentStatusBlock`、Workspace preview、deployment、source zip、container deployment API；明确 Preview/Deployment 由平台管理，不由 Agent runtime 管理端口、PID 或部署命令。|
+## 2026-06-07 Message Interrupt API Addendum
+
+`shared/openapi.yaml` is the machine-readable source of truth for this contract.
+
+- `POST /api/v1/messages/{msg_id}/interrupt` interrupts an agent message owned by the current user.
+- Response schema: `InterruptMessageResponse`.
+- `state` is one of `interrupted`, `already_terminal`, or `interrupting`.
+- Message status now includes `interrupted`.
+- SSE terminal events now include top-level `interrupted`; Orchestrator child messages can emit `message_interrupted`.
+- `interrupted` is a neutral user-requested terminal state. It preserves partial content, clears conversation busy state, and must not show a retry/error frame.
+- Client disconnect, conversation switching, StrictMode remount, and subscriber churn are not user interrupts.
+
+## 2026-06-07 Queued Next Turn API Addendum
+
+`shared/openapi.yaml` is the machine-readable source of truth for this contract.
+
+- Message status now includes `queued`.
+- `POST /api/v1/conversations/{conversation_id}/queued-messages` creates a queued user message while the conversation has an active `pending` or `streaming` agent response.
+- `PATCH /api/v1/queued-messages/{message_id}` updates an undispatched queued message's content or target agent.
+- `DELETE /api/v1/queued-messages/{message_id}` removes an undispatched queued message from the conversation.
+- `POST /api/v1/conversations/{conversation_id}/messages` keeps `409 CONVERSATION_BUSY` for active conversations; queued submission is the explicit opt-in path.
+- Queue state is persisted in `message_queue_entries` with `queued | dispatched`.
+- When the current agent response reaches `done`, `error`, or `interrupted`, B1 dispatches the queue head and terminal SSE data may include `queued_next`.
+- `queued_next.user_message` replaces the queued bubble with a normal user message; `queued_next.agent_message` is the next pending agent response to stream.
+- Queued messages are next-turn intent. They are not appended to the current runtime context and do not enable parallel agent turns inside the same conversation.

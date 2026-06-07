@@ -22,6 +22,7 @@ interface ChatState {
       conversationId: string;
       agentId: string | null;
       startedAt: string;
+      interrupting?: boolean;
     }
   >;
   selectedConversationId: string;
@@ -35,6 +36,7 @@ interface ChatState {
   toggleConversationArchive: (conversationId: string) => void;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
   startActiveStream: (message: Pick<Message, 'id' | 'conversation_id' | 'agent_id'>) => void;
+  setActiveStreamInterrupting: (messageId: string, interrupting: boolean) => void;
   finishActiveStream: (messageId: string) => void;
   resetMessageForRetry: (messageId: string) => void;
   /** Prepend a freshly created conversation (returned by POST /conversations). */
@@ -49,9 +51,11 @@ interface ChatState {
     userMessage: Message,
     agentMessage: Message,
   ) => void;
+  appendQueuedMessage: (conversationId: string, queuedMessage: Message) => void;
   updateConversationLocal: (conversation: Conversation) => void;
   updateMessageLocal: (message: Message) => void;
   replaceMessageLocal: (oldMessageId: string, message: Message) => void;
+  removeMessageLocal: (messageId: string) => void;
   clearChat: () => void;
 }
 
@@ -285,7 +289,37 @@ function failRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
   });
 }
 
+function interruptRunningBlocks(blocks: DemoContentBlock[]): DemoContentBlock[] {
+  return blocks.map((block) => {
+    if (block.type === 'task_card') {
+      return {
+        ...block,
+        tasks: block.tasks.map((task) =>
+          task.status === 'pending' || task.status === 'running'
+            ? { ...task, status: 'interrupted' as const }
+            : task,
+        ),
+      };
+    }
+    if (block.type === 'process') {
+      return {
+        ...block,
+        status:
+          block.status === 'running' || block.status === 'partial'
+            ? ('interrupted' as const)
+            : block.status,
+        steps: block.steps.map((step) =>
+          step.status === 'running' ? { ...step, status: 'interrupted' as const } : step,
+        ),
+      };
+    }
+    return block;
+  });
+}
+
 function previewFromMessage(message: DemoMessage): string | null {
+  if (message.status === 'queued') return '1 条消息已排队';
+  if (message.status === 'interrupted') return '回复已打断';
   for (const block of message.content) {
     if (block.type === 'text' && block.text.trim()) {
       return block.text.trim();
@@ -486,14 +520,26 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
 }
 
 function processStatus(value: unknown): ProcessBlock['status'] {
-  if (value === 'running' || value === 'done' || value === 'partial' || value === 'error') {
+  if (
+    value === 'running' ||
+    value === 'done' ||
+    value === 'partial' ||
+    value === 'error' ||
+    value === 'interrupted'
+  ) {
     return value;
   }
   return 'done';
 }
 
 function processStepStatus(value: unknown): ProcessBlock['steps'][number]['status'] {
-  if (value === 'done' || value === 'running' || value === 'error' || value === 'skipped') {
+  if (
+    value === 'done' ||
+    value === 'running' ||
+    value === 'error' ||
+    value === 'skipped' ||
+    value === 'interrupted'
+  ) {
     return value;
   }
   return 'done';
@@ -591,6 +637,16 @@ function applyStreamEventToMessage(message: DemoMessage, event: StreamEvent): De
       content: nextContent,
     };
   }
+  if (event.event === 'interrupted' || event.event === 'message_interrupted') {
+    return {
+      ...message,
+      status: 'interrupted' as const,
+      content:
+        message.content.length > 0
+          ? interruptRunningBlocks(message.content)
+          : [{ type: 'text', text: '已打断本次回复，可以继续补充要求。' }],
+    };
+  }
   return {
     ...message,
     content: applyDelta(message.content, event),
@@ -636,6 +692,50 @@ function findMessageLocation(
     if (message) return { conversationId, message };
   }
   return null;
+}
+
+function streamEventQueuedNext(event: StreamEvent): {
+  userMessage: DemoMessage;
+  agentMessage: DemoMessage;
+  queueRemainingCount: number;
+} | null {
+  const data = event.data as {
+    queued_next?: {
+      user_message?: unknown;
+      agent_message?: unknown;
+      queue_remaining_count?: unknown;
+    };
+  };
+  const payload = data.queued_next;
+  if (!payload || typeof payload !== 'object') return null;
+  const userMessage = payload.user_message;
+  const agentMessage = payload.agent_message;
+  if (!isMessageLike(userMessage) || !isMessageLike(agentMessage)) return null;
+  return {
+    userMessage: userMessage as DemoMessage,
+    agentMessage: agentMessage as DemoMessage,
+    queueRemainingCount:
+      typeof payload.queue_remaining_count === 'number' ? payload.queue_remaining_count : 0,
+  };
+}
+
+function isMessageLike(value: unknown): value is Message {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<Message>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.conversation_id === 'string' &&
+    typeof candidate.role === 'string' &&
+    Array.isArray(candidate.content)
+  );
+}
+
+function upsertMessages(current: DemoMessage[], messages: DemoMessage[]): DemoMessage[] {
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of messages) {
+    byId.set(message.id, message);
+  }
+  return sortMessagesForDisplay([...byId.values()]);
 }
 
 function ensureStreamTargetMessage(
@@ -746,7 +846,8 @@ export const useChatStore = create<ChatState>((set) => ({
       const isChildLifecycle =
         event.event === 'message_start' ||
         event.event === 'message_done' ||
-        event.event === 'message_error';
+        event.event === 'message_error' ||
+        event.event === 'message_interrupted';
       const parentLocation = findMessageLocation(state.messagesByConversation, messageId);
       if (targetMessageId !== messageId || isChildLifecycle) {
         const conversationId =
@@ -796,6 +897,35 @@ export const useChatStore = create<ChatState>((set) => ({
         }),
       );
 
+      const queuedNext = streamEventQueuedNext(event);
+      let nextActiveStreams = state.activeStreams;
+      if (queuedNext) {
+        const queuedConversationId = queuedNext.agentMessage.conversation_id;
+        nextMessagesByConversation[queuedConversationId] = upsertMessages(
+          nextMessagesByConversation[queuedConversationId] ?? [],
+          [queuedNext.userMessage, queuedNext.agentMessage],
+        );
+        touchedConversationId = queuedConversationId;
+        touchedMessage = queuedNext.agentMessage;
+        if (
+          queuedNext.agentMessage.role === 'agent' &&
+          queuedNext.agentMessage.agent_id &&
+          (queuedNext.agentMessage.status === 'pending' ||
+            queuedNext.agentMessage.status === 'streaming')
+        ) {
+          nextActiveStreams = {
+            ...nextActiveStreams,
+            [queuedNext.agentMessage.id]: {
+              messageId: queuedNext.agentMessage.id,
+              conversationId: queuedNext.agentMessage.conversation_id,
+              agentId: queuedNext.agentMessage.agent_id,
+              startedAt: new Date().toISOString(),
+              interrupting: false,
+            },
+          };
+        }
+      }
+
       const nextConversations = touchedConversationId
         ? state.conversations.map((conversation) =>
             conversation.id === touchedConversationId
@@ -818,6 +948,7 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         messagesByConversation: nextMessagesByConversation,
         conversations: nextConversations,
+        activeStreams: nextActiveStreams,
       };
     });
   },
@@ -830,9 +961,22 @@ export const useChatStore = create<ChatState>((set) => ({
           conversationId: message.conversation_id,
           agentId: message.agent_id ?? null,
           startedAt: new Date().toISOString(),
+          interrupting: false,
         },
       },
     }));
+  },
+  setActiveStreamInterrupting: (messageId, interrupting) => {
+    set((state) => {
+      const stream = state.activeStreams[messageId];
+      if (!stream) return {};
+      return {
+        activeStreams: {
+          ...state.activeStreams,
+          [messageId]: { ...stream, interrupting },
+        },
+      };
+    });
   },
   finishActiveStream: (messageId) => {
     set((state) => {
@@ -921,6 +1065,25 @@ export const useChatStore = create<ChatState>((set) => ({
                 item.last_message_preview ??
                 null,
             }
+        : item,
+      ),
+    }));
+  },
+  appendQueuedMessage: (conversationId, queuedMessage) => {
+    set((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        [conversationId]: upsertMessages(state.messagesByConversation[conversationId] ?? [], [
+          queuedMessage as DemoMessage,
+        ]),
+      },
+      conversations: state.conversations.map((item) =>
+        item.id === conversationId
+          ? {
+              ...item,
+              last_message_at: queuedMessage.created_at,
+              last_message_preview: '1 条消息已排队',
+            }
           : item,
       ),
     }));
@@ -969,6 +1132,30 @@ export const useChatStore = create<ChatState>((set) => ({
           ...state.messagesByConversation,
           [message.conversation_id]: sortMessagesForDisplay(next),
         },
+      };
+    });
+  },
+  removeMessageLocal: (messageId) => {
+    set((state) => {
+      let touchedConversationId: string | null = null;
+      const messagesByConversation = Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, messages]) => {
+          const nextMessages = messages.filter((message) => message.id !== messageId);
+          if (nextMessages.length !== messages.length) {
+            touchedConversationId = conversationId;
+          }
+          return [conversationId, nextMessages];
+        }),
+      );
+      return {
+        messagesByConversation,
+        conversations: touchedConversationId
+          ? updateConversationPreview(
+              state.conversations,
+              touchedConversationId,
+              messagesByConversation[touchedConversationId]?.at(-1) ?? null,
+            )
+          : state.conversations,
       };
     });
   },
@@ -1054,7 +1241,11 @@ function mergeHydratedActiveStreams(
   const next = { ...current };
   for (const message of messages) {
     if (message.role !== 'agent') continue;
-    if (message.status === 'done' || message.status === 'error') {
+    if (
+      message.status === 'done' ||
+      message.status === 'error' ||
+      message.status === 'interrupted'
+    ) {
       delete next[message.id];
       continue;
     }
@@ -1067,6 +1258,7 @@ function mergeHydratedActiveStreams(
         conversationId: message.conversation_id,
         agentId: message.agent_id,
         startedAt: new Date().toISOString(),
+        interrupting: false,
       };
     }
   }
