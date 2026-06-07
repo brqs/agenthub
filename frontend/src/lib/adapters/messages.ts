@@ -12,6 +12,9 @@ import type {
 } from '@/lib/types';
 import { normalizeMessage } from './normalizers';
 
+export type SendMessageWithAttachments = SendMessageRequest & { attachment_ids?: string[] };
+export type QueueMessageWithAttachments = QueueMessageRequest & { attachment_ids?: string[] };
+
 export interface ListMessagesParams {
   cursor?: string;
   limit?: number;

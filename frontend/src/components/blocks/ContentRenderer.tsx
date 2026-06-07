@@ -1,4 +1,5 @@
 import { ClarificationCard } from './ClarificationCard';
+import { AttachmentBlock } from './AttachmentBlock';
 import { CodeBlock } from './CodeBlock';
 import { DeploymentStatusBlock } from './DeploymentStatusBlock';
 import { DiffBlock } from './DiffBlock';
@@ -121,6 +122,9 @@ function renderBlock(
   }
   if (block.type === 'clarification') {
     return <ClarificationCard key={`${block.type}-${index}`} block={block} />;
+  }
+  if (block.type === 'attachment') {
+    return <AttachmentBlock key={`${block.type}-${block.upload_id}`} block={block} />;
   }
   if (block.type === 'tool_call') {
     return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;

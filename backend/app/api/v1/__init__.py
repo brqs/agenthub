@@ -9,6 +9,7 @@ from app.api.v1 import (
     conversations,
     messages,
     stream,
+    uploads,
     workspaces,
 )
 
@@ -24,4 +25,5 @@ api_router.include_router(
 api_router.include_router(messages.router, tags=["Messages"])
 api_router.include_router(stream.router, tags=["Messages"])
 api_router.include_router(agents.router, prefix="/agents", tags=["Agents"])
+api_router.include_router(uploads.router, prefix="/uploads", tags=["Uploads"])
 api_router.include_router(workspaces.router, prefix="/workspaces", tags=["Workspaces"])

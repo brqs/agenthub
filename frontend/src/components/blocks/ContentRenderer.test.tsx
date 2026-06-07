@@ -102,6 +102,16 @@ describe('ContentRenderer', () => {
         output_preview: 'wrote 120 bytes',
       },
       {
+        type: 'attachment',
+        upload_id: 'upload-1',
+        filename: 'mockup.png',
+        content_type: 'image/png',
+        size_bytes: 2048,
+        purpose: 'message_attachment',
+        safety_status: 'passed',
+        preview: { kind: 'image', thumbnail_url: 'https://example.com/mockup.png' },
+      },
+      {
         type: 'deployment_status',
         deployment_id: 'deployment-1',
         kind: 'static_site',
@@ -159,6 +169,8 @@ describe('ContentRenderer', () => {
     expect(screen.getByText(/只会填入输入框/)).toBeInTheDocument();
     expect(screen.getByText('write_file')).toBeInTheDocument();
     expect(screen.getByText('call-1')).toBeInTheDocument();
+    expect(screen.getByText('mockup.png')).toBeInTheDocument();
+    expect(screen.getByText('图片')).toBeInTheDocument();
     expect(screen.getByText('Static site deployment')).toBeInTheDocument();
     expect(screen.getByText('已发布')).toBeInTheDocument();
     expect(screen.getByText('Demo Workflow')).toBeInTheDocument();

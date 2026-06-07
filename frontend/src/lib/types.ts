@@ -156,6 +156,59 @@ export interface ClarificationBlock {
   summary?: string | null;
   metadata?: Record<string, unknown>;
 }
+export type UploadPurpose =
+  | 'message_attachment'
+  | 'workspace_import'
+  | 'agent_knowledge'
+  | 'agent_icon'
+  | 'skill_package'
+  | 'mcp_config';
+
+export type UploadSafetyStatus = 'pending' | 'passed' | 'blocked' | 'manual_review_required';
+
+export interface AttachmentPreview {
+  kind: 'image' | 'archive' | 'document' | 'text' | 'code' | 'unknown';
+  url?: string;
+  thumbnail_url?: string;
+  width?: number;
+  height?: number;
+  page_count?: number;
+  entries_preview?: string[];
+  text_preview?: string;
+  truncated?: boolean;
+}
+
+export interface UploadOut {
+  id: string;
+  filename: string;
+  content_type: string;
+  detected_content_type?: string | null;
+  size_bytes: number;
+  sha256?: string | null;
+  purpose: UploadPurpose;
+  status: 'uploading' | 'processing' | 'ready' | 'failed' | 'deleted';
+  safety_status: UploadSafetyStatus;
+  preview?: AttachmentPreview | null;
+  error_code?: string | null;
+  error_message?: string | null;
+}
+
+export interface AttachmentBlock {
+  type: 'attachment';
+  agent_id?: string | null;
+  upload_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  purpose: UploadPurpose;
+  safety_status: UploadSafetyStatus;
+  preview?: AttachmentPreview | null;
+  workspace_import?: {
+    status: 'pending' | 'imported' | 'failed';
+    imported_paths?: string[];
+  } | null;
+}
+
 export interface WorkflowBlock {
   type: 'workflow';
   agent_id?: string | null;
@@ -197,6 +250,7 @@ export type ContentBlock =
   | TaskCardBlock
   | ProcessBlock
   | ClarificationBlock
+  | AttachmentBlock
   | ToolCallBlock;
 
 // ─── Messages ───
