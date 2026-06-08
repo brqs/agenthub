@@ -23,6 +23,7 @@ from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
 from app.models.workspace import Workspace, WorkspacePreviewSession
+from app.services import workspace_deployment as workspace_deployment_module
 from app.services.artifacts.manifest import ArtifactManifestError, ArtifactManifestService
 from app.services.workspace.container_release import ContainerDeploymentResult
 from app.services.workspace_deployment import WorkspaceDeploymentService
@@ -931,6 +932,35 @@ async def test_workspace_container_deployment_returns_not_supported(
     assert "disabled" in body["error"].lower()
 
 
+async def test_workspace_container_deployment_returns_not_supported_when_runtime_missing(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "deployment_container_enabled", True)
+    monkeypatch.setattr(settings, "deployment_container_runtime", "podman")
+    monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", False)
+    monkeypatch.setattr(
+        workspace_deployment_module,
+        "_container_runtime_available",
+        lambda _runtime: False,
+    )
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation['id']}/deployments",
+        headers=headers,
+        json={"kind": "container"},
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["kind"] == "container"
+    assert body["status"] == "not_supported"
+    assert body["runtime_kind"] == "podman"
+    assert "runtime is not available" in body["error"].lower()
+
+
 async def test_workspace_container_deployment_fails_without_dockerfile(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -938,6 +968,11 @@ async def test_workspace_container_deployment_fails_without_dockerfile(
     monkeypatch.setattr(settings, "deployment_container_enabled", True)
     monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
     monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", True)
+    monkeypatch.setattr(
+        workspace_deployment_module,
+        "_container_runtime_available",
+        lambda _runtime: True,
+    )
     _, headers = await _register(client)
     conversation = await _create_conversation(client, headers)
 
@@ -1048,8 +1083,9 @@ async def test_workspace_container_deployment_uses_worker_and_stops(
         {"published"},
     )
     assert body["status"] == "published"
-    assert body["url"] == "http://127.0.0.1:8200"
-    assert body["healthcheck_url"] == "http://127.0.0.1:8200/health"
+    assert body["url"] is not None
+    assert "/releases/" in body["url"]
+    assert body["healthcheck_url"] == f"{body['url']}/health"
     assert body["host_port"] == 8200
     assert body["container_port"] == 8000
     assert body["runtime_status"] == "running"

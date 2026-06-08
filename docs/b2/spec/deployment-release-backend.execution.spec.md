@@ -103,18 +103,19 @@ DEPLOYMENT_JANITOR_INTERVAL_SECONDS=300
 - `ContainerDeploymentDispatcher` queueable contract
 - `InProcessContainerDeploymentDispatcher` MVP
 - `ContainerDeployWorker`
-- 生产默认 `DEPLOYMENT_CONTAINER_ENABLED=false`
-- 生产推荐 `DEPLOYMENT_CONTAINER_RUNTIME=podman`
+- 当前默认 `DEPLOYMENT_CONTAINER_ENABLED=true`
+- 当前默认 / 生产推荐 `DEPLOYMENT_CONTAINER_RUNTIME=podman`
 - 默认 `DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=false`
 
 Policy 拒绝 privileged、host network、host path mount、Docker socket，以及超过 CPU、memory、
 runtime TTL、端口池限额的请求。Docker runtime 只允许在
 `DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=true` 时运行；Podman 不要求 trusted host mode。
-课程 demo 如需真实 Docker container deployment，必须显式设置
-`DEPLOYMENT_CONTAINER_ENABLED=true`、`DEPLOYMENT_CONTAINER_RUNTIME=docker`、
-`DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=true`。平台 Worker 会从 workspace snapshot 执行受控
-Docker/Podman build/run、分配 `8081-8085` host port、执行 retry/backoff health check，并在 stop /
-cleanup 时删除容器、image 和快照。
+Docker container deployment 必须显式设置 `DEPLOYMENT_CONTAINER_RUNTIME=docker`、
+`DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=true`。默认 Podman worker 会从 workspace snapshot 执行受控
+build/run、分配 `8081-8085` host port、执行 retry/backoff health check，并在 stop / cleanup 时删除
+container、image 和快照；runtime 不可用或管理员关闭 worker 时返回 `not_supported`。
+用户可见 container URL 不直接暴露动态端口，而是通过后端 8000 端口的
+`/releases/{release_token}` 代理到本机 host port，避免依赖云安全组开放 `8081-8085`。
 
 2026-06-03 hardening MVP 已补齐：
 
@@ -132,6 +133,14 @@ cleanup 时删除容器、image 和快照。
 - `WorkspaceDeployment` 暴露 `worker_id`、`attempt_count`、`failure_category`、
   `last_error_code`、`state_events`，但 API schema 仍不暴露 `snapshot_path`、`release_token`
   或宿主文件路径。
+- build 阶段使用独立 `DEPLOYMENT_CONTAINER_BUILD_TIMEOUT_SECONDS`，避免首次拉取基础镜像时
+  被 health timeout 过早截断。
+- run 阶段使用独立 `DEPLOYMENT_CONTAINER_RUN_TIMEOUT_SECONDS`；rootless Podman detached
+  run 若客户端超时但已按 deployment label 创建容器，worker 会通过 label 恢复 container id
+  并继续 health check。
+- published container 会生成 release token，并返回
+  `DEPLOYMENT_PUBLIC_BASE_URL/releases/{release_token}` 形态的后端代理 URL；stop / conversation cleanup
+  会清除 token，使代理 URL 失效。
 - health check 使用 `DEPLOYMENT_CONTAINER_HEALTH_RETRY_INTERVAL_SECONDS`、
   `DEPLOYMENT_CONTAINER_HEALTH_MAX_ATTEMPTS`、
   `DEPLOYMENT_CONTAINER_HEALTH_BACKOFF_MULTIPLIER`，总耗时仍受
@@ -318,13 +327,32 @@ git diff --check: passed
 
 ```text
 prod_default_report: /tmp/agenthub_b2_todo_05_prod_default_e2e_report.json
-prod_default_container_status: not_supported
+historical_prod_default_container_status: not_supported
 prod_default_runtime_kind: podman
 demo_report: /tmp/agenthub_b2_todo_05_demo_container_e2e_report.json
 demo_container_status_flow: queued -> published
 demo_container_health_ok: true
 demo_container_stop_cleanup_ok: true
 production_default_restored_after_demo: true
+```
+
+2026-06-08 默认启用 rootless Podman，并将 container public URL 切到后端 release proxy 后，
+直接公网 API E2E 通过：
+
+```text
+script: backend/scripts/deployment_release_api_e2e.py
+report: /tmp/agenthub_container_enabled_deployment_e2e_report.json
+base_url: http://111.229.151.159:8000
+conversation_id: b9a40a55-6786-43b2-a3fb-1fa06141a94e
+passed: true
+container_initial_status: queued
+container_status: published
+container_url: http://111.229.151.159:8000/releases/<token>
+container_healthcheck_url: http://111.229.151.159:8000/releases/<token>/health
+container_runtime_kind: podman
+container_state_events: queued -> publishing -> run_recovered -> health_passed -> published
+container_stop_cleanup_ok: true
+podman_leftover_containers: none
 ```
 
 2026-06-01 已完成后端部署与直接公网 API E2E：

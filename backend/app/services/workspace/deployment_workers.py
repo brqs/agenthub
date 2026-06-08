@@ -7,6 +7,7 @@ import inspect
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from secrets import token_urlsafe
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -233,9 +234,10 @@ async def run_container_deployment_worker(
             await db.flush()
             return
         category, error_code = _classify_failure(exc)
+        message = str(exc) or exc.__class__.__name__
         _mark_failed(
             deployment,
-            str(exc),
+            message,
             failure_category=category,
             last_error_code=error_code,
         )
@@ -255,9 +257,14 @@ async def run_container_deployment_worker(
         await db.flush()
         return
     now = datetime.now(UTC)
+    release_token = deployment.release_token or token_urlsafe(
+        settings.deployment_release_token_bytes
+    )
+    public_url = f"{settings.deployment_public_base_url.rstrip('/')}/releases/{release_token}"
     deployment.status = "published"
-    deployment.url = result.url
-    deployment.healthcheck_url = result.healthcheck_url
+    deployment.url = public_url
+    deployment.healthcheck_url = f"{public_url}/health"
+    deployment.release_token = release_token
     deployment.runtime_id = result.runtime_id
     deployment.image_id = result.image_id
     deployment.container_id = result.container_id
@@ -274,8 +281,8 @@ async def run_container_deployment_worker(
     deployment.last_error_code = None
     deployment.logs = [
         *deployment.logs,
-        f"Container published at {result.url}.",
-        f"Health check passed at {result.healthcheck_url}.",
+        f"Container published at {public_url}.",
+        f"Health check passed at {public_url}/health.",
     ]
     _append_event(
         deployment,

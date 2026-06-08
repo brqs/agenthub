@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path, PureWindowsPath
 
-from fastapi import APIRouter, HTTPException, status
+import httpx
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
@@ -21,18 +22,22 @@ def _not_found() -> HTTPException:
 
 @router.get("/{release_token}")
 @router.get("/{release_token}/{path:path}")
-async def read_static_release(
+async def read_release(
     release_token: str,
     db: DbSession,
+    request: Request,
     path: str = "",
-) -> FileResponse:
-    """Return one file from a published immutable release snapshot."""
+) -> Response:
+    """Return a static release file or proxy a published container release."""
     stmt = select(WorkspaceDeployment).where(
         WorkspaceDeployment.release_token == release_token,
-        WorkspaceDeployment.kind == "static_site",
         WorkspaceDeployment.status == "published",
     )
     deployment = (await db.execute(stmt)).scalar_one_or_none()
+    if deployment is not None and deployment.kind == "container":
+        return await _proxy_container_release(deployment, path, request)
+    if deployment is None or deployment.kind != "static_site":
+        raise _not_found()
     if deployment is None or not deployment.snapshot_path:
         raise _not_found()
     relative_text = path.strip("/") or deployment.entry_path or ""
@@ -59,3 +64,42 @@ async def read_static_release(
     if candidate.suffix.lower() in {".html", ".htm"}:
         headers["Content-Security-Policy"] = HTML_CSP
     return FileResponse(candidate, headers=headers)
+
+
+async def _proxy_container_release(
+    deployment: WorkspaceDeployment,
+    path: str,
+    request: Request,
+) -> Response:
+    if deployment.host_port is None:
+        raise _not_found()
+    relative_text = path.strip("/")
+    relative = Path(relative_text)
+    if relative.is_absolute() or PureWindowsPath(relative_text).is_absolute():
+        raise _not_found()
+    if ".." in relative.parts:
+        raise _not_found()
+    local_path = f"/{relative.as_posix()}" if relative_text else "/"
+    target_url = f"http://127.0.0.1:{deployment.host_port}{local_path}"
+    if request.url.query:
+        target_url = f"{target_url}?{request.url.query}"
+    try:
+        async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
+            proxied = await client.get(target_url)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="container release is unavailable",
+        ) from exc
+    headers = {
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    content_type = proxied.headers.get("content-type")
+    if content_type:
+        headers["Content-Type"] = content_type
+    return Response(
+        content=proxied.content,
+        status_code=proxied.status_code,
+        headers=headers,
+    )
