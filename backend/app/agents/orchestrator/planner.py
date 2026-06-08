@@ -61,17 +61,10 @@ preferred task types.
 When the user explicitly asks for two agents, multiple agents, or parallel development,
 split implementation work across distinct implementation-capable agents when available
 unless the request explicitly names a specific agent.
-For complex multi-step work, use codex-helper as the lead architect/planner when it is
-available, then assign implementation and verification work to Claude Code and OpenCode
-according to their strengths. Do not force this architect step for simple direct answers,
-platform fact questions, or explicit direct mentions.
 When available agent lines include planning_profile, strengths, weaknesses, or
-preferred_task_types, use those fields as the primary routing evidence. Treat
-codex-helper as the technical lead, architecture/review owner, difficult bug-fix
-escalation path, and final arbitration agent. For ordinary parallel implementation,
-prefer splitting implementation work across claude-code and opencode-helper when both
-are available, and reserve codex-helper for planning, review, escalation, or tasks
-that need the strongest repository-level judgment.
+preferred_task_types, use those fields as the primary routing evidence. Do not infer
+a default lead, reviewer, implementer, or escalation owner from provider or agent id
+alone; choose each agent only when the request and profile match that task.
 Preserve every explicit deliverable and acceptance requirement from the user request in
 the relevant generation and verification task instructions. A random theme may only add
 style; it must not replace requested sections, files, or checks.

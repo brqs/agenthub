@@ -66,9 +66,6 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         "capabilities": [item for item in capabilities if isinstance(item, str)],
         "is_builtin": agent.is_builtin,
     }
-    system_prompt_summary = _planning_text(agent.system_prompt)
-    if system_prompt_summary:
-        context["system_prompt_summary"] = system_prompt_summary
     if isinstance(agent.config, dict):
         for key in AGENT_PLANNING_CONFIG_SCALAR_KEYS:
             value = agent.config.get(key)
@@ -82,6 +79,10 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
             items = _planning_list(agent.config.get(key))
             if items:
                 context[key] = items
+    if not _has_explicit_planning_profile(context):
+        system_prompt_summary = _planning_text(agent.system_prompt)
+        if system_prompt_summary:
+            context["system_prompt_summary"] = system_prompt_summary
     if agent.provider == "opencode":
         status, error = opencode_runtime_status(
             agent.config if isinstance(agent.config, dict) else None
@@ -112,6 +113,21 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         context["runtime_available"] = False
         context["runtime_error"] = cooldown_error
     return context
+
+
+def _has_explicit_planning_profile(context: dict[str, Any]) -> bool:
+    return any(
+        key in context
+        for key in (
+            "planning_profile",
+            "planner_description",
+            "planning_notes",
+            "role_description",
+            "planning_strengths",
+            "planning_weaknesses",
+            "preferred_task_types",
+        )
+    )
 
 
 def _planning_text(value: Any) -> str | None:
