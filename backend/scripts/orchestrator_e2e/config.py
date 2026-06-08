@@ -52,6 +52,9 @@ DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH = (  # noqa: S108
 DEFAULT_COMMAND_FULFILLMENT_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_command_fulfillment_sse.jsonl"  # noqa: S108
 )
+DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_orchestrator_context_followup_sse.jsonl"  # noqa: S108
+)
 
 DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
 DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
@@ -94,6 +97,9 @@ DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH = (  # noqa: S108
 DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_command_fulfillment_report.json"  # noqa: S108
 )
+DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_orchestrator_context_followup_report.json"  # noqa: S108
+)
 
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
 DEFAULT_QUALITY_BROWSER_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
@@ -107,6 +113,9 @@ DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_COMMAND_FULFILLMENT_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_command_fulfillment_browser.json"  # noqa: S108
+)
+DEFAULT_CONTEXT_FOLLOWUP_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_orchestrator_context_followup_browser.json"  # noqa: S108
 )
 
 
@@ -172,6 +181,11 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
         DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH,
         DEFAULT_COMMAND_FULFILLMENT_SSE_PATH,
         DEFAULT_COMMAND_FULFILLMENT_BROWSER_REPORT_PATH,
+    ),
+    "orchestrator_context_followup_repair": ScenarioDefaults(
+        DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH,
+        DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH,
+        DEFAULT_CONTEXT_FOLLOWUP_BROWSER_REPORT_PATH,
     ),
     "p1_attribution": ScenarioDefaults(
         DEFAULT_P1_ATTRIBUTION_REPORT_PATH,

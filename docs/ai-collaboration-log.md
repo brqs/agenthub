@@ -2176,19 +2176,47 @@ container_state_events: queued -> publishing -> run_recovered -> health_passed -
 container_stop_cleanup_ok: true
 podman_leftover_containers: none
 ```
-## 2026-06-08 — Codex 实现自定义 Agent Markdown/Skill 上传接口
+
+## 2026-06-08 — Orchestrator Agent-Like Context Routing Repair Loop
 
 ### 任务
-为 B2 要求补齐自定义 Agent 的 Markdown knowledge 上传、Skill Markdown 上传、绑定删除和 Agent 删除引用清理，并给出前后端联合 spec。
-
-### 关键 Prompt
-> 由于我们目前开发进度很赶所以请你充分阅读项目代码和文档后先写给出完整实现这个功能的spec（分为前端后端部分）然后分别实现前端后端代码
+按“像 OpenCode / Claude Code / Codex 这类 coding agent 一样按需取证”的方向修复
+Orchestrator 多轮追问：状态、预览、部署、验收和文件追问不再重新进入 planner；继续/修复类命令先查 evidence，确实需要继续执行时再携带 bounded evidence pack 调度。
 
 ### AI 输出摘要
-新增 `docs/spec/custom-agent-assets.spec.md`，将紧急 MVP 范围收敛为 `Agent.config.knowledge` / `Agent.config.skills` 配置内持久化。后端新增 Agent knowledge/skill multipart API，复用 upload 存储并同步 OpenAPI；前端 Agent 详情面板增加知识文件和 Skills 上传/删除入口。
+1. 新增 `docs/b2/spec/orchestrator/context-routing.spec.md`，定义 latest user request 为主指令、
+   历史 run/workspace/deployment/evaluation 只作为 bounded evidence。
+2. 新增 Orchestrator evidence routing 层：状态/文件/预览/部署/验收追问在 planner 前直接回答，
+   planner invalid JSON + 追问类请求降级到 evidence answer。
+3. “继续完成部署 / 帮我修复 / 修改主题”类命令会注入 `Orchestrator evidence pack:` system message，
+   只包含结构化事实和受限文件信息，不传完整历史、完整 workspace 或 raw runtime transcript。
+4. 修复 `GET /messages/{id}/stream` existing-session subscriber 长事务持有 message row lock 的问题；
+   已存在 stream session 时先 rollback，再订阅 SSE，避免公网 E2E 最终 `done` 被阻塞。
+5. 修复 systemd 后端 host wrapper 未加载顶层 `.env` 的问题；后端进程现在能继承所需 runtime 环境变量。
 
-### 人工调整
-采用配置内存储作为赶进度方案，避免新增 migration；后续可以平滑迁移为独立表。
+### 验证
 
-### 经验
-前端生成类型已经包含更完整的 UploadPurpose，但后端 schema 曾滞后；跨端上传类功能需要先核对 `shared/openapi.yaml`、Pydantic schema 和前端手写别名是否一致。
+```text
+backend_pid: 4110039 -> 4130667
+seed_agents: not required
+alembic_current: b6c7d8e9f012 (head) (mergepoint)
+local_health: {"status":"ok"} 200
+public_health: {"status":"ok"} 200
+
+pytest: 246 passed
+ruff: passed
+mypy: passed
+
+scenario: orchestrator_context_followup_repair
+report: /tmp/agenthub_orchestrator_context_followup_report.json
+sse: /tmp/agenthub_orchestrator_context_followup_sse.jsonl
+browser_report: /tmp/agenthub_orchestrator_context_followup_browser.json
+conversation_id: 7488f39a-4eda-4f06-b21a-4540a35eb89a
+user_message_id: 67698ae9-84aa-47ef-8898-d47c3c9e633d
+agent_message_id: 75f4a83b-44f5-4b9d-9de1-a64e739dd055
+run_id: 230826eb-7e99-4ae2-961a-31ffc6e3a84b
+passed: true
+context_followups_all_passed: true
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/Deo-L2-iNQbkHrJ7ZiktHJpfAsy02Sj6/index.html
+```
