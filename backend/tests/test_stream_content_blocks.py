@@ -290,6 +290,55 @@ async def test_stream_accumulator_persists_presentation_metadata() -> None:
     }
 
 
+async def test_stream_accumulator_persists_tool_result_presentation_metadata() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="tool_call",
+            call_id="call-from-result",
+            tool_name="Read",
+            tool_arguments={"path": "index.html"},
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="tool_result",
+            call_id="call-from-result",
+            tool_name="Read",
+            tool_status="ok",
+            tool_output="ok",
+            metadata={
+                "presentation": {
+                    "role": "tool_trace",
+                    "collapsible": True,
+                    "group_id": "execution-main",
+                    "label": "工具调用",
+                }
+            },
+        )
+    )
+
+    blocks = accumulator.to_list()
+
+    assert blocks == [
+        {
+            "type": "tool_call",
+            "call_id": "call-from-result",
+            "tool_name": "Read",
+            "arguments": {"path": "index.html"},
+            "status": "ok",
+            "presentation": {
+                "role": "tool_trace",
+                "collapsible": True,
+                "group_id": "execution-main",
+                "label": "工具调用",
+            },
+            "output_preview": "ok",
+            "output_truncated": False,
+        }
+    ]
+
+
 async def test_stream_chunk_and_accumulator_persist_process_block() -> None:
     chunk = StreamChunk(
         event_type="block_start",

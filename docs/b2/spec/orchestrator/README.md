@@ -21,7 +21,7 @@
 | [workspace-conflict.spec.md](workspace-conflict.spec.md) | Current contract | Workspace snapshot、file changes、同一 run 内冲突检测 |
 | [message-attribution.spec.md](message-attribution.spec.md) | Current contract | Orchestrator 合流 stream 中 block 归属与真实 Agent 子消息后端契约 |
 | [process-block.spec.md](process-block.spec.md) | Implemented MVP | 用户可见 structured process ContentBlock，展示公开执行事实 |
-| [presentation-collapse.spec.md](presentation-collapse.spec.md) | Planned for implementation | 执行过程折叠、成员 summary 与 Orchestrator final answer 展示标记 |
+| [presentation-collapse.spec.md](presentation-collapse.spec.md) | Implemented MVP + Live E2E Passed | 执行过程折叠、成员 summary 与 Orchestrator final answer 展示标记 |
 | [agent-review-thread.spec.md](agent-review-thread.spec.md) | Implemented MVP + Live E2E Passed | Agent-to-Agent review、handoff、repair thread |
 | [native-deployment.execution.spec.md](native-deployment.execution.spec.md) | Implemented hardening MVP | Orchestrator 原生部署 tool、container E2E、deployment repair/redeploy |
 | [live-e2e-report.spec.md](live-e2e-report.spec.md) | Implemented report | 真实部署链路、deployment repair/redeploy、自建 Agent 工具白名单 E2E 证据 |
