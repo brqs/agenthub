@@ -632,6 +632,7 @@ function processStepKind(value: unknown): ProcessBlock['steps'][number]['kind'] 
 function clarificationMode(value: unknown): ClarificationBlock['mode'] {
   if (
     value === 'auto' ||
+    value === 'requirement_alignment' ||
     value === 'grill_me' ||
     value === 'grill_with_docs' ||
     value === 'setup_matt_pocock_skills'

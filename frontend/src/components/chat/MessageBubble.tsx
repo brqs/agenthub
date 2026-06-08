@@ -5,7 +5,7 @@ import { ReviewThreadTimeline } from '@/components/chat/ReviewThreadTimeline';
 import { useOrchestratorRunForMessage } from '@/hooks/useOrchestratorRuns';
 import { useWorkspaceArtifacts } from '@/hooks/useWorkspace';
 import type { DemoContentBlock, DemoMessage } from '@/lib/mockData';
-import type { Agent } from '@/lib/types';
+import type { Agent, RequirementAlignmentMode } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
 import {
   AlertTriangle,
@@ -59,7 +59,11 @@ export function MessageBubble({
   onRetry?: (messageId: string) => void;
   isRetrying?: boolean;
   onMentionAgent?: (agent: Agent) => void;
-  onUpdateQueuedMessage?: (messageId: string, text: string) => void | Promise<void>;
+  onUpdateQueuedMessage?: (
+    messageId: string,
+    text: string,
+    requirementAlignment?: RequirementAlignmentMode,
+  ) => void | Promise<void>;
   onDeleteQueuedMessage?: (messageId: string) => void | Promise<void>;
   onMoveQueuedUp?: (messageId: string) => void | Promise<void>;
   onMoveQueuedDown?: (messageId: string) => void | Promise<void>;
@@ -75,6 +79,9 @@ export function MessageBubble({
   const [mentionMenuPosition, setMentionMenuPosition] = useState<{ x: number; y: number } | null>(null);
   const [editingQueued, setEditingQueued] = useState(false);
   const [queuedDraft, setQueuedDraft] = useState(() => messageText(message));
+  const [queuedAlignment, setQueuedAlignment] = useState<RequirementAlignmentMode>(() =>
+    requirementAlignmentForMessage(message),
+  );
   const [queuedActionError, setQueuedActionError] = useState<string | null>(null);
   const [queuedActionPending, setQueuedActionPending] = useState(false);
   const canMentionAgent = !isUser && agent !== undefined && onMentionAgent !== undefined;
@@ -103,6 +110,7 @@ export function MessageBubble({
   useEffect(() => {
     if (!editingQueued) {
       setQueuedDraft(messageText(message));
+      setQueuedAlignment(requirementAlignmentForMessage(message));
     }
   }, [editingQueued, message]);
 
@@ -124,7 +132,7 @@ export function MessageBubble({
     setQueuedActionPending(true);
     setQueuedActionError(null);
     try {
-      await onUpdateQueuedMessage(message.id, value);
+      await onUpdateQueuedMessage(message.id, value, queuedAlignment);
       setEditingQueued(false);
     } catch (error) {
       setQueuedActionError(error instanceof Error ? error.message : String(error));
@@ -284,13 +292,16 @@ export function MessageBubble({
           {editingQueued ? (
             <QueuedMessageEditor
               value={queuedDraft}
+              requirementAlignment={queuedAlignment}
               isPending={queuedActionPending}
               error={queuedActionError}
               onChange={setQueuedDraft}
+              onRequirementAlignmentChange={setQueuedAlignment}
               onSave={() => void saveQueuedEdit()}
               onCancel={() => {
                 setEditingQueued(false);
                 setQueuedDraft(messageText(message));
+                setQueuedAlignment(requirementAlignmentForMessage(message));
                 setQueuedActionError(null);
               }}
             />
@@ -301,6 +312,7 @@ export function MessageBubble({
             <QueuedMessageActions
               isPending={queuedActionPending}
               error={queuedActionError}
+              requirementAlignment={requirementAlignmentForMessage(message)}
               canMoveUp={Boolean(onMoveQueuedUp)}
               canMoveDown={Boolean(onMoveQueuedDown)}
               canMergeWithPrevious={Boolean(onMergeQueuedWithPrevious)}
@@ -420,16 +432,20 @@ function isEmptyLiveAgentMessage(message: DemoMessage, visibleBlocks: DemoConten
 
 function QueuedMessageEditor({
   value,
+  requirementAlignment,
   isPending,
   error,
   onChange,
+  onRequirementAlignmentChange,
   onSave,
   onCancel,
 }: {
   value: string;
+  requirementAlignment: RequirementAlignmentMode;
   isPending: boolean;
   error: string | null;
   onChange: (value: string) => void;
+  onRequirementAlignmentChange: (value: RequirementAlignmentMode) => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -443,6 +459,18 @@ function QueuedMessageEditor({
         className="mobile-text-safe w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand disabled:opacity-60 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
       />
       {error && <p className="text-xs text-red-600 dark:text-red-300">{error}</p>}
+      <label className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+        <span>需求对齐</span>
+        <input
+          type="checkbox"
+          checked={requirementAlignment === 'strict'}
+          disabled={isPending}
+          onChange={(event) =>
+            onRequirementAlignmentChange(event.target.checked ? 'strict' : 'off')
+          }
+          className="h-4 w-4 accent-brand"
+        />
+      </label>
       <div className="flex justify-end gap-2">
         <button
           type="button"
@@ -470,6 +498,7 @@ function QueuedMessageEditor({
 function QueuedMessageActions({
   isPending,
   error,
+  requirementAlignment,
   canMoveUp,
   canMoveDown,
   canMergeWithPrevious,
@@ -487,6 +516,7 @@ function QueuedMessageActions({
 }: {
   isPending: boolean;
   error: string | null;
+  requirementAlignment: RequirementAlignmentMode;
   canMoveUp: boolean;
   canMoveDown: boolean;
   canMergeWithPrevious: boolean;
@@ -504,7 +534,14 @@ function QueuedMessageActions({
 }) {
   return (
     <div className="mt-2 flex items-center justify-between gap-3 border-t border-brand/15 pt-2 text-xs text-slate-500 dark:border-brand-light/15 dark:text-slate-400">
-      <span>Queued</span>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span>排队中</span>
+        {requirementAlignment === 'strict' && (
+          <span className="rounded border border-brand/25 bg-brand/10 px-1.5 py-0.5 text-[11px] font-medium text-brand dark:border-brand-light/30 dark:bg-brand-light/10 dark:text-brand-light">
+            需求对齐
+          </span>
+        )}
+      </div>
       {error && <span className="min-w-0 flex-1 truncate text-red-600 dark:text-red-300">{error}</span>}
       <div className="flex shrink-0 items-center gap-1">
         {canMoveUp && (
@@ -601,6 +638,10 @@ function messageText(message: DemoMessage): string {
     .filter((block): block is DemoContentBlock & { type: 'text'; text: string } => block.type === 'text')
     .map((block) => block.text)
     .join('\n');
+}
+
+function requirementAlignmentForMessage(message: DemoMessage): RequirementAlignmentMode {
+  return message.turn_options?.requirement_alignment === 'strict' ? 'strict' : 'off';
 }
 
 function ManifestAwareMessageContent({

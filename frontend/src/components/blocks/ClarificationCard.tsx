@@ -2,7 +2,8 @@ import { CheckCircle2, CircleHelp, FileText, Settings2 } from 'lucide-react';
 import type { ClarificationBlock as ClarificationBlockData } from '@/lib/types';
 
 const modeLabels: Record<ClarificationBlockData['mode'], string> = {
-  auto: '自动澄清',
+  auto: '需求对齐',
+  requirement_alignment: '需求对齐',
   grill_me: '/grill-me',
   grill_with_docs: '/grill-with-docs',
   setup_matt_pocock_skills: '/setup-matt-pocock-skills',
@@ -117,7 +118,9 @@ function ModeIcon({ mode }: { mode: ClarificationBlockData['mode'] }) {
   const className = "h-4 w-4 text-indigo-600 dark:text-indigo-300";
   if (mode === 'setup_matt_pocock_skills') return <Settings2 className={className} />;
   if (mode === 'grill_with_docs') return <FileText className={className} />;
-  if (mode === 'auto') return <CircleHelp className={className} />;
+  if (mode === 'auto' || mode === 'requirement_alignment') {
+    return <CircleHelp className={className} />;
+  }
   return <CheckCircle2 className={className} />;
 }
 

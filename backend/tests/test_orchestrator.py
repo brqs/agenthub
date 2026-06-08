@@ -3522,13 +3522,40 @@ async def test_orchestrator_grill_me_command_asks_clarification_without_dispatch
     assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
 
 
-async def test_orchestrator_auto_clarification_gate_precedes_planning() -> None:
+async def test_orchestrator_requirement_alignment_defaults_off() -> None:
+    adapter = FakeSubAdapter("codex-helper", _text_chunks("done"))
     orchestrator = OrchestratorAdapter(agent_id="orchestrator")
 
     chunks = await _collect(
         orchestrator,
         messages=[ChatMessage(role="user", content="帮我做一个网页游戏")],
         config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": adapter},
+        },
+    )
+
+    assert not any(chunk.block_type == "clarification" for chunk in chunks)
+    assert any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "codex-helper"
+        for chunk in chunks
+    )
+
+
+async def test_orchestrator_requirement_alignment_strict_precedes_planning() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="帮我做一个网页游戏")],
+        config={
+            "turn_options": {"requirement_alignment": "strict"},
+            "requirement_alignment_llm_enabled": False,
             "available_agents": [
                 {"id": "codex-helper", "provider": "codex", "runtime_available": True}
             ],
@@ -3544,8 +3571,47 @@ async def test_orchestrator_auto_clarification_gate_precedes_planning() -> None:
         if chunk.event_type == "block_start" and chunk.block_type == "clarification"
     )
     assert block.metadata is not None
-    assert block.metadata["mode"] == "auto"
+    assert block.metadata["mode"] == "requirement_alignment"
     assert block.metadata["status"] == "waiting"
+    assert "静态前端产物" in block.metadata["current_question"]["recommended_answer"]
+    assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_requirement_alignment_discussion_uses_discussion_default() -> None:
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "组织两个智能体开展辩论，论题是 AI 快速发展对人类社会利大于弊还是弊大于利，"
+                    "不要生成文件，直接用对话形式输出。"
+                ),
+            )
+        ],
+        config={
+            "turn_options": {"requirement_alignment": "strict"},
+            "requirement_alignment_llm_enabled": False,
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"codex-helper": FakeSubAdapter("codex-helper", _text_chunks("done"))},
+        },
+    )
+
+    block = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "clarification"
+    )
+    assert block.metadata is not None
+    recommended = block.metadata["current_question"]["recommended_answer"]
+    assert "对话式辩论" in recommended
+    assert "不生成文件" in recommended
+    assert "静态前端产物" not in recommended
     assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
 
 
@@ -4052,6 +4118,7 @@ async def test_orchestrator_explicit_topic_switch_restarts_gate() -> None:
             ChatMessage(role="user", content="先不做项目 A，改做项目 B 的网页游戏"),
         ],
         config={
+            "turn_options": {"requirement_alignment": "strict"},
             "available_agents": [
                 {"id": "codex-helper", "provider": "codex", "runtime_available": True}
             ],

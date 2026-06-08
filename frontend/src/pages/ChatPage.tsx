@@ -193,8 +193,8 @@ export function ChatPage() {
                   });
                 }
               }}
-              onUpdateQueuedMessage={async (messageId, text) => {
-                await queueMessage.updateQueuedMessage(messageId, text);
+              onUpdateQueuedMessage={async (messageId, text, requirementAlignment) => {
+                await queueMessage.updateQueuedMessage(messageId, text, requirementAlignment);
               }}
               onDeleteQueuedMessage={async (messageId) => {
                 await queueMessage.deleteQueuedMessage(messageId);
@@ -229,8 +229,13 @@ export function ChatPage() {
                   : undefined
               }
               mentionInsertRequest={mentionInsertRequest}
-              onQueue={async (text, attachmentIds) => {
-                await queueMessage.queueMessage(conversation.id, text, attachmentIds);
+              onQueue={async (text, attachmentIds, requirementAlignment) => {
+                await queueMessage.queueMessage(
+                  conversation.id,
+                  text,
+                  attachmentIds ?? [],
+                  requirementAlignment,
+                );
               }}
               onGuidance={
                 currentActiveStream
@@ -248,14 +253,24 @@ export function ChatPage() {
               }
               onStopAndRun={
                 currentActiveStream
-                  ? async (text) => {
-                      const queued = await queueMessage.queueMessage(conversation.id, text);
+                  ? async (text, requirementAlignment) => {
+                      const queued = await queueMessage.queueMessage(
+                        conversation.id,
+                        text,
+                        [],
+                        requirementAlignment,
+                      );
                       await turnControlActions.stopAndRunQueuedMessage(queued.queued_message.id);
                     }
                   : undefined
               }
-              onSend={async (text, attachmentIds) => {
-                await sendMessage(conversation.id, text, attachmentIds);
+              onSend={async (text, attachmentIds, requirementAlignment) => {
+                await sendMessage(
+                  conversation.id,
+                  text,
+                  attachmentIds ?? [],
+                  requirementAlignment,
+                );
               }}
             />
           </>

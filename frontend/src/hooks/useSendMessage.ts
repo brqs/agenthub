@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { extractApiError } from '@/lib/api';
 import * as messagesAdapter from '@/lib/adapters/messages';
 import { useChatStore } from '@/stores/chatStore';
+import type { RequirementAlignmentMode } from '@/lib/types';
 
 /** Parse `@agent-id` from group-chat input. Returns null for single chat or no mention. */
 function parseMentionedAgent(
@@ -37,6 +38,7 @@ export function useSendMessage() {
     conversationId: string,
     text: string,
     attachmentIds: string[] = [],
+    requirementAlignment: RequirementAlignmentMode = 'off',
   ): Promise<{ agentMessageId: string } | null> {
     setIsPending(true);
     setError(null);
@@ -49,6 +51,7 @@ export function useSendMessage() {
       const response = await messagesAdapter.sendMessage(conversationId, {
         content: [{ type: 'text', text }],
         target_agent_id: targetAgentId,
+        requirement_alignment: requirementAlignment,
         ...(attachmentIds.length ? { attachment_ids: attachmentIds } : {}),
       } as messagesAdapter.SendMessageWithAttachments);
       appendRemoteExchange(conversationId, response.user_message, response.agent_message);

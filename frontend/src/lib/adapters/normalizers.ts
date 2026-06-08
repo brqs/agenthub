@@ -28,5 +28,9 @@ export function normalizeMessage(message: Message): Message {
     reply_to_id: message.reply_to_id ?? null,
     status: message.status ?? 'done',
     is_pinned: message.is_pinned ?? false,
+    turn_options: {
+      requirement_alignment:
+        message.turn_options?.requirement_alignment === 'strict' ? 'strict' : 'off',
+    },
   };
 }

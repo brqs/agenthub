@@ -31,6 +31,7 @@ const groupConversation: DemoConversation = {
 describe('MessageInput', () => {
   beforeEach(() => {
     uploadFileMock.mockReset();
+    window.localStorage.clear();
   });
 
   it('sends trimmed text by click', async () => {
@@ -44,8 +45,22 @@ describe('MessageInput', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
 
     await waitFor(() => {
-      expect(onSend).toHaveBeenCalledWith('hello');
+      expect(onSend).toHaveBeenCalledWith('hello', undefined, 'off');
       expect(input).toHaveValue('');
+    });
+  });
+
+  it('sends strict requirement alignment when the toggle is enabled', async () => {
+    const onSend = vi.fn().mockResolvedValue(undefined);
+    render(<MessageInput conversation={singleConversation} onSend={onSend} />);
+
+    const input = screen.getByPlaceholderText('发消息到 单聊测试');
+    fireEvent.click(screen.getByRole('switch', { name: '需求对齐' }));
+    fireEvent.change(input, { target: { value: 'align first' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+
+    await waitFor(() => {
+      expect(onSend).toHaveBeenCalledWith('align first', undefined, 'strict');
     });
   });
 
@@ -88,7 +103,7 @@ describe('MessageInput', () => {
 
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => {
-      expect(onSend).toHaveBeenCalledWith('hello');
+      expect(onSend).toHaveBeenCalledWith('hello', undefined, 'off');
       expect(input).toHaveValue('');
     });
   });
@@ -140,7 +155,7 @@ describe('MessageInput', () => {
     fireEvent.keyDown(input, { key: 'Enter' });
 
     await waitFor(() => {
-      expect(onQueue).toHaveBeenCalledWith('补充要求');
+      expect(onQueue).toHaveBeenCalledWith('补充要求', undefined, 'off');
       expect(input).toHaveValue('');
     });
     expect(onSend).not.toHaveBeenCalled();
@@ -165,7 +180,7 @@ describe('MessageInput', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送到队列' }));
 
     await waitFor(() => {
-      expect(onQueue).toHaveBeenCalledWith('下一步');
+      expect(onQueue).toHaveBeenCalledWith('下一步', undefined, 'off');
     });
     expect(onInterrupt).not.toHaveBeenCalled();
   });
@@ -230,7 +245,7 @@ describe('MessageInput', () => {
     fireEvent.click(screen.getByRole('button', { name: 'More active turn actions' }));
     fireEvent.click(screen.getByRole('button', { name: 'Stop and run draft' }));
     await waitFor(() => {
-      expect(onStopAndRun).toHaveBeenCalledWith('run this now');
+      expect(onStopAndRun).toHaveBeenCalledWith('run this now', 'off');
     });
 
     expect(onQueue).not.toHaveBeenCalled();
@@ -353,7 +368,7 @@ describe('MessageInput', () => {
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
 
     await waitFor(() => {
-      expect(onSend).toHaveBeenCalledWith('参考这个图', ['upload-1']);
+      expect(onSend).toHaveBeenCalledWith('参考这个图', ['upload-1'], 'off');
     });
     expect(screen.queryByText('mockup.png')).not.toBeInTheDocument();
   });

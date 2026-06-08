@@ -153,7 +153,12 @@ export interface ClarificationQuestion {
 export interface ClarificationBlock {
   type: 'clarification';
   agent_id?: string | null;
-  mode: 'auto' | 'grill_me' | 'grill_with_docs' | 'setup_matt_pocock_skills';
+  mode:
+    | 'auto'
+    | 'requirement_alignment'
+    | 'grill_me'
+    | 'grill_with_docs'
+    | 'setup_matt_pocock_skills';
   title: string;
   status: 'waiting' | 'resolved' | 'cancelled';
   current_question?: ClarificationQuestion | null;
@@ -279,21 +284,39 @@ export type ContentBlock =
   | ClarificationBlock
   | AttachmentBlock
   | TurnControlBlock
-  | ToolCallBlock;
+    | ToolCallBlock;
 
 // ─── Messages ───
+export type RequirementAlignmentMode = 'off' | 'strict';
+export interface TurnOptions {
+  requirement_alignment?: RequirementAlignmentMode;
+}
 export type Message = Override<
   Schemas['MessageOut'],
-  { content: ContentBlock[]; status: MessageStatus; is_pinned: boolean }
+  {
+    content: ContentBlock[];
+    status: MessageStatus;
+    is_pinned: boolean;
+    turn_options?: TurnOptions;
+  }
 >;
 export type MessageList = Override<Schemas['MessageList'], { items: Message[] }>;
-export type SendMessageRequest = Schemas['SendMessageRequest'];
+export type SendMessageRequest = Override<
+  Schemas['SendMessageRequest'],
+  { requirement_alignment?: RequirementAlignmentMode }
+>;
 export type SendMessageResponse = Override<
   Schemas['SendMessageResponse'],
   { user_message: Message; agent_message: Message }
 >;
-export type QueueMessageRequest = Schemas['QueueMessageRequest'];
-export type UpdateQueuedMessageRequest = Schemas['UpdateQueuedMessageRequest'];
+export type QueueMessageRequest = Override<
+  Schemas['QueueMessageRequest'],
+  { requirement_alignment?: RequirementAlignmentMode }
+>;
+export type UpdateQueuedMessageRequest = Override<
+  Schemas['UpdateQueuedMessageRequest'],
+  { requirement_alignment?: RequirementAlignmentMode | null }
+>;
 export type QueueMessageResponse = Override<
   Schemas['QueueMessageResponse'],
   { queued_message: Message }
