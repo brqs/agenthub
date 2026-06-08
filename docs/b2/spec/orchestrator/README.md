@@ -14,6 +14,7 @@
 | [core.spec.md](core.spec.md) | Current contract | Orchestrator 主行为契约：调度、DAG 并行、summary、失败处理、preview 边界 |
 | [task-planning.spec.md](task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、legacy fallback、DAG 依赖语义 |
 | [command-fulfillment.spec.md](command-fulfillment.spec.md) | Backend MVP implemented | 显式命令逐项履约、平台 preview/verify/deploy 闭环和 final summary 不误报 |
+| [context-routing.spec.md](context-routing.spec.md) | Backend hardening implemented + Live E2E Passed | 多轮追问、workspace/run evidence answer 和继续/修复命令 evidence pack 注入 |
 | [clarification-gate.spec.md](clarification-gate.spec.md) | Implemented MVP | Orchestrator 进入任务规划和子 Agent 调度前的结构化需求澄清闸门 |
 | [tool-calling.spec.md](tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent 与 deployment platform tools |
 | [memory-context.spec.md](memory-context.spec.md) | Current contract | Orchestrator structured memory 与上下文注入设计 |
@@ -42,9 +43,10 @@
 修改 Orchestrator 需求澄清 / 代码前追问：
 
 1. [clarification-gate.spec.md](clarification-gate.spec.md)
-2. [task-planning.spec.md](task-planning.spec.md)
-3. [memory-context.spec.md](memory-context.spec.md)
-4. [markdown-preservation-feedback.spec.md](markdown-preservation-feedback.spec.md)
+2. [context-routing.spec.md](context-routing.spec.md)
+3. [task-planning.spec.md](task-planning.spec.md)
+4. [memory-context.spec.md](memory-context.spec.md)
+5. [markdown-preservation-feedback.spec.md](markdown-preservation-feedback.spec.md)
 
 修改 Orchestrator tools：
 
@@ -102,8 +104,10 @@
 - 可选 LLM response polish 只接收结构化事实，失败、空输出或包含内部 trace 词时回退 deterministic summary。
 - Command fulfillment backend MVP 已实现：Orchestrator 会 deterministic 提取文档、代码产物、多智能体、审阅、预览、浏览器验收、部署、Diff、源码打包等显式要求，写入 run detail `command_fulfillment_status` event，并让最终用户可见 summary 只根据 fulfillment 状态说明完成或未完成。
 - 用户要求“部署/发布/上线”时，平台 preview URL 不等于部署完成；Orchestrator 需要在 preview/browser verify 后调用 `create_deployment`，失败时不得在 final text 中误报“已部署”。
+- Orchestrator context routing hardening 已实现：状态/文件/预览/部署/验收追问会在 planner 前走 bounded evidence answer；继续/修复类命令先读取 evidence，已有完成证据时直接回答，确实需要继续执行时再携带 `Orchestrator evidence pack:` system message 进入 planner / tool-loop / 子 Agent 调度。
 - 2026-06-07 command fulfillment 公网 repair loop 已通过：`/tmp/agenthub_command_fulfillment_report.json`、`/tmp/agenthub_command_fulfillment_sse.jsonl`、`/tmp/agenthub_command_fulfillment_browser.json`，conversation `25ff9e75-7776-46b2-8549-babb78555177`，`passed=true`；覆盖 Codex/OpenCode runtime failure 后 fallback/repair、Orchestrator coordination review fallback 生成 `review.md`、8082 preview、browser verify 和 static release deployment。
 - 2026-06-08 02:24 E2E repair loop 已通过：同一 `command_fulfillment_cyberpunk_group_deploy` 场景 conversation `9fd3cd30-6b65-45a4-8833-dcadffd78f64`，`passed=true`；SSE `message_error.error` 不再泄露 raw runtime transcript，final summary 不早于 preview/verify/deploy 完成，container deployment smoke 在当时 worker 默认关闭配置下返回受控 `not_supported`。
+- 2026-06-08 context follow-up repair loop 已通过：`orchestrator_context_followup_repair` 场景 conversation `7488f39a-4eda-4f06-b21a-4540a35eb89a`，run `230826eb-7e99-4ae2-961a-31ffc6e3a84b`，`passed=true`；追问“生成了吗 / 预览地址是什么 / 浏览器验收通过了吗 / 改了哪些文件 / 继续完成缺失的部署”均走 evidence answer，不创建子 Agent message，不泄露 planner/debug/raw runtime。
 
 ---
 

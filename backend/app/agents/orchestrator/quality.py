@@ -71,6 +71,10 @@ BROWSER_VERIFY_INTENT_RE = re.compile(
     r"(?i)(浏览器|质量验收|移动端|按钮|交互|browser|quality|viewport|mobile)"
 )
 REQUESTED_PORT_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
+REPAIR_AGENT_MISSING_TEXT = (
+    "浏览器级质量验收暂时无法继续自动修复：当前没有可用的质量修复 Agent。"
+    "我已经保留了本轮验收证据；请检查可用 Agent 配置，或先补齐静态前端产物后重试。"
+)
 
 TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
 PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
@@ -144,10 +148,12 @@ async def run_quality_gate(
                 "no repair agent is available",
                 repair_hint="Configure a quality repair agent or create the missing HTML artifact.",
             )
-            yield (
-                _error("browser_verification_failed", "no repair agent is available"),
+            for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
-            )
+                REPAIR_AGENT_MISSING_TEXT,
+            ):
+                next_block_index = updated_block_index
+                yield chunk, updated_block_index
             return
         repair_round += 1
         repair_task = SubTask(
@@ -461,10 +467,12 @@ async def run_quality_gate(
                 checked_artifacts=[entry_path] if entry_path else [],
                 repair_hint="Configure a quality repair agent or manually fix the browser issues.",
             )
-            yield (
-                _error("browser_verification_failed", "no repair agent is available"),
+            for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
-            )
+                REPAIR_AGENT_MISSING_TEXT,
+            ):
+                next_block_index = updated_block_index
+                yield chunk, updated_block_index
             return
 
         repair_round += 1

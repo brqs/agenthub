@@ -81,6 +81,18 @@ from app.agents.orchestrator._internal.routing.direct_answer import (
 from app.agents.orchestrator._internal.routing.direct_answer import (
     should_direct_answer as _should_direct_answer,
 )
+from app.agents.orchestrator._internal.routing.evidence import (
+    build_evidence_context_message as _build_evidence_context_message,
+)
+from app.agents.orchestrator._internal.routing.evidence import (
+    context_action_answer_text as _context_action_answer_text,
+)
+from app.agents.orchestrator._internal.routing.evidence import (
+    inject_evidence_context as _inject_evidence_context,
+)
+from app.agents.orchestrator._internal.routing.evidence import (
+    is_evidence_followup_request as _is_evidence_followup_request,
+)
 from app.agents.orchestrator._internal.routing.platform_facts import (
     platform_fact_intent,
     platform_fact_text,
@@ -313,6 +325,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 self.effective_system_prompt(system_prompt),
                 next_block_index,
                 latest_user_request=_latest_user_request,
+                workspace_path=workspace_path,
             ):
                 next_block_index = updated_block_index
                 yield chunk
@@ -324,6 +337,37 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 total_blocks=next_block_index,
             )
             return
+
+        action_answer = await _context_action_answer_text(
+            merged_config,
+            _latest_user_request(messages),
+            workspace_path,
+        )
+        if action_answer is not None:
+            for chunk, updated_block_index in _route_process_chunks(
+                merged_config,
+                next_block_index,
+                messages,
+                "direct_answer",
+            ):
+                next_block_index = updated_block_index
+                yield chunk
+            for chunk in _text_block(next_block_index, action_answer):
+                yield chunk
+            next_block_index += 1
+            yield StreamChunk(
+                event_type="done",
+                agent_id=self.agent_id,
+                total_blocks=next_block_index,
+            )
+            return
+
+        evidence_message = await _build_evidence_context_message(
+            merged_config,
+            _latest_user_request(messages),
+            workspace_path,
+        )
+        messages = _inject_evidence_context(messages, evidence_message)
 
         custom_agent_args = _custom_agent_tool_arguments(_latest_user_request(messages))
         if merged_config.get("tasks") is None and custom_agent_args is not None:
@@ -430,10 +474,12 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 self.effective_system_prompt(system_prompt),
             )
         except PlannerResolutionError as exc:
-            if _should_direct_answer_after_planner_error(
-                merged_config,
-                exc,
-                _latest_user_request(messages),
+            if _is_evidence_followup_request(_latest_user_request(messages)) or (
+                _should_direct_answer_after_planner_error(
+                    merged_config,
+                    exc,
+                    _latest_user_request(messages),
+                )
             ):
                 for chunk, updated_block_index in _route_process_chunks(
                     merged_config,
@@ -449,6 +495,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
                     self.effective_system_prompt(system_prompt),
                     next_block_index,
                     latest_user_request=_latest_user_request,
+                    workspace_path=workspace_path,
                 ):
                     next_block_index = updated_block_index
                     yield chunk
