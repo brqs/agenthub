@@ -10,6 +10,8 @@ from scripts.orchestrator_e2e.runner import (
     command_fulfillment_statuses,
     evaluate_fallback_task_card_case,
     fallback_group_agent_ids,
+    forbidden_visible_terms,
+    message_error_text,
 )
 from scripts.orchestrator_e2e.scenarios import SCENARIOS
 from scripts.orchestrator_live_e2e import (
@@ -387,6 +389,25 @@ def test_command_fulfillment_statuses_preserve_satisfied_evidence() -> None:
         "deployment": "satisfied",
         "browser_verify": "satisfied",
     }
+
+
+def test_message_error_text_scans_sse_error_payloads_for_raw_runtime_terms() -> None:
+    events = [
+        {
+            "event": "message_error",
+            "data": {
+                "error": (
+                    "OpenAI Codex v0.137.0 workdir: /workspaces/demo "
+                    "approval: never (external_runtime_error)"
+                )
+            },
+        }
+    ]
+
+    text = message_error_text(events)
+
+    assert "OpenAI Codex" in text
+    assert "external_runtime_error" in forbidden_visible_terms(text)
 
 
 def test_available_agents_authoritative_false_allows_e2e_fallback_scope() -> None:

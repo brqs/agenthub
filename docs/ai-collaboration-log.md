@@ -2034,3 +2034,22 @@ agent_fallback_codex_unavailable: planned=codex-helper, final=claude-code, passe
 
 ### 经验
 “完整执行用户命令”不能等同于“任务图终止”。显式命令需要有独立 fulfillment 状态，平台动作需要以 tool 证据为准，review 需要产物证据；当外部 Agent 失败时，Orchestrator 可以协调兜底，但不能把失败包装成已完成。
+
+## 2026-06-08 — Codex 修复 02:24 E2E 可见消息与容器化部署点击体验
+
+### 任务
+执行 “Orchestrator 02:24 E2E + 容器化部署点击 Repair Loop 计划”：修复 `message_error` raw runtime 泄露、Orchestrator final summary 早于 quality/deploy 输出导致的前后矛盾，以及前端容器化部署按钮因缺少 Dockerfile 被静默禁用的问题。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: Orchestrator 02:24 E2E + 容器化部署点击 Repair Loop 计划
+
+### AI 输出摘要
+1. 后端 `message_error.error` 继续使用 Orchestrator child-message sanitizer，并补强 Codex/OpenCode raw runtime transcript、workspace path、`approval: never`、`external_runtime_error` 等内部痕迹的识别和归一化文案。
+2. Orchestrator static / parallel / ReAct 执行阶段不再提前写 memory final summary 或输出最终 text；adapter 在 `run_quality_gate()` 之后统一生成最终可见 summary，避免部署/验收成功后仍显示“尚未完成”的矛盾文本。
+3. 前端 `RightAgentPanel` 容器化部署动作不再因缺少 Dockerfile 禁用；用户可以发起受控 `create_deployment(kind="container")` 请求，后端返回 `not_supported`、缺 Dockerfile 失败或 demo worker 发布状态后由 UI 展示。
+4. 保持后端容器 worker 默认关闭：`DEPLOYMENT_CONTAINER_ENABLED=false` 是安全策略；按钮可点表示可发起平台请求，不表示生产默认启用容器化部署。
+5. Live E2E 脚本新增 hard checks：`message_error_no_forbidden_terms`、`command_final_text_no_contradictory_completion`、`container_deployment_smoke_request_created`。
+6. 文档已更新：`command-fulfillment.spec.md`、`native-deployment.execution.spec.md`、`live-e2e-report.spec.md`、`b2-pdf-gap-todo.spec.md` 和本协作日志。
+
+### 待验证
+本轮完成代码与文档修复后，需要按 repair loop 重启后端并重跑 `command_fulfillment_cyberpunk_group_deploy` 公网 E2E；通过后把最新 conversation / report / SSE / browser evidence 追加到 live E2E report。
