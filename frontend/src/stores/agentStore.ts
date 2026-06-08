@@ -1,5 +1,12 @@
 import { create } from 'zustand';
-import type { Agent, CreatableAgentProvider } from '@/lib/types';
+import type {
+  Agent,
+  AgentBuilderProfile,
+  AgentMemoryPolicy,
+  AgentModelProfile,
+  AgentPermissions,
+  CreatableAgentProvider,
+} from '@/lib/types';
 
 export interface CreateAgentInput {
   name: string;
@@ -12,6 +19,12 @@ export interface CreateAgentInput {
   timeoutSeconds?: number;
   capabilities: string[];
   systemPrompt: string;
+  builderProfile?: AgentBuilderProfile;
+  permissions?: AgentPermissions;
+  memoryPolicy?: AgentMemoryPolicy;
+  mcpServers?: Array<Record<string, unknown>>;
+  allowedTools?: string[];
+  modelProfile?: AgentModelProfile;
 }
 
 interface AgentState {

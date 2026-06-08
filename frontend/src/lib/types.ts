@@ -378,6 +378,136 @@ export type CreateAgentRequest = Schemas['CreateAgentRequest'];
 export type CreatableAgentProvider = CreateAgentRequest['provider'];
 export type UpdateAgentRequest = Schemas['UpdateAgentRequest'];
 export type AgentKnowledgeUsage = 'reference' | 'policy' | 'template' | 'example';
+export type AgentMemoryPolicy = 'none' | 'conversation' | 'project' | 'user';
+export type AgentClarificationPolicy = 'ask_first' | 'balanced' | 'decide_with_defaults';
+export type AgentRunCommandPolicy = 'never' | 'ask' | 'auto_low_risk';
+export type AgentNetworkPolicy = 'never' | 'ask' | 'allowlisted';
+export type AgentAskPolicy = 'never' | 'ask';
+
+export interface AgentBuilderProfile {
+  role?: string | null;
+  purpose?: string | null;
+  goals: string[];
+  tone?: string | null;
+  do_not_do: string[];
+  clarification_policy: AgentClarificationPolicy;
+  output_style?: string | null;
+  starters: string[];
+}
+
+export interface AgentPermissions {
+  workspace_read: boolean;
+  workspace_write: boolean;
+  run_commands: AgentRunCommandPolicy;
+  network: AgentNetworkPolicy;
+  deploy: AgentAskPolicy;
+  external_accounts: AgentAskPolicy;
+}
+
+export type ModelProvider = 'deepseek' | 'openai' | 'anthropic' | 'openai_compatible';
+export type ModelProtocol = 'openai_compatible' | 'anthropic';
+export type ModelAccountStatus = 'unverified' | 'ready' | 'unavailable';
+
+export interface ModelProviderInfo {
+  provider: ModelProvider;
+  company_name: string;
+  protocol: ModelProtocol;
+  default_model: string;
+  models: string[];
+  requires_base_url: boolean;
+  default_base_url?: string | null;
+}
+
+export interface ModelProviderList {
+  items: ModelProviderInfo[];
+}
+
+export interface ModelAccount {
+  id: string;
+  display_name: string;
+  provider: ModelProvider;
+  protocol: ModelProtocol;
+  model: string;
+  base_url?: string | null;
+  api_key_preview: string;
+  status: ModelAccountStatus;
+  last_verified_at?: string | null;
+  last_error?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelAccountList {
+  items: ModelAccount[];
+}
+
+export interface CreateModelAccountRequest {
+  display_name: string;
+  provider: ModelProvider;
+  api_key: string;
+  model: string;
+  base_url?: string | null;
+}
+
+export interface UpdateModelAccountRequest {
+  display_name?: string;
+  api_key?: string;
+  model?: string;
+  base_url?: string | null;
+}
+
+export interface ModelAccountVerifyResponse {
+  status: ModelAccountStatus;
+  error?: string | null;
+  verified_at?: string | null;
+}
+
+export interface AgentModelProfile {
+  source: 'agenthub_default' | 'user_account';
+  account_id?: string | null;
+  provider?: ModelProvider | null;
+  model?: string | null;
+}
+
+export interface AgentTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  capabilities: string[];
+  builder_profile: AgentBuilderProfile;
+  permissions: AgentPermissions;
+  memory_policy: AgentMemoryPolicy;
+  model_backend: 'claude' | 'deepseek' | 'openai';
+}
+
+export interface AgentTemplateList {
+  items: AgentTemplate[];
+}
+
+export interface AgentMcpTool {
+  name: string;
+  description?: string | null;
+}
+
+export interface AgentMcpServerHealth {
+  name: string;
+  status: 'ready' | 'unavailable';
+  tools: AgentMcpTool[];
+  error?: string | null;
+}
+
+export interface AgentMcpHealth {
+  status: 'ready' | 'unavailable';
+  servers: AgentMcpServerHealth[];
+}
+
+export interface AgentTestRunResponse {
+  status: 'done' | 'error';
+  content: ContentBlock[];
+  error?: string | null;
+  error_code?: string | null;
+}
 
 export interface AgentKnowledgeRef {
   upload_id: string;

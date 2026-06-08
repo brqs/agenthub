@@ -4,11 +4,20 @@ import type {
   AgentAssetHistoryResponse,
   AgentAssetsResponse,
   AgentAssetUsageResponse,
+  AgentMcpHealth,
+  CreateModelAccountRequest,
   AgentKnowledgeRef,
   AgentKnowledgeUsage,
   AgentSkillRef,
+  AgentTemplateList,
+  AgentTestRunResponse,
   AgentList,
+  ModelAccount,
+  ModelAccountList,
+  ModelAccountVerifyResponse,
+  ModelProviderList,
   CreateAgentRequest,
+  UpdateModelAccountRequest,
   UpdateAgentRequest,
 } from '@/lib/types';
 import { normalizeAgent } from './normalizers';
@@ -32,6 +41,47 @@ export async function listAgents(params: ListAgentsParams = {}): Promise<Agent[]
   return data.items.map(normalizeAgent);
 }
 
+export async function listAgentTemplates(): Promise<AgentTemplateList> {
+  const { data } = await api.get<AgentTemplateList>('/api/v1/agents/templates');
+  return data;
+}
+
+export async function listModelProviders(): Promise<ModelProviderList> {
+  const { data } = await api.get<ModelProviderList>('/api/v1/model-providers');
+  return data;
+}
+
+export async function listModelAccounts(): Promise<ModelAccountList> {
+  const { data } = await api.get<ModelAccountList>('/api/v1/model-accounts');
+  return data;
+}
+
+export async function createModelAccount(input: CreateModelAccountRequest): Promise<ModelAccount> {
+  const { data } = await api.post<ModelAccount>('/api/v1/model-accounts', input);
+  return data;
+}
+
+export async function updateModelAccount(
+  accountId: string,
+  input: UpdateModelAccountRequest,
+): Promise<ModelAccount> {
+  const { data } = await api.patch<ModelAccount>(`/api/v1/model-accounts/${accountId}`, input);
+  return data;
+}
+
+export async function deleteModelAccount(accountId: string): Promise<void> {
+  await api.delete(`/api/v1/model-accounts/${accountId}`);
+}
+
+export async function verifyModelAccount(
+  accountId: string,
+): Promise<ModelAccountVerifyResponse> {
+  const { data } = await api.post<ModelAccountVerifyResponse>(
+    `/api/v1/model-accounts/${accountId}/verify`,
+  );
+  return data;
+}
+
 export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
   const { data } = await api.post<Agent>('/api/v1/agents', input);
   return normalizeAgent(data);
@@ -44,6 +94,18 @@ export async function updateAgent(agentId: string, input: UpdateAgentRequest): P
 
 export async function deleteAgent(agentId: string): Promise<void> {
   await api.delete(`/api/v1/agents/${agentId}`);
+}
+
+export async function checkAgentMcpHealth(agentId: string): Promise<AgentMcpHealth> {
+  const { data } = await api.post<AgentMcpHealth>(`/api/v1/agents/${agentId}/mcp/health-check`);
+  return data;
+}
+
+export async function testRunAgent(agentId: string, prompt: string): Promise<AgentTestRunResponse> {
+  const { data } = await api.post<AgentTestRunResponse>(`/api/v1/agents/${agentId}/test-run`, {
+    prompt,
+  });
+  return data;
 }
 
 export async function listAgentAssets(agentId: string): Promise<AgentAssetsResponse> {

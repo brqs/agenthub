@@ -29,6 +29,9 @@ export function DeploymentHistory({ conversationId }: { conversationId: string }
   const [copiedDeploymentId, setCopiedDeploymentId] = useState<string | null>(null);
   const [copyError, setCopyError] = useState(false);
   const deployments = deploymentsQuery.data?.items ?? [];
+  const hasDeploymentData = Boolean(deploymentsQuery.data);
+  const showPrimaryError = deploymentsQuery.isError && !hasDeploymentData;
+  const showRefreshWarning = deploymentsQuery.isError && hasDeploymentData;
 
   async function copyUrl(deployment: WorkspaceDeploymentResponse) {
     if (!deployment.url) return;
@@ -58,12 +61,22 @@ export function DeploymentHistory({ conversationId }: { conversationId: string }
         <div className="rounded-md border border-slate-300 p-3 text-xs text-slate-500 dark:border-slate-800">
           正在加载发布记录...
         </div>
-      ) : deploymentsQuery.isError ? (
-        <div className="rounded-md border border-rose-300 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-400/25 dark:bg-rose-950/20 dark:text-rose-200">
+      ) : showPrimaryError ? (
+        <div className="space-y-2 rounded-md border border-rose-300 bg-rose-50 p-3 text-xs text-rose-700 dark:border-rose-400/25 dark:bg-rose-950/20 dark:text-rose-200">
           发布记录加载失败，请稍后重试。
+          <button
+            type="button"
+            onClick={() => void deploymentsQuery.refetch()}
+            className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-white px-2 py-1 font-medium text-rose-700 hover:bg-rose-100 dark:border-rose-400/30 dark:bg-rose-950/40 dark:text-rose-100 dark:hover:bg-rose-900/40"
+            aria-label="重试加载发布记录"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            重试
+          </button>
         </div>
       ) : deployments.length ? (
         <div className="space-y-2">
+          {showRefreshWarning && <DeploymentRefreshWarning onRetry={deploymentsQuery.refetch} />}
           {deployments.map((deployment) => (
             <DeploymentHistoryItem
               key={deployment.id}
@@ -90,11 +103,31 @@ export function DeploymentHistory({ conversationId }: { conversationId: string }
           )}
         </div>
       ) : (
-        <div className="rounded-md border border-dashed border-slate-300 p-3 text-xs leading-5 text-slate-500 dark:border-slate-800">
+        <div className="space-y-2">
+          {showRefreshWarning && <DeploymentRefreshWarning onRetry={deploymentsQuery.refetch} />}
+          <div className="rounded-md border border-dashed border-slate-300 p-3 text-xs leading-5 text-slate-500 dark:border-slate-800">
           暂无发布记录。向 Orchestrator 发送部署指令后，状态会显示在这里。
+          </div>
         </div>
       )}
     </section>
+  );
+}
+
+function DeploymentRefreshWarning({ onRetry }: { onRetry: () => unknown }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-400/30 dark:bg-amber-950/20 dark:text-amber-100">
+      <span>Deployment history could not refresh; showing the last known state.</span>
+      <button
+        type="button"
+        onClick={() => void onRetry()}
+        className="inline-flex shrink-0 items-center gap-1 rounded border border-amber-300 bg-white px-2 py-1 font-medium hover:bg-amber-100 dark:border-amber-400/30 dark:bg-amber-950/40 dark:hover:bg-amber-900/40"
+        aria-label="重试刷新发布记录"
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+        重试
+      </button>
+    </div>
   );
 }
 

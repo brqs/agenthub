@@ -330,6 +330,41 @@ class TestValidConfigs:
         )
         assert result == config
 
+    def test_valid_builtin_no_code_builder_config(self) -> None:
+        config = {
+            "model_backend": "deepseek",
+            "max_iterations": 10,
+            "mcp_servers": [],
+            "allowed_tools": ["read_file", "write_file", "bash"],
+            "builder_profile": {
+                "role": "Frontend design assistant",
+                "purpose": "Help non-technical users shape and build web pages.",
+                "goals": ["Ask about missing constraints", "Produce workspace files"],
+                "tone": "clear and patient",
+                "do_not_do": ["Do not deploy without confirmation"],
+                "clarification_policy": "balanced",
+                "output_style": "Short progress notes and concrete files",
+                "starters": ["Make this page more polished"],
+            },
+            "permissions": {
+                "workspace_read": True,
+                "workspace_write": True,
+                "run_commands": "ask",
+                "network": "never",
+                "deploy": "ask",
+                "external_accounts": "never",
+            },
+            "memory_policy": "conversation",
+        }
+
+        result = validate_agent_config(
+            provider="builtin",
+            config=config,
+            system_prompt=None,
+        )
+
+        assert result == config
+
 
 class TestLegacyProviderRules:
     @pytest.mark.parametrize("provider", ["claude", "openai", "deepseek", "custom"])
@@ -352,6 +387,25 @@ class TestModelValidation:
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+
+    def test_inline_api_key_rejected_for_agent_config(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={
+                    "model_backend": "deepseek",
+                    "model_profile": {
+                        "source": "agenthub_default",
+                        "provider": "deepseek",
+                        "model": "deepseek-v4-flash",
+                        "api_key": "sk-should-not-be-here",
+                    },
+                },
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "inline API keys" in exc_info.value.message
 
     def test_invalid_opencode_args_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
@@ -411,6 +465,58 @@ class TestModelValidation:
                 config={"mcp_servers": [], "allowed_tools": allowed_tools},
                 system_prompt=None,
             )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert expected_message in exc_info.value.message
+
+    @pytest.mark.parametrize(
+        ("config", "expected_message"),
+        [
+            (
+                {"builder_profile": "reviewer"},
+                "'builder_profile' must be an object",
+            ),
+            (
+                {"builder_profile": {"goals": "ship it"}},
+                "'builder_profile.goals' must be a list of strings",
+            ),
+            (
+                {"builder_profile": {"clarification_policy": "always_execute"}},
+                "'builder_profile.clarification_policy' is not supported",
+            ),
+            (
+                {"permissions": {"workspace_write": "yes"}},
+                "'permissions.workspace_write' must be a boolean",
+            ),
+            (
+                {"permissions": {"run_commands": "always"}},
+                "'permissions.run_commands' is not supported",
+            ),
+            (
+                {"permissions": {"network": "open"}},
+                "'permissions.network' is not supported",
+            ),
+            (
+                {"permissions": {"deploy": "auto"}},
+                "'permissions.deploy' is not supported",
+            ),
+            (
+                {"memory_policy": "forever"},
+                "'memory_policy' is not supported",
+            ),
+        ],
+    )
+    def test_invalid_no_code_builder_config_rejected(
+        self,
+        config: dict[str, object],
+        expected_message: str,
+    ) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config=config,
+                system_prompt=None,
+            )
+
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert expected_message in exc_info.value.message
 
