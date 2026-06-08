@@ -13,7 +13,101 @@ describe('buildAgentConfig', () => {
       }),
     ).toEqual({
       model_backend: 'deepseek',
+      model_profile: {
+        source: 'agenthub_default',
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+      },
       max_iterations: 12,
+      mcp_servers: [],
+    });
+  });
+
+  it('maps no-code builder permissions into builtin config', () => {
+    expect(
+      buildAgentConfig({
+        name: 'Builder',
+        provider: 'builtin',
+        model: 'deepseek',
+        maxIterations: 10,
+        capabilities: [],
+        systemPrompt: '',
+        permissions: {
+          workspace_read: true,
+          workspace_write: true,
+          run_commands: 'ask',
+          network: 'never',
+          deploy: 'never',
+          external_accounts: 'never',
+        },
+        memoryPolicy: 'conversation',
+        builderProfile: {
+          role: 'Reviewer',
+          purpose: 'Review code',
+          goals: ['Find bugs'],
+          tone: 'concise',
+          do_not_do: ['Do not rewrite'],
+          clarification_policy: 'balanced',
+          output_style: 'Findings first',
+          starters: ['Review this'],
+        },
+      }),
+    ).toEqual({
+      model_backend: 'deepseek',
+      model_profile: {
+        source: 'agenthub_default',
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+      },
+      max_iterations: 10,
+      mcp_servers: [],
+      allowed_tools: ['read_file', 'write_file', 'bash'],
+      memory_policy: 'conversation',
+      permissions: {
+        workspace_read: true,
+        workspace_write: true,
+        run_commands: 'ask',
+        network: 'never',
+        deploy: 'never',
+        external_accounts: 'never',
+      },
+      builder_profile: {
+        role: 'Reviewer',
+        purpose: 'Review code',
+        goals: ['Find bugs'],
+        tone: 'concise',
+        do_not_do: ['Do not rewrite'],
+        clarification_policy: 'balanced',
+        output_style: 'Findings first',
+        starters: ['Review this'],
+      },
+    });
+  });
+
+  it('binds a user model account for builtin agents', () => {
+    expect(
+      buildAgentConfig({
+        name: 'Custom Model',
+        provider: 'builtin',
+        model: 'gpt-4o-mini',
+        capabilities: [],
+        systemPrompt: '',
+        modelProfile: {
+          source: 'user_account',
+          account_id: 'account-1',
+          provider: 'openai',
+          model: 'gpt-4o-mini',
+        },
+      }),
+    ).toEqual({
+      model_backend: 'openai',
+      model_profile: {
+        source: 'user_account',
+        account_id: 'account-1',
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+      },
+      max_iterations: 10,
       mcp_servers: [],
     });
   });

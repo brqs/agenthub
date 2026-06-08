@@ -7,6 +7,7 @@ import type { Agent, RequirementAlignmentMode } from '@/lib/types';
 export function MessageList({
   messages,
   highlightedMessageId,
+  hasActiveStream = false,
   isLoading = false,
   isLoadingMore = false,
   hasMore = false,
@@ -26,6 +27,7 @@ export function MessageList({
 }: {
   messages: DemoMessage[];
   highlightedMessageId?: string | null;
+  hasActiveStream?: boolean;
   isLoading?: boolean;
   isLoadingMore?: boolean;
   hasMore?: boolean;
@@ -90,6 +92,19 @@ export function MessageList({
   }
 
   if (!messages.length) {
+    if (hasActiveStream) {
+      return (
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950 px-6 py-6">
+          <div
+            className="inline-flex items-center gap-2 rounded-md border border-brand/25 bg-brand/10 px-3 py-2 text-sm text-slate-300"
+            role="status"
+          >
+            <Loader2 className="h-4 w-4 animate-spin text-brand-light" />
+            正在恢复当前回复...
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-950 px-6 py-6">
         <div className="max-w-sm text-center">

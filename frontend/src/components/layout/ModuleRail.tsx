@@ -16,6 +16,7 @@ export function ModuleRail({
   onOpenSettings,
   onToggleUserMenu,
   onChatClick,
+  chatHref = '/chat',
 }: {
   themePreference: ThemePreference;
   resolvedTheme: ThemeMode;
@@ -23,6 +24,7 @@ export function ModuleRail({
   onOpenSettings: () => void;
   onToggleUserMenu: () => void;
   onChatClick?: () => void;
+  chatHref?: string;
 }) {
   const ThemeIcon = themePreference === 'system' ? Monitor : resolvedTheme === 'dark' ? Moon : Sun;
   const themeTitle =
@@ -40,7 +42,7 @@ export function ModuleRail({
         {navItems.map((item) => (
           <NavLink
             key={item.to}
-            to={item.to}
+            to={item.to === '/chat' ? chatHref : item.to}
             className={({ isActive }) =>
               cn(
                 'group relative flex h-11 w-11 items-center justify-center rounded-2xl transition',

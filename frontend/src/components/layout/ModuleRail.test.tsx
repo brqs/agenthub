@@ -11,6 +11,7 @@ describe('ModuleRail', () => {
         <ModuleRail
           themePreference="system"
           resolvedTheme="light"
+          chatHref="/chat/conv-active"
           onCycleTheme={vi.fn()}
           onOpenSettings={vi.fn()}
           onToggleUserMenu={vi.fn()}
@@ -19,7 +20,10 @@ describe('ModuleRail', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByTitle('聊天'));
+    const chatLink = screen.getByTitle('聊天');
+    expect(chatLink).toHaveAttribute('href', '/chat/conv-active');
+
+    fireEvent.click(chatLink);
 
     expect(onChatClick).toHaveBeenCalledOnce();
   });

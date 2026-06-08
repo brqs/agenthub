@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -10,11 +12,16 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.agents.builtin.mcp.client import MCPClient
 from app.agents.config_validation import (
     AgentConfigValidationError,
     merge_agent_config,
     validate_agent_config,
 )
+from app.agents.registry import get_adapter
+from app.agents.types import ChatMessage
+from app.api.v1.stream_accumulator import StreamContentAccumulator
+from app.core.config import settings
 from app.core.deps import DbSession, get_current_user
 from app.models.agent import Agent
 from app.models.conversation import Conversation
@@ -23,20 +30,130 @@ from app.schemas.agent import (
     AgentAssetHistoryOut,
     AgentAssetsOut,
     AgentAssetUsageListOut,
+    AgentBuilderProfile,
     AgentKnowledgeOut,
     AgentKnowledgeUsage,
     AgentList,
+    AgentMCPHealthOut,
+    AgentMCPServerHealthOut,
+    AgentMCPToolOut,
     AgentOut,
+    AgentPermissions,
     AgentProvider,
     AgentSkillOut,
+    AgentTemplateListOut,
+    AgentTemplateOut,
+    AgentTestRunOut,
+    AgentTestRunRequest,
     CreateAgentRequest,
     UpdateAgentKnowledgeRequest,
     UpdateAgentRequest,
     UpdateAgentSkillRequest,
 )
 from app.services.agent_asset_service import agent_asset_service
+from app.services.model_accounts import model_profile_for_default
 
 router = APIRouter()
+
+
+CUSTOM_AGENT_TEMPLATES: tuple[AgentTemplateOut, ...] = (
+    AgentTemplateOut(
+        id="paper-research-assistant",
+        name="Paper Research Assistant",
+        description="Organizes papers, notes, and reading summaries with a careful tone.",
+        category="research",
+        capabilities=["research", "summarization", "writing"],
+        builder_profile=AgentBuilderProfile(
+            role="A patient research assistant for collecting and organizing paper notes.",
+            purpose="Help the user read, compare, and summarize academic materials.",
+            goals=[
+                "Extract key claims and terminology from uploaded notes.",
+                "Keep source wording separate from generated summaries.",
+                "Ask before changing the user's original text.",
+            ],
+            tone="warm, precise, and teacher-like",
+            do_not_do=["Do not invent citations.", "Do not rewrite source text without asking."],
+            clarification_policy="ask_first",
+            output_style="Use short sections and clearly mark unknowns.",
+            starters=[
+                "Summarize this paper note.",
+                "Compare these two arguments.",
+                "Turn this outline into a reading brief.",
+            ],
+        ),
+        permissions=AgentPermissions(workspace_read=True),
+    ),
+    AgentTemplateOut(
+        id="frontend-designer",
+        name="Frontend Designer",
+        description="Designs and edits polished web UI inside the conversation workspace.",
+        category="frontend",
+        capabilities=["frontend", "ui", "workspace"],
+        builder_profile=AgentBuilderProfile(
+            role="A frontend design agent focused on usable, polished web interfaces.",
+            purpose="Create and refine static frontend artifacts in the workspace.",
+            goals=[
+                "Produce clear HTML/CSS/JS artifacts when asked.",
+                "Keep layouts responsive across desktop and mobile.",
+                "Explain tradeoffs briefly when design choices matter.",
+            ],
+            tone="direct, collaborative, and design-focused",
+            do_not_do=["Do not deploy without confirmation."],
+            clarification_policy="balanced",
+            output_style="Prefer concise progress notes and concrete file outputs.",
+            starters=[
+                "Create a landing page mockup.",
+                "Improve this component layout.",
+                "Make this page mobile-friendly.",
+            ],
+        ),
+        permissions=AgentPermissions(workspace_read=True, workspace_write=True),
+    ),
+    AgentTemplateOut(
+        id="code-reviewer",
+        name="Code Reviewer",
+        description="Reviews changed files for bugs, risks, and missing tests.",
+        category="engineering",
+        capabilities=["review", "testing", "quality"],
+        builder_profile=AgentBuilderProfile(
+            role="A code review agent that prioritizes correctness and regressions.",
+            purpose="Review code changes and point out actionable issues.",
+            goals=[
+                "Lead with concrete findings.",
+                "Reference files and scenarios.",
+                "Avoid speculative or stylistic feedback.",
+            ],
+            tone="concise and senior-engineering focused",
+            do_not_do=["Do not rewrite code unless asked."],
+            clarification_policy="balanced",
+            output_style="Findings first, then residual risk.",
+            starters=["Review the current change.", "Check this component for regressions."],
+        ),
+        permissions=AgentPermissions(workspace_read=True),
+    ),
+    AgentTemplateOut(
+        id="deployment-helper",
+        name="Deployment Helper",
+        description="Prepares release notes, checks artifacts, and guides deployment steps.",
+        category="deployment",
+        capabilities=["deployment", "release", "diagnostics"],
+        builder_profile=AgentBuilderProfile(
+            role="A deployment assistant for release preparation and diagnostics.",
+            purpose="Help package, verify, and explain deployment readiness.",
+            goals=[
+                "Check required artifacts before publishing.",
+                "Explain failed deployment states clearly.",
+                "Ask before starting destructive or external actions.",
+            ],
+            tone="calm and operational",
+            do_not_do=["Do not deploy or stop services without explicit confirmation."],
+            clarification_policy="ask_first",
+            output_style="Use short checklists and exact command summaries.",
+            starters=["Check whether this workspace can be deployed.", "Prepare release notes."],
+        ),
+        permissions=AgentPermissions(workspace_read=True, deploy="ask"),
+    ),
+)
 
 
 def _format_validation_error(exc: AgentConfigValidationError) -> dict[str, Any]:
@@ -47,6 +164,77 @@ def _format_validation_error(exc: AgentConfigValidationError) -> dict[str, Any]:
             "details": exc.details,
         }
     }
+
+
+def _config_with_user_agent_defaults(provider: str, config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    if provider == "builtin":
+        normalized.setdefault("model_backend", "deepseek")
+        normalized.setdefault("model_profile", model_profile_for_default())
+        normalized.setdefault("max_iterations", 10)
+        normalized.setdefault("mcp_servers", [])
+        normalized.setdefault("allowed_tools", [])
+    return normalized
+
+
+async def _visible_agent(db: DbSession, user: User, agent_id: str) -> Agent:
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(
+            404,
+            detail={"error": {"code": "AGENT_NOT_FOUND", "message": "Not found"}},
+        )
+    if not agent.is_builtin and agent.user_id != user.id:
+        raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
+    return agent
+
+
+def _raw_mcp_servers(agent: Agent) -> list[dict[str, Any]]:
+    raw = (agent.config or {}).get("mcp_servers", [])
+    if not isinstance(raw, list):
+        return []
+    return [server for server in raw if isinstance(server, dict)]
+
+
+async def _health_for_mcp_server(raw_server: dict[str, Any]) -> AgentMCPServerHealthOut:
+    name = raw_server.get("name")
+    if not isinstance(name, str) or not name:
+        return AgentMCPServerHealthOut(
+            name="<unnamed>",
+            status="unavailable",
+            error="MCP server name is missing",
+        )
+    transport = raw_server.get("transport") or raw_server.get("type") or "stdio"
+    command = raw_server.get("command")
+    if transport != "stdio" or not isinstance(command, str) or not command:
+        return AgentMCPServerHealthOut(
+            name=name,
+            status="unavailable",
+            error="Only stdio MCP servers with a command can be health checked in this MVP",
+        )
+    if not settings.allow_user_stdio_mcp_health_checks:
+        return AgentMCPServerHealthOut(
+            name=name,
+            status="unavailable",
+            error="User-configured stdio MCP health checks are disabled.",
+        )
+    client = MCPClient.from_config([raw_server])
+    try:
+        tools = await client.list_tools()
+    except Exception as exc:  # noqa: BLE001 - health must be diagnostic, not fatal.
+        return AgentMCPServerHealthOut(name=name, status="unavailable", error=str(exc))
+    finally:
+        await client.aclose()
+    return AgentMCPServerHealthOut(
+        name=name,
+        status="ready",
+        tools=[AgentMCPToolOut(name=tool.name, description=tool.description) for tool in tools],
+    )
+
+
+def _safe_error_text(error: str | None) -> str:
+    text = (error or "Agent test run failed.").strip()
+    return text[:2000] or "Agent test run failed."
 
 
 @router.get("", response_model=AgentList)
@@ -85,16 +273,24 @@ async def list_agents(
     )
 
 
+@router.get("/templates", response_model=AgentTemplateListOut)
+async def list_agent_templates(
+    _user: Annotated[User, Depends(get_current_user)],
+) -> AgentTemplateListOut:
+    return AgentTemplateListOut(items=list(CUSTOM_AGENT_TEMPLATES))
+
+
 @router.post("", response_model=AgentOut, status_code=201)
 async def create_agent(
     payload: CreateAgentRequest,
     db: DbSession,
     user: Annotated[User, Depends(get_current_user)],
 ) -> AgentOut:
+    config = _config_with_user_agent_defaults(payload.provider, payload.config)
     try:
         normalized_config = validate_agent_config(
             provider=payload.provider,
-            config=payload.config,
+            config=config,
             system_prompt=payload.system_prompt,
         )
     except AgentConfigValidationError as exc:
@@ -114,6 +310,71 @@ async def create_agent(
     db.add(agent)
     await db.flush()
     return AgentOut.model_validate(agent)
+
+
+@router.post("/{agent_id}/mcp/health-check", response_model=AgentMCPHealthOut)
+async def check_agent_mcp_health(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentMCPHealthOut:
+    agent = await _visible_agent(db, user, agent_id)
+    servers = [_health_for_mcp_server(server) for server in _raw_mcp_servers(agent)]
+    results = [await item for item in servers]
+    overall = (
+        "ready"
+        if results and all(item.status == "ready" for item in results)
+        else "unavailable"
+    )
+    return AgentMCPHealthOut(status=overall, servers=results)
+
+
+@router.post("/{agent_id}/test-run", response_model=AgentTestRunOut)
+async def test_run_agent(
+    agent_id: str,
+    payload: AgentTestRunRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentTestRunOut:
+    await _visible_agent(db, user, agent_id)
+    adapter = await get_adapter(agent_id, db)
+    accumulator = StreamContentAccumulator()
+    status_: str = "done"
+    error: str | None = None
+    error_code: str | None = None
+    with TemporaryDirectory(prefix="agenthub-agent-test-") as temp_dir:
+        async for chunk in adapter.stream(
+            [ChatMessage(role="user", content=payload.prompt)],
+            workspace_path=Path(temp_dir),
+        ):
+            orphan_error = accumulator.feed(chunk)
+            if orphan_error is not None:
+                status_ = "error"
+                error = orphan_error.error
+                error_code = orphan_error.error_code
+            if chunk.event_type == "error":
+                status_ = "error"
+                error = chunk.error
+                error_code = chunk.error_code
+                break
+            if chunk.event_type == "done":
+                break
+    if accumulator.finalize_orphaned_tools():
+        status_ = "error"
+        error = error or "Agent emitted an unfinished tool call."
+        error_code = error_code or "tool_call_orphan"
+    accumulator.finalize_task_cards(success=status_ == "done")
+    content = accumulator.to_list()
+    if status_ == "error" and not content:
+        content = [{"type": "text", "text": _safe_error_text(error)}]
+    if status_ == "done" and not content:
+        content = [{"type": "text", "text": "The test run completed without visible output."}]
+    return AgentTestRunOut(
+        status=status_,  # type: ignore[arg-type]
+        content=content,  # type: ignore[arg-type]
+        error=error,
+        error_code=error_code,
+    )
 
 
 @router.get("/{agent_id}", response_model=AgentOut)

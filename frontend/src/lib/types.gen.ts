@@ -500,6 +500,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Agent Templates */
+        get: operations["list_agent_templates_api_v1_agents_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/mcp/health-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Agent Mcp Health */
+        post: operations["check_agent_mcp_health_api_v1_agents__agent_id__mcp_health_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/test-run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Test Run Agent */
+        post: operations["test_run_agent_api_v1_agents__agent_id__test_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{agent_id}": {
         parameters: {
             query?: never;
@@ -638,6 +689,76 @@ export interface paths {
         head?: never;
         /** Update Agent Skill */
         patch: operations["update_agent_skill_api_v1_agents__agent_id__skills__skill_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/model-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Model Providers */
+        get: operations["list_model_providers_api_v1_model_providers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/model-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Accounts */
+        get: operations["list_accounts_api_v1_model_accounts_get"];
+        put?: never;
+        /** Create Account */
+        post: operations["create_account_api_v1_model_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/model-accounts/{account_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Account */
+        delete: operations["delete_account_api_v1_model_accounts__account_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Account */
+        patch: operations["update_account_api_v1_model_accounts__account_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/model-accounts/{account_id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Account */
+        post: operations["verify_account_api_v1_model_accounts__account_id__verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/uploads": {
@@ -1130,6 +1251,41 @@ export interface components {
             /** Bindings */
             bindings?: components["schemas"]["AgentAssetBindingOut"][];
         };
+        /** AgentBuilderProfile */
+        AgentBuilderProfile: {
+            /**
+             * Role
+             * @default null
+             */
+            role: string | null;
+            /**
+             * Purpose
+             * @default null
+             */
+            purpose: string | null;
+            /** Goals */
+            goals?: string[];
+            /**
+             * Tone
+             * @default null
+             */
+            tone: string | null;
+            /** Do Not Do */
+            do_not_do?: string[];
+            /**
+             * Clarification Policy
+             * @default balanced
+             * @enum {string}
+             */
+            clarification_policy: "ask_first" | "balanced" | "decide_with_defaults";
+            /**
+             * Output Style
+             * @default null
+             */
+            output_style: string | null;
+            /** Starters */
+            starters?: string[];
+        };
         /** AgentCapabilityProfileItemOut */
         AgentCapabilityProfileItemOut: {
             /** Agent Id */
@@ -1301,6 +1457,37 @@ export interface components {
             /** Page Size */
             page_size: number;
         };
+        /** AgentMCPHealthOut */
+        AgentMCPHealthOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "unavailable";
+            /** Servers */
+            servers?: components["schemas"]["AgentMCPServerHealthOut"][];
+        };
+        /** AgentMCPServerHealthOut */
+        AgentMCPServerHealthOut: {
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "unavailable";
+            /** Tools */
+            tools?: components["schemas"]["AgentMCPToolOut"][];
+            /** Error */
+            error?: string | null;
+        };
+        /** AgentMCPToolOut */
+        AgentMCPToolOut: {
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+        };
         /** AgentOut */
         AgentOut: {
             /** Id */
@@ -1336,6 +1523,43 @@ export interface components {
              */
             created_at: string;
         };
+        /** AgentPermissions */
+        AgentPermissions: {
+            /**
+             * Workspace Read
+             * @default false
+             */
+            workspace_read: boolean;
+            /**
+             * Workspace Write
+             * @default false
+             */
+            workspace_write: boolean;
+            /**
+             * Run Commands
+             * @default never
+             * @enum {string}
+             */
+            run_commands: "never" | "ask" | "auto_low_risk";
+            /**
+             * Network
+             * @default never
+             * @enum {string}
+             */
+            network: "never" | "ask" | "allowlisted";
+            /**
+             * Deploy
+             * @default never
+             * @enum {string}
+             */
+            deploy: "never" | "ask";
+            /**
+             * External Accounts
+             * @default never
+             * @enum {string}
+             */
+            external_accounts: "never" | "ask";
+        };
         /** AgentSkillOut */
         AgentSkillOut: {
             /** Skill Id */
@@ -1366,6 +1590,57 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
+        };
+        /** AgentTemplateListOut */
+        AgentTemplateListOut: {
+            /** Items */
+            items?: components["schemas"]["AgentTemplateOut"][];
+        };
+        /** AgentTemplateOut */
+        AgentTemplateOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Category */
+            category: string;
+            /** Capabilities */
+            capabilities?: string[];
+            builder_profile: components["schemas"]["AgentBuilderProfile"];
+            permissions?: components["schemas"]["AgentPermissions"];
+            /**
+             * Memory Policy
+             * @default conversation
+             * @enum {string}
+             */
+            memory_policy: "none" | "conversation" | "project" | "user";
+            /**
+             * Model Backend
+             * @default deepseek
+             * @enum {string}
+             */
+            model_backend: "claude" | "deepseek" | "openai";
+        };
+        /** AgentTestRunOut */
+        AgentTestRunOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "done" | "error";
+            /** Content */
+            content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[];
+            /** Error */
+            error?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+        };
+        /** AgentTestRunRequest */
+        AgentTestRunRequest: {
+            /** Prompt */
+            prompt: string;
         };
         /** AttachmentBlock */
         AttachmentBlock: {
@@ -1703,6 +1978,22 @@ export interface components {
             /** Agent Ids */
             agent_ids: string[];
         };
+        /** CreateModelAccountRequest */
+        CreateModelAccountRequest: {
+            /** Display Name */
+            display_name: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "deepseek" | "openai" | "anthropic" | "openai_compatible";
+            /** Api Key */
+            api_key: string;
+            /** Model */
+            model: string;
+            /** Base Url */
+            base_url?: string | null;
+        };
         /** DeploymentStatusBlock */
         DeploymentStatusBlock: {
             /**
@@ -2001,6 +2292,99 @@ export interface components {
             /** Queue Position */
             queue_position?: number | null;
             turn_options?: components["schemas"]["TurnOptions"];
+        };
+        /** ModelAccountListOut */
+        ModelAccountListOut: {
+            /** Items */
+            items?: components["schemas"]["ModelAccountOut"][];
+        };
+        /** ModelAccountOut */
+        ModelAccountOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Display Name */
+            display_name: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "deepseek" | "openai" | "anthropic" | "openai_compatible";
+            /**
+             * Protocol
+             * @enum {string}
+             */
+            protocol: "openai_compatible" | "anthropic";
+            /** Model */
+            model: string;
+            /** Base Url */
+            base_url?: string | null;
+            /** Api Key Preview */
+            api_key_preview: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unverified" | "ready" | "unavailable";
+            /** Last Verified At */
+            last_verified_at?: string | null;
+            /** Last Error */
+            last_error?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ModelAccountVerifyOut */
+        ModelAccountVerifyOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unverified" | "ready" | "unavailable";
+            /** Error */
+            error?: string | null;
+            /** Verified At */
+            verified_at?: string | null;
+        };
+        /** ModelProviderListOut */
+        ModelProviderListOut: {
+            /** Items */
+            items?: components["schemas"]["ModelProviderOut"][];
+        };
+        /** ModelProviderOut */
+        ModelProviderOut: {
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "deepseek" | "openai" | "anthropic" | "openai_compatible";
+            /** Company Name */
+            company_name: string;
+            /**
+             * Protocol
+             * @enum {string}
+             */
+            protocol: "openai_compatible" | "anthropic";
+            /** Default Model */
+            default_model: string;
+            /** Models */
+            models?: string[];
+            /**
+             * Requires Base Url
+             * @default false
+             */
+            requires_base_url: boolean;
+            /** Default Base Url */
+            default_base_url?: string | null;
         };
         /** OrchestratorRunDetailOut */
         OrchestratorRunDetailOut: {
@@ -2549,6 +2933,17 @@ export interface components {
         UpdateMessageRequest: {
             /** Is Pinned */
             is_pinned?: boolean | null;
+        };
+        /** UpdateModelAccountRequest */
+        UpdateModelAccountRequest: {
+            /** Display Name */
+            display_name?: string | null;
+            /** Api Key */
+            api_key?: string | null;
+            /** Model */
+            model?: string | null;
+            /** Base Url */
+            base_url?: string | null;
         };
         /** UpdateQueuedMessageRequest */
         UpdateQueuedMessageRequest: {
@@ -3173,6 +3568,334 @@ export interface components {
             created_at: string;
             /** Completed At */
             completed_at?: string | null;
+        };
+        /** AgentModelProfile */
+        AgentModelProfile: {
+            /**
+             * Source
+             * @default agenthub_default
+             * @enum {string}
+             */
+            source: "agenthub_default" | "user_account";
+            /**
+             * Account Id
+             * @default null
+             */
+            account_id: string | null;
+            /**
+             * Provider
+             * @default null
+             */
+            provider: string | null;
+            /**
+             * Model
+             * @default null
+             */
+            model: string | null;
+        };
+        /** AgentConfig */
+        AgentConfig: {
+            /**
+             * Model Backend
+             * @description ModelGateway backend for builtin agents.
+             * @default null
+             */
+            model_backend: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * @description User-facing model selection for builtin custom agents.
+             * @default null
+             */
+            model_profile: components["schemas"]["AgentModelProfile"] | null;
+            /**
+             * Answer Model Backend
+             * @description ModelGateway backend for orchestrator direct answers.
+             * @default null
+             */
+            answer_model_backend: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Planner Model Backend
+             * @description ModelGateway backend for orchestrator LLM planning.
+             * @default null
+             */
+            planner_model_backend: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Llm Planning
+             * @default null
+             */
+            llm_planning: boolean | null;
+            /**
+             * Planner Fallback To Template
+             * @default null
+             */
+            planner_fallback_to_template: boolean | null;
+            /**
+             * Available Agents Authoritative
+             * @default null
+             */
+            available_agents_authoritative: boolean | null;
+            /**
+             * Orchestrator Llm Config
+             * @default null
+             */
+            orchestrator_llm_config: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Max Iterations
+             * @default null
+             */
+            max_iterations: number | null;
+            /**
+             * React Enabled
+             * @default null
+             */
+            react_enabled: boolean | null;
+            /**
+             * React Trace Visible
+             * @default null
+             */
+            react_trace_visible: boolean | null;
+            /**
+             * React Decision Max Tokens
+             * @default null
+             */
+            react_decision_max_tokens: number | null;
+            /**
+             * Mcp Servers
+             * @default null
+             */
+            mcp_servers: {
+                [key: string]: unknown;
+            }[] | null;
+            /**
+             * Allowed Tools
+             * @description Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools.
+             * @default null
+             */
+            allowed_tools: string[] | null;
+            /** @default null */
+            builder_profile: components["schemas"]["AgentBuilderProfile"] | null;
+            /** @default null */
+            permissions: components["schemas"]["AgentPermissions"] | null;
+            /**
+             * Memory Policy
+             * @default null
+             */
+            memory_policy: ("none" | "conversation" | "project" | "user") | null;
+            /**
+             * Command
+             * @default null
+             */
+            command: string | string[] | null;
+            /**
+             * Args
+             * @default null
+             */
+            args: string[] | null;
+            /**
+             * Timeout Seconds
+             * @default null
+             */
+            timeout_seconds: number | null;
+            /**
+             * Max Runtime Seconds
+             * @default null
+             */
+            max_runtime_seconds: number | null;
+            /**
+             * Idle Timeout Seconds
+             * @default null
+             */
+            idle_timeout_seconds: number | null;
+            /**
+             * Heartbeat Interval Seconds
+             * @default null
+             */
+            heartbeat_interval_seconds: number | null;
+            /**
+             * Qa Short Circuit Enabled
+             * @default null
+             */
+            qa_short_circuit_enabled: boolean | null;
+            /**
+             * Qa Model Backend
+             * @description ModelGateway backend for external direct chat.
+             * @default null
+             */
+            qa_model_backend: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Qa Model
+             * @default null
+             */
+            qa_model: string | null;
+            /**
+             * Qa Classifier Model
+             * @default null
+             */
+            qa_classifier_model: string | null;
+            /**
+             * Qa Max Tokens
+             * @default null
+             */
+            qa_max_tokens: number | null;
+            /**
+             * Qa Classifier Max Tokens
+             * @default null
+             */
+            qa_classifier_max_tokens: number | null;
+            /**
+             * Qa Temperature
+             * @default null
+             */
+            qa_temperature: number | null;
+            /**
+             * Qa Request Timeout Seconds
+             * @default null
+             */
+            qa_request_timeout_seconds: number | null;
+            /**
+             * Task Fallback Agent Ids
+             * @default null
+             */
+            task_fallback_agent_ids: string[] | null;
+            /**
+             * Max Task Attempts
+             * @default null
+             */
+            max_task_attempts: number | null;
+            /**
+             * Task Result Context Max Chars
+             * @default null
+             */
+            task_result_context_max_chars: number | null;
+            /**
+             * Task Result Item Max Chars
+             * @default null
+             */
+            task_result_item_max_chars: number | null;
+            /**
+             * Orchestrator Memory Enabled
+             * @default null
+             */
+            orchestrator_memory_enabled: boolean | null;
+            /**
+             * Orchestrator Memory Recent Runs
+             * @default null
+             */
+            orchestrator_memory_recent_runs: number | null;
+            /**
+             * Orchestrator Memory Context Max Chars
+             * @default null
+             */
+            orchestrator_memory_context_max_chars: number | null;
+            /**
+             * Orchestrator Tool Calling Enabled
+             * @default null
+             */
+            orchestrator_tool_calling_enabled: boolean | null;
+            /**
+             * Orchestrator Tool Trace Visible
+             * @default null
+             */
+            orchestrator_tool_trace_visible: boolean | null;
+            /**
+             * Orchestrator Tool Max Iterations
+             * @default null
+             */
+            orchestrator_tool_max_iterations: number | null;
+            /**
+             * Orchestrator Tool Result Max Chars
+             * @default null
+             */
+            orchestrator_tool_result_max_chars: number | null;
+            /**
+             * Orchestrator Tool Read Max Bytes
+             * @default null
+             */
+            orchestrator_tool_read_max_bytes: number | null;
+            /**
+             * Orchestrator Group Messages Enabled
+             * @default null
+             */
+            orchestrator_group_messages_enabled: boolean | null;
+            /**
+             * Orchestrator Process Block Enabled
+             * @default null
+             */
+            orchestrator_process_block_enabled: boolean | null;
+            /**
+             * Orchestrator Response Polish Enabled
+             * @default null
+             */
+            orchestrator_response_polish_enabled: boolean | null;
+            /**
+             * Clarification Gate Enabled
+             * @default null
+             */
+            clarification_gate_enabled: boolean | null;
+            /**
+             * Auto Clarification Max Questions
+             * @default null
+             */
+            auto_clarification_max_questions: number | null;
+            /**
+             * Requirement Alignment Llm Enabled
+             * @default null
+             */
+            requirement_alignment_llm_enabled: boolean | null;
+            /**
+             * Grill Max Questions
+             * @default null
+             */
+            grill_max_questions: number | null;
+            /**
+             * Workspace Docs Enabled
+             * @default null
+             */
+            workspace_docs_enabled: boolean | null;
+            /**
+             * Orchestrator Response Polish Model Backend
+             * @description ModelGateway backend for Orchestrator final response polish.
+             * @default null
+             */
+            orchestrator_response_polish_model_backend: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Orchestrator Response Polish Max Tokens
+             * @default null
+             */
+            orchestrator_response_polish_max_tokens: number | null;
+            /**
+             * Orchestrator Parallel Enabled
+             * @default null
+             */
+            orchestrator_parallel_enabled: boolean | null;
+            /**
+             * Orchestrator Parallel Max Concurrency
+             * @default null
+             */
+            orchestrator_parallel_max_concurrency: number | null;
+            /**
+             * Orchestrator Evaluation Enabled
+             * @default null
+             */
+            orchestrator_evaluation_enabled: boolean | null;
+            /**
+             * Orchestrator Evaluation Read Max Bytes
+             * @default null
+             */
+            orchestrator_evaluation_read_max_bytes: number | null;
+            /**
+             * Orchestrator Test Runner Enabled
+             * @default null
+             */
+            orchestrator_test_runner_enabled: boolean | null;
+            /**
+             * Orchestrator Test Command Allowlist
+             * @default null
+             */
+            orchestrator_test_command_allowlist: string[] | null;
+        } & {
+            [key: string]: unknown;
         };
     };
     responses: never;
@@ -4332,6 +5055,92 @@ export interface operations {
             };
         };
     };
+    list_agent_templates_api_v1_agents_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTemplateListOut"];
+                };
+            };
+        };
+    };
+    check_agent_mcp_health_api_v1_agents__agent_id__mcp_health_check_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentMCPHealthOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_run_agent_api_v1_agents__agent_id__test_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentTestRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTestRunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_agent_api_v1_agents__agent_id__get: {
         parameters: {
             query?: never;
@@ -4713,6 +5522,174 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentSkillOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_model_providers_api_v1_model_providers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelProviderListOut"];
+                };
+            };
+        };
+    };
+    list_accounts_api_v1_model_accounts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelAccountListOut"];
+                };
+            };
+        };
+    };
+    create_account_api_v1_model_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateModelAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelAccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_account_api_v1_model_accounts__account_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_account_api_v1_model_accounts__account_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateModelAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelAccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_account_api_v1_model_accounts__account_id__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelAccountVerifyOut"];
                 };
             };
             /** @description Validation Error */
