@@ -21,6 +21,8 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH,
     DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH,
     DEFAULT_COMMAND_FULFILLMENT_SSE_PATH,
+    DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH,
+    DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
     DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH,
@@ -143,6 +145,10 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "command_fulfillment_cyberpunk_group_deploy": (
             "/tmp/agenthub_command_fulfillment_report.json",
             "/tmp/agenthub_command_fulfillment_sse.jsonl",
+        ),
+        "orchestrator_context_followup_repair": (
+            "/tmp/agenthub_orchestrator_context_followup_report.json",
+            "/tmp/agenthub_orchestrator_context_followup_sse.jsonl",
         ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",
@@ -359,6 +365,19 @@ def test_command_fulfillment_scenario_defaults_and_prompt_are_registered() -> No
     assert spec.prompt == COMMAND_FULFILLMENT_PROMPT
     assert str(spec.default_report_path) == DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH
     assert str(spec.default_sse_path) == DEFAULT_COMMAND_FULFILLMENT_SSE_PATH
+
+
+def test_context_followup_scenario_defaults_and_prompt_are_registered() -> None:
+    assert DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH == (
+        "/tmp/agenthub_orchestrator_context_followup_report.json"
+    )
+    assert DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH == (
+        "/tmp/agenthub_orchestrator_context_followup_sse.jsonl"
+    )
+    spec = SCENARIOS["orchestrator_context_followup_repair"]
+    assert spec.prompt == COMMAND_FULFILLMENT_PROMPT
+    assert str(spec.default_report_path) == DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH
+    assert str(spec.default_sse_path) == DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH
 
 
 def test_command_fulfillment_statuses_preserve_satisfied_evidence() -> None:

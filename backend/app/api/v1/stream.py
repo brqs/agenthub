@@ -764,6 +764,12 @@ async def stream_message(
 
     session = await stream_run_manager.get(message.id)
     if session is not None:
+        # The endpoint initially locks the message row so only one request can
+        # claim a pending stream. When a runtime session already exists, this
+        # request is only an additional subscriber; release the row before
+        # returning the long-lived SSE response so the background runner can
+        # persist the terminal message state.
+        await db.rollback()
         return EventSourceResponse(stream_run_manager.subscribe(session))
 
     if message.status == "streaming":
