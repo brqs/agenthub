@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator._internal.routing.evidence import (
+    ORCHESTRATOR_EVIDENCE_HEADER,
+    evidence_answer_text,
+    is_evidence_followup_request,
+)
 from app.agents.orchestrator._internal.streams import (
     attach_agent_id,
     remap_block_index,
@@ -114,6 +120,8 @@ def should_direct_answer(
     if explicit_agent_mentions(agent_ids, user_request):
         return False
     normalized = strip_orchestrator_mention(user_request).lower()
+    if is_evidence_followup_request(normalized):
+        return True
     if has_task_intent(normalized):
         return False
     if _is_simple_greeting(normalized):
@@ -139,7 +147,18 @@ async def run_direct_answer(
     next_block_index: int,
     *,
     latest_user_request: Callable[[list[ChatMessage]], str],
+    workspace_path: Path | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int, bool]]:
+    evidence_text = await evidence_answer_text(
+        config,
+        latest_user_request(messages),
+        workspace_path,
+    )
+    if evidence_text is not None:
+        for chunk in _text_block(next_block_index, evidence_text):
+            yield chunk, next_block_index + 1, False
+        return
+
     status_text = await _recent_task_status_answer(
         config,
         latest_user_request(messages),
@@ -276,7 +295,9 @@ def _answer_messages(
         message
         for message in messages
         if message.role == "system"
-        and message.content.strip().startswith(ORCHESTRATOR_MEMORY_PREFIX)
+        and message.content.strip().startswith(
+            (ORCHESTRATOR_MEMORY_PREFIX, ORCHESTRATOR_EVIDENCE_HEADER)
+        )
     ]
     return [
         *memory_messages,

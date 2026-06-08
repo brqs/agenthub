@@ -106,7 +106,8 @@ async def run_react_loop(
             if running_chunk is not None:
                 yield running_chunk, next_block_index
             task_config = dict(config)
-            task_config["task_auto_fallback_enabled"] = False
+            if config.get("react_disable_task_auto_fallback") is True:
+                task_config["task_auto_fallback_enabled"] = False
             async for chunk, updated_block_index in run_task(
                 task_config,
                 task,
