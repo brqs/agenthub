@@ -5,16 +5,21 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.config_fields import ORCHESTRATOR_DEFAULTS
 from app.agents.registry import ORCHESTRATOR_AGENT_ID
 from app.models.agent import Agent
+from app.seeds.seed_agents import BUILTIN_AGENTS
 
 ORCHESTRATOR_CONFIG_UPGRADES = {
     "answer_model_backend": ORCHESTRATOR_DEFAULTS["answer_model_backend"],
     "planner_model_backend": ORCHESTRATOR_DEFAULTS["planner_model_backend"],
     "react_trace_visible": ORCHESTRATOR_DEFAULTS["react_trace_visible"],
+    "available_agents_authoritative": ORCHESTRATOR_DEFAULTS[
+        "available_agents_authoritative"
+    ],
     "orchestrator_group_messages_enabled": ORCHESTRATOR_DEFAULTS[
         "orchestrator_group_messages_enabled"
     ],
@@ -22,6 +27,8 @@ ORCHESTRATOR_CONFIG_UPGRADES = {
         "orchestrator_process_block_enabled"
     ],
 }
+ACTIVE_BUILTIN_AGENT_IDS = {agent["id"] for agent in BUILTIN_AGENTS}
+BUILTIN_AGENTS_BY_ID = {agent["id"]: agent for agent in BUILTIN_AGENTS}
 
 
 def upgraded_orchestrator_config(config: object) -> dict[str, Any]:
@@ -29,6 +36,14 @@ def upgraded_orchestrator_config(config: object) -> dict[str, Any]:
 
     base = dict(config) if isinstance(config, Mapping) else {}
     base.update(ORCHESTRATOR_CONFIG_UPGRADES)
+    managed_agent_ids = base.get("managed_agent_ids")
+    if isinstance(managed_agent_ids, list):
+        active_sub_agent_ids = ACTIVE_BUILTIN_AGENT_IDS - {ORCHESTRATOR_AGENT_ID}
+        base["managed_agent_ids"] = [
+            agent_id
+            for agent_id in managed_agent_ids
+            if isinstance(agent_id, str) and agent_id in active_sub_agent_ids
+        ]
     return base
 
 
@@ -43,3 +58,44 @@ async def upgrade_builtin_orchestrator_config(db: AsyncSession) -> bool:
         return False
     agent.config = upgraded
     return True
+
+
+async def reconcile_builtin_agents(db: AsyncSession) -> bool:
+    """Apply current built-in definitions and remove stale built-in rows."""
+
+    changed = False
+    existing_result = await db.execute(select(Agent).where(Agent.is_builtin.is_(True)))
+    for agent in existing_result.scalars():
+        seed = BUILTIN_AGENTS_BY_ID.get(agent.id)
+        if seed is None:
+            await db.delete(agent)
+            changed = True
+            continue
+        config = dict(seed["config"])
+        if agent.id == ORCHESTRATOR_AGENT_ID:
+            config = upgraded_orchestrator_config(config)
+        if (
+            agent.user_id is not None
+            or agent.name != seed["name"]
+            or agent.provider != seed["provider"]
+            or agent.avatar_url != seed["avatar_url"]
+            or agent.capabilities != seed["capabilities"]
+            or agent.system_prompt != seed["system_prompt"]
+            or agent.config != config
+        ):
+            agent.user_id = None
+            agent.name = seed["name"]
+            agent.provider = seed["provider"]
+            agent.avatar_url = seed["avatar_url"]
+            agent.capabilities = seed["capabilities"]
+            agent.system_prompt = seed["system_prompt"]
+            agent.config = config
+            changed = True
+
+    for seed in BUILTIN_AGENTS:
+        exists = await db.get(Agent, seed["id"])
+        if exists is not None:
+            continue
+        db.add(Agent(is_builtin=True, **seed))
+        changed = True
+    return changed

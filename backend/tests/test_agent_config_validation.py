@@ -338,6 +338,16 @@ class TestNumericValidation:
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "llm_planning" in exc_info.value.message
 
+    def test_invalid_available_agents_authoritative_bool_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"available_agents_authoritative": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "available_agents_authoritative" in exc_info.value.message
+
     def test_invalid_planner_model_backend_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
@@ -675,6 +685,7 @@ class TestBuiltinAgents:
             assert config[key] == value
         assert config["llm_planning"] is True
         assert config["react_trace_visible"] is False
+        assert config["available_agents_authoritative"] is False
         assert config["orchestrator_response_polish_enabled"] is True
 
     def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:

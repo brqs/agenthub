@@ -195,8 +195,11 @@ def _has_platform_preview_tool_call(blocks: list[dict[str, Any]] | None) -> bool
     if not blocks:
         return False
     return any(
-        block.get("type") == "tool_call"
-        and block.get("tool_name") == "start_workspace_preview"
+        (
+            block.get("type") == "tool_call"
+            and block.get("tool_name") == "start_workspace_preview"
+        )
+        or block.get("type") in {"web_preview", "deployment_status"}
         for block in blocks
     )
 

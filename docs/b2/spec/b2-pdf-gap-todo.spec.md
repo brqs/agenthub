@@ -796,18 +796,82 @@ local_health: {"status":"ok"}
 public_health: {"status":"ok"}
 
 scenario: agent_fallback_matrix
-base_url: http://111.229.151.159:8000
-report: /tmp/agenthub_agent_fallback_matrix_report.json
-sse: /tmp/agenthub_agent_fallback_matrix_sse.jsonl
+base_url: http://127.0.0.1:8000
+report: /tmp/agenthub_agent_fallback_matrix_taskcard_report.json
+sse: /tmp/agenthub_agent_fallback_matrix_taskcard_sse.jsonl
 passed: true
 ```
 
 Matrix case 结果：
 
-| Case | Switch | Child messages | Artifact | Result |
-|---|---|---|---|---|
-| `agent_fallback_codex_unavailable` | `codex-helper -> writer` | `codex-helper=error`, `writer=done` | `fallback-codex.md` | passed |
-| `agent_fallback_claude_unavailable` | `claude-code -> writer` | `claude-code=error`, `writer=done` | `fallback-claude.md` | passed |
-| `agent_fallback_opencode_unavailable` | `opencode-helper -> writer` | `opencode-helper=error`, `writer=done` | `fallback-opencode.md` | passed |
+| Case | planned_agent_id | final_agent_id / task_card.agent_id | Child messages | Artifact | Result |
+|---|---|---|---|---|---|
+| `agent_fallback_claude_unavailable` | `claude-code` | `opencode-helper` | `claude-code=error`, `opencode-helper=done` | `fallback-claude.md` | passed |
+| `agent_fallback_opencode_unavailable` | `opencode-helper` | `claude-code` | `opencode-helper=error`, `claude-code=done` | `fallback-opencode.md` | passed |
+| `agent_fallback_codex_unavailable` | `codex-helper` | `claude-code` | `codex-helper=error`, `claude-code=done` | `fallback-codex.md` | passed |
 
-该 matrix 是通用 fallback 验收，不为前端质量演示创建模板，不验收前端 UI。
+该 matrix 是通用 fallback 与 task card 展示语义验收，不为前端质量演示创建模板，不验收前端 UI。
+
+## 11. 2026-06-07 Command Fulfillment Repair Loop 进展
+
+本轮新增 Orchestrator 显式命令履约 backend MVP，避免“planner task graph 跑完”被误判为“用户整条命令完成”：
+
+- 新增 [orchestrator/command-fulfillment.spec.md](orchestrator/command-fulfillment.spec.md)。
+- Orchestrator run-local context deterministic 提取文档、代码产物、多智能体、审阅、预览、浏览器验收、部署、Diff、源码打包等 fulfillment items。
+- `command_fulfillment_status` run detail event 记录 planned / tasks_finished / tool_result 阶段状态；不新增 migration 或 ContentBlock 类型。
+- Planning 层补齐中文多 Agent 触发词和 review 避免自审；显式要求两个/多个智能体时，如果 planner 全派给同一 Agent，后端会重平衡 implementation tasks。
+- Quality gate 将“网站/站点”纳入前端意图；部署请求的完整平台闭环为 `start_workspace_preview -> verify_web_preview -> create_deployment`，preview 不等于部署。
+- Response presentation 读取 fulfillment 状态；存在 pending/failed/skipped item 时，最终可见 summary 不能误报“全部完成/已部署”。
+- Live E2E 脚本新增 `command_fulfillment_cyberpunk_group_deploy`，默认证据路径：
+  - `/tmp/agenthub_command_fulfillment_report.json`
+  - `/tmp/agenthub_command_fulfillment_sse.jsonl`
+  - `/tmp/agenthub_command_fulfillment_browser.json`
+
+当前本地门禁：
+
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_orchestrator_quality_gate.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_live_e2e_script.py -q
+# 209 passed
+```
+
+静态检查：
+
+```text
+uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts
+# passed
+uv run python -m mypy app/agents app/api/v1 app/schemas
+# passed
+cd ../frontend && pnpm test -- --run src/stores/chatStore.test.ts src/components/blocks/TaskCardBlock.test.tsx
+# passed; 当前仓库只匹配到 chatStore.test.ts
+pnpm exec tsc --noEmit
+# passed
+git diff --check
+# passed
+```
+
+公网 E2E 已通过：
+
+```text
+scenario: command_fulfillment_cyberpunk_group_deploy
+base_url: http://111.229.151.159:8000
+conversation_id: 25ff9e75-7776-46b2-8549-babb78555177
+report: /tmp/agenthub_command_fulfillment_report.json
+sse: /tmp/agenthub_command_fulfillment_sse.jsonl
+browser_report: /tmp/agenthub_command_fulfillment_browser.json
+passed: true
+workspace: planning.md, design-doc.md, index.html, styles.css, app.js, diff.md, review.md
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/vw1Obog5VUQ1cY4lCNzBaevfgnDc1Epy/index.html
+```
+
+本轮 repair loop 额外修复：
+
+- LLM polish 输出如果建议用户手动运行本地长服务命令（如 `python -m http.server`、`npm run dev`），会被视为不安全并回退 deterministic summary。
+- `review` fulfillment 不再仅因 plan 存在 independent review task 就标记 satisfied；必须有成功 review attempt 与 review artifact。
+- 当独立 review Agent 真实失败或不可用、且前置任务留下可审阅产物时，Orchestrator 生成 coordinator-level `review.md` 作为兜底审阅证据，不让实现 Agent 自审。

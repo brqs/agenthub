@@ -40,6 +40,7 @@ class AgentConfig(BaseModel):
     )
     llm_planning: bool | None = None
     planner_fallback_to_template: bool | None = None
+    available_agents_authoritative: bool | None = None
     orchestrator_llm_config: dict[str, Any] | None = None
     max_iterations: int | None = Field(
         default=None,

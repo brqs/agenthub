@@ -1964,3 +1964,73 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 
 ### 经验
 fallback 体验的关键不是“失败后能不能补救”，而是先判断哪些失败根本不该发生在用户面前。已知不可用应执行前改派；运行中才发现的硬失败才保留一条清洗后的子消息证据；业务产物缺失则不能误伤整个 runtime。
+
+## 2026-06-07 — Codex 同步内置 Agent 收敛、planning profile 与 fallback task card 文档
+
+### 任务
+检查前文关于内置 Agent、planner profile、SDK/CLI runtime、Orchestrator fallback task card 和真实 E2E 的代码改动是否需要同步到 docs，并补齐过期内容。
+
+### 关键 Prompt
+> 请你查看docs是否需要更新前文全部修改
+
+### AI 输出摘要
+1. 更新 B2 runtime 文档：Claude Code 默认 `runtime=sdk`，可显式 `runtime=cli`；Codex 默认 CLI 并支持 `config.command`；OpenCode 仍为 CLI runtime。
+2. 更新 Orchestrator core spec：当前内置白名单收敛为 `orchestrator`、`claude-code`、`codex-helper`、`opencode-helper`；旧 `writer/web-designer/deepseek-assistant/browser-validator` 只作为历史记录存在，不再是当前内置 Agent。
+3. 更新 planner spec：planner 可见 `planning_profile`、`planning_strengths`、`planning_weaknesses`、`preferred_task_types`；内置 profile 只对内置 Agent 生效，自建 Agent 只使用自身配置或 capabilities/system prompt summary。
+4. 更新 Orchestrator message attribution / frontend rendering spec：task card fallback 使用 `planned_agent_id` 记录原计划 Agent，用 `agent_id/current_agent_id/final_agent_id` 表达当前与最终执行 Agent，避免 UI 误导用户。
+5. 更新 API 人类可读文档：移除 `web-designer` 默认 managed agent 示例，补充 `runtime`、`sandbox_mode`、external runtime `command` 字段语义。
+6. 更新 live E2E report：当前 `agent_fallback_matrix` task card E2E 已通过，报告路径为 `/tmp/agenthub_agent_fallback_matrix_taskcard_report.json`，SSE 为 `/tmp/agenthub_agent_fallback_matrix_taskcard_sse.jsonl`。
+
+### 当前 E2E 证据
+
+```text
+agent_fallback_claude_unavailable: planned=claude-code, final=opencode-helper, passed=true
+agent_fallback_opencode_unavailable: planned=opencode-helper, final=claude-code, passed=true
+agent_fallback_codex_unavailable: planned=codex-helper, final=claude-code, passed=true
+```
+
+### 经验
+历史协作日志可以保留旧证据，但当前契约文档必须明确“现在系统认什么为真”。这次关键是把 writer 时代的 fallback 证据和当前三内置 Agent 矩阵区分开，避免后续开发者继续以为 writer/web-designer 还是当前内置调度目标。
+
+## 2026-06-07 — Codex 完成 Orchestrator 命令完整履约 repair loop
+
+### 任务
+执行“Orchestrator 命令完整履约 + 文档补齐修复计划”：让 Orchestrator 按用户显式命令逐项履约，而不是只跑完 planner task graph；修复多智能体分工、review 避免自审、平台 preview / browser verify / deployment 闭环和最终 summary 不误报。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: Orchestrator 命令完整履约 + 文档补齐修复计划
+
+### AI 输出摘要
+1. 新增 `command_fulfillment` backend MVP：从用户请求 deterministic 提取文档、代码产物、多智能体、审阅、预览、浏览器验收、部署、Diff、源码打包等要求，写入 `command_fulfillment_status` run detail event。
+2. Planning 层扩展中文多智能体触发词；显式要求两个/多个智能体但 planner 只给一个实现 Agent 时，后端会重平衡 implementation tasks；review task 会避开被 review 的实现 Agent。
+3. Quality gate 补齐命令履约语义：部署请求必须走 `start_workspace_preview -> verify_web_preview -> create_deployment`，preview URL 不等于部署完成。
+4. Response presentation 读取 fulfillment 状态；存在 pending/failed/skipped item 时，最终可见 summary 不能误报“全部完成/已部署”。
+5. 修复 LLM polish 安全过滤：润色输出如果建议用户手动运行本地长服务命令（如 `python -m http.server`、`npm run dev`），会被判为不安全并回退 deterministic summary。
+6. 修复 review fulfillment 误标：不再因 plan 中存在独立 review task 就标记 satisfied；必须有成功 review attempt 和 review artifact。
+7. 新增 Orchestrator coordination review fallback：独立 review Agent 全部失败或不可用、且前置任务留下可审阅产物时，Orchestrator 生成 `review.md`，并在 run detail 标记 `fallback="orchestrator_review"`；实现 Agent 仍不会自审。
+8. Live E2E 脚本新增 `command_fulfillment_cyberpunk_group_deploy`，覆盖文档、代码、Diff、多 Agent、review、8082 preview、browser verify 和 deployment。
+9. 本地门禁通过：
+   - `AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest tests/test_orchestrator.py tests/test_orchestrator_planning.py tests/test_orchestrator_quality_gate.py tests/test_orchestrator_response_presentation.py tests/test_stream_content_blocks.py tests/test_orchestrator_live_e2e_script.py -q`
+   - `209 passed`
+   - `uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts` passed
+   - `uv run python -m mypy app/agents app/api/v1 app/schemas` passed
+   - `pnpm test -- --run src/stores/chatStore.test.ts src/components/blocks/TaskCardBlock.test.tsx` passed（当前仓库只匹配到 `chatStore.test.ts`）
+   - `pnpm exec tsc --noEmit` passed
+   - `git diff --check` passed
+10. 后端运行代码已同步：旧 PID `3388409`，当前 uvicorn PID `3398114`；本轮最新改动不需要 seed；`alembic current = 7e8f9012abcd`；本机与公网 `/health` 均为 `{"status":"ok"}`。
+11. 公网 `command_fulfillment_cyberpunk_group_deploy` repair loop 最终通过：
+    - conversation: `25ff9e75-7776-46b2-8549-babb78555177`
+    - report: `/tmp/agenthub_command_fulfillment_report.json`
+    - SSE: `/tmp/agenthub_command_fulfillment_sse.jsonl`
+    - browser: `/tmp/agenthub_command_fulfillment_browser.json`
+    - `passed=true`
+    - workspace: `planning.md`、`design-doc.md`、`index.html`、`styles.css`、`app.js`、`diff.md`、`review.md`
+    - preview: `http://111.229.151.159:8082/index.html`
+    - static release: `http://111.229.151.159:8000/releases/vw1Obog5VUQ1cY4lCNzBaevfgnDc1Epy/index.html`
+12. 文档已更新：`docs/b2/spec/orchestrator/command-fulfillment.spec.md`、`live-e2e-report.spec.md`、`README.md`、`docs/b2/spec/b2-pdf-gap-todo.spec.md` 和本协作日志。
+
+### 人工调整
+本轮最新修复只改后端、E2E 脚本、测试和文档；未改数据库 migration，未改 OpenAPI，未改前端视觉。`planner_used_llm=false` 在该 scenario 中保留为诊断项，但不作为 hard acceptance，因为显式 command contract 允许 LLM planner 失败后进入通用 command fallback。
+
+### 经验
+“完整执行用户命令”不能等同于“任务图终止”。显式命令需要有独立 fulfillment 状态，平台动作需要以 tool 证据为准，review 需要产物证据；当外部 Agent 失败时，Orchestrator 可以协调兜底，但不能把失败包装成已完成。

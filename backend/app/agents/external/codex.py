@@ -6,6 +6,7 @@ import importlib
 import inspect
 import json
 import logging
+import os
 import shutil
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
@@ -13,7 +14,7 @@ from typing import Any, Literal, cast
 from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
-from app.agents.external.cli_runtime import CliCompleted, stream_cli_text
+from app.agents.external.cli_runtime import CliCompleted, resolve_command, stream_cli_text
 from app.agents.external.direct_chat import maybe_stream_direct_chat
 from app.agents.external.runtime_budget import (
     CODEX_IDLE_TIMEOUT_SECONDS,
@@ -26,6 +27,7 @@ from app.agents.external.runtime_prelude import (
     text_result_chunks,
 )
 from app.agents.external.runtime_utils import (
+    argv,
     classify_external_exception,
     external_error_chunk,
     safe_exception_message,
@@ -44,6 +46,7 @@ from app.agents.runtime_guard import (
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "agents"
+DEFAULT_COMMAND = "codex"
 DEFAULT_MODEL = "gpt-4.1"
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
 DEFAULT_RUNTIME_ERROR_MAX_CHARS = 4000
@@ -53,7 +56,8 @@ SUPPORTED_RUNTIMES = {"cli", "sdk"}
 SUPPORTED_CLI_SANDBOX_MODES = {"read-only", "workspace-write", "danger-full-access"}
 CODEX_CLI_MISSING_ERROR = (
     "Codex CLI command 'codex' was not found in backend container PATH. "
-    "Install Codex in the backend image or configure this agent to use an available runtime."
+    "Install Codex in the backend image or update codex-helper config.command "
+    "to an executable command."
 )
 TEXT_EVENT_NAMES = {
     "text_delta",
@@ -89,7 +93,10 @@ def codex_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str
     runtime = str((config or {}).get("runtime") or DEFAULT_RUNTIME).strip().lower()
     if runtime not in SUPPORTED_RUNTIMES:
         return "invalid", "Codex runtime must be one of: cli, sdk"
-    cli_available = shutil.which("codex") is not None
+    command = argv((config or {}).get("command", DEFAULT_COMMAND))
+    if not command:
+        return "invalid", "Codex command is empty"
+    cli_available = _command_available(command)
     if runtime == "cli":
         return ("ready", None) if cli_available else ("unavailable", CODEX_CLI_MISSING_ERROR)
     try:
@@ -103,6 +110,20 @@ def codex_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str
             return "ready", None
         return "unavailable", str(exc) or exc.__class__.__name__
     return "ready", None
+
+
+def _command_available(command: list[str]) -> bool:
+    resolved = resolve_command(command)
+    executable = resolved[0]
+    if executable != command[0]:
+        return True
+    if _looks_like_path(executable):
+        return Path(executable).exists()
+    return shutil.which(executable, path=os.environ.get("PATH")) is not None
+
+
+def _looks_like_path(value: str) -> bool:
+    return "/" in value or "\\" in value or value.startswith(".")
 
 
 class CodexAdapter(BaseAgentAdapter):
@@ -231,8 +252,12 @@ class CodexAdapter(BaseAgentAdapter):
         budget_config: RuntimeBudgetConfig,
     ) -> AsyncIterator[StreamChunk]:
         output_path = workspace_path / f".agenthub_codex_{uuid4().hex}.txt"
+        command = argv(config.get("command", DEFAULT_COMMAND))
+        if not command:
+            yield self._error("external_runtime_error", "Codex command is empty")
+            return
         command = [
-            "codex",
+            *resolve_command(command),
             "--ask-for-approval",
             "never",
             "exec",

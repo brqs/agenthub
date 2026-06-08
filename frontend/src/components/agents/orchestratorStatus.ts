@@ -52,7 +52,7 @@ export function getOrchestratorSnapshot(
   const runningTask = taskCard?.tasks.find((task) => task.status === 'running') ?? null;
   const doneTasks = taskCard?.tasks.filter((task) => task.status === 'done').length ?? 0;
   const totalTasks = taskCard?.tasks.length ?? 0;
-  const activeAgentId = runningTask?.agent_id ?? agentSwitch?.to_agent ?? 'orchestrator';
+  const activeAgentId = runningTask ? taskAgentId(runningTask) : (agentSwitch?.to_agent ?? 'orchestrator');
   const fromAgent = agents.find((item) => item.id === agentSwitch?.from_agent);
   const toAgent = agents.find((item) => item.id === agentSwitch?.to_agent);
   const allDone = totalTasks > 0 && doneTasks === totalTasks;
@@ -69,4 +69,8 @@ export function getOrchestratorSnapshot(
     doneTasks,
     runningTaskTitle: runningTask?.title ?? null,
   };
+}
+
+function taskAgentId(task: TaskCardBlock['tasks'][number]): string {
+  return task.final_agent_id ?? task.current_agent_id ?? task.agent_id;
 }

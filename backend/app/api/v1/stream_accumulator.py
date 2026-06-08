@@ -182,14 +182,17 @@ class StreamContentAccumulator:
                 for raw_task in meta.get("tasks", []):
                     if not isinstance(raw_task, dict):
                         continue
-                    tasks.append(
-                        {
-                            "id": str(raw_task.get("id") or ""),
-                            "agent_id": str(raw_task.get("agent_id") or ""),
-                            "title": str(raw_task.get("title") or ""),
-                            "status": _task_status(raw_task.get("status")),
-                        }
-                    )
+                    task = {
+                        "id": str(raw_task.get("id") or ""),
+                        "agent_id": str(raw_task.get("agent_id") or ""),
+                        "title": str(raw_task.get("title") or ""),
+                        "status": _task_status(raw_task.get("status")),
+                    }
+                    for key in ("planned_agent_id", "current_agent_id", "final_agent_id"):
+                        value = raw_task.get(key)
+                        if isinstance(value, str) and value:
+                            task[key] = value
+                    tasks.append(task)
                 self.current["tasks"] = tasks
             elif chunk.block_type == "process":
                 meta = chunk.metadata or {}
@@ -291,17 +294,17 @@ class StreamContentAccumulator:
             tasks = block.get("tasks")
             if not isinstance(tasks, list):
                 continue
+            target_task = _task_for_agent_switch(tasks, chunk)
             for task in tasks:
                 if not isinstance(task, dict):
                     continue
+                if task is target_task:
+                    _set_task_current_agent(task, chunk.to_agent)
+                    task["status"] = "running"
+                    continue
                 if task.get("status") == "running":
                     task["status"] = "done"
-                if (
-                    task.get("status") == "pending"
-                    and task.get("agent_id") == chunk.to_agent
-                    and (not chunk.task or task.get("title") == chunk.task)
-                ):
-                    task["status"] = "running"
+                    _set_task_final_agent(task)
 
     def finalize_orphaned_tools(self) -> bool:
         self._finalize_current()
@@ -326,6 +329,7 @@ class StreamContentAccumulator:
             for task in tasks:
                 if isinstance(task, dict) and task.get("status") == "running":
                     task["status"] = terminal_status
+                    _set_task_final_agent(task)
 
     def finalize_interrupted(self) -> None:
         self._finalize_current()
@@ -355,6 +359,51 @@ class StreamContentAccumulator:
     def to_list(self) -> list[dict[str, Any]]:
         self._finalize_current()
         return self.blocks
+
+
+def _task_for_agent_switch(
+    tasks: list[Any],
+    chunk: StreamChunk,
+) -> dict[str, Any] | None:
+    task_title = chunk.task.strip() if isinstance(chunk.task, str) else ""
+    if task_title:
+        for task in tasks:
+            if (
+                isinstance(task, dict)
+                and task.get("title") == task_title
+                and task.get("status") in {"pending", "running"}
+            ):
+                return task
+        return None
+    for task in tasks:
+        if (
+            isinstance(task, dict)
+            and task.get("status") == "pending"
+            and task.get("agent_id") == chunk.to_agent
+        ):
+            return task
+    return None
+
+
+def _set_task_current_agent(task: dict[str, Any], agent_id: str | None) -> None:
+    if not agent_id:
+        return
+    if task.get("agent_id") == agent_id and "current_agent_id" not in task:
+        return
+    task.setdefault("planned_agent_id", task.get("agent_id") or agent_id)
+    task["agent_id"] = agent_id
+    task["current_agent_id"] = agent_id
+    task.pop("final_agent_id", None)
+
+
+def _set_task_final_agent(task: dict[str, Any]) -> None:
+    if "current_agent_id" not in task:
+        return
+    agent_id = task.get("current_agent_id") or task.get("agent_id")
+    if isinstance(agent_id, str) and agent_id:
+        task["agent_id"] = agent_id
+        task["final_agent_id"] = agent_id
+    task.pop("current_agent_id", None)
 
 
 def _preview_text(

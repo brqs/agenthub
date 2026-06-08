@@ -76,6 +76,15 @@ ARTIFACT_TASK_MARKERS = (
     "产物",
 )
 MULTI_AGENT_DISTRIBUTION_MARKERS = (
+    "至少两个智能体",
+    "两个智能体",
+    "多个智能体",
+    "多智能体",
+    "双智能体",
+    "交由两个智能体",
+    "并行开发",
+    "并行执行",
+    "分工协作",
     "至少两个可用 agent",
     "至少两个 agent",
     "两个可用 agent",
@@ -92,10 +101,50 @@ MULTI_AGENT_DISTRIBUTION_MARKERS = (
     "自己的独立消息",
 )
 PREFERRED_MULTI_AGENT_ORDER = (
-    "codex-helper",
     "claude-code",
     "opencode-helper",
-    "web-designer",
+    "codex-helper",
+)
+PLANNING_OR_REVIEW_TASK_MARKERS = (
+    "architecture",
+    "architect",
+    "plan",
+    "planning",
+    "strategy",
+    "document",
+    "review",
+    "audit",
+    "验收",
+    "审阅",
+    "审核",
+    "评审",
+    "规划",
+    "方案",
+    "设计文档",
+    "文档",
+)
+IMPLEMENTATION_TASK_MARKERS = (
+    "implement",
+    "implementation",
+    "build",
+    "code",
+    "frontend",
+    "page",
+    "html",
+    "css",
+    "javascript",
+    "app.js",
+    "index.html",
+    "styles.css",
+    "实现",
+    "开发",
+    "代码",
+    "前端",
+    "页面",
+    "网页",
+    "交互",
+    "样式",
+    "适配",
 )
 
 
@@ -129,10 +178,20 @@ async def resolve_tasks(
             try:
                 return await _plan_tasks_with_model(config, messages, system_prompt)
             except ValueError as exc:
-                if planner_fallback_to_template(config):
-                    return _derive_tasks(config, messages)
+                if planner_fallback_to_template(
+                    config
+                ) or should_fallback_to_template_after_planner_failure(user_request):
+                    tasks = _derive_tasks(config, messages)
+                    tasks = balance_requested_multi_agent_plan(
+                        tasks,
+                        config,
+                        user_request,
+                    )
+                    return _preserve_explicit_requirements(tasks, user_request)
                 raise PlannerResolutionError(str(exc)) from exc
-        return _derive_tasks(config, messages)
+        tasks = _derive_tasks(config, messages)
+        tasks = balance_requested_multi_agent_plan(tasks, config, user_request)
+        return _preserve_explicit_requirements(tasks, user_request)
 
     return _parse_task_list(raw_tasks)
 
@@ -157,6 +216,35 @@ def _is_planner_protocol_error(exc: ValueError) -> bool:
 
 def planner_fallback_to_template(config: Mapping[str, Any]) -> bool:
     return config.get("planner_fallback_to_template") is True
+
+
+def should_fallback_to_template_after_planner_failure(user_request: str) -> bool:
+    normalized = user_request.lower()
+    explicit_markers = (
+        *MULTI_AGENT_DISTRIBUTION_MARKERS,
+        "代码产物",
+        "产物",
+        "文档",
+        "方案",
+        "设计文档",
+        "document",
+        "diff",
+        "部署",
+        "发布",
+        "上线",
+        "deploy",
+        "预览",
+        "端口",
+        "preview",
+        "port",
+        "浏览器",
+        "质量验收",
+        "移动端",
+        "按钮",
+        "交互",
+        "review",
+    )
+    return any(marker in normalized for marker in explicit_markers)
 
 
 def _parse_task_list(raw_tasks: object) -> list[SubTask]:
@@ -239,18 +327,29 @@ def balance_requested_multi_agent_plan(
     user_request: str,
     allowed_agent_ids: set[str] | None = None,
 ) -> list[SubTask]:
-    if len(tasks) < 2 or not _explicit_multi_agent_distribution_requested(user_request):
+    if len(tasks) < 2:
         return tasks
     allowed_agent_ids = allowed_agent_ids or _allowed_agent_ids_from_config(config)
-    if len({task.agent_id for task in tasks}) > 1:
-        return tasks
     ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
+    tasks = _avoid_self_review_tasks(tasks, ordered_agents)
+    if not _explicit_multi_agent_distribution_requested(user_request):
+        return tasks
     if len(ordered_agents) < 2:
         return tasks
 
     implementation_indices = [
-        index for index, task in enumerate(tasks) if task.task_type == "implementation"
+        index for index, task in enumerate(tasks) if _is_parallel_implementation_task(task)
     ]
+    if len(implementation_indices) == 1:
+        split_tasks = _split_single_parallel_implementation_task(
+            tasks,
+            implementation_indices[0],
+            ordered_agents,
+        )
+        if split_tasks is not tasks:
+            return _avoid_self_review_tasks(split_tasks, ordered_agents)
+    if len({task.agent_id for task in tasks if task.agent_id != "orchestrator"}) > 1:
+        return tasks
     if len(implementation_indices) < 2:
         return tasks
 
@@ -261,7 +360,108 @@ def balance_requested_multi_agent_plan(
             task,
             agent_id=ordered_agents[offset % len(ordered_agents)],
         )
-    return redistributed
+    return _avoid_self_review_tasks(redistributed, ordered_agents)
+
+
+def _is_parallel_implementation_task(task: SubTask) -> bool:
+    if task.task_type != "implementation":
+        return False
+    text = f"{task.title}\n{task.instruction}".lower()
+    if any(marker in text for marker in IMPLEMENTATION_TASK_MARKERS):
+        return True
+    return not any(marker in text for marker in PLANNING_OR_REVIEW_TASK_MARKERS)
+
+
+def _split_single_parallel_implementation_task(
+    tasks: list[SubTask],
+    task_index: int,
+    ordered_agents: list[str],
+) -> list[SubTask]:
+    implementation_agents = [
+        agent_id
+        for agent_id in ordered_agents
+        if agent_id in {"claude-code", "opencode-helper"}
+    ]
+    if len(implementation_agents) < 2:
+        return tasks
+
+    task = tasks[task_index]
+    first_agent, second_agent = implementation_agents[:2]
+    second_task_id = _unique_task_id(tasks, f"{task.task_id}-parallel-2")
+    first = replace(
+        task,
+        agent_id=first_agent,
+        title=f"{task.title} - primary implementation",
+        instruction=(
+            f"{task.instruction}\n\n"
+            "Parallel implementation split: take the primary implementation slice. "
+            "Create or update the main workspace artifacts needed by this task. "
+            "Do not contact other agents; coordinate only through files and the "
+            "Orchestrator handoff."
+        ),
+    )
+    second = replace(
+        task,
+        task_id=second_task_id,
+        agent_id=second_agent,
+        title=f"{task.title} - parallel implementation",
+        instruction=(
+            f"{task.instruction}\n\n"
+            "Parallel implementation split: take a complementary implementation, "
+            "polish, responsive behavior, interaction, or verification slice. "
+            "Do not contact other agents; coordinate only through files and the "
+            "Orchestrator handoff."
+        ),
+        depends_on=task.depends_on,
+        priority=task.priority + 1,
+    )
+    updated: list[SubTask] = []
+    for index, current in enumerate(tasks):
+        if index == task_index:
+            updated.extend([first, second])
+            continue
+        depends_on = current.depends_on
+        if task.task_id in depends_on and second_task_id not in depends_on:
+            depends_on = (*depends_on, second_task_id)
+        updated.append(replace(current, depends_on=depends_on))
+    return updated
+
+
+def _unique_task_id(tasks: list[SubTask], desired: str) -> str:
+    existing = {task.task_id for task in tasks}
+    if desired not in existing:
+        return desired
+    index = 2
+    while f"{desired}-{index}" in existing:
+        index += 1
+    return f"{desired}-{index}"
+
+
+def _avoid_self_review_tasks(
+    tasks: list[SubTask],
+    ordered_agents: list[str],
+) -> list[SubTask]:
+    if not ordered_agents:
+        return tasks
+    by_id = {task.task_id: task for task in tasks}
+    updated = list(tasks)
+    for index, task in enumerate(updated):
+        if task.task_type != "review":
+            continue
+        reviewed_ids = task.review_of or task.depends_on
+        reviewed_agents = {
+            by_id[task_id].agent_id for task_id in reviewed_ids if task_id in by_id
+        }
+        if not reviewed_agents or task.agent_id not in reviewed_agents:
+            continue
+        replacement = next(
+            (agent_id for agent_id in ordered_agents if agent_id not in reviewed_agents),
+            None,
+        )
+        if replacement is None:
+            continue
+        updated[index] = replace(task, agent_id=replacement)
+    return updated
 
 
 def _explicit_multi_agent_distribution_requested(user_request: str) -> bool:

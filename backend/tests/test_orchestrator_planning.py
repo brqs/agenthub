@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    initialize_fulfillment,
+)
 from app.agents.orchestrator._internal.planning.routing import (
     is_artifact_build_request,
 )
+from app.agents.orchestrator._internal.planning.templates.legacy import derive_tasks
 from app.agents.orchestrator._internal.routing.direct_answer import _answer_messages
 from app.agents.orchestrator.planner import PLANNER_SYSTEM_PROMPT
 from app.agents.orchestrator.task_planning import has_task_intent
+from app.agents.orchestrator.types import OrchestratorRunContext
 from app.agents.types import ChatMessage, StreamChunk
 from tests.orchestrator_fakes import (
     FakeAnswerGateway,
     FakePlannerGateway,
     FakeSubAdapter,
+    FakeWorkspaceWriterAdapter,
     _task,
     _text_chunks,
 )
@@ -33,6 +39,40 @@ async def _collect(adapter, config=None, messages=None, workspace_path=None):
     )
 
 
+class FakeMultiFileWriterAdapter(FakeSubAdapter):
+    def __init__(
+        self,
+        agent_id: str,
+        chunks: list[StreamChunk],
+        files: dict[str, str],
+    ) -> None:
+        super().__init__(agent_id, chunks)
+        self.files = files
+
+    async def stream(
+        self,
+        messages,
+        *,
+        system_prompt=None,
+        config=None,
+        workspace_path=None,
+        tool_specs=None,
+    ):
+        if workspace_path is not None:
+            for relative_path, content in self.files.items():
+                target = workspace_path / relative_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+        async for chunk in super().stream(
+            messages,
+            system_prompt=system_prompt,
+            config=config,
+            workspace_path=workspace_path,
+            tool_specs=tool_specs,
+        ):
+            yield chunk
+
+
 def test_planner_prompt_references_agent_capability_profile_rule() -> None:
     assert "capability profile" in PLANNER_SYSTEM_PROMPT
     assert "user-scope v2 capability profile" in PLANNER_SYSTEM_PROMPT
@@ -44,6 +84,39 @@ def test_planner_prompt_references_agent_capability_profile_rule() -> None:
     assert "override historical" in PLANNER_SYSTEM_PROMPT
     assert "Do not probe a" in PLANNER_SYSTEM_PROMPT
     assert "outside the available agents list" in PLANNER_SYSTEM_PROMPT
+    assert "should not" in PLANNER_SYSTEM_PROMPT
+    assert "profile, strengths, weaknesses" in PLANNER_SYSTEM_PROMPT
+    assert "split implementation work across distinct implementation-capable agents" in (
+        PLANNER_SYSTEM_PROMPT
+    )
+
+
+def test_generic_template_review_task_is_independent_review() -> None:
+    tasks = derive_tasks(
+        {"managed_agent_ids": ["codex-helper", "claude-code", "opencode-helper"]},
+        [
+            ChatMessage(
+                role="user",
+                content=(
+                    "我要做一个网站，先生成一份文档，包含代码产物、Diff，"
+                    "最后进行审阅。"
+                ),
+            )
+        ],
+    )
+
+    assert tasks[1].expected_output.endswith("diff.md")
+    assert tasks[2].task_type == "review"
+    assert tasks[2].depends_on == ("auto-1", "auto-2")
+    assert tasks[2].review_of == ("auto-1", "auto-2")
+
+
+def test_command_fulfillment_extracts_diff_in_chinese_sentence() -> None:
+    context = OrchestratorRunContext()
+
+    initialize_fulfillment(context, "请生成代码产物、Diff、审阅并部署。")
+
+    assert any(item["id"] == "diff" for item in context.fulfillment_items)
 
 
 async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -> None:
@@ -166,6 +239,72 @@ async def test_orchestrator_planner_cannot_select_agent_outside_available_agents
     assert chunks[-1].event_type == "error"
     assert "unknown agent_id 'web-designer'" in (chunks[-1].error or "")
     assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_planner_receives_safe_planning_profiles() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("done"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "implement",
+                            "claude-code",
+                            "Implement",
+                            "Create files.",
+                        )
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Build a page")],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code"],
+            "available_agents": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files"],
+                    "is_builtin": True,
+                    "planning_profile": "并行实现主力",
+                    "planning_strengths": ["implementation", "parallel_execution"],
+                    "planning_weaknesses": ["global_architecture_ownership"],
+                    "preferred_task_types": ["implementation", "repair"],
+                    "command": "claude",
+                    "args": ["--danger"],
+                    "sdk_options": {"permission_mode": "acceptEdits"},
+                    "api_key": "should-not-leak",
+                    "token": "should-not-leak",
+                }
+            ],
+            "sub_adapters": {"claude-code": claude},
+        },
+    )
+
+    planner_message = planner.calls[0]["messages"][0].content
+    assert chunks[-1].event_type == "done"
+    assert "planning_profile=并行实现主力" in planner_message
+    assert "strengths=implementation, parallel_execution" in planner_message
+    assert "weaknesses=global_architecture_ownership" in planner_message
+    assert "preferred_task_types=implementation, repair" in planner_message
+    assert "command=" not in planner_message
+    assert "args=" not in planner_message
+    assert "sdk_options" not in planner_message
+    assert "api_key" not in planner_message
+    assert "token" not in planner_message
 
 
 async def test_orchestrator_direct_routing_only_matches_current_managed_agents() -> None:
@@ -329,12 +468,18 @@ async def test_orchestrator_balances_explicit_multi_agent_group_plan() -> None:
     )
 
     assert chunks[-1].event_type == "done"
-    assert [
+    switched_agents = [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["codex-helper", "claude-code", "opencode-helper"]
-    assert "Create strategy-architecture.md." in codex.received_messages[-1].content
+    ]
+    assert switched_agents == [
+        "codex-helper",
+        "claude-code",
+        "opencode-helper",
+        "codex-helper",
+    ]
     assert "Create customer-journey.md." in claude.received_messages[-1].content
-    assert "Create risk-review.md." in opencode.received_messages[-1].content
+    assert "Create customer-journey.md." in opencode.received_messages[-1].content
+    assert "Create risk-review.md." in codex.received_messages[-1].content
 
 
 async def test_orchestrator_balances_to_explicitly_mentioned_group_agents() -> None:
@@ -395,6 +540,324 @@ async def test_orchestrator_balances_to_explicitly_mentioned_group_agents() -> N
     assert claude.received_messages
     assert opencode.received_messages
     assert codex.received_messages == []
+
+
+async def test_orchestrator_rebalances_chinese_parallel_development_request() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("codex output"))
+    claude = FakeSubAdapter("claude-code", _text_chunks("claude output"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("opencode output"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "design-doc",
+                            "codex-helper",
+                            "生成赛博朋克网站设计文档",
+                            "Create cyberpunk-website-design.md.",
+                            priority=1,
+                        ),
+                        _task(
+                            "frontend-page",
+                            "codex-helper",
+                            "实现赛博朋克前端页面",
+                            "Create index.html, styles.css and app.js.",
+                            priority=2,
+                        ),
+                        _task(
+                            "interaction-polish",
+                            "codex-helper",
+                            "完善交互和移动端适配",
+                            "Polish button interactions and responsive layout.",
+                            priority=3,
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
+                    "然后交由两个智能体并行开发工作，最后再进行审阅，最后进行部署"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    switched_agents = [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ]
+    assert chunks[-1].event_type == "done"
+    assert len(set(switched_agents)) >= 2
+    assert switched_agents == ["codex-helper", "claude-code", "opencode-helper"]
+    assert "Create cyberpunk-website-design.md." in codex.received_messages[-1].content
+    assert "Create index.html, styles.css and app.js." in (
+        claude.received_messages[-1].content
+    )
+    assert "Polish button interactions" in opencode.received_messages[-1].content
+
+
+async def test_orchestrator_splits_single_parallel_development_task() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("codex output"))
+    claude = FakeSubAdapter("claude-code", _text_chunks("claude output"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("opencode output"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "design-doc",
+                            "codex-helper",
+                            "生成赛博朋克风网站设计文档",
+                            "Create cyberpunk-website-design.md.",
+                            priority=1,
+                        ),
+                        _task(
+                            "parallel-frontend",
+                            "codex-helper",
+                            "并行开发 - 实现赛博朋克风前端页面",
+                            "Create index.html, styles.css and app.js.",
+                            priority=2,
+                        ),
+                        {
+                            **_task(
+                                "final-review",
+                                "codex-helper",
+                                "审阅最终生成的网站文件",
+                                "Review all generated website files.",
+                                priority=4,
+                            ),
+                            "task_type": "review",
+                            "depends_on": ["parallel-frontend"],
+                            "review_of": ["parallel-frontend"],
+                        },
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
+                    "然后交由两个智能体并行开发工作，最后再进行审阅，最后进行部署"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    switched_agents = [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ]
+    assert chunks[-1].event_type == "done"
+    assert switched_agents == [
+        "codex-helper",
+        "claude-code",
+        "opencode-helper",
+        "codex-helper",
+    ]
+    assert "Create cyberpunk-website-design.md." in codex.received_messages[0].content
+    assert "primary implementation slice" in claude.received_messages[-1].content
+    assert "complementary implementation" in opencode.received_messages[-1].content
+    assert "Review all generated website files." in codex.received_messages[-1].content
+
+
+async def test_orchestrator_splits_single_chained_implementation_for_multi_agent_request() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("codex output"))
+    claude = FakeSubAdapter("claude-code", _text_chunks("claude output"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("opencode output"))
+    review_task = _task(
+        "task-3-review",
+        "codex-helper",
+        "Review and verify cyberpunk website implementation",
+        "Review the implemented cyberpunk website files.",
+        priority=3,
+        depends_on=["task-2-impl"],
+    )
+    review_task["task_type"] = "review"
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "task-1-doc",
+                            "codex-helper",
+                            "Generate cyberpunk website specification document",
+                            "Create spec-cyberpunk.md.",
+                            priority=1,
+                        ),
+                        _task(
+                            "task-2-impl",
+                            "codex-helper",
+                            "Implement cyberpunk website with button interactions",
+                            "Create index.html, styles.css, app.js and Diff evidence.",
+                            priority=2,
+                            depends_on=["task-1-doc"],
+                        ),
+                        review_task,
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
+                    "然后交由两个智能体并行开发工作，包含代码产物、Diff、按钮交互和移动端适配，"
+                    "最后再进行审阅，最后部署在端口8082，并完成浏览器级质量验收。"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "codex-helper": codex,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    switched_agents = [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ]
+    assert chunks[-1].event_type == "done"
+    assert switched_agents == [
+        "codex-helper",
+        "claude-code",
+        "opencode-helper",
+        "codex-helper",
+    ]
+    task_card = next(
+        chunk
+        for chunk in chunks
+        if chunk.event_type == "block_start" and chunk.block_type == "task_card"
+    )
+    task_ids = [
+        task["id"] for task in (task_card.metadata or {}).get("tasks", [])
+    ]
+    assert "task-2-impl-parallel-2" in task_ids
+    assert "primary implementation slice" in claude.received_messages[-1].content
+    assert "complementary implementation" in opencode.received_messages[-1].content
+
+
+async def test_orchestrator_reassigns_planner_self_review_to_independent_agent() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("implementation done"))
+    claude = FakeSubAdapter("claude-code", _text_chunks("review done"))
+    review_task = _task(
+        "review",
+        "codex-helper",
+        "审阅所有生成的文件",
+        "Review the implementation files.",
+        priority=2,
+        depends_on=["implementation"],
+    )
+    review_task["task_type"] = "review"
+    review_task["review_of"] = ["implementation"]
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "implementation",
+                            "codex-helper",
+                            "实现网站",
+                            "Create the website artifacts.",
+                            priority=1,
+                        ),
+                        review_task,
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content="@orchestrator 实现一个网站，然后最后再进行审阅。",
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["codex-helper", "claude-code"],
+            "sub_adapters": {
+                "codex-helper": codex,
+                "claude-code": claude,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["codex-helper", "claude-code"]
+    assert "Create the website artifacts." in codex.received_messages[-1].content
+    assert "Review the implementation files." in claude.received_messages[-1].content
 
 
 async def test_orchestrator_preserves_explicit_requirements_in_planned_tasks() -> None:
@@ -513,7 +976,7 @@ async def test_frontend_deploy_planner_output_is_not_overridden_by_quality_templ
     assert opencode.received_messages == []
 
 
-async def test_frontend_deploy_empty_planner_tasks_is_visible_error() -> None:
+async def test_frontend_deploy_empty_planner_tasks_uses_command_fallback() -> None:
     opencode = FakeSubAdapter("opencode-helper", _text_chunks("created files"))
     planner = FakePlannerGateway(
         [
@@ -548,10 +1011,14 @@ async def test_frontend_deploy_empty_planner_tasks_is_visible_error() -> None:
         },
     )
 
-    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
-    assert chunks[-1].error_code == "missing_task_plan"
+    assert chunks[-1].event_type == "done"
     assert len(planner.calls) == 1
-    assert opencode.received_messages == []
+    assert [chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"] == [
+        "codex-helper",
+        "claude-code",
+        "opencode-helper",
+    ]
+    assert opencode.received_messages
 
 
 async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
@@ -786,6 +1253,83 @@ async def test_orchestrator_planner_error_does_not_use_template_by_default() -> 
     assert chunks[1].error_code == "missing_task_plan"
     assert "timeout: planner timeout" in (chunks[1].error or "")
     assert adapter_a.received_messages == []
+
+
+async def test_orchestrator_planner_error_uses_command_fulfillment_fallback(
+    tmp_path,
+) -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(
+                event_type="error",
+                error_code="timeout",
+                error="planner timeout",
+            )
+        ]
+    )
+    codex = FakeWorkspaceWriterAdapter(
+        "codex-helper",
+        _text_chunks("Created planning.md"),
+        "planning.md",
+        "# Plan\n\nCommand fallback plan.",
+    )
+    claude = FakeMultiFileWriterAdapter(
+        "claude-code",
+        _text_chunks("Created frontend artifacts"),
+        {
+            "index.html": (
+                "<!doctype html><html><head><link rel='stylesheet' "
+                "href='styles.css'></head><body><button id='demo'>Demo</button>"
+                "<script src='app.js'></script></body></html>"
+            ),
+            "styles.css": "button { min-height: 44px; }",
+            "app.js": "document.getElementById('demo')?.addEventListener('click', () => {});",
+        },
+    )
+    opencode = FakeWorkspaceWriterAdapter(
+        "opencode-helper",
+        _text_chunks("Created review.md"),
+        "review.md",
+        (
+            "# Review\n\n"
+            "PASS. The fallback plan, frontend artifact set, button interaction "
+            "hook, responsive touch target, and deployment handoff requirements "
+            "were checked against the original request. Remaining platform "
+            "preview and deployment work is handled by Orchestrator tools."
+        ),
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 我要做一个网站，先生成一份文档，然后交由两个智能体"
+                    "并行开发工作，最后进行审阅和部署。"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["codex-helper", "claude-code", "opencode-helper"],
+            "sub_adapters": {
+                "codex-helper": codex,
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["codex-helper", "claude-code", "opencode-helper"]
+    assert (tmp_path / "planning.md").exists()
+    assert (tmp_path / "index.html").exists()
+    assert (tmp_path / "review.md").exists()
 
 
 async def test_orchestrator_planner_empty_output_is_visible_error() -> None:

@@ -1,12 +1,24 @@
 import pytest
 
+from app.agents.orchestrator.availability import scoped_runnable_agent_ids
 from scripts.orchestrator_e2e.config import SCENARIO_DEFAULTS, load_settings
-from scripts.orchestrator_e2e.runner import AGENT_FALLBACK_MATRIX_CASES
+from scripts.orchestrator_e2e.runner import (
+    AGENT_FALLBACK_E2E_FAIL_RUNTIME,
+    AGENT_FALLBACK_E2E_WRITE_RUNTIME,
+    AGENT_FALLBACK_MATRIX_CASES,
+    BUILTIN_SUB_AGENT_IDS,
+    command_fulfillment_statuses,
+    evaluate_fallback_task_card_case,
+    fallback_group_agent_ids,
+)
 from scripts.orchestrator_e2e.scenarios import SCENARIOS
 from scripts.orchestrator_live_e2e import (
     AGENT_FALLBACK_MATRIX_PROMPT,
+    COMMAND_FULFILLMENT_PROMPT,
     DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH,
     DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH,
+    DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH,
+    DEFAULT_COMMAND_FULFILLMENT_SSE_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
     DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH,
@@ -125,6 +137,10 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "agent_fallback_matrix": (
             "/tmp/agenthub_agent_fallback_matrix_report.json",
             "/tmp/agenthub_agent_fallback_matrix_sse.jsonl",
+        ),
+        "command_fulfillment_cyberpunk_group_deploy": (
+            "/tmp/agenthub_command_fulfillment_report.json",
+            "/tmp/agenthub_command_fulfillment_sse.jsonl",
         ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",
@@ -284,12 +300,136 @@ def test_agent_fallback_matrix_defaults_and_prompt_are_generic() -> None:
     assert "markdown" in AGENT_FALLBACK_MATRIX_PROMPT
     assert "前端开发演示" not in AGENT_FALLBACK_MATRIX_PROMPT
     assert "8082" not in AGENT_FALLBACK_MATRIX_PROMPT
+    assert set(BUILTIN_SUB_AGENT_IDS) == {
+        "claude-code",
+        "opencode-helper",
+        "codex-helper",
+    }
+    for case in AGENT_FALLBACK_MATRIX_CASES:
+        target_agent_id = str(case["target_agent_id"])
+        group_agent_ids = fallback_group_agent_ids(target_agent_id)
+        assert "writer" not in group_agent_ids
+        assert "web-designer" not in group_agent_ids
+        assert group_agent_ids == [
+            "orchestrator",
+            target_agent_id,
+            *(agent_id for agent_id in BUILTIN_SUB_AGENT_IDS if agent_id != target_agent_id),
+        ]
     claude_case = next(
         case
         for case in AGENT_FALLBACK_MATRIX_CASES
         if case["target_agent_id"] == "claude-code"
     )
-    assert claude_case["agent_provider_patch"] == "agenthub_missing_runtime"
+    codex_case = next(
+        case
+        for case in AGENT_FALLBACK_MATRIX_CASES
+        if case["target_agent_id"] == "codex-helper"
+    )
+    assert "agent_provider_patch" not in codex_case
+    assert "agent_provider_patch" not in claude_case
+    assert (
+        codex_case["sub_agent_config_overrides"]["codex-helper"]["command"]
+        == ["python3", AGENT_FALLBACK_E2E_FAIL_RUNTIME]
+    )
+    assert (
+        claude_case["sub_agent_config_overrides"]["claude-code"]["command"]
+        == ["python3", AGENT_FALLBACK_E2E_FAIL_RUNTIME]
+    )
+    assert claude_case["sub_agent_config_overrides"]["claude-code"]["runtime"] == "cli"
+    assert (
+        claude_case["sub_agent_config_overrides"]["opencode-helper"]["command"]
+        == ["python3", AGENT_FALLBACK_E2E_WRITE_RUNTIME]
+    )
+
+
+def test_command_fulfillment_scenario_defaults_and_prompt_are_registered() -> None:
+    assert DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH == (
+        "/tmp/agenthub_command_fulfillment_report.json"
+    )
+    assert DEFAULT_COMMAND_FULFILLMENT_SSE_PATH == (
+        "/tmp/agenthub_command_fulfillment_sse.jsonl"
+    )
+    assert "赛博朋克" in COMMAND_FULFILLMENT_PROMPT
+    assert "两个智能体" in COMMAND_FULFILLMENT_PROMPT
+    assert "部署在端口8082" in COMMAND_FULFILLMENT_PROMPT
+    assert "源码" not in COMMAND_FULFILLMENT_PROMPT
+    spec = SCENARIOS["command_fulfillment_cyberpunk_group_deploy"]
+    assert spec.prompt == COMMAND_FULFILLMENT_PROMPT
+    assert str(spec.default_report_path) == DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH
+    assert str(spec.default_sse_path) == DEFAULT_COMMAND_FULFILLMENT_SSE_PATH
+
+
+def test_command_fulfillment_statuses_preserve_satisfied_evidence() -> None:
+    run_detail = {
+        "events": [
+            {
+                "event_type": "command_fulfillment_status",
+                "payload": {
+                    "items": [
+                        {"id": "deployment", "status": "satisfied"},
+                        {"id": "browser_verify", "status": "satisfied"},
+                    ]
+                },
+            },
+            {
+                "event_type": "command_fulfillment_status",
+                "payload": {
+                    "items": [
+                        {"id": "deployment", "status": "pending"},
+                        {"id": "browser_verify", "status": "failed"},
+                    ]
+                },
+            },
+        ]
+    }
+
+    assert command_fulfillment_statuses(run_detail) == {
+        "deployment": "satisfied",
+        "browser_verify": "satisfied",
+    }
+
+
+def test_available_agents_authoritative_false_allows_e2e_fallback_scope() -> None:
+    config = {
+        "available_agents_authoritative": False,
+        "available_agents": [
+            {"id": "codex-helper", "availability": {"status": "unavailable"}},
+        ],
+    }
+
+    assert scoped_runnable_agent_ids(config) is None
+
+
+def test_evaluate_fallback_task_card_case_accepts_actual_fallback_agent() -> None:
+    report = _fallback_task_card_report(
+        planned_agent="claude-code",
+        task_agent="opencode-helper",
+        final_agent="opencode-helper",
+        attempt_agents=["claude-code", "opencode-helper"],
+    )
+
+    result = evaluate_fallback_task_card_case(report)
+
+    assert result["passed"] is True
+    assert result["planned_agent_matches_target"] is True
+    assert result["task_agent_matches_final_attempt"] is True
+    assert result["final_agent_matches_final_attempt"] is True
+    assert result["task_agent_reassigned_from_planned"] is True
+
+
+def test_evaluate_fallback_task_card_case_rejects_original_agent_display() -> None:
+    report = _fallback_task_card_report(
+        planned_agent="claude-code",
+        task_agent="claude-code",
+        final_agent="claude-code",
+        attempt_agents=["claude-code", "opencode-helper"],
+    )
+
+    result = evaluate_fallback_task_card_case(report)
+
+    assert result["passed"] is False
+    assert result["task_agent_matches_final_attempt"] is False
+    assert result["task_agent_reassigned_from_planned"] is False
 
 
 def test_evaluate_p1_agent_capability_profile_checks_actual_selected_agent() -> None:
@@ -375,6 +515,45 @@ def test_evaluate_p2_agent_capability_profile_v2_rejects_wrong_actual_agent() ->
         is False
     )
     assert report["acceptance"]["passed"] is False
+
+
+def _fallback_task_card_report(
+    *,
+    planned_agent: str,
+    task_agent: str,
+    final_agent: str,
+    attempt_agents: list[str],
+) -> dict[str, object]:
+    return {
+        "target_agent_id": planned_agent,
+        "target_agent_message": {
+            "content": [
+                {
+                    "type": "task_card",
+                    "tasks": [
+                        {
+                            "id": "fallback-task",
+                            "agent_id": task_agent,
+                            "planned_agent_id": planned_agent,
+                            "final_agent_id": final_agent,
+                            "title": "Create fallback evidence",
+                            "status": "done",
+                        }
+                    ],
+                }
+            ],
+        },
+        "orchestrator_run_detail": {
+            "attempts": [
+                {
+                    "task_id": "fallback-task",
+                    "agent_id": agent_id,
+                    "state": "failed" if agent_id == planned_agent else "succeeded",
+                }
+                for agent_id in attempt_agents
+            ],
+        },
+    }
 
 
 def _agent_capability_profile_report(

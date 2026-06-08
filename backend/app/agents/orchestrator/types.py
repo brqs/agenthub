@@ -158,6 +158,7 @@ class OrchestratorRunContext:
     results: dict[str, TaskResult] = field(default_factory=dict)
     result_order: list[str] = field(default_factory=list)
     memory_run_id: UUID | None = None
+    fulfillment_items: list[dict[str, Any]] = field(default_factory=list)
     workspace_conflict_event_keys: set[str] = field(default_factory=set)
     failed_runtime_agent_ids: set[str] = field(default_factory=set)
     runtime_agent_failure_reasons: dict[str, str] = field(default_factory=dict)

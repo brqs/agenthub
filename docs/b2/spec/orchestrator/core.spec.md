@@ -2,8 +2,8 @@
 
 > 定义 AgentHub 多 Agent 编排器的当前行为契约，包括任务规划、任务分配、子任务流转、事件聚合和失败处理。
 >
-> 版本：v1.5
-> 最后更新：2026-06-03
+> 版本：v1.6
+> 最后更新：2026-06-07
 
 ---
 
@@ -81,6 +81,8 @@ async def stream(
 | `managed_agent_ids` | `list[str]` | 可被 Orchestrator 管理的子 Agent 白名单。 |
 | `default_sub_agents` | `list[str]` | `managed_agent_ids` 的兼容别名。 |
 | `available_agents` | `list[dict]` | planner 可用 Agent 描述；优先于 `managed_agent_ids` 用于 LLM planner。 |
+| `available_agents_authoritative` | `bool` | 为 `true` 时，`available_agents` 是 planner / fallback / execution 的强边界；显式 `false` 允许内部静态任务使用 `managed_agent_ids` / `task_fallback_agent_ids`。 |
+| `conversation_scoped_agents` | `bool` | 为 `true` 时，当前群聊成员 scope 是调度边界；生产群聊默认开启。 |
 | `llm_planning` | `bool` | 为 `true` 时启用 LLM planner。 |
 | `planner_gateway` | object | 注入式 planner gateway；存在时启用 LLM planner。 |
 | `orchestrator_llm_config` | `dict` | planner 模型参数；存在且为 object 时启用 LLM planner。 |
@@ -94,6 +96,7 @@ async def stream(
 | `answer_model_backend` | `str` | direct answer 使用的 ModelGateway backend；默认回退到 `model_backend`，再回退到 `claude`。 |
 | `orchestrator_answer_config` | `dict` | direct answer 模型参数。 |
 | `task_fallback_agent_ids` | `list[str]` | 子任务失败、artifact 缺失或 evaluation 失败时可尝试的 fallback Agent 列表；默认空。 |
+| `sub_agent_config_overrides` | `dict[str, dict]` | 执行子 Agent attempt 时叠加的 per-agent runtime config；用于 E2E/内部静态任务，不改变 Agent 表中的持久配置。 |
 | `max_task_attempts` | `int` | 单个子任务最大 attempt 数；默认 `1`，建议范围 `1..3`。 |
 | `task_result_context_max_chars` | `int` | 注入后续子任务的前序结果总字符预算；默认 `4000`。 |
 | `task_result_item_max_chars` | `int` | 单个任务结果摘要字符预算；默认 `1200`。 |
@@ -115,7 +118,8 @@ async def stream(
 生产接线：
 
 - `registry.get_adapter("orchestrator")` 对 Orchestrator special-case，不走普通 provider map。
-- registry 注入 `adapter_factory`，并默认设置 `managed_agent_ids` 为 `claude-code`、`codex-helper`、`opencode-helper`、`web-designer`。
+- registry 注入 `adapter_factory`，并默认设置 `managed_agent_ids` 为 `claude-code`、`codex-helper`、`opencode-helper`。
+- 当前内置 Agent 白名单只包含 `orchestrator`、`claude-code`、`codex-helper`、`opencode-helper`。旧内置 `writer`、`web-designer`、`deepseek-assistant`、`browser-validator` 等 seed 残留会在启动/seed 清理中移除；用户自建 Agent 不受 `is_builtin=True` 清理影响。
 - `adapter_factory` 禁止 Orchestrator 调度自身，避免递归。
 - Orchestrator 顶层 `provider` 为 `builtin`，但 registry 对 `agent_id == "orchestrator"` 的 special-case 优先。
 
@@ -325,6 +329,7 @@ class TaskState(StrEnum):
 11. 子 stream 正常结束但 expected artifact 缺失时，任务标记为 `artifact_missing`。
 12. Evaluation 失败时，attempt 标记为 `evaluation_failed`，并生成 reflection repair instruction。
 13. 如果配置开启 per-task fallback，失败、artifact 缺失或 evaluation 失败任务可进入下一次 attempt。
+14. 子 Agent stream config 会叠加 `sub_agent_config_overrides[agent_id]`，但该 override 只影响本次 attempt，不写回 Agent 持久配置。
 
 ### 5.4 子 Stream 事件处理
 
@@ -401,11 +406,29 @@ per-task fallback 是 v1.2 的子任务级重试机制，和规划失败 fallbac
 - 任意 Agent 出现 auth/quota/credential/CLI missing/provider runtime unavailable/明确 runtime timeout 等硬失败后，Orchestrator 会将该 Agent 写入本次 run-local unavailable，并可放入短期 cooldown；本次 run 的后续 task、后续并行 batch 和 fallback selection 会跳过 run-local unavailable Agent，全局 cooldown 则可影响后续 planner / fallback selection。
 - `artifact_missing`、普通文件 `not found`、业务验证失败、构建/test 失败不等同 runtime hard failure；这些状态只触发当前 task fallback / repair，不让 Agent 进入 runtime cooldown。
 - 首选 Agent 会先尝试，除非执行前已知不可运行；失败后从当前会话可用 Agent、配置 fallback Agent、managed/default Agent 中选择能力范围内的替代者。显式 Orchestrator-routed mention 也会先尝试被点名 Agent，失败后透明 fallback。
+- 生产群聊默认使用 conversation-scoped boundary：`available_agents_authoritative=true` 且 `conversation_scoped_agents=true`。内部 E2E 或静态任务可显式设置 `available_agents_authoritative=false`，让 `task_fallback_agent_ids` / `managed_agent_ids` 参与 fallback selection。
 - fallback attempt 使用同一 `task.instruction`，并额外注入上一次失败原因。
 - fallback attempt 的 tool call id 前缀使用 `<task_id>.attempt-<n>.<child_call_id>`。
 - 所有 attempts 失败后，任务最终状态为最后一次失败状态。
 - summary 必须列出每次 attempt 的 agent、状态和原因。
 - 真实群聊中，失败 child message 与 `message_error.error` 必须走用户可见错误清洗，不暴露 `Permission denied`、`[Errno`、`.claude.json`、`/root/.agenthub`、raw stderr、stack trace 或 `call_`。
+
+Task card 展示语义：
+
+- task card 初始 task 必须记录 `planned_agent_id=<原计划 agent>`。
+- fallback 发生后，task card 的展示 agent 使用最终/当前执行 agent，而不是原计划 agent。
+- `agent_id` 表示当前 UI 应展示的执行 Agent；fallback 成功后等于最终 attempt agent。
+- `current_agent_id` 可在 streaming 中表示正在执行的 attempt agent。
+- `final_agent_id` 在 task terminal 后记录最终 attempt agent。
+- 如果 `planned_agent_id != final_agent_id`，前端可展示类似 `@final <- @planned` 的重分配关系，避免用户误以为原 Agent 完成了任务。
+
+Command fulfillment 语义：
+
+- Orchestrator run-local context 会保存从用户原始请求 deterministic 提取的显式要求：文档、代码产物、多智能体分工、审阅、预览、浏览器验收、部署、Diff、源码打包等。
+- 这些要求通过 `command_fulfillment_status` memory/run detail event 持续记录，payload 包含 `stage` 与 `items`；不新增数据库 migration，也不新增 ContentBlock 类型。
+- task graph 完成不等于用户命令全部完成。最终用户可见 summary 必须读取 fulfillment 状态；存在 `pending`、`failed` 或 `skipped` item 时，只能说明已完成可完成部分，并列出需要注意的未满足项。
+- 平台动作 item 由正式 tool result 满足：`start_workspace_preview` 满足 preview，`verify_web_preview` passed 满足 browser verification，`create_deployment` published/running 满足 deployment。
+- Preview / deployment / browser verify 的完整规则见 [command-fulfillment.spec.md](command-fulfillment.spec.md) 与 [tool-calling.spec.md](tool-calling.spec.md)。
 
 ---
 

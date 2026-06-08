@@ -10,12 +10,39 @@ conversation has no runnable implementation agent, and artifact/build requests
 must terminate with a clear retryable error instead of silently calling an agent
 outside the group.
 
+For internal static tasks and live E2E, `available_agents_authoritative=false`
+is an explicit escape hatch. In that mode execution/fallback may use
+`managed_agent_ids` and `task_fallback_agent_ids`, while the planner still sees
+the current `available_agents` profile list.
+
 Artifact/build/design requests must not use direct-answer fallback after planner
 failure. They must either create real tasks for runnable conversation members or
 return an explicit error. Direct answers that discuss recent task state must use
 same-conversation structured Orchestrator memory before model-generated prose.
 
-## 2026-06-07 Update: Clarification Gate MVP
+## 2026-06-07 Update: Built-in Planning Profiles And Clarification Gate MVP
+
+Planner `available_agents` entries include richer scheduling signals:
+`planning_profile`, `planning_strengths`, `planning_weaknesses`, and
+`preferred_task_types`. Sensitive runtime details such as `api_key`, `token`,
+`env`, `secret`, `command`, `args`, and `sdk_options` must not be exposed to the
+planner.
+
+The default built-in planning roles are:
+
+- `codex-helper`: architecture, repository analysis, overall planning, final
+  review, escalation, and difficult bug fixing. It should not absorb all
+  routine parallel implementation work.
+- `claude-code`: implementation, file editing, repair, review, and workspace
+  changes. It is one of the two primary parallel implementation agents.
+- `opencode-helper`: CLI-oriented implementation, verification, repair, and
+  parallel execution. It is the second primary implementation/verification
+  agent.
+
+These defaults apply only to built-in agents. Custom agents do not inherit a
+built-in profile from provider name; they are described by their own
+`config.planning_profile` when present, otherwise by capabilities and a system
+prompt summary.
 
 Before artifact/build/code/design requests enter LLM planner or sub-agent
 dispatch, Orchestrator runs a clarification gate. The gate determines
@@ -28,10 +55,18 @@ write workspace files while waiting for clarification.
 
 The implemented MVP contract is [clarification-gate.spec.md](clarification-gate.spec.md).
 
+## 2026-06-07 Update: Explicit Multi-Agent Rebalancing
+
+用户明确要求“两个智能体”“多个智能体”“双智能体”“交由两个智能体”“并行开发”“并行执行”或“分工协作”时，planner 输出不能退化成同一个执行 Agent 吞掉全部 implementation tasks。
+
+如果 LLM planner 产出的 task graph 只使用一个非 Orchestrator Agent，而当前 group 中至少有两个可运行 Agent，后端会在不改 task title / instruction 文案的前提下重平衡 implementation tasks。内置排序仍尊重当前可用性和显式 mention；`codex-helper` 可作为复杂任务架构/方案首选，但不能覆盖用户要求的 Claude / OpenCode 并行执行。
+
+Review task 还必须避开自审：如果 planner 把 review 分配给被 review 的 implementation Agent，后端会改派给其他可用 Agent。该规则是通用 task-planning 修正，不针对前端 demo 或固定主题模板。
+
 > 定义 Orchestrator 的任务规划、任务分配和 planner 降级规则。子任务执行流转、事件聚合和失败状态汇总见 [core.spec.md](core.spec.md)。
 >
-> 版本：v1.1
-> 最后更新：2026-05-31
+> 版本：v1.2
+> 最后更新：2026-06-07
 
 ---
 
@@ -174,7 +209,6 @@ MVP 由 `orchestrator/clarification.py` 实现，并通过 `clarification` Conte
 | `claude-code` | `@claude-code`, `claude code`, `claudecode` |
 | `codex-helper` | `@codex-helper`, `codex helper`, `codex` |
 | `opencode-helper` | `@opencode-helper`, `open code`, `opencode` |
-| `web-designer` | `@web-designer`, `web designer` |
 
 命中后会按 mention 在消息中的出现顺序创建一组 `direct-*` 任务：
 
@@ -210,8 +244,9 @@ planner 流程：
 `available_agents` 描述要求：
 
 - 每个条目必须能明确映射到一个可调度 `agent_id`。
-- 推荐包含：`id`、`name`、`capabilities`、`best_for`、`limitations`。
+- 推荐包含：`id`、`name`、`capabilities`、`planning_profile`、`planning_strengths`、`planning_weaknesses`、`preferred_task_types`。
 - planner prompt 应把这些描述传给模型，要求只选择白名单 id。
+- planner prompt 必须说明 Codex 是架构/审阅/兜底负责人；并行实现优先拆给 Claude Code 与 OpenCode；Codex 不应吞掉所有普通实现任务。
 - 示例：
 
 ```json
@@ -219,8 +254,10 @@ planner 流程：
   "id": "codex-helper",
   "name": "Codex Helper",
   "capabilities": ["coding", "sandbox"],
-  "best_for": "code implementation and command-backed verification",
-  "limitations": "must not start preview/deploy servers"
+  "planning_profile": "适合复杂 AgentHub 代码任务的方案拆解、总体规划、仓库理解、架构判断和任务验收；负责审阅其他 agent 完成并测试后的代码；当其他 agent 无法解决复杂 bug 或需要求助时接手处理；作为多 agent 工作流的总负责人和技术兜底者。除非任务需要最高复杂度判断或兜底修复，否则不要把普通并行实现任务全部交给它。",
+  "planning_strengths": ["architecture", "repo_analysis", "task_planning", "final_review", "difficult_bug_fixing", "escalation_owner", "technical_lead"],
+  "planning_weaknesses": ["routine_parallel_implementation", "simple_file_edits"],
+  "preferred_task_types": ["planning", "architecture", "review", "repair", "escalation"]
 }
 ```
 

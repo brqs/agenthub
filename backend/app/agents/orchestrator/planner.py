@@ -53,10 +53,12 @@ require otherwise. Do not probe a weaker agent first and rely on fallback when t
 profile already provides clear evidence.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
-For complex multi-step work, use codex-helper as the lead architect/planner when it is
-available, then assign implementation and verification work to Claude Code and OpenCode
-according to their strengths. Do not force this architect step for simple direct answers,
-platform fact questions, or explicit direct mentions.
+Assign planning, implementation, verification, review, repair, and escalation work by
+matching the request to each available agent's profile, strengths, weaknesses, and
+preferred task types.
+When the user explicitly asks for two agents, multiple agents, or parallel development,
+split implementation work across distinct implementation-capable agents when available
+unless the request explicitly names a specific agent.
 Preserve every explicit deliverable and acceptance requirement from the user request in
 the relevant generation and verification task instructions. A random theme may only add
 style; it must not replace requested sections, files, or checks.
@@ -378,7 +380,45 @@ def _available_agent_line(agent_id: str, item: Mapping[str, Any]) -> str | None:
         caps = [cap for cap in capabilities if isinstance(cap, str)]
         if caps:
             parts.append(f"capabilities={', '.join(caps)}")
+    planning_profile = _safe_inline_text(item.get("planning_profile"))
+    if planning_profile:
+        parts.append(f"planning_profile={planning_profile}")
+    for key, label in (
+        ("planning_strengths", "strengths"),
+        ("planning_weaknesses", "weaknesses"),
+        ("preferred_task_types", "preferred_task_types"),
+    ):
+        value = _safe_string_list(item.get(key))
+        if value:
+            parts.append(f"{label}={', '.join(value)}")
     return " | ".join(parts)
+
+
+def _safe_inline_text(value: object, max_chars: int = 1200) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split())
+    if not normalized:
+        return None
+    return normalized[:max_chars]
+
+
+def _safe_string_list(value: object) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [item.strip() for item in value.split(",")]
+    elif isinstance(value, list):
+        raw_items = [item.strip() for item in value if isinstance(item, str)]
+    else:
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        normalized = " ".join(item.split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized[:120])
+    return result[:12]
 
 
 def _json_payload_from_text(text: str) -> Any:

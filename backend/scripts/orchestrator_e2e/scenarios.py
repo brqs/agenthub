@@ -98,6 +98,11 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         runner.AGENT_FALLBACK_MATRIX_PROMPT,
         runner.run_agent_fallback_matrix_case,
     ),
+    "command_fulfillment_cyberpunk_group_deploy": _spec(
+        "command_fulfillment_cyberpunk_group_deploy",
+        runner.COMMAND_FULFILLMENT_PROMPT,
+        runner.main,
+    ),
     "fullstack": _spec("fullstack", runner.FULLSTACK_PROMPT, runner.main),
     "deployment": _spec("deployment", runner.DEPLOYMENT_PROMPT, runner.main),
     "deployment_repair": _spec(

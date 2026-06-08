@@ -1,7 +1,7 @@
 # Orchestrator Native Deployment Execution Spec
 
 > 状态：Production hardening API E2E passed
-> 最后更新：2026-06-04
+> 最后更新：2026-06-07
 > 依据：课程设计第五点“部署发布”，以聊天中直接发送“部署”指令并返回部署状态卡片为产品目标。
 
 ## 1. 背景与重构目标
@@ -57,6 +57,7 @@ Orchestrator 职责：
 
 - 理解用户是要 preview、static release、container deploy 还是 source package。
 - 根据 workspace 产物选择部署类型。
+- 用户明确要求“部署 / 发布 / 上线”时，不能把 preview URL 当成部署完成；必须调用 `create_deployment`，并以后续 deployment status / health 作为完成证据。
 - 调用平台 deployment tool。
 - 根据 tool result 生成状态卡片和总结。
 - 若部署失败，调度子 agent 修复产物，再重新部署。

@@ -3234,6 +3234,21 @@ components:
         agent_id:
           type: string
           title: Agent Id
+        planned_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Planned Agent Id
+        current_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Current Agent Id
+        final_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Final Agent Id
         title:
           type: string
           title: Title
