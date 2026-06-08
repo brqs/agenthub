@@ -34,6 +34,7 @@ class Message(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)  # "user"|"agent"|"system"
     agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     content: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list, nullable=False)
+    turn_options: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     reply_to_id: Mapped[UUID | None] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("messages.id", ondelete="SET NULL"),

@@ -82,6 +82,15 @@
 - A queued message is the next turn, not an instruction injected into the active agent's current reasoning.
 - Queues are conversation-scoped; queueing in one conversation must not disturb active streams in another conversation.
 
+## 2026-06-08 需求对齐 UI Contract
+
+- The input toolbar exposes a `需求对齐` switch. It defaults to off and is remembered per conversation in local UI storage.
+- Normal send, queued send, and stop-and-run draft submit carry the current `requirement_alignment` turn option.
+- When the switch is off, the frontend must not imply that Orchestrator will ask clarification questions.
+- Queued user bubbles show a small `需求对齐` label only when their persisted `turn_options.requirement_alignment` is `strict`.
+- Editing a queued message lets the user change the same turn option before dispatch.
+- Clarification cards with `mode=requirement_alignment` render as `Orchestrator 需求对齐`; answer chips only fill the input and never auto-submit.
+
 ## 2026-06-07 Conversation Control Plane UI Contract
 
 - While streaming with text in the input, the primary action remains "send to queue".

@@ -140,19 +140,50 @@ describe('MessageBubble', () => {
       />,
     );
 
-    expect(screen.getByText('Queued')).toBeInTheDocument();
+    expect(screen.getByText('排队中')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
     fireEvent.change(screen.getByDisplayValue('queued next'), {
       target: { value: 'queued edited' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => {
-      expect(onUpdateQueuedMessage).toHaveBeenCalledWith('msg-queued', 'queued edited');
+      expect(onUpdateQueuedMessage).toHaveBeenCalledWith('msg-queued', 'queued edited', 'off');
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete queued message' }));
     await waitFor(() => {
       expect(onDeleteQueuedMessage).toHaveBeenCalledWith('msg-queued');
+    });
+  });
+
+  it('renders and edits queued requirement alignment state', async () => {
+    const onUpdateQueuedMessage = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessageBubble
+        message={{
+          id: 'msg-queued',
+          conversation_id: 'conv-group',
+          role: 'user',
+          agent_id: null,
+          reply_to_id: null,
+          status: 'queued',
+          is_pinned: false,
+          created_at: new Date().toISOString(),
+          content: [{ type: 'text', text: 'queued aligned' }],
+          turn_options: { requirement_alignment: 'strict' },
+        }}
+        onUpdateQueuedMessage={onUpdateQueuedMessage}
+      />,
+    );
+
+    expect(screen.getByText('需求对齐')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit queued message' }));
+    expect(screen.getByRole('checkbox', { name: '需求对齐' })).toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: '需求对齐' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(onUpdateQueuedMessage).toHaveBeenCalledWith('msg-queued', 'queued aligned', 'off');
     });
   });
 

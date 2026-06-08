@@ -2,7 +2,7 @@ import { Bot, Loader2, MessageSquarePlus } from 'lucide-react';
 import { useLayoutEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
 import type { DemoMessage } from '@/lib/mockData';
-import type { Agent } from '@/lib/types';
+import type { Agent, RequirementAlignmentMode } from '@/lib/types';
 
 export function MessageList({
   messages,
@@ -34,7 +34,11 @@ export function MessageList({
   onRetry?: (messageId: string) => void;
   retryingMessageIds?: Record<string, boolean>;
   interruptingMessageIds?: Record<string, boolean>;
-  onUpdateQueuedMessage?: (messageId: string, text: string) => void | Promise<void>;
+  onUpdateQueuedMessage?: (
+    messageId: string,
+    text: string,
+    requirementAlignment?: RequirementAlignmentMode,
+  ) => void | Promise<void>;
   onDeleteQueuedMessage?: (messageId: string) => void | Promise<void>;
   onReorderQueuedMessages?: (conversationId: string, messageIds: string[]) => void | Promise<void>;
   onMergeQueuedMessages?: (conversationId: string, messageIds: string[]) => void | Promise<void>;

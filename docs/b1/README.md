@@ -30,6 +30,7 @@
 | 群聊旁观者身份强化 | Done | `tests/test_context_builder.py`, `tests/test_stream_tool_calls.py` |
 | 对话打断 API / 终态 | Done | `POST /messages/{id}/interrupt`、`message.status=interrupted`、StreamRunManager interrupt token、`tests/test_b1_quality.py` |
 | 运行中提交排队 | Done | `message.status=queued`、`message_queue_entries`、`POST /conversations/{id}/queued-messages`、`tests/test_conversation_api.py` |
+| 需求对齐 turn option | Done | `messages.turn_options.requirement_alignment`、Send/Queue/Update queued request fields、`ClarificationBlock.mode=requirement_alignment` |
 | Conversation control plane | Done | `conversation_turn_controls`、`turn_control` block、guidance/side-chat/queue action APIs、`tests/test_conversation_api.py` |
 | 文件上传与 Workspace 导入 | Planned | `uploads` metadata/storage、multipart upload、archive safe extraction、owner permission |
 | 自定义 Agent 配置持久化 | Planned | Agent profile、knowledge uploads、skill package metadata、MCP secret refs / health status |
@@ -81,6 +82,16 @@ B1 now persists same-conversation queued user turns:
 - Current `POST /messages` busy protection remains unchanged; queueing is explicit and does not bypass serial execution.
 - After `done`, `error`, or `interrupted`, B1 dispatches the queue head and may include `queued_next` in the terminal SSE payload.
 - Queued messages do not enter the active turn's context. They become normal `done` user messages only when dispatched as the next turn.
+
+## 2026-06-08 Requirement Alignment Turn Option
+
+B1 now persists the user-controlled `需求对齐` choice per turn:
+
+- `messages.turn_options` stores `requirement_alignment: off | strict`.
+- `POST /api/v1/conversations/{id}/messages`, queued-message create, and queued-message update accept the same option.
+- User message and paired agent message receive the same option.
+- Queued dispatch copies the queued user message option to the new pending agent message.
+- The default is `off`; automatic Orchestrator clarification only runs when the current turn option is `strict`.
 
 ## 2026-06-07 Conversation Control Plane Contract
 

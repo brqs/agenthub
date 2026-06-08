@@ -212,6 +212,14 @@ def _message_out(message: Message, *, queue_position: int | None = None) -> Mess
     return out
 
 
+def _turn_options(requirement_alignment: str | None) -> dict[str, str]:
+    return {
+        "requirement_alignment": requirement_alignment
+        if requirement_alignment in {"off", "strict"}
+        else "off"
+    }
+
+
 async def _touch_conversation(db: DbSession, user_id: UUID, conv_id: UUID) -> None:
     conv = await _get_owned_conversation(db, user_id, conv_id)
     conv.last_message_at = datetime.now(UTC)
@@ -346,10 +354,12 @@ async def send_message(
     )
 
     # Create user message
+    turn_options = _turn_options(payload.requirement_alignment)
     user_msg = Message(
         conversation_id=conv_id,
         role="user",
         content=content,
+        turn_options=turn_options,
         status="done",
     )
     db.add(user_msg)
@@ -362,6 +372,7 @@ async def send_message(
         role="agent",
         agent_id=target_agent_id,
         content=[],
+        turn_options=turn_options,
         reply_to_id=user_msg.id,
         status="pending",
     )
@@ -420,6 +431,7 @@ async def queue_message(
         conversation=conv,
         target_agent_id=target_agent_id,
         content=content,
+        turn_options=_turn_options(payload.requirement_alignment),
     )
     await upload_service.link_message_attachments(
         db,
@@ -444,13 +456,17 @@ async def update_queued_message(
     msg = await _get_queued_user_message(db, user.id, msg_id)
     conv = await _get_owned_conversation(db, user.id, msg.conversation_id)
     entry = await _get_queued_entry_or_409(db, msg.id)
-    if payload.content is None and payload.target_agent_id is None:
+    if (
+        payload.content is None
+        and payload.target_agent_id is None
+        and payload.requirement_alignment is None
+    ):
         raise HTTPException(
             status_code=422,
             detail={
                 "error": {
                     "code": "EMPTY_QUEUED_MESSAGE_UPDATE",
-                    "message": "content or target_agent_id is required",
+                    "message": "content, target_agent_id, or requirement_alignment is required",
                 }
             },
         )
@@ -469,6 +485,11 @@ async def update_queued_message(
             else None
         ),
         target_agent_id=target_agent_id,
+        turn_options=(
+            _turn_options(payload.requirement_alignment)
+            if payload.requirement_alignment is not None
+            else None
+        ),
     )
     await db.commit()
     await db.refresh(msg)
@@ -918,6 +939,7 @@ async def regenerate_message(
         role="agent",
         agent_id=msg.agent_id,
         content=[],
+        turn_options=msg.turn_options,
         reply_to_id=msg.reply_to_id,
         status="pending",
     )

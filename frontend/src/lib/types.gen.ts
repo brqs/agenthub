@@ -1119,7 +1119,7 @@ export interface components {
              * Mode
              * @enum {string}
              */
-            mode: "auto" | "grill_me" | "grill_with_docs" | "setup_matt_pocock_skills";
+            mode: "auto" | "requirement_alignment" | "grill_me" | "grill_with_docs" | "setup_matt_pocock_skills";
             /** Title */
             title: string;
             /**
@@ -1631,6 +1631,7 @@ export interface components {
             created_at: string;
             /** Queue Position */
             queue_position?: number | null;
+            turn_options?: components["schemas"]["TurnOptions"];
         };
         /** OrchestratorRunDetailOut */
         OrchestratorRunDetailOut: {
@@ -1875,6 +1876,12 @@ export interface components {
             target_agent_id?: string | null;
             /** Attachment Ids */
             attachment_ids?: string[];
+            /**
+             * Requirement Alignment
+             * @default off
+             * @enum {string}
+             */
+            requirement_alignment: "off" | "strict";
         };
         /** QueueMessageResponse */
         QueueMessageResponse: {
@@ -1907,6 +1914,12 @@ export interface components {
             target_agent_id?: string | null;
             /** Attachment Ids */
             attachment_ids?: string[];
+            /**
+             * Requirement Alignment
+             * @default off
+             * @enum {string}
+             */
+            requirement_alignment: "off" | "strict";
         };
         /** SendMessageResponse */
         SendMessageResponse: {
@@ -2082,6 +2095,15 @@ export interface components {
             user_message?: components["schemas"]["MessageOut"] | null;
             agent_message?: components["schemas"]["MessageOut"] | null;
         };
+        /** TurnOptions */
+        TurnOptions: {
+            /**
+             * Requirement Alignment
+             * @default off
+             * @enum {string}
+             */
+            requirement_alignment: "off" | "strict";
+        };
         /** UpdateAgentRequest */
         UpdateAgentRequest: {
             /** Name */
@@ -2151,6 +2173,8 @@ export interface components {
             content?: (components["schemas"]["TextBlock"] | components["schemas"]["CodeBlock"] | components["schemas"]["DiffBlock"] | components["schemas"]["WebPreviewBlock"] | components["schemas"]["FileBlock"] | components["schemas"]["AttachmentBlock"] | components["schemas"]["DeploymentStatusBlock"] | components["schemas"]["WorkflowBlock"] | components["schemas"]["TaskCardBlock"] | components["schemas"]["ProcessBlock"] | components["schemas"]["ClarificationBlock"] | components["schemas"]["TurnControlBlock"] | components["schemas"]["ToolCallBlock"])[] | null;
             /** Target Agent Id */
             target_agent_id?: string | null;
+            /** Requirement Alignment */
+            requirement_alignment?: ("off" | "strict") | null;
         };
         /** UploadOut */
         UploadOut: {

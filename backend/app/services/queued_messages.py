@@ -67,11 +67,13 @@ async def enqueue_user_message(
     conversation: Conversation,
     target_agent_id: str,
     content: list[dict[str, Any]],
+    turn_options: dict[str, Any] | None = None,
 ) -> tuple[Message, MessageQueueEntry, int]:
     user_msg = Message(
         conversation_id=conversation.id,
         role="user",
         content=content,
+        turn_options=turn_options or {},
         status="queued",
     )
     db.add(user_msg)
@@ -110,11 +112,14 @@ async def update_queued_user_message(
     queue_entry: MessageQueueEntry,
     content: list[dict[str, Any]] | None = None,
     target_agent_id: str | None = None,
+    turn_options: dict[str, Any] | None = None,
 ) -> int:
     if content is not None:
         user_message.content = content
     if target_agent_id is not None:
         queue_entry.target_agent_id = target_agent_id
+    if turn_options is not None:
+        user_message.turn_options = turn_options
     await db.flush()
     return await queue_position(db, queue_entry)
 
@@ -270,6 +275,7 @@ async def dispatch_next_queued_message(
                 conversation_id=conversation_id,
                 user_message_id=user_message.id,
                 target_agent_id=entry.target_agent_id,
+                turn_options=user_message.turn_options,
             )
         else:
             agent_message = Message(
@@ -277,6 +283,7 @@ async def dispatch_next_queued_message(
                 role="agent",
                 agent_id=entry.target_agent_id,
                 content=[],
+                turn_options=user_message.turn_options,
                 reply_to_id=user_message.id,
                 status="pending",
             )
@@ -370,6 +377,7 @@ def _queued_target_missing_message(
     conversation_id: UUID,
     user_message_id: UUID,
     target_agent_id: str,
+    turn_options: dict[str, Any] | None = None,
 ) -> Message:
     return Message(
         conversation_id=conversation_id,
@@ -384,6 +392,7 @@ def _queued_target_missing_message(
                 ),
             }
         ],
+        turn_options=turn_options or {},
         reply_to_id=user_message_id,
         status="error",
     )
