@@ -1,6 +1,6 @@
 # Orchestrator Presentation Collapse Spec
 
-> 状态：Planned for implementation
+> 状态：Implemented MVP
 > 最后更新：2026-06-08
 > 范围：Orchestrator 与子 Agent 消息的用户可见展示分区、执行过程折叠、成员 summary 与全局 final answer 标记。
 
@@ -127,6 +127,14 @@ Orchestrator final answer text 必须标记：
 - 子 Agent 最后 summary text 是 `agent_summary`。
 - process/tool trace 是 collapsible execution group。
 - 旧消息无 `presentation` 时仍兼容渲染。
+
+已落地实现：
+
+- `PresentationMetadata` 已进入后端 schema、OpenAPI 与前端生成类型。
+- `block_start.metadata.presentation`、`tool_call.metadata.presentation` 与 `tool_result.metadata.presentation` 均会持久化到 ContentBlock。
+- 前端会把可折叠 execution block 归入执行过程折叠组；streaming 默认展开，terminal 默认折叠。
+- 折叠标题区展示步骤数量、工具数量、block 数量和当前可见状态。
+- `agent_summary` 与 `final_answer` 按常显 block 渲染，不进入折叠组。
 
 Live E2E scenario：
 

@@ -291,6 +291,7 @@ class StreamContentAccumulator:
         block = self.pending_tool_calls.pop(chunk.call_id)
         status = chunk.tool_status or "ok"
         block["status"] = status
+        _apply_presentation(block, chunk.metadata)
         if chunk.tool_output is not None:
             output_preview, output_truncated = _preview_text(
                 chunk.tool_output,
