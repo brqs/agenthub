@@ -40,10 +40,14 @@ function getAgentWorkStatus(agent: Agent, messages: DemoMessage[], activeAgentId
   if (agent.id === activeAgentId) return 'active';
 
   const taskCard = findLatestTaskCard(messages);
-  const ownedTasks = taskCard?.tasks.filter((task) => task.agent_id === agent.id) ?? [];
+  const ownedTasks = taskCard?.tasks.filter((task) => taskAgentId(task) === agent.id) ?? [];
   if (ownedTasks.length > 0 && ownedTasks.every((task) => task.status === 'done')) return 'done';
 
   return 'idle';
+}
+
+function taskAgentId(task: NonNullable<ReturnType<typeof findLatestTaskCard>>['tasks'][number]): string {
+  return task.final_agent_id ?? task.current_agent_id ?? task.agent_id;
 }
 
 const STATUS_LABEL: Record<AgentWorkStatus, string> = {

@@ -47,6 +47,8 @@ from app.agents.runtime_guard import (
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "claude_agent_sdk"
+DEFAULT_RUNTIME = "sdk"
+SUPPORTED_RUNTIMES = {"cli", "sdk"}
 DEFAULT_SHARED_AUTH_DIR = "/root/.agenthub/claude-auth"
 CLAUDE_AUTH_DIR_ENV = "AGENTHUB_CLAUDE_AUTH_DIR"
 CLAUDE_MISSING_CREDENTIALS_ERROR = (
@@ -83,6 +85,9 @@ class SharedClaudeAuthError(RuntimeError):
 
 
 def claude_code_runtime_status(config: dict[str, Any] | None = None) -> tuple[str, str | None]:
+    runtime = str((config or {}).get("runtime") or DEFAULT_RUNTIME).strip().lower()
+    if runtime not in SUPPORTED_RUNTIMES:
+        return "invalid", "Claude Code runtime must be one of: cli, sdk"
     if not (_has_provider_credentials() or _has_shared_auth()):
         return "unavailable", CLAUDE_MISSING_CREDENTIALS_ERROR
 
@@ -135,6 +140,22 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             merged,
             default_idle_timeout_seconds=DEFAULT_IDLE_TIMEOUT_SECONDS,
         )
+        runtime = str(merged.get("runtime") or DEFAULT_RUNTIME).strip().lower()
+        if runtime not in SUPPORTED_RUNTIMES:
+            yield self._error_chunk(
+                "external_runtime_error",
+                "Claude Code runtime must be one of: cli, sdk",
+            )
+            return
+        if runtime == "cli":
+            async for chunk in self._stream_cli(
+                messages,
+                system_prompt,
+                merged,
+                workspace_path,
+            ):
+                yield chunk
+            return
 
         try:
             sdk = self._load_sdk()

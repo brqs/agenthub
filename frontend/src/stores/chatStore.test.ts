@@ -699,6 +699,47 @@ describe('chatStore', () => {
     });
   });
 
+  it('updates orchestrator task card display agent after fallback switch', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'task_card',
+        metadata: {
+          title: 'Orchestrator plan',
+          tasks: [{ id: 'task-a', agent_id: 'agent-a', title: 'Build HTML', status: 'pending' }],
+        },
+      },
+    });
+
+    store.applyStreamEvent(messageId, {
+      event: 'agent_switch',
+      data: { from_agent: 'orchestrator', to_agent: 'agent-a', task: 'Build HTML' },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'agent_switch',
+      data: { from_agent: 'orchestrator', to_agent: 'agent-b', task: 'Build HTML' },
+    });
+    store.applyStreamEvent(messageId, { event: 'done', data: { total_blocks: 1 } });
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content[0],
+    ).toMatchObject({
+      type: 'task_card',
+      tasks: [
+        {
+          id: 'task-a',
+          agent_id: 'agent-b',
+          planned_agent_id: 'agent-a',
+          final_agent_id: 'agent-b',
+          status: 'done',
+        },
+      ],
+    });
+  });
+
   it('marks stream errors and supports retry reset', () => {
     const messageId = addStreamingMessage();
     useChatStore.getState().applyStreamEvent(messageId, {

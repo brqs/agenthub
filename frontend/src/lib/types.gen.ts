@@ -1938,6 +1938,12 @@ export interface components {
             id: string;
             /** Agent Id */
             agent_id: string;
+            /** Planned Agent Id */
+            planned_agent_id?: string | null;
+            /** Current Agent Id */
+            current_agent_id?: string | null;
+            /** Final Agent Id */
+            final_agent_id?: string | null;
             /** Title */
             title: string;
             /**

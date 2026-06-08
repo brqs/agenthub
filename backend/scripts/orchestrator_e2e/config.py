@@ -49,6 +49,9 @@ DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH = (  # noqa: S108
 DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_agent_fallback_matrix_sse.jsonl"  # noqa: S108
 )
+DEFAULT_COMMAND_FULFILLMENT_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_command_fulfillment_sse.jsonl"  # noqa: S108
+)
 
 DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
 DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
@@ -88,6 +91,9 @@ DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH = (  # noqa: S108
 DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_agent_fallback_matrix_report.json"  # noqa: S108
 )
+DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_command_fulfillment_report.json"  # noqa: S108
+)
 
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
 DEFAULT_QUALITY_BROWSER_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
@@ -98,6 +104,9 @@ DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_BROWSER_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_process_frontend_preview_browser.json"  # noqa: S108
+)
+DEFAULT_COMMAND_FULFILLMENT_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_command_fulfillment_browser.json"  # noqa: S108
 )
 
 
@@ -158,6 +167,11 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
     "agent_fallback_matrix": ScenarioDefaults(
         DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH,
         DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH,
+    ),
+    "command_fulfillment_cyberpunk_group_deploy": ScenarioDefaults(
+        DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH,
+        DEFAULT_COMMAND_FULFILLMENT_SSE_PATH,
+        DEFAULT_COMMAND_FULFILLMENT_BROWSER_REPORT_PATH,
     ),
     "p1_attribution": ScenarioDefaults(
         DEFAULT_P1_ATTRIBUTION_REPORT_PATH,

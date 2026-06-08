@@ -115,6 +115,9 @@ class WorkflowBlock(BaseModel):
 class TaskCardTask(BaseModel):
     id: str
     agent_id: str
+    planned_agent_id: str | None = None
+    current_agent_id: str | None = None
+    final_agent_id: str | None = None
     title: str
     status: Literal["pending", "running", "done", "error", "interrupted"]
 

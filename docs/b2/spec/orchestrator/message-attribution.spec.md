@@ -2,7 +2,7 @@
 
 > Owner: B2
 > Related: [B1 ContentBlock Attribution](../../../b1/spec/message-content-block-attribution.spec.md), [F Orchestrated Rendering](../../../frontend/spec/orchestrated-message-rendering.spec.md)
-> Last updated: 2026-06-05
+> Last updated: 2026-06-07
 
 ## 1. 目标
 
@@ -81,6 +81,8 @@ SSE lifecycle：
 - 子 message `agent_id` 为实际负责 Agent。
 - 每个子 message 使用独立 `StreamContentAccumulator`；block index 是该子 message 的局部 index。
 - 父 Orchestrator message 继续承载 task card、process、orchestration 证据与最终用户可见总结。
+- 已知不可运行 Agent 在 attempt 前被过滤时，不创建对应 child message；Orchestrator process / memory 记录“检测到不可用并改派”。
+- 子 message 失败时，`message_error.error` 和空 error child fallback text 必须是清洗后的用户可读原因，不暴露本地认证路径、Errno、stderr、stack trace 或 call id。
 
 关闭 `orchestrator_group_messages_enabled=false` 时，Orchestrator 回到旧模式：所有子 Agent block 仍在父 Orchestrator message 中以 `agent_id` 标记。
 
@@ -258,16 +260,25 @@ Orchestrator
 
 - `agent_switch.to_agent` 使用实际 attempt agent。
 - fallback attempt 的所有输出 chunk 使用 fallback agent id。
+- 父 Orchestrator task card 必须保留原计划 Agent 和最终执行 Agent：
+  - `planned_agent_id` 是原计划 Agent。
+  - `agent_id` 是当前/最终需要展示的执行 Agent。
+  - `current_agent_id` 可用于 streaming 中的当前 attempt。
+  - `final_agent_id` 是 terminal 后的最终 attempt Agent。
 - 真实群聊模式下，失败 attempt 和 fallback attempt 分别写入各自 Agent 的独立 child message；失败 Agent message 以 `message_error` / `status="error"` 结束，fallback Agent 成功时以 `message_done` / `status="done"` 结束。
 - 父 Orchestrator message 只记录调度过程、fallback 决策、平台工具和最终总结，不把失败 Agent 或 fallback Agent 的输出嵌回父消息正文。
 - summary 仍由 Orchestrator 输出，`agent_id="orchestrator"`。
 - tool_call `call_id` 继续使用当前 `<task_id>.attempt-N.<call_id>` 规则，避免冲突。
 
-2026-06-06 live evidence：
+2026-06-07 live evidence：
 
-- `agent_fallback_matrix` 公网 API/SSE E2E 已通过，report `/tmp/agenthub_agent_fallback_matrix_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`。
+- `agent_fallback_matrix` HTTP/SSE E2E 已通过，report `/tmp/agenthub_agent_fallback_matrix_taskcard_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_taskcard_sse.jsonl`。
 - 覆盖 `codex-helper`、`claude-code`、`opencode-helper` 三个首选 Agent 失败后自动切换到可用 fallback Agent 的路径。
-- 三个 case 均满足：首选 Agent 先 `message_start` 后 `message_error`，fallback Agent 再 `message_start` 后 `message_done`，workspace 产物生成，父 Orchestrator 不内嵌子 Agent block，可见文本无内部 trace forbidden terms。
+- 三个 case 均满足：首选 Agent 先失败或被强制失败，fallback Agent 再 `message_start` 后 `message_done`，workspace 产物生成，父 Orchestrator 不内嵌子 Agent block，task card 的 `planned_agent_id` 为原计划 Agent，`agent_id/final_agent_id` 为最终 fallback Agent。
+- 最新验证结果：
+  - `claude-code` planned -> `opencode-helper` final。
+  - `opencode-helper` planned -> `claude-code` final。
+  - `codex-helper` planned -> `claude-code` final。
 
 ## 7. Memory / Summary 影响
 
@@ -364,8 +375,8 @@ message_start: 2
 message_done: 1
 message_error: 1
 child_statuses:
-  opencode-helper: done
-  claude-code: error
+  one child agent: error
+  one fallback child agent: done
 checks:
   child_agents_are_not_orchestrator: true
   child_content_present: true

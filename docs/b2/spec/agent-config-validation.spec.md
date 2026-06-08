@@ -29,7 +29,7 @@
 - `config.model_backend`: BuiltinAgent 内部 ModelGateway backend，取值 `claude` / `deepseek` / `openai`
 - `config.max_iterations`: BuiltinAgent loop 最大迭代次数
 - `config.mcp_servers`: BuiltinAgent MCP stdio server 配置数组
-- `config.command` / `config.args` / `config.timeout_seconds`: OpenCode subprocess runtime 配置
+- `config.runtime` / `config.command` / `config.args` / `config.timeout_seconds`: external runtime 配置
 
 输出：
 
@@ -49,11 +49,18 @@
 
 - `claude_code` / `codex` / `opencode` 允许透传 runtime 专属配置。
 - `timeout_seconds` 如果存在，必须在 `1 <= timeout_seconds <= 3600`。
+- `claude_code.runtime` 如果存在，必须是 `sdk` 或 `cli`。
+- `claude_code.command` 如果存在，必须是字符串或字符串数组；仅 `runtime=cli` 或 SDK 缺失 fallback CLI 时使用。
+- `codex.runtime` 如果存在，必须是 `cli` 或 `sdk`。
+- `codex.command` 如果存在，必须是字符串或字符串数组；默认 `codex`。
+- `codex.sandbox_mode` 如果存在，必须是 `read-only` / `workspace-write` / `danger-full-access`。
 - `opencode.command` 如果存在，必须是字符串或字符串数组。
 - `opencode.args` 如果存在，必须是字符串数组。
 
 ### BuiltinAgent 规则
 
+- 当前内置 Agent 白名单来自 `seed_agents.BUILTIN_AGENTS`，只包含 `orchestrator`、`claude-code`、`codex-helper`、`opencode-helper`。
+- 启动/seed 清理必须删除所有 `is_builtin=True` 且 id 不在当前 `BUILTIN_AGENTS` 白名单内的旧内置残留；不得删除 `is_builtin=False` 的用户自建 Agent。
 - `model_backend` 缺省为 `claude`。
 - `model_backend` 必须是 `claude` / `deepseek` / `openai` 之一。
 - `max_iterations` 如果存在，必须是整数且满足 `1 <= max_iterations <= 50`。

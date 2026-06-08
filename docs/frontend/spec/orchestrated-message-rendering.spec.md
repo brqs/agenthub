@@ -96,7 +96,27 @@ Execution summary...
 
 前端展示为 `OpenCode Helper` 的错误段，而不是 Orchestrator 大段正文。
 
-### 3.4 兼容旧消息
+### 3.4 Task Card Fallback 展示
+
+Orchestrator task card 的 task 可包含以下 Agent 字段：
+
+```ts
+type TaskCardTask = {
+  agent_id?: string | null;
+  planned_agent_id?: string | null;
+  current_agent_id?: string | null;
+  final_agent_id?: string | null;
+}
+```
+
+展示规则：
+
+- 默认显示 `final_agent_id ?? current_agent_id ?? agent_id`。
+- `planned_agent_id` 保留原计划 Agent，不作为 fallback 后的主要展示 Agent。
+- 如果 `planned_agent_id` 与最终展示 Agent 不同，UI 可以显示 `@final <- @planned`，表达任务已从原计划 Agent 改派给最终执行 Agent。
+- 右侧 Agent panel / active task 归属也必须使用同一解析规则，不能只看原始 `agent_id`。
+
+### 3.5 兼容旧消息
 
 旧消息没有 `block.agent_id` 时：
 

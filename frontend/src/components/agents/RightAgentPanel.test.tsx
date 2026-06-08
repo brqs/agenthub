@@ -525,6 +525,33 @@ describe('RightAgentPanel', () => {
     });
   });
 
+  it('shows a readable notice when container deployment is not supported', async () => {
+    vi.mocked(deploymentsAdapter.createDeployment).mockResolvedValueOnce({
+      id: 'container-not-supported',
+      conversation_id: 'conv-demo-flow',
+      workspace_id: 'workspace-1',
+      kind: 'container',
+      status: 'not_supported',
+      attempt_count: 0,
+      error: 'Container deployment is not enabled',
+      logs: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    renderPanel(
+      <RightAgentPanel
+        conversation={{ ...conversation, id: 'conv-demo-flow' }}
+        agents={mockAgents}
+        messages={messages}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: actionButtonName('container') }));
+
+    expect(await screen.findByText(/容器部署请求已创建，但未发布成功/)).toBeInTheDocument();
+    expect(screen.getByText(/Container deployment is not enabled/)).toBeInTheDocument();
+  });
+
   it('keeps agents and pinned messages in the context tab', () => {
     renderPanel(<RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />);
 

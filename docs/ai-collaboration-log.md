@@ -1922,3 +1922,134 @@ Process Block 不是 thinking 展示，而是公开过程摘要。它必须和 r
 
 ### 经验
 上传功能必须先明确”附件归属”和”消息上下文注入”边界：文件本体属于 upload 资源，消息只持久化稳定的 attachment block 和关联表。这样前端展示、Agent 上下文、后续安全扫描与 workspace 导入可以分阶段演进。
+
+## 2026-06-07 — Codex 修复 Orchestrator 通用 fallback 与真实群聊错误体验
+
+### 任务
+执行“Orchestrator 通用 Fallback 与真实群聊体验修复计划”：修复已知不可用 Agent 先产生红框失败再 fallback、同一坏 runtime 并行刷失败、runtime hard failure 判定过宽、child message 错误泄露内部路径，以及 legacy fullstack fallback 硬编码 OKR 主题的问题。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: Orchestrator 通用 Fallback 与真实群聊体验修复计划
+
+### AI 输出摘要
+1. `TaskResult` 新增 `skipped_unavailable_agents`，`OrchestratorRunContext` 新增 run-local failed runtime / skip reason 状态。
+2. `_run_task()` attempt 前过滤当前会话不可运行、全局 cooldown、本次 run 已硬失败和非 group scope Agent；已知不可用 Agent 不创建 child message，只记录 memory/process 改派证据。
+3. runtime hard failure 后立即写入 run-local unavailable，并可进入全局短期 cooldown；当前 run 的后续 task 和后续 batch 会避开该 Agent，全局 cooldown 才会影响后续 planner / fallback selection。
+4. 并行 executor 按首选可运行 Agent 去重选取 batch，避免同一坏 runtime 在同一批任务里刷出多条失败 child message。
+5. `_is_runtime_hard_failure()` 收窄为 auth / quota / credential / CLI missing / provider runtime unavailable / 明确 runtime timeout；artifact missing、普通 not found、业务验证失败、构建/test 失败只触发当前 task fallback，不进入 runtime cooldown。
+6. 子 Agent error chunk 会保留 `error_code` 信号；`external_runtime_error` / `runtime_idle_timeout` 即使搭配泛化 `process exited` 文案，也能进入 runtime hard failure 判定。
+7. `OrchestratorGroupMessageWriter` 的 `message_error.error` 和空 error child fallback text 统一做用户可见清洗，不暴露 `Permission denied`、`[Errno`、`.claude.json`、`/root/.agenthub`、stderr、stack trace 或 `call_`。
+8. legacy fullstack fallback 去掉“团队 OKR 轻量看板”和 `/api/okrs` 固定语义，改为保留用户请求主题和通用产品交付描述。
+9. `test_orchestrator_planning.py` 的 planning 回归 helper 默认关闭 clarification gate，避免远端新增澄清门抢占 planner/template/fallback 单元测试；clarification gate 自身测试仍在 `test_orchestrator.py` 覆盖。
+10. 新增后端回归：已知 unavailable runtime 不启动 child message、并行同坏 runtime 限流、artifact missing 和普通业务 error code 不进入 runtime cooldown、`external_runtime_error` code 会进入 run-local unavailable、child error sanitizer、fullstack fallback 不硬编码 OKR。
+11. 同时修复远端基线 mypy 小问题：clarification 局部 tuple 类型收窄、`StreamRunner` 使用 `Coroutine`、`messages` 目标 conversation 参数补类型。
+12. 本地门禁通过：
+    - `AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest tests/test_orchestrator.py tests/test_orchestrator_planning.py tests/test_orchestrator_response_presentation.py tests/test_stream_content_blocks.py tests/test_orchestrator_live_e2e_script.py -q`
+    - `180 passed`
+    - `uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts` passed
+    - `uv run python -m mypy app/agents app/api/v1 app/schemas` passed
+    - `git diff --check` passed
+13. 后端运行代码已同步：旧 PID `3018534`，新 PID `3042194`；未改 seed/default config，未执行 seed；`alembic current = 7e8f9012abcd`；本机与公网 `/health` 均为 `{"status":"ok"}`。
+14. 公网 `agent_fallback_matrix` rerun 通过：
+    - report: `/tmp/agenthub_agent_fallback_matrix_report.json`
+    - SSE: `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`
+    - `passed=true`
+    - `agent_fallback_codex_unavailable`: target preflight skipped，`writer=done`，生成 `fallback-codex.md`
+    - `agent_fallback_claude_unavailable`: `claude-code=error`，`writer=done`，生成 `fallback-claude.md`
+    - `agent_fallback_opencode_unavailable`: target preflight skipped，`writer=done`，生成 `fallback-opencode.md`
+15. 文档已更新：`docs/b2/spec/orchestrator/core.spec.md`、`message-attribution.spec.md`、`live-e2e-report.spec.md`、`README.md`、`docs/b2/spec/b2-pdf-gap-todo.spec.md` 和本协作日志。
+
+### 人工调整
+本轮只做后端与测试/文档 hardening，未修改前端视觉。公网 E2E 只验收 API/SSE、message attribution、fallback 产物和可见文本清洗，不验收远端前端 UI。
+
+### 经验
+fallback 体验的关键不是“失败后能不能补救”，而是先判断哪些失败根本不该发生在用户面前。已知不可用应执行前改派；运行中才发现的硬失败才保留一条清洗后的子消息证据；业务产物缺失则不能误伤整个 runtime。
+
+## 2026-06-07 — Codex 同步内置 Agent 收敛、planning profile 与 fallback task card 文档
+
+### 任务
+检查前文关于内置 Agent、planner profile、SDK/CLI runtime、Orchestrator fallback task card 和真实 E2E 的代码改动是否需要同步到 docs，并补齐过期内容。
+
+### 关键 Prompt
+> 请你查看docs是否需要更新前文全部修改
+
+### AI 输出摘要
+1. 更新 B2 runtime 文档：Claude Code 默认 `runtime=sdk`，可显式 `runtime=cli`；Codex 默认 CLI 并支持 `config.command`；OpenCode 仍为 CLI runtime。
+2. 更新 Orchestrator core spec：当前内置白名单收敛为 `orchestrator`、`claude-code`、`codex-helper`、`opencode-helper`；旧 `writer/web-designer/deepseek-assistant/browser-validator` 只作为历史记录存在，不再是当前内置 Agent。
+3. 更新 planner spec：planner 可见 `planning_profile`、`planning_strengths`、`planning_weaknesses`、`preferred_task_types`；内置 profile 只对内置 Agent 生效，自建 Agent 只使用自身配置或 capabilities/system prompt summary。
+4. 更新 Orchestrator message attribution / frontend rendering spec：task card fallback 使用 `planned_agent_id` 记录原计划 Agent，用 `agent_id/current_agent_id/final_agent_id` 表达当前与最终执行 Agent，避免 UI 误导用户。
+5. 更新 API 人类可读文档：移除 `web-designer` 默认 managed agent 示例，补充 `runtime`、`sandbox_mode`、external runtime `command` 字段语义。
+6. 更新 live E2E report：当前 `agent_fallback_matrix` task card E2E 已通过，报告路径为 `/tmp/agenthub_agent_fallback_matrix_taskcard_report.json`，SSE 为 `/tmp/agenthub_agent_fallback_matrix_taskcard_sse.jsonl`。
+
+### 当前 E2E 证据
+
+```text
+agent_fallback_claude_unavailable: planned=claude-code, final=opencode-helper, passed=true
+agent_fallback_opencode_unavailable: planned=opencode-helper, final=claude-code, passed=true
+agent_fallback_codex_unavailable: planned=codex-helper, final=claude-code, passed=true
+```
+
+### 经验
+历史协作日志可以保留旧证据，但当前契约文档必须明确“现在系统认什么为真”。这次关键是把 writer 时代的 fallback 证据和当前三内置 Agent 矩阵区分开，避免后续开发者继续以为 writer/web-designer 还是当前内置调度目标。
+
+## 2026-06-07 — Codex 完成 Orchestrator 命令完整履约 repair loop
+
+### 任务
+执行“Orchestrator 命令完整履约 + 文档补齐修复计划”：让 Orchestrator 按用户显式命令逐项履约，而不是只跑完 planner task graph；修复多智能体分工、review 避免自审、平台 preview / browser verify / deployment 闭环和最终 summary 不误报。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: Orchestrator 命令完整履约 + 文档补齐修复计划
+
+### AI 输出摘要
+1. 新增 `command_fulfillment` backend MVP：从用户请求 deterministic 提取文档、代码产物、多智能体、审阅、预览、浏览器验收、部署、Diff、源码打包等要求，写入 `command_fulfillment_status` run detail event。
+2. Planning 层扩展中文多智能体触发词；显式要求两个/多个智能体但 planner 只给一个实现 Agent 时，后端会重平衡 implementation tasks；review task 会避开被 review 的实现 Agent。
+3. Quality gate 补齐命令履约语义：部署请求必须走 `start_workspace_preview -> verify_web_preview -> create_deployment`，preview URL 不等于部署完成。
+4. Response presentation 读取 fulfillment 状态；存在 pending/failed/skipped item 时，最终可见 summary 不能误报“全部完成/已部署”。
+5. 修复 LLM polish 安全过滤：润色输出如果建议用户手动运行本地长服务命令（如 `python -m http.server`、`npm run dev`），会被判为不安全并回退 deterministic summary。
+6. 修复 review fulfillment 误标：不再因 plan 中存在独立 review task 就标记 satisfied；必须有成功 review attempt 和 review artifact。
+7. 新增 Orchestrator coordination review fallback：独立 review Agent 全部失败或不可用、且前置任务留下可审阅产物时，Orchestrator 生成 `review.md`，并在 run detail 标记 `fallback="orchestrator_review"`；实现 Agent 仍不会自审。
+8. Live E2E 脚本新增 `command_fulfillment_cyberpunk_group_deploy`，覆盖文档、代码、Diff、多 Agent、review、8082 preview、browser verify 和 deployment。
+9. 本地门禁通过：
+   - `AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest tests/test_orchestrator.py tests/test_orchestrator_planning.py tests/test_orchestrator_quality_gate.py tests/test_orchestrator_response_presentation.py tests/test_stream_content_blocks.py tests/test_orchestrator_live_e2e_script.py -q`
+   - `209 passed`
+   - `uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts` passed
+   - `uv run python -m mypy app/agents app/api/v1 app/schemas` passed
+   - `pnpm test -- --run src/stores/chatStore.test.ts src/components/blocks/TaskCardBlock.test.tsx` passed（当前仓库只匹配到 `chatStore.test.ts`）
+   - `pnpm exec tsc --noEmit` passed
+   - `git diff --check` passed
+10. 后端运行代码已同步：旧 PID `3388409`，当前 uvicorn PID `3398114`；本轮最新改动不需要 seed；`alembic current = 7e8f9012abcd`；本机与公网 `/health` 均为 `{"status":"ok"}`。
+11. 公网 `command_fulfillment_cyberpunk_group_deploy` repair loop 最终通过：
+    - conversation: `25ff9e75-7776-46b2-8549-babb78555177`
+    - report: `/tmp/agenthub_command_fulfillment_report.json`
+    - SSE: `/tmp/agenthub_command_fulfillment_sse.jsonl`
+    - browser: `/tmp/agenthub_command_fulfillment_browser.json`
+    - `passed=true`
+    - workspace: `planning.md`、`design-doc.md`、`index.html`、`styles.css`、`app.js`、`diff.md`、`review.md`
+    - preview: `http://111.229.151.159:8082/index.html`
+    - static release: `http://111.229.151.159:8000/releases/vw1Obog5VUQ1cY4lCNzBaevfgnDc1Epy/index.html`
+12. 文档已更新：`docs/b2/spec/orchestrator/command-fulfillment.spec.md`、`live-e2e-report.spec.md`、`README.md`、`docs/b2/spec/b2-pdf-gap-todo.spec.md` 和本协作日志。
+
+### 人工调整
+本轮最新修复只改后端、E2E 脚本、测试和文档；未改数据库 migration，未改 OpenAPI，未改前端视觉。`planner_used_llm=false` 在该 scenario 中保留为诊断项，但不作为 hard acceptance，因为显式 command contract 允许 LLM planner 失败后进入通用 command fallback。
+
+### 经验
+“完整执行用户命令”不能等同于“任务图终止”。显式命令需要有独立 fulfillment 状态，平台动作需要以 tool 证据为准，review 需要产物证据；当外部 Agent 失败时，Orchestrator 可以协调兜底，但不能把失败包装成已完成。
+
+## 2026-06-08 — Codex 修复 02:24 E2E 可见消息与容器化部署点击体验
+
+### 任务
+执行 “Orchestrator 02:24 E2E + 容器化部署点击 Repair Loop 计划”：修复 `message_error` raw runtime 泄露、Orchestrator final summary 早于 quality/deploy 输出导致的前后矛盾，以及前端容器化部署按钮因缺少 Dockerfile 被静默禁用的问题。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: Orchestrator 02:24 E2E + 容器化部署点击 Repair Loop 计划
+
+### AI 输出摘要
+1. 后端 `message_error.error` 继续使用 Orchestrator child-message sanitizer，并补强 Codex/OpenCode raw runtime transcript、workspace path、`approval: never`、`external_runtime_error` 等内部痕迹的识别和归一化文案。
+2. Orchestrator static / parallel / ReAct 执行阶段不再提前写 memory final summary 或输出最终 text；adapter 在 `run_quality_gate()` 之后统一生成最终可见 summary，避免部署/验收成功后仍显示“尚未完成”的矛盾文本。
+3. 前端 `RightAgentPanel` 容器化部署动作不再因缺少 Dockerfile 禁用；用户可以发起受控 `create_deployment(kind="container")` 请求，后端返回 `not_supported`、缺 Dockerfile 失败或 demo worker 发布状态后由 UI 展示。
+4. 保持后端容器 worker 默认关闭：`DEPLOYMENT_CONTAINER_ENABLED=false` 是安全策略；按钮可点表示可发起平台请求，不表示生产默认启用容器化部署。
+5. Live E2E 脚本新增 hard checks：`message_error_no_forbidden_terms`、`command_final_text_no_contradictory_completion`、`container_deployment_smoke_request_created`。
+6. 文档已更新：`command-fulfillment.spec.md`、`native-deployment.execution.spec.md`、`live-e2e-report.spec.md`、`b2-pdf-gap-todo.spec.md` 和本协作日志。
+
+### 待验证
+本轮完成代码与文档修复后，需要按 repair loop 重启后端并重跑 `command_fulfillment_cyberpunk_group_deploy` 公网 E2E；通过后把最新 conversation / report / SSE / browser evidence 追加到 live E2E report。

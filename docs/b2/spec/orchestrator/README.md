@@ -13,6 +13,7 @@
 |---|---|---|
 | [core.spec.md](core.spec.md) | Current contract | Orchestrator 主行为契约：调度、DAG 并行、summary、失败处理、preview 边界 |
 | [task-planning.spec.md](task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、legacy fallback、DAG 依赖语义 |
+| [command-fulfillment.spec.md](command-fulfillment.spec.md) | Backend MVP implemented | 显式命令逐项履约、平台 preview/verify/deploy 闭环和 final summary 不误报 |
 | [clarification-gate.spec.md](clarification-gate.spec.md) | Implemented MVP | Orchestrator 进入任务规划和子 Agent 调度前的结构化需求澄清闸门 |
 | [tool-calling.spec.md](tool-calling.spec.md) | Current contract | `dispatch_agent`、workspace tools、preview/verify、自建 Agent 与 deployment platform tools |
 | [memory-context.spec.md](memory-context.spec.md) | Current contract | Orchestrator structured memory 与上下文注入设计 |
@@ -33,9 +34,10 @@
 
 1. [core.spec.md](core.spec.md)
 2. [task-planning.spec.md](task-planning.spec.md)
-3. [clarification-gate.spec.md](clarification-gate.spec.md)
-4. [workspace-conflict.spec.md](workspace-conflict.spec.md)
-5. [live-e2e-report.spec.md](live-e2e-report.spec.md)
+3. [command-fulfillment.spec.md](command-fulfillment.spec.md)
+4. [clarification-gate.spec.md](clarification-gate.spec.md)
+5. [workspace-conflict.spec.md](workspace-conflict.spec.md)
+6. [live-e2e-report.spec.md](live-e2e-report.spec.md)
 
 修改 Orchestrator 需求澄清 / 代码前追问：
 
@@ -72,9 +74,10 @@
 修改 Orchestrator 原生部署：
 
 1. [native-deployment.execution.spec.md](native-deployment.execution.spec.md)
-2. [tool-calling.spec.md](tool-calling.spec.md)
-3. [../deployment-release-backend.execution.spec.md](../deployment-release-backend.execution.spec.md)
-4. [live-e2e-report.spec.md](live-e2e-report.spec.md)
+2. [command-fulfillment.spec.md](command-fulfillment.spec.md)
+3. [tool-calling.spec.md](tool-calling.spec.md)
+4. [../deployment-release-backend.execution.spec.md](../deployment-release-backend.execution.spec.md)
+5. [live-e2e-report.spec.md](live-e2e-report.spec.md)
 
 ---
 
@@ -97,6 +100,9 @@
 - 前端 stream/store 已支持 `message_start` / `message_done` / `message_error` 和带子 `message_id` 的 block/tool/process delta；本地 targeted tests、`tsc --noEmit`、`pnpm build` 通过。公网 `154.44.25.94:1573` 静态资源不在当前后端主机上，本轮未执行远端前端静态发布。
 - ReAct trace 默认不再进入普通聊天流；调试证据仍记录在 run detail / memory event。需要调试可显式开启 `react_trace_visible=true`。
 - 可选 LLM response polish 只接收结构化事实，失败、空输出或包含内部 trace 词时回退 deterministic summary。
+- Command fulfillment backend MVP 已实现：Orchestrator 会 deterministic 提取文档、代码产物、多智能体、审阅、预览、浏览器验收、部署、Diff、源码打包等显式要求，写入 run detail `command_fulfillment_status` event，并让最终用户可见 summary 只根据 fulfillment 状态说明完成或未完成。
+- 用户要求“部署/发布/上线”时，平台 preview URL 不等于部署完成；Orchestrator 需要在 preview/browser verify 后调用 `create_deployment`，失败时不得在 final text 中误报“已部署”。
+- 2026-06-07 command fulfillment 公网 repair loop 已通过：`/tmp/agenthub_command_fulfillment_report.json`、`/tmp/agenthub_command_fulfillment_sse.jsonl`、`/tmp/agenthub_command_fulfillment_browser.json`，conversation `25ff9e75-7776-46b2-8549-babb78555177`，`passed=true`；覆盖 Codex/OpenCode runtime failure 后 fallback/repair、Orchestrator coordination review fallback 生成 `review.md`、8082 preview、browser verify 和 static release deployment。
 
 ---
 
@@ -224,3 +230,16 @@
 - 失败 Agent 会进入短期 cooldown；planner 和 fallback selection 会跳过 cooldown / unavailable Agent，避免反复派给已失败 runtime。
 - `agent_fallback_matrix` 公网 API/SSE E2E 已通过：report `/tmp/agenthub_agent_fallback_matrix_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`，`passed=true`。
 - Matrix 覆盖 `codex-helper`、`claude-code`、`opencode-helper` 三个首选 Agent 失败后自动切换到可用 fallback Agent；失败 attempt 与 fallback attempt 分别持久化为独立 child message，父 Orchestrator 不内嵌子 Agent 输出，可见文本无内部 trace。
+
+2026-06-07 fallback / 真实群聊体验 hardening：
+
+- `_run_task()` attempt 前会过滤当前会话不可运行、cooldown、run-local 已硬失败和非 group scope Agent；已知不可运行 Agent 不再先创建失败 child message。
+- 单次 Orchestrator run 内新增 run-local failed runtime 状态；某 Agent 一旦出现 runtime hard failure，后续 task 和后续 batch 立即避开它。
+- Run-local failed runtime 只影响当前 run 的执行选择；全局 cooldown 才可能影响后续 planner / fallback selection。
+- 并行 executor 会按首选可运行 Agent 去重选取 batch，避免同一坏 runtime 在同批任务中刷出多条失败消息。
+- runtime hard failure 判定收窄为 auth / quota / credential / CLI missing / provider runtime unavailable / 明确 runtime timeout；artifact missing、普通 not found、验证/构建/test 失败只触发当前 task fallback，不进入 runtime cooldown。
+- 子 Agent error chunk 会保留 `error_code` 信号；即使用户可读 `error` 只是 `process exited`，`external_runtime_error` / `runtime_idle_timeout` 等 code 仍能触发 run-local unavailable。
+- 子 Agent `message_error.error` 与空 error child message 统一走可见错误清洗，不暴露 `Permission denied`、`[Errno`、`.claude.json`、`/root/.agenthub`、raw stderr、stack trace 或 `call_`。
+- Legacy fullstack fallback 不再硬编码“团队 OKR 轻量看板”；只保留用户请求中的主题和产物要求，无法抽取时使用通用产品交付演示语义。
+- 本地 targeted gate：`tests/test_orchestrator.py`、`tests/test_orchestrator_planning.py`、`tests/test_orchestrator_response_presentation.py`、`tests/test_stream_content_blocks.py`、`tests/test_orchestrator_live_e2e_script.py` 共 `180 passed`；Ruff、Mypy、`git diff --check` passed。
+- 公网 `agent_fallback_matrix` 已重跑通过：report `/tmp/agenthub_agent_fallback_matrix_report.json`，SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`，`passed=true`。Codex / OpenCode case 覆盖 preflight skip 后直接改派 writer；Claude case 覆盖先出现清洗后的 error child message 再改派 writer。

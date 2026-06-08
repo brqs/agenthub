@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
 > 状态：Passed
-> 最后更新：2026-06-05
+> 最后更新：2026-06-07
 
 ---
 
@@ -48,6 +48,11 @@
 - `/tmp/agenthub_group_messages_report.json`
 - `/tmp/agenthub_agent_fallback_matrix_report.json`
 - `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`
+- `/tmp/agenthub_agent_fallback_matrix_taskcard_report.json`
+- `/tmp/agenthub_agent_fallback_matrix_taskcard_sse.jsonl`
+- `/tmp/agenthub_command_fulfillment_report.json`
+- `/tmp/agenthub_command_fulfillment_sse.jsonl`
+- `/tmp/agenthub_command_fulfillment_browser.json`
 
 最终结论：`passed=true`。
 
@@ -85,6 +90,7 @@ instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`
 | Case 8 - Agent Capability Profile v1 | 当前 conversation 内形成 Claude failure / Opencode success 画像；planner 看到画像后将未点名的 follow-up 唯一 task/attempt 直接分配给 Opencode | passed |
 | Case 9 - True Agent Group Messages | group + Orchestrator 运行中为实际负责 Agent 创建独立 child message；SSE 输出 `message_start` / `message_done` / `message_error` 与子 `message_id`；父 Orchestrator final text 无内部 trace | passed |
 | Case 10 - Generic Agent Fallback Matrix | Codex / Claude Code / OpenCode Helper 任一首选 Agent 失败后，Orchestrator 自动切换到可用 fallback Agent；失败与成功 attempt 分别写入独立 child message | passed |
+| Case 11 - Command Fulfillment Cyberpunk Group Deploy | 显式文档/代码/Diff/多 Agent/review/preview/browser verify/deploy 要求逐项履约；Codex/OpenCode 真实失败后 fallback/repair，最终生成 `review.md` 并发布静态站点 | passed |
 
 Case 5 证据：
 
@@ -925,7 +931,7 @@ uv run python -m mypy \
 - 本轮不把上述 live 阻断伪装为通过；后续需要先确认公网 8000 落点与 Codex quota /
   runtime policy，再重跑五个新增场景。
 
-2026-06-06 通用 Agent fallback matrix repair loop：
+2026-06-06 通用 Agent fallback matrix repair loop（历史证据，已被 2026-06-07 当前内置矩阵取代）：
 
 ```text
 script: backend/scripts/orchestrator_live_e2e.py
@@ -971,7 +977,96 @@ agent_fallback_opencode_unavailable:
 - 失败 Agent 独立 child message 以 `message_error` / `status="error"` 结束；fallback Agent 独立 child message 以 `message_done` / `status="done"` 结束。
 - persisted workspace 均包含对应 fallback markdown 产物。
 - 父 Orchestrator message 不内嵌子 Agent block；最终可见文本不包含 `ReAct step`、`Observation:`、`Action:`、`Tools:`、`call_`、raw stderr 或 stack trace。
-- 本轮验证的是通用 fallback 调度、message attribution 和可见文本清洗，不依赖前端质量演示模板，也不验收前端 UI。
+- 本轮曾使用旧内置 fallback 证据 Agent；当前产品内置 Agent 已收敛为 `claude-code`、`opencode-helper`、`codex-helper`，请以后续 2026-06-07 task card E2E 为当前验收依据。
+
+2026-06-07 fallback task card display E2E：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://127.0.0.1:8000
+scenario: agent_fallback_matrix
+report: /tmp/agenthub_agent_fallback_matrix_taskcard_report.json
+sse: /tmp/agenthub_agent_fallback_matrix_taskcard_sse.jsonl
+backend_pid: 3220462
+seed: not required; temporary orchestrator config restored
+local_health: {"status":"ok"}
+passed: true
+```
+
+Case evidence：
+
+```text
+agent_fallback_claude_unavailable:
+  planned_agent_id: claude-code
+  final_agent_id: opencode-helper
+  task_card.agent_id: opencode-helper
+  child_messages: claude-code=error, opencode-helper=done
+  artifact: fallback-claude.md
+
+agent_fallback_opencode_unavailable:
+  planned_agent_id: opencode-helper
+  final_agent_id: claude-code
+  task_card.agent_id: claude-code
+  child_messages: opencode-helper=error, claude-code=done
+  artifact: fallback-opencode.md
+
+agent_fallback_codex_unavailable:
+  planned_agent_id: codex-helper
+  final_agent_id: claude-code
+  task_card.agent_id: claude-code
+  child_messages: codex-helper=error, claude-code=done
+  artifact: fallback-codex.md
+```
+
+验收结论：
+
+- 三个 case 均通过真实 HTTP/SSE，首选 Agent 失败后由当前内置 Agent 之一完成 fallback。
+- task card 不再展示“原计划 Agent 正在做”；fallback 后 `planned_agent_id` 保留原 Agent，`agent_id/final_agent_id` 指向最终 attempt Agent。
+- 报告交叉校验了 task card、`orchestrator_run_detail.attempts/events`、child message terminal 状态和 workspace artifact。
+- E2E 使用 per-agent `sub_agent_config_overrides` 制造可控 runtime 失败，不修改 Agent 表持久配置；执行结束后 Orchestrator config 已恢复。
+
+2026-06-07 command fulfillment repair loop：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: command_fulfillment_cyberpunk_group_deploy
+report: /tmp/agenthub_command_fulfillment_report.json
+sse: /tmp/agenthub_command_fulfillment_sse.jsonl
+browser_report: /tmp/agenthub_command_fulfillment_browser.json
+conversation_id: 25ff9e75-7776-46b2-8549-babb78555177
+backend_pid: 3398114
+seed: not required after latest app/scripts-only changes
+alembic_current: 7e8f9012abcd
+local_health: {"status":"ok"}
+public_health: {"status":"ok"}
+passed: true
+```
+
+验收证据：
+
+- `command_child_agents_at_least_2=true`，SSE 中出现 Codex / Claude / OpenCode 尝试与后续 Claude repair child message。
+- `command_fulfillment_document/code_artifacts/multi_agent/review/preview/browser_verify/deployment/diff_satisfied=true`。
+- workspace 包含 `planning.md`、`design-doc.md`、`index.html`、`styles.css`、`app.js`、`diff.md`、`review.md`。
+- 正式平台闭环为 `start_workspace_preview -> verify_web_preview -> create_deployment`；8082 preview 可访问，browser report `passed=true`，static release URL `http://111.229.151.159:8000/releases/vw1Obog5VUQ1cY4lCNzBaevfgnDc1Epy/index.html` 返回 200。
+- `agent_output_no_long_running_server_command=true`，Orchestrator 最终/中间可见文本不再建议用户手动运行 `python -m http.server`、`npm run dev` 等本地长运行服务命令。
+- 本轮真实遇到 `codex-helper` 与 `opencode-helper` runtime failure；Orchestrator 没有停止整条命令，后续通过 fallback/repair 和 Orchestrator coordination review 生成 `review.md` 并完成部署。
+- `planner_used_llm=false` 作为诊断项保留，但不属于该 scenario 的 hard acceptance：显式 command contract 下允许 LLM planner 失败后进入通用 command fallback，不视为产品失败。
+
+2026-06-08 02:24 repair loop 补充 hardening：
+
+- `command_fulfillment_cyberpunk_group_deploy` 新增硬验收
+  `message_error_no_forbidden_terms`，SSE `message_error.error` 不得泄露
+  Codex/OpenCode raw runtime transcript、workspace path、`approval: never`、
+  `external_runtime_error` 等内部细节。
+- 新增 `command_final_text_no_contradictory_completion`：当 run detail 中
+  `browser_verify/deployment` 已 `satisfied` 时，父 Orchestrator 可见 text 不得仍写
+  “尚未完成浏览器级验收 / 尚未完成平台部署”。
+- 新增 `container_deployment_smoke_request_created`：同一 workspace 额外发起
+  `create_deployment(kind="container")`，生产默认关闭容器 worker 时应返回受控
+  `not_supported`，demo worker 启用时可进入 queued / published / failed 终态。
+- 本条为 repair loop 计划和本地实现记录；公网重跑后的 conversation / report / SSE
+  证据在执行后追加。
 
 ---
 

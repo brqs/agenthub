@@ -530,7 +530,46 @@ class TestCodexAdapterStream:
             "done",
         ]
         assert chunks[2].text_delta == "codex cli default ok"
+        assert seen_command[0].endswith("codex")
         assert seen_command[seen_command.index("--sandbox") + 1] == "danger-full-access"
+
+    async def test_cli_runtime_uses_configured_command(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        seen_command: list[str] = []
+
+        def write_output(command: list[str]) -> None:
+            seen_command.extend(command)
+            output_path = Path(command[command.index("-o") + 1])
+            output_path.write_text("custom codex command ok\n", encoding="utf-8")
+
+        monkeypatch.setattr(
+            codex_module,
+            "stream_cli_text",
+            _fake_stream_cli_text(
+                CliResult(return_code=0, stdout="ignored", stderr=""),
+                on_command=write_output,
+            ),
+        )
+
+        chunks = await _collect(
+            adapter,
+            config={"command": "/tmp/custom-codex-cli"},  # noqa: S108
+            workspace_path=tmp_path,
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "custom codex command ok"
+        assert seen_command[0] == "/tmp/custom-codex-cli"
 
     async def test_cli_output_removes_preview_server_commands(
         self,

@@ -7,6 +7,7 @@ from typing import Any
 
 from app.agents.config_fields import (
     BUILTIN_ORCHESTRATOR_FIELDS,
+    CLAUDE_CODE_RUNTIMES,
     CODEX_RUNTIMES,
     CODEX_SANDBOX_MODES,
     EXTERNAL_DIRECT_CHAT_FIELDS,
@@ -203,7 +204,29 @@ def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> 
                 details={"field": "command", "value": command},
             )
         _validate_string_list(config, "args")
+    if provider == "claude_code":
+        runtime = config.get("runtime")
+        if runtime is not None and runtime not in CLAUDE_CODE_RUNTIMES:
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'runtime' must be one of: cli, sdk",
+                details={"field": "runtime", "value": runtime},
+            )
+        command = config.get("command")
+        if command is not None and not isinstance(command, str | list):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'command' must be a string or list",
+                details={"field": "command", "value": command},
+            )
     if provider == "codex":
+        command = config.get("command")
+        if command is not None and not isinstance(command, str | list):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'command' must be a string or list",
+                details={"field": "command", "value": command},
+            )
         runtime = config.get("runtime")
         if runtime is not None and runtime not in CODEX_RUNTIMES:
             raise AgentConfigValidationError(
@@ -316,6 +339,7 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "react_trace_visible")
     _validate_bool(config, "llm_planning")
     _validate_bool(config, "planner_fallback_to_template")
+    _validate_bool(config, "available_agents_authoritative")
     _validate_bool(config, "clarification_gate_enabled")
     _validate_bool(config, "workspace_docs_enabled")
     _validate_string_list(config, "task_fallback_agent_ids")

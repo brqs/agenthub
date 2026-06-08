@@ -30,12 +30,13 @@ export function TaskCardBlock({
   const runningTask = block.tasks.find((task) => task.status === 'running');
   const hasError = block.tasks.some((task) => task.status === 'error');
   const hasInterrupted = block.tasks.some((task) => task.status === 'interrupted');
+  const runningAgentId = runningTask ? displayAgentId(runningTask) : null;
   const stage = hasError
     ? '执行失败'
     : hasInterrupted
       ? '已打断'
       : runningTask
-        ? `正在调度 @${agents.find((item) => item.id === runningTask.agent_id)?.name ?? runningTask.agent_id}`
+        ? `正在调度 @${agents.find((item) => item.id === runningAgentId)?.name ?? runningAgentId}`
         : doneCount === block.tasks.length && block.tasks.length > 0
           ? '执行结果已汇总'
           : '等待调度';
@@ -54,7 +55,11 @@ export function TaskCardBlock({
       <div className="space-y-2">
         {block.tasks.map((task, index) => {
           const Icon = STATUS_ICON[task.status];
-          const agent = agents.find((item) => item.id === task.agent_id);
+          const agentId = displayAgentId(task);
+          const plannedAgentId = task.planned_agent_id;
+          const agent = agents.find((item) => item.id === agentId);
+          const plannedAgent = agents.find((item) => item.id === plannedAgentId);
+          const reassigned = plannedAgentId !== undefined && plannedAgentId !== null && plannedAgentId !== agentId;
           return (
             <div
               key={task.id}
@@ -68,8 +73,9 @@ export function TaskCardBlock({
               <Icon className={`h-4 w-4 ${STATUS_CLASS[task.status]}`} />
               <span className="text-xs text-slate-500">{index + 1}</span>
               <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{task.title}</span>
-              <span className="max-w-36 truncate rounded bg-slate-800 px-2 py-1 text-xs text-slate-400">
-                @{agent?.name ?? task.agent_id}
+              <span className="max-w-44 truncate rounded bg-slate-800 px-2 py-1 text-xs text-slate-400">
+                @{agent?.name ?? agentId}
+                {reassigned ? ` <- @${plannedAgent?.name ?? plannedAgentId}` : ''}
               </span>
             </div>
           );
@@ -77,4 +83,8 @@ export function TaskCardBlock({
       </div>
     </div>
   );
+}
+
+function displayAgentId(task: TaskCardBlockData['tasks'][number]): string {
+  return task.final_agent_id ?? task.current_agent_id ?? task.agent_id;
 }

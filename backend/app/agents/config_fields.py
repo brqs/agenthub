@@ -19,6 +19,7 @@ TOP_LEVEL_PROVIDERS: set[str] = {
     "mock",
 }
 CODEX_RUNTIMES: set[str] = {"cli", "sdk"}
+CLAUDE_CODE_RUNTIMES: set[str] = {"cli", "sdk"}
 CODEX_SANDBOX_MODES: set[str] = {"read-only", "workspace-write", "danger-full-access"}
 
 
@@ -104,6 +105,7 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "react_enabled": True,
     "react_trace_visible": False,
     "direct_answer_on_planner_failure": True,
+    "available_agents_authoritative": False,
     "task_fallback_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
     "max_task_attempts": 3,
     "max_iterations": 10,
