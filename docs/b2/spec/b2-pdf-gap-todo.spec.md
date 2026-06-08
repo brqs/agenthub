@@ -928,3 +928,65 @@ container_url: http://111.229.151.159:8000/releases/<token>
 container_runtime_kind: podman
 container_stop_cleanup_ok: true
 ```
+
+## 13. 2026-06-08 Orchestrator Context Routing Hardening
+
+本轮新增 Orchestrator 多轮追问与证据路由修复，目标是让 Orchestrator 在“生成了吗 / 预览地址是什么 / 验收通过了吗 / 改了哪些文件”这类追问中读取上一轮结构化证据，而不是把追问重新送进 planner：
+
+- 新增 [orchestrator/context-routing.spec.md](orchestrator/context-routing.spec.md)。
+- 状态、文件、预览、部署、浏览器验收追问会在 planner 前走 deterministic evidence answer，不创建子 Agent message，不重跑任务。
+- “继续完成部署 / 帮我修复 / 修改主题”这类继续或修复命令仍可调度，但会携带 `Orchestrator evidence pack:` system message，包含最近 run、fulfillment、workspace 文件、preview、deployment 和 evaluation 的 bounded facts。
+- Evidence pack 不传全部历史、全部 workspace 或 raw runtime transcript；用户可见回答也禁止泄露 `invalid_task_plan`、`call_`、workspace 绝对路径、stderr、stack trace、planner/debug prompt。
+- Live E2E 新增 `orchestrator_context_followup_repair`，默认证据路径：
+  - `/tmp/agenthub_orchestrator_context_followup_report.json`
+  - `/tmp/agenthub_orchestrator_context_followup_sse.jsonl`
+  - `/tmp/agenthub_orchestrator_context_followup_browser.json`
+
+本轮本地门禁已通过：
+
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_orchestrator_react.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_orchestrator_quality_gate.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_conversation_api.py \
+  tests/test_orchestrator_live_e2e_script.py \
+  tests/test_b1_quality.py::test_stream_endpoint_existing_session_releases_message_lock -q
+# 246 passed
+
+uv run python -m ruff check app/agents/orchestrator app/services app/api/v1 tests scripts
+# passed
+
+uv run python -m mypy app/agents/orchestrator app/services app/api/v1
+# passed
+```
+
+公网 repair loop 已通过：
+
+```text
+backend_pid: 4110039 -> 4130667
+seed_agents: not required
+alembic_current: b6c7d8e9f012 (head) (mergepoint)
+local_health: {"status":"ok"} 200
+public_health: {"status":"ok"} 200
+
+scenario: orchestrator_context_followup_repair
+base_url: http://111.229.151.159:8000
+conversation_id: 7488f39a-4eda-4f06-b21a-4540a35eb89a
+user_message_id: 67698ae9-84aa-47ef-8898-d47c3c9e633d
+agent_message_id: 75f4a83b-44f5-4b9d-9de1-a64e739dd055
+run_id: 230826eb-7e99-4ae2-961a-31ffc6e3a84b
+report: /tmp/agenthub_orchestrator_context_followup_report.json
+sse: /tmp/agenthub_orchestrator_context_followup_sse.jsonl
+browser_report: /tmp/agenthub_orchestrator_context_followup_browser.json
+passed: true
+context_followups_all_passed: true
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/Deo-L2-iNQbkHrJ7ZiktHJpfAsy02Sj6/index.html
+```
+
+额外修复：`GET /messages/{id}/stream` 对已存在 stream session 的 subscriber 会先释放
+message row lock 再订阅，避免公网 E2E 在最终 `done` 前被长事务阻塞。

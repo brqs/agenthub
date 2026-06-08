@@ -168,6 +168,30 @@ class _CountingAdapter:
         yield StreamChunk(event_type="done", agent_id="test-agent", total_blocks=1)
 
 
+class _GatedAdapter:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def stream(
+        self,
+        messages: list[Any],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        _ = messages, system_prompt, config, workspace_path, tool_specs
+        yield StreamChunk(event_type="start", agent_id="test-agent")
+        self.started.set()
+        await self.release.wait()
+        yield StreamChunk(event_type="block_start", block_index=0, block_type="text")
+        yield StreamChunk(event_type="delta", block_index=0, text_delta="hello")
+        yield StreamChunk(event_type="block_end", block_index=0)
+        yield StreamChunk(event_type="done", agent_id="test-agent", total_blocks=1)
+
+
 async def _insert_messages(
     conversation_id: str,
     count: int,
@@ -450,6 +474,54 @@ async def test_stream_run_manager_reuses_runtime_for_multiple_subscribers(
     await session.task
     assert adapter.calls == 1
 
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "done"
+        assert message.content == [{"type": "text", "text": "hello"}]
+
+
+async def test_stream_endpoint_existing_session_releases_message_lock(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path))
+    adapter = _GatedAdapter()
+
+    async def fake_get_adapter(agent_id: str, db: Any) -> _GatedAdapter:
+        _ = agent_id, db
+        return adapter
+
+    monkeypatch.setattr(stream_module, "get_adapter", fake_get_adapter)
+
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        message.status = "streaming"
+        await db.commit()
+        session = await stream_module.stream_run_manager.start(
+            message,
+            stream_module._run_stream_session,
+        )
+
+    await asyncio.wait_for(adapter.started.wait(), timeout=2)
+    subscriber = asyncio.create_task(
+        client.get(f"/api/v1/messages/{agent_message_id}/stream", headers=headers)
+    )
+    await asyncio.sleep(0.05)
+    adapter.release.set()
+    response = await asyncio.wait_for(subscriber, timeout=5)
+
+    assert response.status_code == 200
+    assert "event: done" in response.text
+    await asyncio.wait_for(session.task, timeout=2)
     async with SessionFactory() as db:
         message = await db.get(Message, agent_message_id)
         assert message is not None

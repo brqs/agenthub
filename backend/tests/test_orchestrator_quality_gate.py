@@ -350,6 +350,56 @@ async def test_quality_gate_creates_missing_frontend_artifacts_before_preview(
     assert "No HTML entry file was found" in repair.received_messages[-1].content
 
 
+async def test_quality_gate_no_repair_agent_finishes_with_readable_text(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>bad</h1></body></html>",
+    )
+    executor = FakePlatformToolExecutor([False])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content="@orchestrator 做一个前端网页演示，部署在端口8082，完成浏览器质量验收",
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": [],
+            "sub_adapters": {"claude-code": generator},
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_quality_max_repair_rounds": 1,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [call[0] for call in executor.calls] == [
+        "start_workspace_preview",
+        "verify_web_preview",
+    ]
+    text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "浏览器级质量验收暂时无法继续自动修复" in text
+    assert "browser_verification_failed" not in text
+    assert "no repair agent" not in text
+
+
 async def test_quality_gate_fails_after_repair_limit(tmp_path: Path) -> None:
     generator = FakeWorkspaceWriterAdapter(
         "claude-code",

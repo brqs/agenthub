@@ -10,8 +10,16 @@ from app.agents.orchestrator._internal.planning.routing import (
     is_artifact_build_request,
 )
 from app.agents.orchestrator._internal.planning.templates.legacy import derive_tasks
-from app.agents.orchestrator._internal.routing.direct_answer import _answer_messages
-from app.agents.orchestrator.planner import PLANNER_SYSTEM_PROMPT
+from app.agents.orchestrator._internal.routing.direct_answer import (
+    _answer_messages,
+    should_direct_answer,
+)
+from app.agents.orchestrator._internal.routing.evidence import (
+    ORCHESTRATOR_EVIDENCE_HEADER,
+    is_context_action_request,
+    is_evidence_followup_request,
+)
+from app.agents.orchestrator.planner import PLANNER_SYSTEM_PROMPT, _planner_messages
 from app.agents.orchestrator.task_planning import has_task_intent
 from app.agents.orchestrator.types import OrchestratorRunContext
 from app.agents.types import ChatMessage, StreamChunk
@@ -203,6 +211,80 @@ def test_artifact_design_requests_are_task_intent_not_direct_answer() -> None:
     assert has_task_intent(campus_request)
     assert not is_artifact_build_request("\u4f60\u597d")
     assert not is_artifact_build_request("Build just a launch plan")
+
+
+def test_context_followup_request_routes_to_evidence_answer() -> None:
+    request = "主题是赛博朋克风的网站生成了吗"
+    messages = [ChatMessage(role="user", content=f"@orchestrator {request}")]
+
+    assert has_task_intent(request)
+    assert is_evidence_followup_request(request)
+    assert not is_context_action_request(request)
+    assert should_direct_answer(
+        {"managed_agent_ids": ["codex-helper"]},
+        messages,
+        latest_user_request=lambda items: items[-1].content,
+        agent_id_list=lambda _value: ["codex-helper"],
+        explicit_agent_mentions=lambda _agent_ids, _request: [],
+        strip_orchestrator_mention=lambda text: text.replace("@orchestrator", "").strip(),
+        has_task_intent=has_task_intent,
+    )
+
+
+async def test_context_followup_does_not_call_planner() -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(event_type="delta", text_delta="not json"),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(role="user", content="主题是赛博朋克风的网站生成了吗"),
+        ],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["codex-helper"],
+        },
+    )
+
+    visible_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert planner.calls == []
+    assert chunks[-1].event_type == "done"
+    assert "invalid_task_plan" not in visible_text
+    assert "当前会话" in visible_text
+
+
+def test_context_action_request_evidence_pack_is_planner_whitelisted() -> None:
+    assert is_context_action_request("继续完成缺失的部署")
+    assert not is_evidence_followup_request("继续完成缺失的部署")
+
+    planner_messages = _planner_messages(
+        {},
+        [
+            ChatMessage(
+                role="system",
+                content=(
+                    f"{ORCHESTRATOR_EVIDENCE_HEADER}\n"
+                    "- latest_run_status: done\n"
+                    "- files: planning.md, index.html\n"
+                    "- preview: url=http://example.test/index.html\n"
+                ),
+            ),
+            ChatMessage(role="user", content="继续完成缺失的部署"),
+        ],
+        "继续完成缺失的部署",
+        ["codex-helper"],
+    )
+
+    planner_content = planner_messages[0].content
+    assert ORCHESTRATOR_EVIDENCE_HEADER in planner_content
+    assert "latest_run_status: done" in planner_content
+    assert "planning.md" in planner_content
 
 
 async def test_orchestrator_planner_cannot_select_agent_outside_available_agents() -> None:
