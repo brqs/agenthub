@@ -509,6 +509,7 @@ AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
     {
         "name": "agent_fallback_claude_unavailable",
         "target_agent_id": "claude-code",
+        "fallback_agent_id": "opencode-helper",
         "artifact_path": "fallback-claude.md",
         "sub_agent_config_overrides": {
             "claude-code": {
@@ -524,6 +525,7 @@ AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
     {
         "name": "agent_fallback_opencode_unavailable",
         "target_agent_id": "opencode-helper",
+        "fallback_agent_id": "claude-code",
         "artifact_path": "fallback-opencode.md",
         "sub_agent_config_overrides": {
             "opencode-helper": {"command": "/tmp/agenthub-missing-opencode-cli"},  # noqa: S108
@@ -532,6 +534,7 @@ AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
     {
         "name": "agent_fallback_codex_unavailable",
         "target_agent_id": "codex-helper",
+        "fallback_agent_id": "claude-code",
         "artifact_path": "fallback-codex.md",
         "sub_agent_config_overrides": {
             "codex-helper": {"command": ["python3", AGENT_FALLBACK_E2E_FAIL_RUNTIME]},
@@ -550,6 +553,13 @@ FORBIDDEN_VISIBLE_TRACE_TERMS = (
     "/root/.agenthub",
     "claude-auth",
     ".claude.json",
+    "/workspaces/",
+    "OpenAI Codex",
+    "workdir:",
+    "approval:",
+    "sandbox:",
+    "UnknownError",
+    "external_runtime_error",
 )
 SERVER_COMMAND_RE = re.compile(
     r"npm\s+run\s+dev|pnpm\s+dev|vite\s+--host|python\d*\s+-m\s+http\.server|"
@@ -1224,6 +1234,7 @@ async def _restore_agent_provider(agent_id: str, provider: str) -> dict[str, Any
 async def _patch_orchestrator_static_task_config(
     *,
     target_agent_id: str,
+    fallback_agent_id: str,
     artifact_path: str,
     sub_agent_config_overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -1669,6 +1680,17 @@ def workflow_blocks_from_messages(messages: list[dict[str, Any]]) -> list[dict[s
 
 def forbidden_visible_terms(text: str) -> list[str]:
     return [term for term in FORBIDDEN_VISIBLE_TRACE_TERMS if term in text]
+
+
+def message_error_text(events: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for event in events:
+        if event.get("event") != "message_error":
+            continue
+        error = event_data(event).get("error")
+        if isinstance(error, str) and error:
+            parts.append(error)
+    return "\n".join(parts)
 
 
 def child_messages_for_user(
@@ -2868,15 +2890,27 @@ def run_agent_fallback_matrix_case(
         }
         original_orchestrator_config: dict[str, Any] | None = None
         original_agent_provider: str | None = None
+        fallback_agent_id = str(case["fallback_agent_id"])
+        original_fallback_agent_config: dict[str, Any] | None = None
         try:
             provider_patch = case.get("agent_provider_patch")
             if isinstance(provider_patch, str) and provider_patch.strip():
                 original_agent_provider = asyncio.run(
                     _patch_agent_provider(target_agent_id, provider_patch.strip())
                 )
+            original_fallback_agent_config = asyncio.run(
+                _patch_builtin_agent_config(
+                    fallback_agent_id,
+                    {
+                        "allowed_tools": ["write_file"],
+                        "max_iterations": 4,
+                    },
+                )
+            )
             original_orchestrator_config = asyncio.run(
                 _patch_orchestrator_static_task_config(
                     target_agent_id=target_agent_id,
+                    fallback_agent_id=fallback_agent_id,
                     artifact_path=artifact_path,
                     sub_agent_config_overrides=case.get("sub_agent_config_overrides"),
                 )
@@ -3009,6 +3043,16 @@ def run_agent_fallback_matrix_case(
                         "restored": False,
                         "error": str(exc),
                     }
+            if original_fallback_agent_config is not None:
+                try:
+                    restores[fallback_agent_id] = asyncio.run(
+                        _restore_builtin_agent_config(
+                            fallback_agent_id,
+                            original_fallback_agent_config,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    restores[fallback_agent_id] = {"restored": False, "error": str(exc)}
             case_report["restores"] = restores
         case_reports.append(case_report)
 
@@ -4434,6 +4478,44 @@ def main() -> None:
                     report["checks"]["command_static_site_url_200"] = False
             else:
                 report["checks"]["command_static_site_url_200"] = False
+            command_parent_visible_text = visible_agent_text(content_blocks)
+            contradictory_terms = []
+            if fulfillment_statuses.get("deployment") == "satisfied":
+                contradictory_terms.extend(
+                    term
+                    for term in ("尚未完成平台部署", "未完成部署", "尚未部署")
+                    if term in command_parent_visible_text
+                )
+            if fulfillment_statuses.get("browser_verify") == "satisfied":
+                contradictory_terms.extend(
+                    term
+                    for term in ("尚未完成浏览器级验收", "未完成验收", "质量验收未完成")
+                    if term in command_parent_visible_text
+                )
+            report["command_contradictory_final_terms"] = contradictory_terms
+            report["checks"]["command_final_text_no_contradictory_completion"] = (
+                not contradictory_terms
+            )
+            container_smoke = client.post(
+                f"/api/v1/workspaces/{conv_id}/deployments",
+                headers=headers,
+                json={"kind": "container"},
+            )
+            report["container_deployment_smoke_status_code"] = (
+                container_smoke.status_code
+            )
+            container_smoke_body = (
+                container_smoke.json()
+                if container_smoke.status_code in {200, 201}
+                else {"error": container_smoke.text}
+            )
+            report["container_deployment_smoke"] = container_smoke_body
+            report["checks"]["container_deployment_smoke_request_created"] = (
+                container_smoke.status_code == 201
+                and container_smoke_body.get("kind") == "container"
+                and container_smoke_body.get("status")
+                in {"not_supported", "queued", "publishing", "published", "failed"}
+            )
 
         message_blocks = (target or {}).get("content") or []
         text = block_text(message_blocks)
@@ -4452,6 +4534,15 @@ def main() -> None:
         )
         report["checks"]["no_raw_input_tool_arguments"] = '"_raw_input"' not in text
         report["checks"]["no_workspace_path_escape_error"] = "path escapes workspace" not in text
+        sse_message_error_text = message_error_text(events)
+        sse_message_error_forbidden_terms = forbidden_visible_terms(
+            sse_message_error_text
+        )
+        report["sse_message_error_text"] = sse_message_error_text
+        report["sse_message_error_forbidden_terms"] = sse_message_error_forbidden_terms
+        report["checks"]["message_error_no_forbidden_terms"] = (
+            not sse_message_error_forbidden_terms
+        )
 
         tool_errors = classify_tool_errors(events)
         fatal_tool_errors = [error for error in tool_errors if not error.get("recoverable")]
@@ -4749,6 +4840,20 @@ def main() -> None:
                     ),
                     "command_static_site_url_200": report["checks"].get(
                         "command_static_site_url_200",
+                        False,
+                    ),
+                    "command_final_text_no_contradictory_completion": report[
+                        "checks"
+                    ].get(
+                        "command_final_text_no_contradictory_completion",
+                        False,
+                    ),
+                    "message_error_no_forbidden_terms": report["checks"].get(
+                        "message_error_no_forbidden_terms",
+                        False,
+                    ),
+                    "container_deployment_smoke_request_created": report["checks"].get(
+                        "container_deployment_smoke_request_created",
                         False,
                     ),
                 }

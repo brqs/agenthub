@@ -375,8 +375,8 @@ message_start: 2
 message_done: 1
 message_error: 1
 child_statuses:
-  opencode-helper: error
-  claude-code: done
+  one child agent: error
+  one fallback child agent: done
 checks:
   child_agents_are_not_orchestrator: true
   child_content_present: true

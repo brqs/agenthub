@@ -42,6 +42,11 @@ export type OrchestratorRunDetail = Schemas['OrchestratorRunDetailOut'];
 export type OrchestratorTask = Schemas['OrchestratorTaskOut'];
 export type OrchestratorTaskAttempt = Schemas['OrchestratorTaskAttemptOut'];
 export type OrchestratorRunEvent = Schemas['OrchestratorRunEventOut'];
+export type Memory = Schemas['MemoryOut'];
+export type MemoryList = Schemas['MemoryList'];
+export type MemoryMount = Schemas['MemoryMountOut'];
+export type MemoryMountList = Schemas['MemoryMountList'];
+export type UpdateMemoryRequest = Schemas['UpdateMemoryRequest'];
 
 // ─── Workspace deployments ───
 export type WorkspaceDeploymentRequest = Schemas['WorkspaceDeploymentRequest'];
@@ -209,6 +214,25 @@ export interface AttachmentBlock {
   } | null;
 }
 
+export interface TurnControlBlock {
+  type: 'turn_control';
+  agent_id?: string | null;
+  kind: 'guidance' | 'side_chat' | 'queue_action' | 'stop_and_run';
+  status:
+    | 'received'
+    | 'waiting_safe_point'
+    | 'applied'
+    | 'answered'
+    | 'cancelled'
+    | 'expired'
+    | 'failed';
+  control_id?: string | null;
+  active_agent_message_id: string;
+  title: string;
+  body?: string | null;
+  source_message_ids?: string[];
+  metadata?: Record<string, unknown>;
+}
 export interface WorkflowBlock {
   type: 'workflow';
   agent_id?: string | null;
@@ -254,6 +278,7 @@ export type ContentBlock =
   | ProcessBlock
   | ClarificationBlock
   | AttachmentBlock
+  | TurnControlBlock
   | ToolCallBlock;
 
 // ─── Messages ───
@@ -273,6 +298,39 @@ export type QueueMessageResponse = Override<
   Schemas['QueueMessageResponse'],
   { queued_message: Message }
 >;
+export interface GuidanceRequest {
+  content: ContentBlock[];
+}
+export interface SideChatRequest {
+  content: ContentBlock[];
+}
+export interface QueueReorderRequest {
+  message_ids: string[];
+}
+export interface QueueMergeRequest {
+  message_ids: string[];
+  separator?: string;
+}
+export interface QueueReorderResponse {
+  messages: Message[];
+}
+export interface TurnControl {
+  id: string;
+  conversation_id: string;
+  active_agent_message_id: string;
+  created_by_message_id?: string | null;
+  kind: TurnControlBlock['kind'];
+  state: TurnControlBlock['status'];
+  payload: Record<string, unknown>;
+  applied_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface TurnControlResponse {
+  control: TurnControl;
+  user_message?: Message | null;
+  agent_message?: Message | null;
+}
 export type UpdateMessageRequest = Schemas['UpdateMessageRequest'];
 export type InterruptMessageResponse = Override<
   Schemas['InterruptMessageResponse'],
@@ -379,6 +437,12 @@ export type StreamEvent =
       };
     }
   | { event: 'block_end'; data: { block_index: number; agent_id?: string; message_id?: string } }
+  | {
+      event: 'turn_control';
+      data: {
+        turn_control: TurnControlBlock;
+      };
+    }
   | {
       event: 'done';
       data: {

@@ -2,13 +2,17 @@ import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } 
 import {
   Activity,
   Box,
+  Brain,
   ChevronRight,
+  Check,
   Files,
   GripVertical,
   PanelRight,
   PanelRightClose,
+  Pencil,
   Pin,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { AgentAvatar } from './AgentAvatar';
 import { ArtifactPreview, type PreviewArtifactFile } from '@/components/artifact/ArtifactPreview';
@@ -23,8 +27,9 @@ import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatu
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
 import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
 import { useCreateDeployment } from '@/hooks/useDeployments';
+import { useConversationMemoryMounts, useForgetMemory, useMemories, useUpdateMemory } from '@/hooks/useMemories';
 import { useWorkspaceFile, useWorkspaceTree, useWriteWorkspaceFile } from '@/hooks/useWorkspace';
-import type { Agent, WorkspaceDeploymentRequest } from '@/lib/types';
+import type { Agent, Memory, WorkspaceDeploymentRequest } from '@/lib/types';
 import { extractApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
@@ -57,7 +62,7 @@ const STATUS_CLASS: Record<AgentWorkStatus, string> = {
   idle: 'border-slate-700 bg-slate-800 text-slate-500',
 };
 
-type RightPanelTab = 'context' | 'workspace';
+type RightPanelTab = 'context' | 'workspace' | 'memory';
 type DeploymentNoticeTone = 'success' | 'warning' | 'error';
 type DeploymentNotice = {
   kind: DeploymentKind;
@@ -74,6 +79,7 @@ type DeploymentActionIntents = Record<DeploymentKind, DeploymentActionIntent>;
 const TAB_META: Record<RightPanelTab, { label: string; icon: typeof Activity }> = {
   context: { label: 'Context', icon: Activity },
   workspace: { label: 'Workspace', icon: Files },
+  memory: { label: 'Memory', icon: Brain },
 };
 
 function getDefaultTab(hasWorkspace: boolean): RightPanelTab {
@@ -143,7 +149,7 @@ export function RightAgentPanel({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1">
+        <div className="mt-3 grid grid-cols-3 gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1">
           {(Object.keys(TAB_META) as RightPanelTab[]).map((tab) => {
             const Icon = TAB_META[tab].icon;
             return (
@@ -179,6 +185,7 @@ export function RightAgentPanel({
             onSelectPinnedMessage={onSelectPinnedMessage}
           />
         )}
+        {activeTab === 'memory' && <MemoryPanel conversationId={conversation.id} />}
       </div>
     </aside>
   );
@@ -664,6 +671,207 @@ function resolveStaticEntry(
 
 function isHtmlPath(path: string): boolean {
   return /\.html?$/i.test(path);
+}
+
+function MemoryPanel({ conversationId }: { conversationId: string }) {
+  const activeMemories = useMemories('active');
+  const candidateMemories = useMemories('candidate');
+  const mounts = useConversationMemoryMounts(conversationId);
+  const updateMemory = useUpdateMemory();
+  const forgetMemory = useForgetMemory();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+
+  function startEdit(memory: Memory) {
+    setEditingId(memory.id);
+    setDraft(memory.content);
+  }
+
+  function saveEdit(memory: Memory) {
+    const content = draft.trim();
+    if (!content) return;
+    updateMemory.mutate(
+      { memoryId: memory.id, payload: { content } },
+      {
+        onSuccess: () => {
+          setEditingId(null);
+          setDraft('');
+        },
+      },
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <section>
+        <PanelHeader icon={Brain} title="MemoryHub" meta={`${activeMemories.data?.total ?? 0} active`} />
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          重要记忆会长期保留；动态挂载只在当前回复中临时进入上下文。
+        </p>
+        <MemoryListSection
+          title="重要记忆"
+          isLoading={activeMemories.isLoading}
+          memories={activeMemories.data?.items ?? []}
+          emptyText="暂无重要记忆。"
+          editingId={editingId}
+          draft={draft}
+          onDraftChange={setDraft}
+          onEdit={startEdit}
+          onSave={saveEdit}
+          onForget={(memory) => forgetMemory.mutate(memory.id)}
+        />
+      </section>
+
+      <MemoryListSection
+        title="候选记忆"
+        isLoading={candidateMemories.isLoading}
+        memories={candidateMemories.data?.items ?? []}
+        emptyText="暂无候选记忆。"
+        editingId={editingId}
+        draft={draft}
+        onDraftChange={setDraft}
+        onEdit={startEdit}
+        onSave={saveEdit}
+        onPromote={(memory) =>
+          updateMemory.mutate({
+            memoryId: memory.id,
+            payload: { status: 'active', importance: memory.importance === 'low' ? 'normal' : memory.importance },
+          })
+        }
+        onForget={(memory) => forgetMemory.mutate(memory.id)}
+      />
+
+      <section>
+        <PanelHeader icon={Activity} title="动态挂载" meta={`${mounts.data?.total ?? 0} mounts`} />
+        {mounts.isLoading ? (
+          <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">正在加载挂载记录...</div>
+        ) : mounts.data?.items.length ? (
+          <div className="space-y-2">
+            {mounts.data.items.slice(0, 8).map((mount) => (
+              <div key={mount.id} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                  <span>{mount.mount_reason}</span>
+                  <span>{mount.rank_score.toFixed(1)}</span>
+                </div>
+                <p className="mt-1 max-h-[3.75rem] overflow-hidden text-xs leading-5 text-slate-300">
+                  {mount.memory?.content ?? '记忆已不可见或已被遗忘。'}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm text-slate-500">
+            当前会话暂无动态挂载记录。
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function MemoryListSection({
+  title,
+  isLoading,
+  memories,
+  emptyText,
+  editingId,
+  draft,
+  onDraftChange,
+  onEdit,
+  onSave,
+  onPromote,
+  onForget,
+}: {
+  title: string;
+  isLoading: boolean;
+  memories: Memory[];
+  emptyText: string;
+  editingId: string | null;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onEdit: (memory: Memory) => void;
+  onSave: (memory: Memory) => void;
+  onPromote?: (memory: Memory) => void;
+  onForget: (memory: Memory) => void;
+}) {
+  return (
+    <section>
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      {isLoading ? (
+        <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">正在加载记忆...</div>
+      ) : memories.length ? (
+        <div className="space-y-2">
+          {memories.map((memory) => (
+            <div key={memory.id} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap gap-1">
+                  <span className="rounded bg-brand/15 px-1.5 py-0.5 text-[11px] text-brand-light">
+                    {memory.kind}
+                  </span>
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400">
+                    {memory.importance}
+                  </span>
+                  <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[11px] text-slate-400">
+                    {memory.scope_type}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {onPromote && (
+                    <button
+                      type="button"
+                      onClick={() => onPromote(memory)}
+                      className="rounded p-1 text-emerald-400 transition hover:bg-emerald-400/10"
+                      title="确认并保存为重要记忆"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onEdit(memory)}
+                    className="rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100"
+                    title="编辑记忆"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onForget(memory)}
+                    className="rounded p-1 text-rose-400 transition hover:bg-rose-400/10"
+                    title="遗忘这条记忆"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+              {editingId === memory.id ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={draft}
+                    onChange={(event) => onDraftChange(event.target.value)}
+                    className="min-h-20 w-full resize-y rounded-md border border-slate-700 bg-slate-950 p-2 text-xs leading-5 text-slate-100 outline-none focus:border-brand"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onSave(memory)}
+                    className="rounded-md border border-brand/40 px-2 py-1 text-xs font-medium text-brand-light transition hover:bg-brand/10"
+                  >
+                    保存
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs leading-5 text-slate-300">{memory.content}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm text-slate-500">
+          {emptyText}
+        </div>
+      )}
+    </section>
+  );
 }
 
 function ContextPanel({

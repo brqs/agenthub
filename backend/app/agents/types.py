@@ -26,6 +26,7 @@ StreamEventType = Literal[
     "done",
     "error",
     "interrupted",
+    "turn_control",
     "agent_switch",
     "heartbeat",
     "tool_call",
@@ -44,6 +45,7 @@ BlockType = Literal[
     "task_card",
     "process",
     "clarification",
+    "turn_control",
 ]
 
 
@@ -81,6 +83,7 @@ class StreamChunk(BaseModel):
     agent_id: str | None = None
     total_blocks: int | None = None
     queued_next: dict[str, Any] | None = None
+    turn_control: dict[str, Any] | None = None
     # for tool_call / tool_result events
     call_id: str | None = None
     tool_name: str | None = None

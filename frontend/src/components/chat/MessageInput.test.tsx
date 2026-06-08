@@ -170,6 +170,72 @@ describe('MessageInput', () => {
     expect(onInterrupt).not.toHaveBeenCalled();
   });
 
+  it('runs explicit active-turn controls from the streaming action menu', async () => {
+    const onQueue = vi.fn().mockResolvedValue(undefined);
+    const onGuidance = vi.fn().mockResolvedValue(undefined);
+    const onSideChat = vi.fn().mockResolvedValue(undefined);
+    const onStopAndRun = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <MessageInput
+        conversation={singleConversation}
+        onSend={vi.fn()}
+        onQueue={onQueue}
+        onGuidance={onGuidance}
+        onSideChat={onSideChat}
+        onStopAndRun={onStopAndRun}
+        isStreaming
+      />,
+    );
+    const input = screen.getByRole('textbox');
+
+    fireEvent.change(input, { target: { value: 'make it darker' } });
+    fireEvent.click(screen.getByRole('button', { name: 'More active turn actions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Guide current reply' }));
+
+    await waitFor(() => {
+      expect(onGuidance).toHaveBeenCalledWith('make it darker');
+      expect(input).toHaveValue('');
+    });
+
+    rerender(
+      <MessageInput
+        conversation={singleConversation}
+        onSend={vi.fn()}
+        onQueue={onQueue}
+        onGuidance={onGuidance}
+        onSideChat={onSideChat}
+        onStopAndRun={onStopAndRun}
+        isStreaming
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'what is happening?' } });
+    fireEvent.click(screen.getByRole('button', { name: 'More active turn actions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ask side question' }));
+    await waitFor(() => {
+      expect(onSideChat).toHaveBeenCalledWith('what is happening?');
+    });
+
+    rerender(
+      <MessageInput
+        conversation={singleConversation}
+        onSend={vi.fn()}
+        onQueue={onQueue}
+        onGuidance={onGuidance}
+        onSideChat={onSideChat}
+        onStopAndRun={onStopAndRun}
+        isStreaming
+      />,
+    );
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'run this now' } });
+    fireEvent.click(screen.getByRole('button', { name: 'More active turn actions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop and run draft' }));
+    await waitFor(() => {
+      expect(onStopAndRun).toHaveBeenCalledWith('run this now');
+    });
+
+    expect(onQueue).not.toHaveBeenCalled();
+  });
+
   it('disables input and sending while offline', () => {
     const onSend = vi.fn();
     render(<MessageInput conversation={singleConversation} onSend={onSend} isOffline />);

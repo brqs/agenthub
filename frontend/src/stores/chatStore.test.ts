@@ -40,6 +40,7 @@ function createMessage(overrides: Partial<Message> & Pick<Message, 'id' | 'role'
     status: overrides.status ?? 'done',
     is_pinned: overrides.is_pinned ?? false,
     created_at: overrides.created_at ?? '2026-05-31T00:00:00.000Z',
+    queue_position: overrides.queue_position ?? null,
     content: overrides.content ?? [{ type: 'text', text: overrides.id }],
   };
 }
@@ -109,6 +110,31 @@ describe('chatStore', () => {
     expect(
       useChatStore.getState().messagesByConversation['conv-demo-flow'].map((message) => message.id),
     ).toEqual([userOne.id, agentOne.id, userTwo.id, agentTwo.id]);
+  });
+
+  it('orders queued messages by queue position', () => {
+    const queuedFirst = createMessage({
+      id: '00000000-0000-4000-8000-000000000301',
+      role: 'user',
+      status: 'queued',
+      queue_position: 0,
+      created_at: '2026-05-31T00:00:02.000Z',
+    });
+    const queuedSecond = createMessage({
+      id: '00000000-0000-4000-8000-000000000302',
+      role: 'user',
+      status: 'queued',
+      queue_position: 1,
+      created_at: '2026-05-31T00:00:01.000Z',
+    });
+
+    useChatStore
+      .getState()
+      .hydrateMessages('conv-demo-flow', [queuedSecond, queuedFirst]);
+
+    expect(
+      useChatStore.getState().messagesByConversation['conv-demo-flow'].map((message) => message.id),
+    ).toEqual([queuedFirst.id, queuedSecond.id]);
   });
 
   it('keeps a replaced server message next to its parent user message', () => {

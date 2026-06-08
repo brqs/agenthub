@@ -39,18 +39,21 @@ EXTERNAL_RUNTIME_PROMPT_SUFFIX = (
 )
 
 CODEX_PLANNING_PROFILE = (
-    "适合复杂 AgentHub 代码任务的方案拆解、总体规划、仓库理解、架构判断和任务验收；"
-    "负责审阅其他 agent 完成并测试后的代码；当其他 agent 无法解决复杂 bug 或需要求助时"
-    "接手处理；作为多 agent 工作流的总负责人和技术兜底者。除非任务需要最高复杂度判断或"
-    "兜底修复，否则不要把普通并行实现任务全部交给它。"
+    "适合复杂 AgentHub 代码任务的方案拆解、总体规划、仓库理解、"
+    "架构判断和任务验收；负责审阅其他 agent 完成并测试后的代码；"
+    "当其他 agent 无法解决复杂 bug 或需要求助时接手处理；作为多 agent "
+    "工作流的总负责人和技术兜底者。除非任务需要最高复杂度判断或兜底修复，"
+    "否则不要把普通并行实现任务全部交给它。"
 )
 CLAUDE_CODE_PLANNING_PROFILE = (
-    "适合承担明确子任务的代码实现、文件编辑、功能补全、bug 修复和代码审阅；在并行开发"
-    "场景中应与 OpenCode 同时承担不同实现任务；适合把 Codex 拆好的方案落地为代码。"
+    "适合承担明确子任务的代码实现、文件编辑、功能补全、bug 修复和代码审阅；"
+    "在并行开发场景中应与 OpenCode 同时承担不同实现任务；适合把 Codex "
+    "拆好的方案落地为代码。"
 )
 OPENCODE_PLANNING_PROFILE = (
-    "适合 OpenCode CLI 驱动的代码实现、文件修改、补充开发、独立验证和修复；在并行开发"
-    "场景中应与 Claude Code 同时承担不同实现任务；适合作为第二实现者或验证修复者。"
+    "适合 OpenCode CLI 驱动的代码实现、文件修改、补充开发、独立验证和修复；"
+    "在并行开发场景中应与 Claude Code 同时承担不同实现任务；"
+    "适合作为第二实现者或验证修复者。"
 )
 
 BUILTIN_AGENTS: list[dict[str, Any]] = [
@@ -189,6 +192,8 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
     },
 ]
 
+ACTIVE_BUILTIN_AGENT_IDS = {agent["id"] for agent in BUILTIN_AGENTS}
+
 
 async def seed() -> None:
     # Validate all built-in agents before touching the database
@@ -200,16 +205,13 @@ async def seed() -> None:
         )
 
     async with SessionFactory() as db:
-        active_builtin_ids = {agent["id"] for agent in BUILTIN_AGENTS}
-        existing_builtins = (
+        stale_builtins = (
             await db.execute(select(Agent).where(Agent.is_builtin.is_(True)))
         ).scalars()
-        for existing_builtin in existing_builtins:
-            if existing_builtin.id in active_builtin_ids:
-                continue
-            await db.delete(existing_builtin)
-            print(f"  deleted stale builtin {existing_builtin.id}")
-
+        for stale in stale_builtins:
+            if stale.id not in ACTIVE_BUILTIN_AGENT_IDS:
+                await db.delete(stale)
+                print(f"  deleted stale builtin {stale.id}")
         for a in BUILTIN_AGENTS:
             exists = (
                 await db.execute(select(Agent).where(Agent.id == a["id"]))

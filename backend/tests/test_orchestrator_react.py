@@ -144,7 +144,7 @@ async def test_orchestrator_react_rejects_add_task_outside_allowed_agents() -> N
         [
             _react_decision_chunks(
                 '{"actions":[{"type":"add_task","task":{'
-                '"task_id":"design","agent_id":"web-designer",'
+                '"task_id":"design","agent_id":"outside-agent",'
                 '"title":"Design","instruction":"Design UI","priority":2}}],'
                 '"summary":"add designer"}'
             )
@@ -166,8 +166,8 @@ async def test_orchestrator_react_rejects_add_task_outside_allowed_agents() -> N
     text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert chunks[-1].event_type == "done"
     assert "Verify: did not complete successfully" in text
-    assert "unknown agent_id 'web-designer'" not in text
-    assert not any(chunk.to_agent == "web-designer" for chunk in chunks)
+    assert "unknown agent_id 'outside-agent'" not in text
+    assert not any(chunk.to_agent == "outside-agent" for chunk in chunks)
 
 
 async def test_orchestrator_react_cannot_update_succeeded_task() -> None:

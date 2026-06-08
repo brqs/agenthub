@@ -28,7 +28,9 @@ AGENT_CAPABILITY_PROFILE_HEADER = (
     "Agent capability profile from recent Orchestrator runs:"
 )
 ORCHESTRATOR_MEMORY_HEADER = "Previous Orchestrator structured memory:"
+MEMORYHUB_CONTEXT_HEADER = "MemoryHub mounted context:"
 PLANNER_MEMORY_SECTION_HEADERS = (
+    MEMORYHUB_CONTEXT_HEADER,
     AGENT_CAPABILITY_PROFILE_V2_HEADER,
     USER_PREFERENCE_MEMORY_HEADER,
     AGENT_CAPABILITY_PROFILE_HEADER,
@@ -59,6 +61,17 @@ preferred task types.
 When the user explicitly asks for two agents, multiple agents, or parallel development,
 split implementation work across distinct implementation-capable agents when available
 unless the request explicitly names a specific agent.
+For complex multi-step work, use codex-helper as the lead architect/planner when it is
+available, then assign implementation and verification work to Claude Code and OpenCode
+according to their strengths. Do not force this architect step for simple direct answers,
+platform fact questions, or explicit direct mentions.
+When available agent lines include planning_profile, strengths, weaknesses, or
+preferred_task_types, use those fields as the primary routing evidence. Treat
+codex-helper as the technical lead, architecture/review owner, difficult bug-fix
+escalation path, and final arbitration agent. For ordinary parallel implementation,
+prefer splitting implementation work across claude-code and opencode-helper when both
+are available, and reserve codex-helper for planning, review, escalation, or tasks
+that need the strongest repository-level judgment.
 Preserve every explicit deliverable and acceptance requirement from the user request in
 the relevant generation and verification task instructions. A random theme may only add
 style; it must not replace requested sections, files, or checks.
@@ -242,6 +255,7 @@ def _planner_memory_context(messages: list[ChatMessage]) -> str:
         if message.role != "system":
             continue
         for header in (
+            MEMORYHUB_CONTEXT_HEADER,
             AGENT_CAPABILITY_PROFILE_V2_HEADER,
             USER_PREFERENCE_MEMORY_HEADER,
             AGENT_CAPABILITY_PROFILE_HEADER,
@@ -380,45 +394,53 @@ def _available_agent_line(agent_id: str, item: Mapping[str, Any]) -> str | None:
         caps = [cap for cap in capabilities if isinstance(cap, str)]
         if caps:
             parts.append(f"capabilities={', '.join(caps)}")
-    planning_profile = _safe_inline_text(item.get("planning_profile"))
-    if planning_profile:
-        parts.append(f"planning_profile={planning_profile}")
-    for key, label in (
-        ("planning_strengths", "strengths"),
-        ("planning_weaknesses", "weaknesses"),
-        ("preferred_task_types", "preferred_task_types"),
-    ):
-        value = _safe_string_list(item.get(key))
-        if value:
-            parts.append(f"{label}={', '.join(value)}")
+    _append_text_part(parts, item, "planning_profile")
+    _append_list_part(parts, item, "planning_strengths", "strengths")
+    _append_list_part(parts, item, "planning_weaknesses", "weaknesses")
+    _append_list_part(parts, item, "preferred_task_types", "preferred_task_types")
+    _append_list_part(parts, item, "allowed_tools", "tools")
+    _append_text_part(parts, item, "system_prompt_summary")
     return " | ".join(parts)
 
 
-def _safe_inline_text(value: object, max_chars: int = 1200) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = " ".join(value.split())
-    if not normalized:
-        return None
-    return normalized[:max_chars]
+def _append_text_part(parts: list[str], item: Mapping[str, Any], key: str) -> None:
+    value = _clean_planner_text(item.get(key), 1200)
+    if value:
+        parts.append(f"{key}={value}")
 
 
-def _safe_string_list(value: object) -> list[str]:
+def _append_list_part(
+    parts: list[str],
+    item: Mapping[str, Any],
+    key: str,
+    label: str,
+) -> None:
+    value = item.get(key)
     if isinstance(value, str):
         raw_items = [item.strip() for item in value.split(",")]
     elif isinstance(value, list):
-        raw_items = [item.strip() for item in value if isinstance(item, str)]
+        raw_items = [item for item in value if isinstance(item, str)]
     else:
-        return []
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in raw_items:
-        normalized = " ".join(item.split())
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        result.append(normalized[:120])
-    return result[:12]
+        return
+    items = [
+        text
+        for raw in raw_items
+        for text in [_clean_planner_text(raw, 160)]
+        if text
+    ]
+    if items:
+        parts.append(f"{label}={', '.join(items[:20])}")
+
+
+def _clean_planner_text(value: Any, max_chars: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.replace("\x00", "").split())
+    if not text:
+        return None
+    if len(text) > max_chars:
+        return f"{text[:max_chars].rstrip()}..."
+    return text
 
 
 def _json_payload_from_text(text: str) -> Any:

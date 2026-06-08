@@ -382,6 +382,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/memory-mounts:
+    get:
+      tags:
+      - Conversations
+      summary: List Conversation Memory Mounts
+      operationId: list_conversation_memory_mounts_api_v1_conversations__conv_id__memory_mounts_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryMountList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/conversations/{conv_id}/orchestrator-runs:
     get:
       tags:
@@ -710,6 +748,204 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/queued-messages/reorder:
+    post:
+      tags:
+      - Messages
+      summary: Reorder Queued Message Api
+      operationId: reorder_queued_message_api_api_v1_conversations__conv_id__queued_messages_reorder_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueReorderRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueReorderResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/queued-messages/merge:
+    post:
+      tags:
+      - Messages
+      summary: Merge Queued Message Api
+      operationId: merge_queued_message_api_api_v1_conversations__conv_id__queued_messages_merge_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueueMergeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/messages/{msg_id}/guidance:
+    post:
+      tags:
+      - Messages
+      summary: Create Guidance
+      operationId: create_guidance_api_v1_messages__msg_id__guidance_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuidanceRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnControlResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/messages/{msg_id}/side-chat:
+    post:
+      tags:
+      - Messages
+      summary: Create Side Chat
+      operationId: create_side_chat_api_v1_messages__msg_id__side_chat_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SideChatRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnControlResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/queued-messages/{msg_id}/convert-to-guidance:
+    post:
+      tags:
+      - Messages
+      summary: Convert Queued Message To Guidance
+      operationId: convert_queued_message_to_guidance_api_v1_queued_messages__msg_id__convert_to_guidance_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnControlResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/queued-messages/{msg_id}/stop-and-run:
+    post:
+      tags:
+      - Messages
+      summary: Stop Current And Run Queued Message
+      operationId: stop_current_and_run_queued_message_api_v1_queued_messages__msg_id__stop_and_run_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: msg_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Msg Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterruptMessageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/messages/{msg_id}:
     patch:
       tags:
@@ -850,116 +1086,6 @@ paths:
           content:
             application/json:
               schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/uploads:
-    post:
-      tags:
-      - Uploads
-      summary: Create Upload
-      operationId: create_upload_api_v1_uploads_post
-      security:
-      - HTTPBearer: []
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/Body_create_upload_api_v1_uploads_post'
-        required: true
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UploadOut'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/uploads/{upload_id}:
-    get:
-      tags:
-      - Uploads
-      summary: Get Upload
-      operationId: get_upload_api_v1_uploads__upload_id__get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: upload_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Upload Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UploadOut'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    delete:
-      tags:
-      - Uploads
-      summary: Delete Upload
-      operationId: delete_upload_api_v1_uploads__upload_id__delete
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: upload_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Upload Id
-      responses:
-        '204':
-          description: Successful Response
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/uploads/{upload_id}/download:
-    get:
-      tags:
-      - Uploads
-      summary: Download Upload
-      operationId: download_upload_api_v1_uploads__upload_id__download_get
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: upload_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Upload Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
         '422':
           description: Validation Error
           content:
@@ -1135,6 +1261,262 @@ paths:
       responses:
         '204':
           description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads:
+    post:
+      tags:
+      - Uploads
+      summary: Create Upload
+      operationId: create_upload_api_v1_uploads_post
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_upload_api_v1_uploads_post'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/uploads/{upload_id}:
+    get:
+      tags:
+      - Uploads
+      summary: Get Upload
+      operationId: get_upload_api_v1_uploads__upload_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Uploads
+      summary: Delete Upload
+      operationId: delete_upload_api_v1_uploads__upload_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads/{upload_id}/download:
+    get:
+      tags:
+      - Uploads
+      summary: Download Upload
+      operationId: download_upload_api_v1_uploads__upload_id__download_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/memories:
+    get:
+      tags:
+      - Memories
+      summary: List Memories
+      operationId: list_memories_api_v1_memories_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: scope_type
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - user
+            - conversation
+            - workspace
+            - agent
+            - group
+            - system
+            type: string
+          - type: 'null'
+          title: Scope Type
+      - name: scope_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Scope Id
+      - name: kind
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - preference
+            - fact
+            - decision
+            - constraint
+            - project_context
+            - agent_profile
+            - artifact_note
+            - runtime_note
+            type: string
+          - type: 'null'
+          title: Kind
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - candidate
+            - active
+            - archived
+            - forgotten
+            type: string
+          - type: 'null'
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/memories/{memory_id}:
+    patch:
+      tags:
+      - Memories
+      summary: Update Memory
+      operationId: update_memory_api_v1_memories__memory_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Memory Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMemoryRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Memories
+      summary: Forget Memory
+      operationId: forget_memory_api_v1_memories__memory_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: memory_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Memory Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryOut'
         '422':
           description: Validation Error
           content:
@@ -2223,7 +2605,7 @@ components:
       properties:
         file:
           type: string
-          format: binary
+          contentMediaType: application/octet-stream
           title: File
         purpose:
           type: string
@@ -2241,7 +2623,7 @@ components:
       type: object
       required:
       - file
-      title: Body Create Upload Api V1 Uploads Post
+      title: Body_create_upload_api_v1_uploads_post
     ClarificationBlock:
       properties:
         type:
@@ -2860,6 +3242,47 @@ components:
       - size
       - mime_type
       title: FileBlock
+    GuidanceRequest:
+      properties:
+        content:
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/TextBlock'
+            - $ref: '#/components/schemas/CodeBlock'
+            - $ref: '#/components/schemas/DiffBlock'
+            - $ref: '#/components/schemas/WebPreviewBlock'
+            - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
+            - $ref: '#/components/schemas/DeploymentStatusBlock'
+            - $ref: '#/components/schemas/WorkflowBlock'
+            - $ref: '#/components/schemas/TaskCardBlock'
+            - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
+            - $ref: '#/components/schemas/TurnControlBlock'
+            - $ref: '#/components/schemas/ToolCallBlock'
+            discriminator:
+              propertyName: type
+              mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
+                clarification: '#/components/schemas/ClarificationBlock'
+                code: '#/components/schemas/CodeBlock'
+                deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                diff: '#/components/schemas/DiffBlock'
+                file: '#/components/schemas/FileBlock'
+                process: '#/components/schemas/ProcessBlock'
+                task_card: '#/components/schemas/TaskCardBlock'
+                text: '#/components/schemas/TextBlock'
+                tool_call: '#/components/schemas/ToolCallBlock'
+                turn_control: '#/components/schemas/TurnControlBlock'
+                web_preview: '#/components/schemas/WebPreviewBlock'
+                workflow: '#/components/schemas/WorkflowBlock'
+          type: array
+          minItems: 1
+          title: Content
+      type: object
+      required:
+      - content
+      title: GuidanceRequest
     HTTPValidationError:
       properties:
         detail:
@@ -2898,6 +3321,207 @@ components:
       - username
       - password
       title: LoginRequest
+    MemoryList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MemoryOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - total
+      title: MemoryList
+    MemoryMountList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/MemoryMountOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - total
+      title: MemoryMountList
+    MemoryMountOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        agent_message_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Agent Message Id
+        memory_id:
+          type: string
+          format: uuid
+          title: Memory Id
+        mount_reason:
+          type: string
+          title: Mount Reason
+        rank_score:
+          type: number
+          title: Rank Score
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        memory:
+          anyOf:
+          - $ref: '#/components/schemas/MemoryOut'
+          - type: 'null'
+      type: object
+      required:
+      - id
+      - conversation_id
+      - memory_id
+      - mount_reason
+      - rank_score
+      - created_at
+      title: MemoryMountOut
+    MemoryOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        owner_user_id:
+          type: string
+          format: uuid
+          title: Owner User Id
+        scope_type:
+          type: string
+          enum:
+          - user
+          - conversation
+          - workspace
+          - agent
+          - group
+          - system
+          title: Scope Type
+        scope_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Scope Id
+        container_tag:
+          type: string
+          title: Container Tag
+        kind:
+          type: string
+          enum:
+          - preference
+          - fact
+          - decision
+          - constraint
+          - project_context
+          - agent_profile
+          - artifact_note
+          - runtime_note
+          title: Kind
+        content:
+          type: string
+          title: Content
+        importance:
+          type: string
+          enum:
+          - critical
+          - high
+          - normal
+          - low
+          title: Importance
+        confidence:
+          type: number
+          title: Confidence
+        status:
+          type: string
+          enum:
+          - candidate
+          - active
+          - archived
+          - forgotten
+          title: Status
+        normalized_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Normalized Key
+        valid_from:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Valid From
+        valid_until:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Valid Until
+        supersedes_memory_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Supersedes Memory Id
+        source_type:
+          type: string
+          enum:
+          - message
+          - orchestrator_run
+          - workspace_file
+          - upload
+          - manual
+          title: Source Type
+        source_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Source Id
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - owner_user_id
+      - scope_type
+      - container_tag
+      - kind
+      - content
+      - importance
+      - confidence
+      - status
+      - source_type
+      - created_at
+      - updated_at
+      title: MemoryOut
     MessageList:
       properties:
         items:
@@ -2954,6 +3578,7 @@ components:
             - $ref: '#/components/schemas/TaskCardBlock'
             - $ref: '#/components/schemas/ProcessBlock'
             - $ref: '#/components/schemas/ClarificationBlock'
+            - $ref: '#/components/schemas/TurnControlBlock'
             - $ref: '#/components/schemas/ToolCallBlock'
             discriminator:
               propertyName: type
@@ -2968,6 +3593,7 @@ components:
                 task_card: '#/components/schemas/TaskCardBlock'
                 text: '#/components/schemas/TextBlock'
                 tool_call: '#/components/schemas/ToolCallBlock'
+                turn_control: '#/components/schemas/TurnControlBlock'
                 web_preview: '#/components/schemas/WebPreviewBlock'
                 workflow: '#/components/schemas/WorkflowBlock'
           type: array
@@ -2997,6 +3623,11 @@ components:
           type: string
           format: date-time
           title: Created At
+        queue_position:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Queue Position
       type: object
       required:
       - id
@@ -3407,23 +4038,26 @@ components:
       - kind
       - status
       title: ProcessStep
-    RegisterRequest:
+    QueueMergeRequest:
       properties:
-        username:
+        message_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          minItems: 2
+          title: Message Ids
+        separator:
           type: string
-          maxLength: 32
-          minLength: 3
-          pattern: ^[a-zA-Z0-9_]+$
-          title: Username
-        password:
-          type: string
-          minLength: 8
-          title: Password
+          title: Separator
+          default: '
+
+
+            '
       type: object
       required:
-      - username
-      - password
-      title: RegisterRequest
+      - message_ids
+      title: QueueMergeRequest
     QueueMessageRequest:
       properties:
         content:
@@ -3440,6 +4074,7 @@ components:
             - $ref: '#/components/schemas/TaskCardBlock'
             - $ref: '#/components/schemas/ProcessBlock'
             - $ref: '#/components/schemas/ClarificationBlock'
+            - $ref: '#/components/schemas/TurnControlBlock'
             - $ref: '#/components/schemas/ToolCallBlock'
             discriminator:
               propertyName: type
@@ -3454,6 +4089,7 @@ components:
                 task_card: '#/components/schemas/TaskCardBlock'
                 text: '#/components/schemas/TextBlock'
                 tool_call: '#/components/schemas/ToolCallBlock'
+                turn_control: '#/components/schemas/TurnControlBlock'
                 web_preview: '#/components/schemas/WebPreviewBlock'
                 workflow: '#/components/schemas/WorkflowBlock'
           type: array
@@ -3487,6 +4123,47 @@ components:
       - queued_message
       - queue_position
       title: QueueMessageResponse
+    QueueReorderRequest:
+      properties:
+        message_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          minItems: 1
+          title: Message Ids
+      type: object
+      required:
+      - message_ids
+      title: QueueReorderRequest
+    QueueReorderResponse:
+      properties:
+        messages:
+          items:
+            $ref: '#/components/schemas/MessageOut'
+          type: array
+          title: Messages
+      type: object
+      required:
+      - messages
+      title: QueueReorderResponse
+    RegisterRequest:
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          minLength: 3
+          pattern: ^[a-zA-Z0-9_]+$
+          title: Username
+        password:
+          type: string
+          minLength: 8
+          title: Password
+      type: object
+      required:
+      - username
+      - password
+      title: RegisterRequest
     SendMessageRequest:
       properties:
         content:
@@ -3503,6 +4180,7 @@ components:
             - $ref: '#/components/schemas/TaskCardBlock'
             - $ref: '#/components/schemas/ProcessBlock'
             - $ref: '#/components/schemas/ClarificationBlock'
+            - $ref: '#/components/schemas/TurnControlBlock'
             - $ref: '#/components/schemas/ToolCallBlock'
             discriminator:
               propertyName: type
@@ -3517,6 +4195,7 @@ components:
                 task_card: '#/components/schemas/TaskCardBlock'
                 text: '#/components/schemas/TextBlock'
                 tool_call: '#/components/schemas/ToolCallBlock'
+                turn_control: '#/components/schemas/TurnControlBlock'
                 web_preview: '#/components/schemas/WebPreviewBlock'
                 workflow: '#/components/schemas/WorkflowBlock'
           type: array
@@ -3549,50 +4228,47 @@ components:
       - user_message
       - agent_message
       title: SendMessageResponse
-    UpdateQueuedMessageRequest:
+    SideChatRequest:
       properties:
         content:
-          anyOf:
-          - items:
-              oneOf:
-              - $ref: '#/components/schemas/TextBlock'
-              - $ref: '#/components/schemas/CodeBlock'
-              - $ref: '#/components/schemas/DiffBlock'
-              - $ref: '#/components/schemas/WebPreviewBlock'
-              - $ref: '#/components/schemas/FileBlock'
-              - $ref: '#/components/schemas/AttachmentBlock'
-              - $ref: '#/components/schemas/DeploymentStatusBlock'
-              - $ref: '#/components/schemas/WorkflowBlock'
-              - $ref: '#/components/schemas/TaskCardBlock'
-              - $ref: '#/components/schemas/ProcessBlock'
-              - $ref: '#/components/schemas/ClarificationBlock'
-              - $ref: '#/components/schemas/ToolCallBlock'
-              discriminator:
-                propertyName: type
-                mapping:
-                  attachment: '#/components/schemas/AttachmentBlock'
-                  clarification: '#/components/schemas/ClarificationBlock'
-                  code: '#/components/schemas/CodeBlock'
-                  deployment_status: '#/components/schemas/DeploymentStatusBlock'
-                  diff: '#/components/schemas/DiffBlock'
-                  file: '#/components/schemas/FileBlock'
-                  process: '#/components/schemas/ProcessBlock'
-                  task_card: '#/components/schemas/TaskCardBlock'
-                  text: '#/components/schemas/TextBlock'
-                  tool_call: '#/components/schemas/ToolCallBlock'
-                  web_preview: '#/components/schemas/WebPreviewBlock'
-                  workflow: '#/components/schemas/WorkflowBlock'
-            type: array
-            minItems: 1
-          - type: 'null'
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/TextBlock'
+            - $ref: '#/components/schemas/CodeBlock'
+            - $ref: '#/components/schemas/DiffBlock'
+            - $ref: '#/components/schemas/WebPreviewBlock'
+            - $ref: '#/components/schemas/FileBlock'
+            - $ref: '#/components/schemas/AttachmentBlock'
+            - $ref: '#/components/schemas/DeploymentStatusBlock'
+            - $ref: '#/components/schemas/WorkflowBlock'
+            - $ref: '#/components/schemas/TaskCardBlock'
+            - $ref: '#/components/schemas/ProcessBlock'
+            - $ref: '#/components/schemas/ClarificationBlock'
+            - $ref: '#/components/schemas/TurnControlBlock'
+            - $ref: '#/components/schemas/ToolCallBlock'
+            discriminator:
+              propertyName: type
+              mapping:
+                attachment: '#/components/schemas/AttachmentBlock'
+                clarification: '#/components/schemas/ClarificationBlock'
+                code: '#/components/schemas/CodeBlock'
+                deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                diff: '#/components/schemas/DiffBlock'
+                file: '#/components/schemas/FileBlock'
+                process: '#/components/schemas/ProcessBlock'
+                task_card: '#/components/schemas/TaskCardBlock'
+                text: '#/components/schemas/TextBlock'
+                tool_call: '#/components/schemas/ToolCallBlock'
+                turn_control: '#/components/schemas/TurnControlBlock'
+                web_preview: '#/components/schemas/WebPreviewBlock'
+                workflow: '#/components/schemas/WorkflowBlock'
+          type: array
+          minItems: 1
           title: Content
-        target_agent_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Target Agent Id
       type: object
-      title: UpdateQueuedMessageRequest
+      required:
+      - content
+      title: SideChatRequest
     TaskCardBlock:
       properties:
         type:
@@ -3713,6 +4389,155 @@ components:
       - tool_name
       - status
       title: ToolCallBlock
+    TurnControlBlock:
+      properties:
+        type:
+          type: string
+          const: turn_control
+          title: Type
+          default: turn_control
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        kind:
+          type: string
+          enum:
+          - guidance
+          - side_chat
+          - queue_action
+          - stop_and_run
+          title: Kind
+        status:
+          type: string
+          enum:
+          - received
+          - waiting_safe_point
+          - applied
+          - answered
+          - cancelled
+          - expired
+          - failed
+          title: Status
+        control_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Control Id
+        active_agent_message_id:
+          type: string
+          format: uuid
+          title: Active Agent Message Id
+        title:
+          type: string
+          title: Title
+        body:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Body
+        source_message_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          title: Source Message Ids
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - kind
+      - status
+      - active_agent_message_id
+      - title
+      title: TurnControlBlock
+    TurnControlOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        active_agent_message_id:
+          type: string
+          format: uuid
+          title: Active Agent Message Id
+        created_by_message_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Created By Message Id
+        kind:
+          type: string
+          enum:
+          - guidance
+          - side_chat
+          - queue_action
+          - stop_and_run
+          title: Kind
+        state:
+          type: string
+          enum:
+          - received
+          - waiting_safe_point
+          - applied
+          - answered
+          - cancelled
+          - expired
+          - failed
+          title: State
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+        applied_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Applied At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - conversation_id
+      - active_agent_message_id
+      - kind
+      - state
+      - created_at
+      - updated_at
+      title: TurnControlOut
+    TurnControlResponse:
+      properties:
+        control:
+          $ref: '#/components/schemas/TurnControlOut'
+        user_message:
+          anyOf:
+          - $ref: '#/components/schemas/MessageOut'
+          - type: 'null'
+        agent_message:
+          anyOf:
+          - $ref: '#/components/schemas/MessageOut'
+          - type: 'null'
+      type: object
+      required:
+      - control
+      title: TurnControlResponse
     UpdateAgentRequest:
       properties:
         name:
@@ -3825,6 +4650,63 @@ components:
           title: Is Archived
       type: object
       title: UpdateConversationRequest
+    UpdateMemoryRequest:
+      properties:
+        content:
+          anyOf:
+          - type: string
+            maxLength: 8000
+            minLength: 1
+          - type: 'null'
+          title: Content
+        importance:
+          anyOf:
+          - type: string
+            enum:
+            - critical
+            - high
+            - normal
+            - low
+          - type: 'null'
+          title: Importance
+        status:
+          anyOf:
+          - type: string
+            enum:
+            - candidate
+            - active
+            - archived
+            - forgotten
+          - type: 'null'
+          title: Status
+        kind:
+          anyOf:
+          - type: string
+            enum:
+            - preference
+            - fact
+            - decision
+            - constraint
+            - project_context
+            - agent_profile
+            - artifact_note
+            - runtime_note
+          - type: 'null'
+          title: Kind
+        valid_until:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Valid Until
+        metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metadata
+      type: object
+      title: UpdateMemoryRequest
     UpdateMessageRequest:
       properties:
         is_pinned:
@@ -3834,6 +4716,52 @@ components:
           title: Is Pinned
       type: object
       title: UpdateMessageRequest
+    UpdateQueuedMessageRequest:
+      properties:
+        content:
+          anyOf:
+          - items:
+              oneOf:
+              - $ref: '#/components/schemas/TextBlock'
+              - $ref: '#/components/schemas/CodeBlock'
+              - $ref: '#/components/schemas/DiffBlock'
+              - $ref: '#/components/schemas/WebPreviewBlock'
+              - $ref: '#/components/schemas/FileBlock'
+              - $ref: '#/components/schemas/AttachmentBlock'
+              - $ref: '#/components/schemas/DeploymentStatusBlock'
+              - $ref: '#/components/schemas/WorkflowBlock'
+              - $ref: '#/components/schemas/TaskCardBlock'
+              - $ref: '#/components/schemas/ProcessBlock'
+              - $ref: '#/components/schemas/ClarificationBlock'
+              - $ref: '#/components/schemas/TurnControlBlock'
+              - $ref: '#/components/schemas/ToolCallBlock'
+              discriminator:
+                propertyName: type
+                mapping:
+                  attachment: '#/components/schemas/AttachmentBlock'
+                  clarification: '#/components/schemas/ClarificationBlock'
+                  code: '#/components/schemas/CodeBlock'
+                  deployment_status: '#/components/schemas/DeploymentStatusBlock'
+                  diff: '#/components/schemas/DiffBlock'
+                  file: '#/components/schemas/FileBlock'
+                  process: '#/components/schemas/ProcessBlock'
+                  task_card: '#/components/schemas/TaskCardBlock'
+                  text: '#/components/schemas/TextBlock'
+                  tool_call: '#/components/schemas/ToolCallBlock'
+                  turn_control: '#/components/schemas/TurnControlBlock'
+                  web_preview: '#/components/schemas/WebPreviewBlock'
+                  workflow: '#/components/schemas/WorkflowBlock'
+            type: array
+            minItems: 1
+          - type: 'null'
+          title: Content
+        target_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Target Agent Id
+      type: object
+      title: UpdateQueuedMessageRequest
     UploadOut:
       properties:
         id:

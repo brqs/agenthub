@@ -232,8 +232,6 @@ def _agent_aliases(agent_id: str) -> tuple[str, ...]:
             "open code",
             "opencode",
         )
-    if agent_id == "web-designer":
-        return ("@web-designer", "web-designer", "web designer")
     return (f"@{agent_id}", agent_id)
 
 

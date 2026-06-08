@@ -6,6 +6,7 @@ import json
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator._internal.execution.adapters import (
@@ -133,6 +134,48 @@ from app.agents.orchestrator.types import (
     OrchestratorRunContext,
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
+from app.services.turn_controls import poll_pending_guidance_for_message
+
+
+async def _apply_guidance_safe_point(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    safe_point: str,
+    *,
+    run_context: OrchestratorRunContext | None = None,
+) -> list[ChatMessage]:
+    runtime_control = config.get("runtime_control")
+    active_message_id = None
+    if isinstance(runtime_control, Mapping):
+        active_message_id = runtime_control.get("active_agent_message_id")
+    if not isinstance(active_message_id, str) or not active_message_id:
+        return messages
+    try:
+        guidance = await poll_pending_guidance_for_message(
+            UUID(active_message_id),
+            safe_point=safe_point,
+        )
+    except Exception:  # noqa: BLE001
+        return messages
+    if not guidance:
+        return messages
+    if run_context is not None:
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="guidance_applied",
+            payload={"safe_point": safe_point, "guidance": guidance},
+        )
+    return [
+        *messages,
+        ChatMessage(
+            role="system",
+            content=(
+                "User guidance for the current active turn. Apply this at the next "
+                f"safe point ({safe_point}) without starting a second turn:\n{guidance}"
+            ),
+        ),
+    ]
 
 
 def _route_process_chunks(
@@ -207,6 +250,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             if clarification.continue_messages is not None:
                 messages = clarification.continue_messages
 
+        messages = await _apply_guidance_safe_point(
+            merged_config,
+            messages,
+            "route_start",
+        )
         platform_fact = await platform_fact_intent(
             merged_config,
             messages,
@@ -237,6 +285,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 total_blocks=next_block_index,
             )
             return
+        messages = await _apply_guidance_safe_point(
+            merged_config,
+            messages,
+            "direct_answer_before",
+        )
         if _should_direct_answer(
             merged_config,
             messages,
@@ -325,6 +378,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             )
             return
 
+        messages = await _apply_guidance_safe_point(
+            merged_config,
+            messages,
+            "tool_loop_before",
+        )
         if merged_config.get("tasks") is None and tool_calling_enabled(merged_config):
             run_context = OrchestratorRunContext()
             try:
@@ -360,6 +418,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             )
             return
 
+        messages = await _apply_guidance_safe_point(
+            merged_config,
+            messages,
+            "planner_before",
+        )
         try:
             tasks = await _resolve_tasks(
                 merged_config,
@@ -469,6 +532,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             )
             return
 
+        messages = await _apply_guidance_safe_point(
+            merged_config,
+            messages,
+            "planner_after",
+        )
         tasks = _expand_agent_review_tasks(merged_config, tasks)
         tasks = _balance_requested_multi_agent_plan(
             tasks,
@@ -503,6 +571,12 @@ class OrchestratorAdapter(BaseAgentAdapter):
             event_type="command_fulfillment_status",
             agent_id="orchestrator",
             payload={"stage": "planned", **_fulfillment_payload(run_context)},
+        )
+        messages = await _apply_guidance_safe_point(
+            merged_config,
+            messages,
+            "task_dispatch_before",
+            run_context=run_context,
         )
         for chunk, updated_block_index in _task_card_block(next_block_index, tasks):
             next_block_index = updated_block_index
@@ -551,6 +625,12 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 yield chunk
                 if chunk.event_type == "error":
                     return
+        messages = await _apply_guidance_safe_point(
+            merged_config,
+            messages,
+            "quality_gate_before",
+            run_context=run_context,
+        )
         async for chunk, updated_block_index in run_quality_gate(
             merged_config,
             messages,

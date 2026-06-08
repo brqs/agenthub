@@ -183,6 +183,27 @@ class ClarificationBlock(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class TurnControlBlock(BaseModel):
+    type: Literal["turn_control"] = "turn_control"
+    agent_id: str | None = None
+    kind: Literal["guidance", "side_chat", "queue_action", "stop_and_run"]
+    status: Literal[
+        "received",
+        "waiting_safe_point",
+        "applied",
+        "answered",
+        "cancelled",
+        "expired",
+        "failed",
+    ]
+    control_id: UUID | None = None
+    active_agent_message_id: UUID
+    title: str
+    body: str | None = None
+    source_message_ids: list[UUID] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolCallBlock(BaseModel):
     type: Literal["tool_call"] = "tool_call"
     agent_id: str | None = None
@@ -207,6 +228,7 @@ ContentBlock = Annotated[
     | TaskCardBlock
     | ProcessBlock
     | ClarificationBlock
+    | TurnControlBlock
     | ToolCallBlock,
     Field(discriminator="type"),
 ]
@@ -229,6 +251,7 @@ class MessageOut(BaseModel):
     status: MessageStatus = "done"
     is_pinned: bool = False
     created_at: datetime
+    queue_position: int | None = None
 
 
 class SendMessageRequest(BaseModel):
@@ -256,6 +279,60 @@ class UpdateQueuedMessageRequest(BaseModel):
 class QueueMessageResponse(BaseModel):
     queued_message: MessageOut
     queue_position: int
+
+
+class GuidanceRequest(BaseModel):
+    content: list[ContentBlock] = Field(..., min_length=1)
+
+
+class SideChatRequest(BaseModel):
+    content: list[ContentBlock] = Field(..., min_length=1)
+
+
+class QueueReorderRequest(BaseModel):
+    message_ids: list[UUID] = Field(..., min_length=1)
+
+
+class QueueMergeRequest(BaseModel):
+    message_ids: list[UUID] = Field(..., min_length=2)
+    separator: str = "\n\n"
+
+
+class QueueReorderResponse(BaseModel):
+    messages: list[MessageOut]
+
+
+TurnControlKind = Literal["guidance", "side_chat", "queue_action", "stop_and_run"]
+TurnControlState = Literal[
+    "received",
+    "waiting_safe_point",
+    "applied",
+    "answered",
+    "cancelled",
+    "expired",
+    "failed",
+]
+
+
+class TurnControlOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    conversation_id: UUID
+    active_agent_message_id: UUID
+    created_by_message_id: UUID | None = None
+    kind: TurnControlKind
+    state: TurnControlState
+    payload: dict[str, Any] = Field(default_factory=dict)
+    applied_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TurnControlResponse(BaseModel):
+    control: TurnControlOut
+    user_message: MessageOut | None = None
+    agent_message: MessageOut | None = None
 
 
 InterruptMessageState = Literal["interrupted", "already_terminal", "interrupting"]

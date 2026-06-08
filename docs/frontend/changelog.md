@@ -542,11 +542,11 @@
 - `frontend/src/components/agents/AgentAvatar.test.tsx`
 
 ### 更新内容
-- 将 Orchestrator / Web Designer 从自绘 SVG 改为 `lucide-react` 角色图标，分别使用 `Workflow` / `PanelsTopLeft`。
+- 将 Orchestrator 从自绘 SVG 改为 `lucide-react` 角色图标，使用 `Workflow`。
 - `AgentAvatar` 改为本地角色 Agent 使用 Lucide 图标，公司 Agent 使用 provider logo。
 - 未知 custom Agent 继续回退首字母头像，保持自建 Agent 扩展稳定。
 - 移除不再使用的本地自绘 SVG 文件，避免后续维护两套图标资源。
-- 补充 Orchestrator / Web Designer / 未知 custom Agent 头像测试。
+- 补充 Orchestrator / 未知 custom Agent 头像测试。
 
 ### API / 契约影响
 - 不修改 `shared/openapi.yaml`。
@@ -1165,7 +1165,7 @@
 |---|---|
 | `POST /auth/register` | 201 + JWT |
 | `GET  /auth/me` | 200 |
-| `GET  /agents` | 5 个 seed（orchestrator / claude-code / codex-helper / writer / web-designer） |
+| `GET  /agents` | 4 个 seed（orchestrator / claude-code / codex-helper / opencode-helper） |
 | `GET  /conversations` | 空 items 数组 + 分页字段 |
 | `POST /conversations` | 返回完整 ConversationOut |
 | `POST /conversations/{id}/messages` | 返回 `{user_message:done, agent_message:pending}` |

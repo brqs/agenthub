@@ -17,6 +17,10 @@ export function MessageList({
   interruptingMessageIds = {},
   onUpdateQueuedMessage,
   onDeleteQueuedMessage,
+  onReorderQueuedMessages,
+  onMergeQueuedMessages,
+  onConvertQueuedToGuidance,
+  onStopAndRunQueuedMessage,
   onMentionAgent,
   agents = [],
 }: {
@@ -32,6 +36,10 @@ export function MessageList({
   interruptingMessageIds?: Record<string, boolean>;
   onUpdateQueuedMessage?: (messageId: string, text: string) => void | Promise<void>;
   onDeleteQueuedMessage?: (messageId: string) => void | Promise<void>;
+  onReorderQueuedMessages?: (conversationId: string, messageIds: string[]) => void | Promise<void>;
+  onMergeQueuedMessages?: (conversationId: string, messageIds: string[]) => void | Promise<void>;
+  onConvertQueuedToGuidance?: (messageId: string) => void | Promise<void>;
+  onStopAndRunQueuedMessage?: (messageId: string) => void | Promise<void>;
   onMentionAgent?: (agent: Agent) => void;
   agents?: Agent[];
 }) {
@@ -97,6 +105,29 @@ export function MessageList({
     );
   }
 
+  const queuedMessages = messages.filter((message) => message.role === 'user' && message.status === 'queued');
+  const queuedIds = queuedMessages.map((message) => message.id);
+  const queuedIndexById = new Map(queuedIds.map((id, index) => [id, index]));
+
+  function moveQueued(messageId: string, direction: -1 | 1) {
+    const index = queuedIndexById.get(messageId);
+    if (index === undefined) return;
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= queuedIds.length) return;
+    const nextIds = [...queuedIds];
+    [nextIds[index], nextIds[nextIndex]] = [nextIds[nextIndex], nextIds[index]];
+    const message = queuedMessages[index];
+    void onReorderQueuedMessages?.(message.conversation_id, nextIds);
+  }
+
+  function mergeQueuedWithPrevious(messageId: string) {
+    const index = queuedIndexById.get(messageId);
+    if (index === undefined || index === 0) return;
+    const current = queuedMessages[index];
+    const previous = queuedMessages[index - 1];
+    void onMergeQueuedMessages?.(current.conversation_id, [previous.id, current.id]);
+  }
+
   return (
     <div
       ref={scrollRef}
@@ -126,21 +157,43 @@ export function MessageList({
             )}
           </div>
         )}
-        {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            agents={agents}
-            highlighted={message.id === highlightedMessageId}
-            onTogglePin={onTogglePin}
-            onRetry={onRetry}
-            isRetrying={Boolean(retryingMessageIds[message.id])}
-            isInterrupting={Boolean(interruptingMessageIds[message.id])}
-            onUpdateQueuedMessage={onUpdateQueuedMessage}
-            onDeleteQueuedMessage={onDeleteQueuedMessage}
-            onMentionAgent={onMentionAgent}
-          />
-        ))}
+        {messages.map((message) => {
+          const queuedIndex = queuedIndexById.get(message.id);
+          return (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              agents={agents}
+              highlighted={message.id === highlightedMessageId}
+              onTogglePin={onTogglePin}
+              onRetry={onRetry}
+              isRetrying={Boolean(retryingMessageIds[message.id])}
+              isInterrupting={Boolean(interruptingMessageIds[message.id])}
+              onUpdateQueuedMessage={onUpdateQueuedMessage}
+              onDeleteQueuedMessage={onDeleteQueuedMessage}
+              onMoveQueuedUp={
+                queuedIndex !== undefined && queuedIndex > 0 && onReorderQueuedMessages
+                  ? (messageId) => moveQueued(messageId, -1)
+                  : undefined
+              }
+              onMoveQueuedDown={
+                queuedIndex !== undefined &&
+                queuedIndex < queuedIds.length - 1 &&
+                onReorderQueuedMessages
+                  ? (messageId) => moveQueued(messageId, 1)
+                  : undefined
+              }
+              onMergeQueuedWithPrevious={
+                queuedIndex !== undefined && queuedIndex > 0 && onMergeQueuedMessages
+                  ? mergeQueuedWithPrevious
+                  : undefined
+              }
+              onConvertQueuedToGuidance={onConvertQueuedToGuidance}
+              onStopAndRunQueuedMessage={onStopAndRunQueuedMessage}
+              onMentionAgent={onMentionAgent}
+            />
+          );
+        })}
         <div ref={endRef} />
       </div>
     </div>

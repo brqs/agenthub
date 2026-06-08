@@ -913,3 +913,58 @@ Validation run for this slice:
 - `uv run pytest -q tests/test_orchestrator.py tests/test_orchestrator_react.py tests/test_stream_content_blocks.py`
 - `pnpm exec tsc -b`
 - `pnpm exec vitest run`
+
+## 2026-06-07 Handoff Addendum: Conversation Control Plane Phase 2/3
+
+Phase 2 "guide current thinking" and Phase 3 queue experience are now implemented as a Conversation Control Plane.
+
+- New table: `conversation_turn_controls`.
+- `message_queue_entries` now has `position`; queue dispatch order is `position, created_at, id`.
+- New ContentBlock: `turn_control`.
+  - `kind`: `guidance | side_chat | queue_action | stop_and_run`
+  - `status`: `received | waiting_safe_point | applied | answered | cancelled | expired | failed`
+- New APIs:
+  - `POST /api/v1/messages/{active_message_id}/guidance`
+  - `POST /api/v1/messages/{active_message_id}/side-chat`
+  - `POST /api/v1/conversations/{conversation_id}/queued-messages/reorder`
+  - `POST /api/v1/conversations/{conversation_id}/queued-messages/merge`
+  - `POST /api/v1/queued-messages/{message_id}/convert-to-guidance`
+  - `POST /api/v1/queued-messages/{message_id}/stop-and-run`
+- SSE can emit `turn_control` events to update visible control cards during an active stream.
+- Guidance is explicit. Running-time text still defaults to queued next turn unless the user chooses the guidance action.
+- Guidance is currently Orchestrator safe-point only. Safe points include direct-answer, planner, task-dispatch, tool-loop, quality-gate, replanner/repair boundaries where available.
+- External CLI/SDK runtimes do not accept live guidance injection in this phase. If the active message is not an Orchestrator safe-point runtime, return `409 GUIDANCE_NOT_SUPPORTED`.
+- Side-chat creates visible status Q&A messages but `context_builder` excludes `turn_control.kind=side_chat` messages from future main-task context.
+- Queue actions support reorder, merge, convert-to-guidance, and stop-and-run. They never create parallel active turns.
+
+## 2026-06-07 Handoff Addendum: MemoryHub Important Memory + Dynamic Mount
+
+AgentHub now has a local Supermemory-style MemoryHub layer.
+
+- New tables:
+  - `memories`
+  - `memory_mounts`
+- New public APIs:
+  - `GET /api/v1/memories`
+  - `PATCH /api/v1/memories/{id}`
+  - `DELETE /api/v1/memories/{id}`
+  - `GET /api/v1/conversations/{id}/memory-mounts`
+- `ContextBuilder` now asks `MemoryHubService` for a per-turn mounted context. When MemoryHub returns useful context, legacy `ConversationMemory.summary_text` is not injected as the primary long-term memory. The old summary remains fallback/debug only.
+- Mounted context is headed `MemoryHub mounted context:` and is recorded in `memory_mounts` when an `agent_message_id` exists.
+- Terminal agent messages may extract deterministic memory candidates/active memories. The first implementation is conservative: it focuses on explicit user preferences, constraints, decisions, and stable facts; it filters credential-like content and marks temporary facts with expiry.
+- Orchestrator run/task/attempt/event records remain authoritative execution facts. MemoryHub must not override group-scoped dispatch, runtime availability, queue/interrupt state, retry state, or workspace audit data.
+- Frontend right panel has a new `Memory` tab for active memories, candidate memories, and recent dynamic mounts. Users can confirm candidates, edit memory content, or forget memories.
+
+Validation run for this slice:
+
+- `AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run pytest -q tests/test_memory_hub.py tests/test_context_builder.py`
+- `uv run ruff check app tests`
+- `pnpm exec tsc -b`
+- `pnpm exec vitest run`
+
+Validation run for this slice:
+
+- `uv run ruff check app tests`
+- `DATABASE_URL=postgresql+asyncpg://agenthub:agenthub_dev_pw@localhost:5432/agenthub_test uv run pytest tests/test_conversation_api.py tests/test_context_builder.py -q`
+- `pnpm exec tsc -b`
+- `pnpm exec vitest run src/components/chat/MessageInput.test.tsx src/components/chat/MessageBubble.test.tsx`

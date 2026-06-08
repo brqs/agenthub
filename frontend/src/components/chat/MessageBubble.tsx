@@ -7,7 +7,22 @@ import { useWorkspaceArtifacts } from '@/hooks/useWorkspace';
 import type { DemoContentBlock, DemoMessage } from '@/lib/mockData';
 import type { Agent } from '@/lib/types';
 import { cn, formatTime } from '@/lib/utils';
-import { AlertTriangle, AtSign, Check, Loader2, Pencil, Pin, RotateCcw, Trash2, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  AtSign,
+  Check,
+  Combine,
+  Loader2,
+  Pencil,
+  Pin,
+  RotateCcw,
+  Route,
+  Trash2,
+  X,
+  Zap,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const EMPTY_ERROR_FALLBACK_TEXT = '调用失败：后端未返回错误详情，请重试。';
@@ -30,6 +45,11 @@ export function MessageBubble({
   onMentionAgent,
   onUpdateQueuedMessage,
   onDeleteQueuedMessage,
+  onMoveQueuedUp,
+  onMoveQueuedDown,
+  onMergeQueuedWithPrevious,
+  onConvertQueuedToGuidance,
+  onStopAndRunQueuedMessage,
   isInterrupting = false,
   agents = [],
 }: {
@@ -41,6 +61,11 @@ export function MessageBubble({
   onMentionAgent?: (agent: Agent) => void;
   onUpdateQueuedMessage?: (messageId: string, text: string) => void | Promise<void>;
   onDeleteQueuedMessage?: (messageId: string) => void | Promise<void>;
+  onMoveQueuedUp?: (messageId: string) => void | Promise<void>;
+  onMoveQueuedDown?: (messageId: string) => void | Promise<void>;
+  onMergeQueuedWithPrevious?: (messageId: string) => void | Promise<void>;
+  onConvertQueuedToGuidance?: (messageId: string) => void | Promise<void>;
+  onStopAndRunQueuedMessage?: (messageId: string) => void | Promise<void>;
   isInterrupting?: boolean;
   agents?: Agent[];
 }) {
@@ -116,6 +141,71 @@ export function MessageBubble({
       await onDeleteQueuedMessage(message.id);
     } catch (error) {
       setQueuedActionError(error instanceof Error ? error.message : String(error));
+      setQueuedActionPending(false);
+    }
+  }
+
+  async function moveQueuedUp() {
+    if (!onMoveQueuedUp) return;
+    setQueuedActionPending(true);
+    setQueuedActionError(null);
+    try {
+      await onMoveQueuedUp(message.id);
+    } catch (error) {
+      setQueuedActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQueuedActionPending(false);
+    }
+  }
+
+  async function moveQueuedDown() {
+    if (!onMoveQueuedDown) return;
+    setQueuedActionPending(true);
+    setQueuedActionError(null);
+    try {
+      await onMoveQueuedDown(message.id);
+    } catch (error) {
+      setQueuedActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQueuedActionPending(false);
+    }
+  }
+
+  async function mergeQueuedWithPrevious() {
+    if (!onMergeQueuedWithPrevious) return;
+    setQueuedActionPending(true);
+    setQueuedActionError(null);
+    try {
+      await onMergeQueuedWithPrevious(message.id);
+    } catch (error) {
+      setQueuedActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQueuedActionPending(false);
+    }
+  }
+
+  async function convertQueuedToGuidance() {
+    if (!onConvertQueuedToGuidance) return;
+    setQueuedActionPending(true);
+    setQueuedActionError(null);
+    try {
+      await onConvertQueuedToGuidance(message.id);
+    } catch (error) {
+      setQueuedActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setQueuedActionPending(false);
+    }
+  }
+
+  async function stopAndRunQueued() {
+    if (!onStopAndRunQueuedMessage) return;
+    setQueuedActionPending(true);
+    setQueuedActionError(null);
+    try {
+      await onStopAndRunQueuedMessage(message.id);
+    } catch (error) {
+      setQueuedActionError(error instanceof Error ? error.message : String(error));
+    } finally {
       setQueuedActionPending(false);
     }
   }
@@ -211,10 +301,20 @@ export function MessageBubble({
             <QueuedMessageActions
               isPending={queuedActionPending}
               error={queuedActionError}
+              canMoveUp={Boolean(onMoveQueuedUp)}
+              canMoveDown={Boolean(onMoveQueuedDown)}
+              canMergeWithPrevious={Boolean(onMergeQueuedWithPrevious)}
               canEdit={Boolean(onUpdateQueuedMessage)}
               canDelete={Boolean(onDeleteQueuedMessage)}
+              canConvertToGuidance={Boolean(onConvertQueuedToGuidance)}
+              canStopAndRun={Boolean(onStopAndRunQueuedMessage)}
+              onMoveUp={() => void moveQueuedUp()}
+              onMoveDown={() => void moveQueuedDown()}
+              onMergeWithPrevious={() => void mergeQueuedWithPrevious()}
               onEdit={() => setEditingQueued(true)}
               onDelete={() => void deleteQueued()}
+              onConvertToGuidance={() => void convertQueuedToGuidance()}
+              onStopAndRun={() => void stopAndRunQueued()}
             />
           )}
           {!isUser && message.agent_id === 'orchestrator' && (
@@ -370,23 +470,103 @@ function QueuedMessageEditor({
 function QueuedMessageActions({
   isPending,
   error,
+  canMoveUp,
+  canMoveDown,
+  canMergeWithPrevious,
   canEdit,
   canDelete,
+  canConvertToGuidance,
+  canStopAndRun,
+  onMoveUp,
+  onMoveDown,
+  onMergeWithPrevious,
   onEdit,
   onDelete,
+  onConvertToGuidance,
+  onStopAndRun,
 }: {
   isPending: boolean;
   error: string | null;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  canMergeWithPrevious: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  canConvertToGuidance: boolean;
+  canStopAndRun: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onMergeWithPrevious: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onConvertToGuidance: () => void;
+  onStopAndRun: () => void;
 }) {
   return (
     <div className="mt-2 flex items-center justify-between gap-3 border-t border-brand/15 pt-2 text-xs text-slate-500 dark:border-brand-light/15 dark:text-slate-400">
       <span>Queued</span>
       {error && <span className="min-w-0 flex-1 truncate text-red-600 dark:text-red-300">{error}</span>}
       <div className="flex shrink-0 items-center gap-1">
+        {canMoveUp && (
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={isPending}
+            className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-slate-950 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-white"
+            title="Move queued message up"
+            aria-label="Move queued message up"
+          >
+            <ArrowUp className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {canMoveDown && (
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={isPending}
+            className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-slate-950 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-white"
+            title="Move queued message down"
+            aria-label="Move queued message down"
+          >
+            <ArrowDown className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {canMergeWithPrevious && (
+          <button
+            type="button"
+            onClick={onMergeWithPrevious}
+            disabled={isPending}
+            className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-brand disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-brand-light"
+            title="Merge queued message with previous"
+            aria-label="Merge queued message with previous"
+          >
+            <Combine className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {canConvertToGuidance && (
+          <button
+            type="button"
+            onClick={onConvertToGuidance}
+            disabled={isPending}
+            className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-brand disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-brand-light"
+            title="Convert queued message to guidance"
+            aria-label="Convert queued message to guidance"
+          >
+            <Route className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {canStopAndRun && (
+          <button
+            type="button"
+            onClick={onStopAndRun}
+            disabled={isPending}
+            className="rounded-md p-1.5 text-slate-500 hover:bg-white/70 hover:text-brand disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-brand-light"
+            title="Stop current reply and run this queued message"
+            aria-label="Stop current reply and run this queued message"
+          >
+            <Zap className="h-3.5 w-3.5" />
+          </button>
+        )}
         {canEdit && (
           <button
             type="button"

@@ -8,9 +8,12 @@ import {
   type TaskCardBlock,
   type TaskStatus,
 } from '@/lib/mockData';
-import type { Conversation, Message, StreamEvent } from '@/lib/types';
+import type { Conversation, Message, StreamEvent, TurnControlBlock } from '@/lib/types';
 
-type SortableMessage = Pick<Message, 'id' | 'role' | 'reply_to_id' | 'created_at'>;
+type SortableMessage = Pick<
+  Message,
+  'id' | 'role' | 'reply_to_id' | 'created_at' | 'status' | 'queue_position'
+>;
 
 interface ChatState {
   conversations: DemoConversation[];
@@ -73,6 +76,12 @@ function messageTime(message: SortableMessage): number {
 function compareMessages(a: SortableMessage, b: SortableMessage): number {
   if (a.reply_to_id === b.id) return 1;
   if (b.reply_to_id === a.id) return -1;
+
+  if (a.status === 'queued' && b.status === 'queued') {
+    const positionDiff = (a.queue_position ?? Number.MAX_SAFE_INTEGER) -
+      (b.queue_position ?? Number.MAX_SAFE_INTEGER);
+    if (positionDiff !== 0) return positionDiff;
+  }
 
   const timeDiff = messageTime(a) - messageTime(b);
   if (timeDiff !== 0) return timeDiff;
@@ -395,6 +404,9 @@ function previewFromMessage(message: DemoMessage): string | null {
     if (block.type === 'clarification') {
       return `${block.title}: ${block.status}`;
     }
+    if (block.type === 'turn_control') {
+      return `${block.title}: ${block.status}`;
+    }
     if (block.type === 'file') {
       return block.path || block.filename;
     }
@@ -706,6 +718,37 @@ function applyStreamEventToMessage(message: DemoMessage, event: StreamEvent): De
   };
 }
 
+function applyTurnControlToConversations(
+  messagesByConversation: Record<string, DemoMessage[]>,
+  controlBlock: TurnControlBlock,
+): Record<string, DemoMessage[]> {
+  const controlId = controlBlock.control_id;
+  if (!controlId) return messagesByConversation;
+  let changed = false;
+  const next = Object.fromEntries(
+    Object.entries(messagesByConversation).map(([conversationId, messages]) => {
+      const nextMessages = messages.map((message) => {
+        let messageChanged = false;
+        const content = message.content.map((block) => {
+          if (
+            block.type === 'turn_control' &&
+            (block as TurnControlBlock).control_id === controlId
+          ) {
+            messageChanged = true;
+            return controlBlock;
+          }
+          return block;
+        });
+        if (!messageChanged) return message;
+        changed = true;
+        return { ...message, content };
+      });
+      return [conversationId, nextMessages];
+    }),
+  );
+  return changed ? next : messagesByConversation;
+}
+
 function streamEventMessageId(parentMessageId: string, event: StreamEvent): string {
   const data = event.data as { message_id?: unknown };
   return typeof data.message_id === 'string' && data.message_id ? data.message_id : parentMessageId;
@@ -895,6 +938,14 @@ export const useChatStore = create<ChatState>((set) => ({
   },
   applyStreamEvent: (messageId, event) => {
     set((state) => {
+      if (event.event === 'turn_control') {
+        return {
+          messagesByConversation: applyTurnControlToConversations(
+            state.messagesByConversation,
+            event.data.turn_control,
+          ),
+        };
+      }
       const targetMessageId = streamEventMessageId(messageId, event);
       const isChildLifecycle =
         event.event === 'message_start' ||
@@ -1165,12 +1216,16 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => ({
       messagesByConversation: {
         ...state.messagesByConversation,
-        [message.conversation_id]: sortMessagesForDisplay(
-          (state.messagesByConversation[message.conversation_id] ?? []).map((item) =>
-            item.id === message.id ? (message as DemoMessage) : item,
-          ),
+        [message.conversation_id]: upsertMessages(
+          state.messagesByConversation[message.conversation_id] ?? [],
+          [message as DemoMessage],
         ),
       },
+      conversations: updateConversationPreview(
+        state.conversations,
+        message.conversation_id,
+        message as DemoMessage,
+      ),
     }));
   },
   replaceMessageLocal: (oldMessageId, message) => {

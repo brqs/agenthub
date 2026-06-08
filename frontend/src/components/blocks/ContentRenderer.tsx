@@ -8,6 +8,7 @@ import { ProcessBlock } from './ProcessBlock';
 import { TaskCardBlock } from './TaskCardBlock';
 import { TextBlock } from './TextBlock';
 import { ToolCallBlock } from './ToolCallBlock';
+import { TurnControlBlock } from './TurnControlBlock';
 import { UnknownBlock } from './UnknownBlock';
 import { WebPreviewBlock } from './WebPreviewBlock';
 import { WorkflowBlock } from './WorkflowBlock';
@@ -125,6 +126,9 @@ function renderBlock(
   }
   if (block.type === 'attachment') {
     return <AttachmentBlock key={`${block.type}-${block.upload_id}`} block={block} />;
+  }
+  if (block.type === 'turn_control') {
+    return <TurnControlBlock key={`${block.type}-${block.control_id ?? index}`} block={block} />;
   }
   if (block.type === 'tool_call') {
     return <ToolCallBlock key={`${block.type}-${block.call_id}`} block={block} />;
