@@ -80,6 +80,8 @@ servers, Vite/Next dev servers, or server dependencies just to satisfy preview/d
 If the user asks for preview/deploy on a port, plan only file generation and content
 verification. Put any preview/deploy handling in the final platform explanation, not
 as a sub-agent execution task.
+If the user asks for a debate, role-play, roundtable, or group dialogue and explicitly
+says not to create files/artifacts, create conversation tasks with empty expected_output.
 """
 
 
@@ -307,7 +309,7 @@ def _task_plan_tool() -> ToolSpec:
                             "expected_output": {"type": "string"},
                             "task_type": {
                                 "type": "string",
-                                "enum": ["implementation", "review", "repair"],
+                                "enum": ["implementation", "review", "repair", "conversation"],
                                 "default": "implementation",
                             },
                             "review_of": {

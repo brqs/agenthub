@@ -327,10 +327,17 @@ def balance_requested_multi_agent_plan(
     user_request: str,
     allowed_agent_ids: set[str] | None = None,
 ) -> list[SubTask]:
-    if len(tasks) < 2:
-        return tasks
     allowed_agent_ids = allowed_agent_ids or _allowed_agent_ids_from_config(config)
     ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
+    if (
+        len(tasks) == 1
+        and _explicit_multi_agent_distribution_requested(user_request)
+        and tasks[0].task_type == "conversation"
+        and len(ordered_agents) >= 2
+    ):
+        return _split_single_conversation_task(tasks[0], ordered_agents)
+    if len(tasks) < 2:
+        return tasks
     if not _explicit_multi_agent_distribution_requested(user_request):
         return _avoid_self_review_tasks(tasks, ordered_agents)
     if len(ordered_agents) < 2:
@@ -360,6 +367,47 @@ def balance_requested_multi_agent_plan(
             agent_id=ordered_agents[offset % len(ordered_agents)],
         )
     return _avoid_self_review_tasks(redistributed, ordered_agents)
+
+
+def _split_single_conversation_task(
+    task: SubTask,
+    ordered_agents: list[str],
+) -> list[SubTask]:
+    first_agent, second_agent = ordered_agents[:2]
+    return [
+        replace(
+            task,
+            agent_id=first_agent,
+            title=f"{task.title} - first participant",
+            instruction=(
+                f"{task.instruction}\n\n"
+                "Conversation split: speak as the first participant in the group "
+                "dialogue. Directly contribute your own substantive points. Do not "
+                "host, invite another participant, restate the assignment, or only "
+                "say the task is done. Do not create files or workspace artifacts."
+            ),
+            expected_output="",
+            task_type="conversation",
+        ),
+        replace(
+            task,
+            task_id=_unique_task_id([task], f"{task.task_id}-participant-2"),
+            agent_id=second_agent,
+            title=f"{task.title} - second participant",
+            instruction=(
+                f"{task.instruction}\n\n"
+                "Conversation split: speak as the second participant and respond "
+                "to the opposing view. Directly contribute your own substantive "
+                "points. Do not host, invite another participant, restate the "
+                "assignment, or only say the task is done. Do not create files or "
+                "workspace artifacts."
+            ),
+            depends_on=(task.task_id,),
+            priority=task.priority + 1,
+            expected_output="",
+            task_type="conversation",
+        ),
+    ]
 
 
 def _is_parallel_implementation_task(task: SubTask) -> bool:

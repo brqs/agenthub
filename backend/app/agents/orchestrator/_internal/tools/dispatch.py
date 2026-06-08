@@ -45,6 +45,7 @@ def _dispatch_task_from_call(
         instruction=instruction,
         expected_output=_optional_str(call.arguments.get("expected_output")),
         include_history=_optional_bool(call.arguments.get("include_history"), True),
+        task_type=_optional_task_type(call.arguments.get("task_type")),
     )
 
 def _dispatch_observation_result(
@@ -105,3 +106,12 @@ def _optional_bool(value: object, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     return default
+
+
+def _optional_task_type(value: object) -> str:
+    if not isinstance(value, str):
+        return "implementation"
+    normalized = value.strip() or "implementation"
+    if normalized not in {"implementation", "review", "repair", "conversation"}:
+        return "implementation"
+    return normalized

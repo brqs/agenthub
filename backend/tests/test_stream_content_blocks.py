@@ -72,6 +72,14 @@ async def test_group_message_error_text_sanitizes_raw_external_runtime_terms() -
     assert "外部运行时返回异常" in text
 
 
+async def test_group_message_error_text_sanitizes_output_incomplete_code() -> None:
+    text = _safe_error_text("output_incomplete: 没有可见文本输出。")
+
+    assert "output_incomplete" not in text
+    assert "输出没有满足本阶段要求" in text
+    assert "没有可见文本输出" in text
+
+
 async def test_stream_preview_autostart_skips_existing_preview_or_deployment_blocks() -> None:
     assert _has_platform_preview_tool_call(
         [{"type": "web_preview", "url": "http://127.0.0.1:8082/index.html"}]
@@ -1557,6 +1565,445 @@ async def test_orchestrator_group_parallel_stream_finishes_all_child_messages(
     assert all(message.content for message in child_messages)
     assert parent.status == "done"
     assert "completed assigned work" not in str(parent.content)
+
+
+async def test_orchestrator_group_dialogue_tasks_finish_without_artifacts(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    orchestrator_id = await _ensure_builtin_agent("orchestrator", name="Orchestrator")
+    pro_agent_id = await _ensure_builtin_agent(f"test-agent-{uuid4().hex}", name="Pro")
+    con_agent_id = await _ensure_builtin_agent(f"test-agent-{uuid4().hex}", name="Con")
+    conversation = await _create_conversation(
+        client,
+        headers,
+        [orchestrator_id, pro_agent_id, con_agent_id],
+        mode="group",
+    )
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=orchestrator_id,
+        content_text=(
+            "组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会利大于弊"
+            "还是弊大于利？不需要生成文件直接以对话的形式输出。"
+        ),
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    class DebateAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(
+                event_type="block_start",
+                block_index=0,
+                block_type="text",
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta=(
+                    (
+                        "正方观点：我认为 AI 快速发展利大于弊，不生成文件，"
+                        "因为它能提升医疗、教育和科研效率，并让普通人获得"
+                        "更强的生产工具。风险需要监管，但不应否定整体收益。"
+                    )
+                    if self.agent_id == pro_agent_id
+                    else (
+                        "反方观点：我认为 AI 快速发展弊大于利，不生成文件，"
+                        "因为就业替代、隐私滥用和信息信任危机可能先于治理"
+                        "机制成熟。收益如果高度集中，社会成本会被放大。"
+                    )
+                ),
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(
+                event_type="block_end",
+                block_index=0,
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+    orchestrator = OrchestratorAdapter(
+        agent_id=orchestrator_id,
+        default_config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "tasks": [
+                {
+                    "task_id": "dialogue-pro",
+                    "agent_id": pro_agent_id,
+                    "title": "正方发言",
+                    "instruction": "直接以正方身份发言，不要生成文件。",
+                    "task_type": "conversation",
+                },
+                {
+                    "task_id": "dialogue-con",
+                    "agent_id": con_agent_id,
+                    "title": "反方发言",
+                    "instruction": "直接以反方身份发言，不要生成文件。",
+                    "task_type": "conversation",
+                },
+            ],
+            "sub_adapters": {
+                pro_agent_id: DebateAdapter(pro_agent_id),
+                con_agent_id: DebateAdapter(con_agent_id),
+            },
+        },
+    )
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> OrchestratorAdapter:
+        assert agent_id == orchestrator_id
+        return orchestrator
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        stored_messages = (
+            (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == UUID(conversation["id"]))
+                    .order_by(Message.created_at.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert response.status_code == 200
+    assert sse_text.count("event: message_start") == 2
+    assert "artifact_missing" not in sse_text
+    parent = next(message for message in stored_messages if str(message.id) == agent_message_id)
+    child_messages = [
+        message
+        for message in stored_messages
+        if message.role == "agent" and message.agent_id in {pro_agent_id, con_agent_id}
+    ]
+    assert {message.status for message in child_messages} == {"done"}
+    for child in child_messages:
+        text_blocks = [
+            block
+            for block in child.content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        roles = [block["presentation"]["role"] for block in text_blocks]
+        assert "execution_text" in roles
+        assert "agent_summary" in roles
+        summary = next(
+            block["text"]
+            for block in text_blocks
+            if block["presentation"]["role"] == "agent_summary"
+        )
+        assert "不生成文件" in summary
+    assert parent.status == "done"
+    assert "artifact_missing" not in str(parent.content)
+
+
+async def test_orchestrator_salvages_substantive_conversation_output_before_runtime_error(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    orchestrator_id = await _ensure_builtin_agent("orchestrator", name="Orchestrator")
+    agent_id = await _ensure_builtin_agent(f"test-agent-{uuid4().hex}", name="Panelist")
+    conversation = await _create_conversation(
+        client,
+        headers,
+        [orchestrator_id, agent_id],
+        mode="group",
+    )
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=orchestrator_id,
+        content_text="请让一个智能体直接发表 AI 快速发展利大于弊的观点，不需要生成文件。",
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    class TextThenRuntimeErrorAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(
+                event_type="block_start",
+                block_index=0,
+                block_type="text",
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta=(
+                    "我的立场是 AI 快速发展整体利大于弊。第一，它能显著提升医疗、"
+                    "教育和科研效率；第二，它让小团队和个人获得更强的生产工具；"
+                    "第三，风险可以通过透明监管、责任追踪和安全评估逐步治理。"
+                    "所以社会应该主动建设治理框架，而不是因为风险停止技术进步。"
+                ),
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(event_type="block_end", block_index=0, agent_id=self.agent_id)
+            yield StreamChunk(
+                event_type="error",
+                error_code="runtime_idle_timeout",
+                error="process exited",
+                agent_id=self.agent_id,
+            )
+
+    orchestrator = OrchestratorAdapter(
+        agent_id=orchestrator_id,
+        default_config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "tasks": [
+                {
+                    "task_id": "dialogue-one",
+                    "agent_id": agent_id,
+                    "title": "AI 快速发展利大于弊观点发言",
+                    "instruction": "直接发表 AI 快速发展利大于弊的观点，不要生成文件。",
+                    "task_type": "conversation",
+                }
+            ],
+            "sub_adapters": {
+                agent_id: TextThenRuntimeErrorAdapter(agent_id),
+            },
+        },
+    )
+
+    async def mock_get_adapter(requested_agent_id: str, db: Any) -> OrchestratorAdapter:
+        assert requested_agent_id == orchestrator_id
+        return orchestrator
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        stored_messages = (
+            (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == UUID(conversation["id"]))
+                    .order_by(Message.created_at.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert response.status_code == 200
+    assert "event: message_error" not in sse_text
+    assert "event: message_done" in sse_text
+    child = next(message for message in stored_messages if message.agent_id == agent_id)
+    assert child.status == "done"
+    text_blocks = [
+        block for block in child.content if isinstance(block, dict) and block.get("type") == "text"
+    ]
+    assert any(
+        block.get("presentation", {}).get("role") == "agent_summary"
+        and "利大于弊" in block.get("text", "")
+        for block in text_blocks
+    )
+
+
+async def test_orchestrator_conversation_task_corrects_non_substantive_child_output(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    orchestrator_id = await _ensure_builtin_agent("orchestrator", name="Orchestrator")
+    pro_agent_id = await _ensure_builtin_agent(f"test-agent-{uuid4().hex}", name="Pro")
+    con_agent_id = await _ensure_builtin_agent(f"test-agent-{uuid4().hex}", name="Con")
+    conversation = await _create_conversation(
+        client,
+        headers,
+        [orchestrator_id, pro_agent_id, con_agent_id],
+        mode="group",
+    )
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=orchestrator_id,
+        content_text="组织两个智能体辩论 AI 发展利弊，不需要生成文件，直接对话。",
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    def text_chunks(agent_id: str, text: str) -> list[StreamChunk]:
+        return [
+            StreamChunk(event_type="start", agent_id=agent_id),
+            StreamChunk(
+                event_type="block_start",
+                block_index=0,
+                block_type="text",
+                agent_id=agent_id,
+            ),
+            StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta=text,
+                agent_id=agent_id,
+            ),
+            StreamChunk(event_type="block_end", block_index=0, agent_id=agent_id),
+            StreamChunk(event_type="done", agent_id=agent_id, total_blocks=1),
+        ]
+
+    class SequencedDebateAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        def __init__(self, agent_id: str, sequences: list[list[StreamChunk]]) -> None:
+            super().__init__(agent_id=agent_id)
+            self.sequences = sequences
+            self.calls = 0
+
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            index = self.calls
+            self.calls += 1
+            for chunk in self.sequences[min(index, len(self.sequences) - 1)]:
+                yield chunk
+
+    pro_adapter = SequencedDebateAdapter(
+        pro_agent_id,
+        [
+            text_chunks(pro_agent_id, "辩论正式开始！正方一辩请登场。"),
+            text_chunks(
+                pro_agent_id,
+                (
+                    "正方观点：我认为 AI 快速发展利大于弊。它能显著提升医疗诊断、"
+                    "教育辅导和科研效率，也能帮助普通人获得过去只有大型团队才有的"
+                    "能力。风险确实存在，但可以通过透明监管、责任追踪和安全评估逐步"
+                    "治理，所以不能因为风险就否定整体收益。"
+                ),
+            ),
+        ],
+    )
+    con_adapter = SequencedDebateAdapter(
+        con_agent_id,
+        [
+            text_chunks(
+                con_agent_id,
+                (
+                    "反方观点：我认为 AI 快速发展弊大于利。最大问题是就业替代、"
+                    "隐私监控和信息信任危机的速度可能超过社会治理能力。即使 AI 有"
+                    "效率收益，如果收益集中在少数平台手里，普通人承担风险，社会整体"
+                    "仍可能付出更高代价。"
+                ),
+            )
+        ],
+    )
+    orchestrator = OrchestratorAdapter(
+        agent_id=orchestrator_id,
+        default_config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "tasks": [
+                {
+                    "task_id": "dialogue-pro",
+                    "agent_id": pro_agent_id,
+                    "title": "正方发言：AI 快速发展利大于弊",
+                    "instruction": "直接以正方身份发言，不要生成文件。",
+                    "task_type": "conversation",
+                },
+                {
+                    "task_id": "dialogue-con",
+                    "agent_id": con_agent_id,
+                    "title": "反方发言：AI 快速发展弊大于利",
+                    "instruction": "直接以反方身份发言，不要生成文件。",
+                    "task_type": "conversation",
+                },
+            ],
+            "sub_adapters": {
+                pro_agent_id: pro_adapter,
+                con_agent_id: con_adapter,
+            },
+        },
+    )
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> OrchestratorAdapter:
+        assert agent_id == orchestrator_id
+        return orchestrator
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        stored_messages = (
+            (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == UUID(conversation["id"]))
+                    .order_by(Message.created_at.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert response.status_code == 200
+    assert pro_adapter.calls == 2
+    assert "output-correction" in sse_text
+    child = next(message for message in stored_messages if message.agent_id == pro_agent_id)
+    assert child.status == "done"
+    text_blocks = [
+        block for block in child.content if isinstance(block, dict) and block.get("type") == "text"
+    ]
+    summaries = [
+        block["text"]
+        for block in text_blocks
+        if block.get("presentation", {}).get("role") == "agent_summary"
+    ]
+    assert len(summaries) == 1
+    assert "利大于弊" in summaries[0]
+    assert "请登场" not in summaries[0]
 
 
 async def test_stream_autostarts_platform_preview_for_deploy_request(
