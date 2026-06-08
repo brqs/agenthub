@@ -44,7 +44,6 @@ def upgraded_orchestrator_config(config: object) -> dict[str, Any]:
 async def upgrade_builtin_orchestrator_config(db: AsyncSession) -> bool:
     """Upgrade stale built-in Orchestrator config rows in existing local databases."""
 
-    changed = False
     agent = await db.get(Agent, ORCHESTRATOR_AGENT_ID)
     if agent is None or not agent.is_builtin:
         return False
