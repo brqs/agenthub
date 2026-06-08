@@ -395,6 +395,7 @@ function processStepKind(value: unknown) {
 function clarificationMode(value: unknown) {
   if (
     value === 'auto' ||
+    value === 'requirement_alignment' ||
     value === 'grill_me' ||
     value === 'grill_with_docs' ||
     value === 'setup_matt_pocock_skills'

@@ -10,6 +10,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Literal
 
+from app.agents.model_gateway import ModelGateway
 from app.agents.orchestrator._internal.memory import (
     finish_run,
     record_event,
@@ -18,7 +19,13 @@ from app.agents.orchestrator._internal.memory import (
 from app.agents.orchestrator.types import OrchestratorRunContext
 from app.agents.types import ChatMessage, StreamChunk
 
-ClarificationMode = Literal["auto", "grill_me", "grill_with_docs", "setup_matt_pocock_skills"]
+ClarificationMode = Literal[
+    "auto",
+    "requirement_alignment",
+    "grill_me",
+    "grill_with_docs",
+    "setup_matt_pocock_skills",
+]
 ClarificationReplyRoute = Literal[
     "answer_current",
     "reference_context",
@@ -172,6 +179,65 @@ ARTIFACT_MARKERS = (
     "产物",
 )
 
+DISCUSSION_MARKERS = (
+    "辩论",
+    "讨论",
+    "群聊",
+    "对话",
+    "正方",
+    "反方",
+    "主持",
+    "总结",
+    "debate",
+    "discussion",
+    "conversation",
+)
+DOCUMENT_MARKERS = (
+    "文档",
+    "文章",
+    "报告",
+    "说明",
+    "方案",
+    "规范",
+    "spec",
+    "doc",
+    "report",
+)
+ANALYSIS_MARKERS = (
+    "分析",
+    "比较",
+    "评估",
+    "判断",
+    "可行性",
+    "优缺点",
+    "对比",
+    "analysis",
+    "compare",
+    "evaluate",
+)
+CODE_CHANGE_MARKERS = (
+    "修改代码",
+    "修复 bug",
+    "修复bug",
+    "改代码",
+    "重构",
+    "补测试",
+    "review",
+    "fix",
+    "refactor",
+    "test",
+)
+SMALL_TALK_MARKERS = (
+    "你好",
+    "您好",
+    "你是谁",
+    "有哪些 agent",
+    "有哪些agent",
+    "help",
+    "hello",
+    "hi",
+)
+
 GRILL_QUESTIONS: tuple[dict[str, Any], ...] = (
     {
         "id": "audience_goal",
@@ -294,12 +360,13 @@ async def maybe_handle_clarification(
         )
 
     if _should_auto_clarify(config, user_request, has_task_intent):
+        question = await _requirement_alignment_question(config, messages, user_request)
         return await _ask_question(
             config,
             next_block_index,
-            mode="auto",
-            title="Orchestrator 需求澄清",
-            question=AUTO_QUESTION,
+            mode="requirement_alignment",
+            title="Orchestrator 需求对齐",
+            question=question,
             original_request=user_request,
             question_count=1,
             max_questions=_positive_int(config, "auto_clarification_max_questions", 3),
@@ -464,7 +531,7 @@ async def _handle_pending_answer(
             continue_messages=_augmented_messages(messages, state, user_request),
         )
 
-    if mode == "auto":
+    if mode in {"auto", "requirement_alignment"}:
         return await _ask_proceed_confirmation(
             config,
             next_block_index,
@@ -857,12 +924,13 @@ async def _switch_clarification_topic(
     )
     await _record_clarification(config, "clarification_cancelled", state, user_request)
     if _should_auto_clarify(config, user_request, has_task_intent):
+        alignment_question = await _requirement_alignment_question(config, messages, user_request)
         question = await _ask_question(
             config,
             next_block_index + 1,
-            mode="auto",
-            title="Orchestrator 需求澄清",
-            question=AUTO_QUESTION,
+            mode="requirement_alignment",
+            title="Orchestrator 需求对齐",
+            question=alignment_question,
             original_request=user_request,
             question_count=1,
             max_questions=_positive_int(config, "auto_clarification_max_questions", 3),
@@ -1133,19 +1201,222 @@ def _should_auto_clarify(
 ) -> bool:
     if config.get("tasks") is not None:
         return False
+    if _requirement_alignment_mode(config) != "strict":
+        return False
     if _is_bypass_request(user_request):
         return False
-    if not has_task_intent(user_request):
+    task_kind = _alignment_task_kind(user_request)
+    if task_kind == "small_talk":
         return False
-    normalized = user_request.lower()
-    if not any(marker in normalized for marker in BUILD_MARKERS):
-        return False
-    if not any(marker in normalized for marker in ARTIFACT_MARKERS):
+    if task_kind == "other" and not has_task_intent(user_request):
         return False
     max_questions = _positive_int(config, "auto_clarification_max_questions", 3)
     if max_questions <= 0:
         return False
-    return _missing_spec_count(normalized) >= 2
+    return True
+
+
+def _requirement_alignment_mode(config: Mapping[str, Any]) -> str:
+    turn_options = config.get("turn_options")
+    if isinstance(turn_options, Mapping):
+        mode = turn_options.get("requirement_alignment")
+    else:
+        mode = None
+    return mode if mode in {"off", "strict"} else "off"
+
+
+async def _requirement_alignment_question(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    user_request: str,
+) -> dict[str, Any]:
+    task_kind = _alignment_task_kind(user_request)
+    if config.get("requirement_alignment_llm_enabled", True) is not False:
+        llm_question = await _llm_requirement_alignment_question(
+            config,
+            messages,
+            user_request,
+            task_kind=task_kind,
+        )
+        if llm_question is not None:
+            return llm_question
+    return _fallback_alignment_question(user_request, task_kind)
+
+
+async def _llm_requirement_alignment_question(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    user_request: str,
+    *,
+    task_kind: str,
+) -> dict[str, Any] | None:
+    backend = config.get("planner_model_backend", config.get("model_backend", "deepseek"))
+    if not isinstance(backend, str) or not backend.strip():
+        return None
+    try:
+        gateway = ModelGateway(
+            backend,
+            default_config={
+                "temperature": 0,
+                "max_tokens": 900,
+                "request_timeout_seconds": 12,
+            },
+            agent_id="orchestrator-requirement-alignment",
+            system_prompt=(
+                "You generate one concise requirement-alignment question before an "
+                "orchestrator dispatches agents. Return only JSON with keys: id, "
+                "question, reason, recommended_answer, options. The answer must be "
+                "Chinese when the user writes Chinese. Do not recommend frontend "
+                "static artifacts unless task_kind is frontend_artifact."
+            ),
+        )
+        recent = "\n".join(
+            f"{message.role}: {_short_text(message.content, 120)}"
+            for message in messages[-6:]
+            if message.content.strip()
+        )
+        prompt = (
+            f"task_kind: {task_kind}\n"
+            f"user_request: {user_request}\n\n"
+            f"recent_context:\n{recent}\n\n"
+            "Ask only the single question whose answer would most change execution. "
+            "If the request is a debate/discussion, recommend a conversational debate "
+            "format and no files. If it is frontend_artifact, recommend concrete "
+            "artifact boundaries. Options must be short chips."
+        )
+        text = ""
+        async for chunk in gateway.stream([ChatMessage(role="user", content=prompt)]):
+            if chunk.event_type == "error":
+                return None
+            if chunk.text_delta:
+                text += chunk.text_delta
+        return _validated_alignment_question(text, task_kind)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _validated_alignment_question(raw: str, task_kind: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(_json_object_text(raw))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    question = _question_payload(payload)
+    if not question["question"] or not question["recommended_answer"]:
+        return None
+    recommended = question["recommended_answer"].lower()
+    frontend_terms = ("静态前端", "index.html", "styles.css", "app.js", "html/css/js")
+    if task_kind != "frontend_artifact" and any(term in recommended for term in frontend_terms):
+        return None
+    question["id"] = str(payload.get("id") or f"{task_kind}_alignment")
+    question["options"] = question["options"][:3]
+    if not question["options"]:
+        question["options"] = ["使用推荐答案", "补充约束", "直接按默认开始"]
+    return question
+
+
+def _json_object_text(raw: str) -> str:
+    stripped = raw.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?", "", stripped, flags=re.IGNORECASE).strip()
+        stripped = re.sub(r"```$", "", stripped).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end >= start:
+        return stripped[start : end + 1]
+    return stripped
+
+
+def _alignment_task_kind(user_request: str) -> str:
+    text = user_request.lower()
+    if _contains_any(text, SMALL_TALK_MARKERS) and len(text.strip()) <= 32:
+        return "small_talk"
+    if _contains_any(text, DISCUSSION_MARKERS):
+        return "discussion"
+    if any(marker in text for marker in CODE_CHANGE_MARKERS):
+        return "code_change"
+    if any(marker in text for marker in ARTIFACT_MARKERS) and any(
+        marker in text for marker in BUILD_MARKERS
+    ):
+        return "frontend_artifact"
+    if any(marker in text for marker in DOCUMENT_MARKERS):
+        return "document"
+    if any(marker in text for marker in ANALYSIS_MARKERS):
+        return "analysis"
+    return "other"
+
+
+def _fallback_alignment_question(user_request: str, task_kind: str) -> dict[str, Any]:
+    short_request = _short_text(user_request, 42)
+    if task_kind == "discussion":
+        return {
+            "id": "discussion_format",
+            "question": "你希望这次讨论按什么主持结构进行？",
+            "reason": (
+                "先确认角色、轮次和总结方式，可以避免 Orchestrator "
+                "把对话任务误当成文件产物任务。"
+            ),
+            "recommended_answer": (
+                "按对话式辩论输出，不生成文件；由指定 Agent 分别代表立场，"
+                "每方先开场，再进行两轮交锋，最后由 Orchestrator 中立总结。"
+            ),
+            "options": ["使用对话式辩论", "固定正反方", "自由选择立场"],
+        }
+    if task_kind == "frontend_artifact":
+        return {
+            "id": "frontend_delivery_boundary",
+            "question": "这个构建请求目前规格偏宽，你希望我按什么交付边界开始？",
+            "reason": "先确认产物形态和验收边界，可以避免执行 Agent 过早写出方向不对的文件。",
+            "recommended_answer": (
+                "按可直接运行的静态前端产物开始：包含入口文件、核心交互、"
+                "基础响应式和无明显运行错误。"
+            ),
+            "options": ["使用推荐默认", "更重视觉", "更重功能"],
+        }
+    if task_kind == "document":
+        return {
+            "id": "document_output_shape",
+            "question": "你希望文档按什么结构和语气输出？",
+            "reason": "文档任务的结构、长度和语气会直接影响后续写作质量。",
+            "recommended_answer": (
+                "按清晰的标题层级输出：背景、目标、方案、风险、下一步；"
+                "语气克制专业，长度以可直接交付为准。"
+            ),
+            "options": ["使用推荐结构", "更正式", "更口语"],
+        }
+    if task_kind == "analysis":
+        return {
+            "id": "analysis_dimensions",
+            "question": "你希望这次分析重点比较哪些维度？",
+            "reason": "先锁定分析维度和结论形式，可以避免泛泛而谈。",
+            "recommended_answer": (
+                "按背景、核心差异、优缺点、适用场景和结论建议来分析；"
+                "需要比较时用表格辅助，但结论用自然语言说清楚。"
+            ),
+            "options": ["使用推荐维度", "更重结论", "增加表格"],
+        }
+    if task_kind == "code_change":
+        return {
+            "id": "code_change_scope",
+            "question": "这次代码修改的范围和验收标准是什么？",
+            "reason": "先确认改动边界和测试范围，可以避免 Agent 做无关重构。",
+            "recommended_answer": (
+                "只修改与当前问题直接相关的代码；保留现有架构风格；"
+                "补充针对性测试，并跑受影响模块的检查。"
+            ),
+            "options": ["使用推荐范围", "只做最小修复", "包含测试补齐"],
+        }
+    return {
+        "id": "execution_assumption",
+        "question": "你希望我按什么默认假设推进这个请求？",
+        "reason": "这个请求可以执行，但关键边界还不够明确；先确认一条默认假设能减少返工。",
+        "recommended_answer": (
+            f"围绕“{short_request}”直接给出可执行结果；"
+            "不生成额外文件，除非后续明确需要。"
+        ),
+        "options": ["使用推荐假设", "先给简版", "补充更多细节"],
+    }
 
 
 def _is_bypass_request(text: str) -> bool:
@@ -1517,7 +1788,13 @@ def _mode(state: dict[str, Any]) -> ClarificationMode:
 
 
 def _safe_mode(value: str) -> ClarificationMode:
-    if value in {"auto", "grill_me", "grill_with_docs", "setup_matt_pocock_skills"}:
+    if value in {
+        "auto",
+        "requirement_alignment",
+        "grill_me",
+        "grill_with_docs",
+        "setup_matt_pocock_skills",
+    }:
         return value  # type: ignore[return-value]
     return "auto"
 

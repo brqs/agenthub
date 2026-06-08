@@ -5,6 +5,18 @@
 > 状态：Implemented MVP
 > 最后更新：2026-06-07
 
+## 2026-06-08 Implementation Note: 需求对齐
+
+Clarification Gate 的自动触发入口已经改为用户可控的 **需求对齐** 模式。
+
+- 用户可见名称统一为 `需求对齐`，不再称为计划模式。
+- 默认 `off`：普通 Orchestrator 对话、辩论、分析、闲聊、构建请求都不会因为自动 gate 被拦截。
+- 每个 turn 可通过 `requirement_alignment: "strict"` 开启严格需求对齐；该选项会写入 `messages.turn_options`，并复制到对应 agent message 和 queued dispatch 后的新 agent message。
+- 显式 slash command `/grill-me`、`/grill-with-docs`、`/setup-matt-pocock-skills` 仍然保留，不依赖开关。
+- strict 模式下，Orchestrator 在调度前只问影响执行方向的关键问题；如果需求已经足够明确，则输出假设 brief 并等待用户明确确认。
+- 推荐答案必须基于当前请求场景动态生成：网页/游戏/组件推荐前端产物边界；辩论/讨论推荐对话式输出与角色/轮次/总结方式；文档、分析、代码修改分别推荐对应结构、维度、范围和验收标准。
+- LLM 生成的问题必须通过确定性校验；如果把非前端任务推荐成静态前端产物，必须丢弃并使用对应 `task_kind` fallback。
+
 ---
 
 ## 1. 背景与来源分析

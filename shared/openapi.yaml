@@ -2640,6 +2640,7 @@ components:
           type: string
           enum:
           - auto
+          - requirement_alignment
           - grill_me
           - grill_with_docs
           - setup_matt_pocock_skills
@@ -3628,6 +3629,8 @@ components:
           - type: integer
           - type: 'null'
           title: Queue Position
+        turn_options:
+          $ref: '#/components/schemas/TurnOptions'
       type: object
       required:
       - id
@@ -4107,6 +4110,13 @@ components:
           type: array
           maxItems: 10
           title: Attachment Ids
+        requirement_alignment:
+          type: string
+          enum:
+          - 'off'
+          - strict
+          title: Requirement Alignment
+          default: 'off'
       type: object
       required:
       - content
@@ -4213,6 +4223,13 @@ components:
           type: array
           maxItems: 10
           title: Attachment Ids
+        requirement_alignment:
+          type: string
+          enum:
+          - 'off'
+          - strict
+          title: Requirement Alignment
+          default: 'off'
       type: object
       required:
       - content
@@ -4538,6 +4555,17 @@ components:
       required:
       - control
       title: TurnControlResponse
+    TurnOptions:
+      properties:
+        requirement_alignment:
+          type: string
+          enum:
+          - 'off'
+          - strict
+          title: Requirement Alignment
+          default: 'off'
+      type: object
+      title: TurnOptions
     UpdateAgentRequest:
       properties:
         name:
@@ -4760,6 +4788,14 @@ components:
           - type: string
           - type: 'null'
           title: Target Agent Id
+        requirement_alignment:
+          anyOf:
+          - type: string
+            enum:
+            - 'off'
+            - strict
+          - type: 'null'
+          title: Requirement Alignment
       type: object
       title: UpdateQueuedMessageRequest
     UploadOut:

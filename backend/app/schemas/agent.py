@@ -164,6 +164,7 @@ class AgentConfig(BaseModel):
         ge=numeric_field("auto_clarification_max_questions").minimum,
         le=numeric_field("auto_clarification_max_questions").maximum,
     )
+    requirement_alignment_llm_enabled: bool | None = None
     grill_max_questions: int | None = Field(
         default=None,
         ge=numeric_field("grill_max_questions").minimum,
