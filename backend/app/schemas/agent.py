@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,6 +24,7 @@ AgentProvider = Literal[
 ]
 CreatableAgentProvider = Literal["claude_code", "codex", "opencode", "builtin"]
 ModelBackend = Literal["claude", "deepseek", "openai"]
+AgentKnowledgeUsage = Literal["reference", "policy", "template", "example"]
 
 
 class AgentConfig(BaseModel):
@@ -211,6 +213,30 @@ class AgentOut(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     is_builtin: bool = False
     created_at: datetime
+
+
+class AgentKnowledgeOut(BaseModel):
+    upload_id: UUID
+    filename: str
+    label: str
+    usage: AgentKnowledgeUsage = "reference"
+    content_type: str
+    size_bytes: int
+    sha256: str
+    created_at: datetime
+
+
+class AgentSkillOut(BaseModel):
+    skill_id: str
+    upload_id: UUID
+    name: str
+    description: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    created_at: datetime
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class CreateAgentRequest(BaseModel):

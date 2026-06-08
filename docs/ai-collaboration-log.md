@@ -2176,3 +2176,19 @@ container_state_events: queued -> publishing -> run_recovered -> health_passed -
 container_stop_cleanup_ok: true
 podman_leftover_containers: none
 ```
+## 2026-06-08 — Codex 实现自定义 Agent Markdown/Skill 上传接口
+
+### 任务
+为 B2 要求补齐自定义 Agent 的 Markdown knowledge 上传、Skill Markdown 上传、绑定删除和 Agent 删除引用清理，并给出前后端联合 spec。
+
+### 关键 Prompt
+> 由于我们目前开发进度很赶所以请你充分阅读项目代码和文档后先写给出完整实现这个功能的spec（分为前端后端部分）然后分别实现前端后端代码
+
+### AI 输出摘要
+新增 `docs/spec/custom-agent-assets.spec.md`，将紧急 MVP 范围收敛为 `Agent.config.knowledge` / `Agent.config.skills` 配置内持久化。后端新增 Agent knowledge/skill multipart API，复用 upload 存储并同步 OpenAPI；前端 Agent 详情面板增加知识文件和 Skills 上传/删除入口。
+
+### 人工调整
+采用配置内存储作为赶进度方案，避免新增 migration；后续可以平滑迁移为独立表。
+
+### 经验
+前端生成类型已经包含更完整的 UploadPurpose，但后端 schema 曾滞后；跨端上传类功能需要先核对 `shared/openapi.yaml`、Pydantic schema 和前端手写别名是否一致。
