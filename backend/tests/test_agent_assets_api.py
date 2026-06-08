@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
+from app.services.agent_asset_service import build_agent_asset_context
 from app.services.upload_service import upload_service
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -114,6 +115,35 @@ async def test_upload_markdown_knowledge_updates_agent_config(client: AsyncClien
     knowledge = refreshed.json()["config"]["knowledge"]
     assert knowledge[0]["upload_id"] == body["upload_id"]
 
+    assets = await client.get(f"/api/v1/agents/{agent['id']}/assets", headers=headers)
+    assert assets.status_code == 200, assets.text
+    assert assets.json()["knowledge"][0]["upload_id"] == body["upload_id"]
+    assert assets.json()["bindings"][0]["kind"] == "knowledge"
+
+    patch = await client.patch(
+        f"/api/v1/agents/{agent['id']}/knowledge/{body['upload_id']}",
+        headers=headers,
+        json={"label": "更新后的规则", "usage": "template"},
+    )
+    assert patch.status_code == 200, patch.text
+    assert patch.json()["label"] == "更新后的规则"
+    assert patch.json()["usage"] == "template"
+
+    async with SessionFactory() as db:
+        agent_model = await db.get(Agent, agent["id"])
+        assert agent_model is not None
+        context = await build_agent_asset_context(db, agent_model)
+        assert "Always cite sources." in context
+        await db.commit()
+
+    usage = await client.get(f"/api/v1/agents/{agent['id']}/assets/usage", headers=headers)
+    assert usage.status_code == 200, usage.text
+    assert usage.json()["items"][0]["status"] == "injected"
+
+    history = await client.get(f"/api/v1/agents/{agent['id']}/assets/history", headers=headers)
+    assert history.status_code == 200, history.text
+    assert [item["action"] for item in history.json()["items"]][:2] == ["updated", "created"]
+
 
 async def test_builtin_agent_rejects_knowledge_upload(client: AsyncClient) -> None:
     headers = await _register(client)
@@ -151,6 +181,15 @@ async def test_upload_and_delete_skill_binding(client: AsyncClient) -> None:
     assert body["name"] == "Reviewer"
     assert body["description"] == "Review uploaded drafts."
 
+    patch = await client.patch(
+        f"/api/v1/agents/{agent['id']}/skills/{body['skill_id']}",
+        headers=headers,
+        json={"name": "Draft Reviewer", "description": "Review draft Markdown files."},
+    )
+    assert patch.status_code == 200, patch.text
+    assert patch.json()["name"] == "Draft Reviewer"
+    assert patch.json()["description"] == "Review draft Markdown files."
+
     delete = await client.delete(
         f"/api/v1/agents/{agent['id']}/skills/{body['skill_id']}",
         headers=headers,
@@ -160,6 +199,24 @@ async def test_upload_and_delete_skill_binding(client: AsyncClient) -> None:
     refreshed = await client.get(f"/api/v1/agents/{agent['id']}", headers=headers)
     assert refreshed.status_code == 200
     assert refreshed.json()["config"]["skills"] == []
+
+    history = await client.get(f"/api/v1/agents/{agent['id']}/assets/history", headers=headers)
+    assert history.status_code == 200, history.text
+    assert history.json()["items"][0]["action"] == "unbound"
+
+
+async def test_upload_skill_requires_name_and_description(client: AsyncClient) -> None:
+    headers = await _register(client)
+    agent = await _create_custom_agent(client, headers)
+
+    response = await client.post(
+        f"/api/v1/agents/{agent['id']}/skills",
+        headers=headers,
+        files={"file": ("skill.md", b"plain text without metadata", "text/markdown")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"]["code"] == "INVALID_SKILL_METADATA"
 
 
 async def test_delete_custom_agent_removes_conversation_references(client: AsyncClient) -> None:

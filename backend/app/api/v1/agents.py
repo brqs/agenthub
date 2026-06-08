@@ -20,6 +20,9 @@ from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.schemas.agent import (
+    AgentAssetHistoryOut,
+    AgentAssetsOut,
+    AgentAssetUsageListOut,
     AgentKnowledgeOut,
     AgentKnowledgeUsage,
     AgentList,
@@ -27,7 +30,9 @@ from app.schemas.agent import (
     AgentProvider,
     AgentSkillOut,
     CreateAgentRequest,
+    UpdateAgentKnowledgeRequest,
     UpdateAgentRequest,
+    UpdateAgentSkillRequest,
 )
 from app.services.agent_asset_service import agent_asset_service
 
@@ -189,6 +194,49 @@ async def update_agent(
     return AgentOut.model_validate(agent)
 
 
+@router.get("/{agent_id}/assets", response_model=AgentAssetsOut)
+async def list_agent_assets(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentAssetsOut:
+    return await agent_asset_service.list_assets(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+    )
+
+
+@router.get("/{agent_id}/assets/history", response_model=AgentAssetHistoryOut)
+async def list_agent_asset_history(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> AgentAssetHistoryOut:
+    return await agent_asset_service.list_history(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        limit=limit,
+    )
+
+
+@router.get("/{agent_id}/assets/usage", response_model=AgentAssetUsageListOut)
+async def list_agent_asset_usage(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> AgentAssetUsageListOut:
+    return await agent_asset_service.list_usage(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        limit=limit,
+    )
+
+
 @router.post("/{agent_id}/knowledge", response_model=AgentKnowledgeOut, status_code=201)
 async def create_agent_knowledge(
     agent_id: str,
@@ -205,6 +253,25 @@ async def create_agent_knowledge(
         file=file,
         label=label,
         usage=usage,
+    )
+    return item
+
+
+@router.patch("/{agent_id}/knowledge/{upload_id}", response_model=AgentKnowledgeOut)
+async def update_agent_knowledge(
+    agent_id: str,
+    upload_id: UUID,
+    payload: UpdateAgentKnowledgeRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentKnowledgeOut:
+    _agent, item = await agent_asset_service.update_knowledge(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        upload_id=upload_id,
+        label=payload.label,
+        usage=payload.usage,
     )
     return item
 
@@ -241,6 +308,25 @@ async def create_agent_skill(
         file=file,
         name=name,
         description=description,
+    )
+    return item
+
+
+@router.patch("/{agent_id}/skills/{skill_id}", response_model=AgentSkillOut)
+async def update_agent_skill(
+    agent_id: str,
+    skill_id: str,
+    payload: UpdateAgentSkillRequest,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentSkillOut:
+    _agent, item = await agent_asset_service.update_skill(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        skill_id=skill_id,
+        name=payload.name,
+        description=payload.description,
     )
     return item
 

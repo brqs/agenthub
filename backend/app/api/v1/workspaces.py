@@ -450,6 +450,38 @@ async def stop_workspace_deployment(
     return WorkspaceDeploymentResponse.model_validate(deployment)
 
 
+@router.post(
+    "/{conversation_id}/deployments/{deployment_id}/retry",
+    response_model=WorkspaceDeploymentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def retry_workspace_deployment(
+    conversation_id: UUID,
+    deployment_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceDeploymentResponse:
+    await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    try:
+        deployment = await deployment_service.retry(db, conversation_id, deployment_id)
+        if deployment is None:
+            raise WorkspaceDeploymentNotFoundError("workspace deployment not found")
+        if deployment.kind == "container" and deployment.status == "queued":
+            await db.commit()
+    except (
+        WorkspaceDeploymentDisabledError,
+        WorkspaceDeploymentError,
+        WorkspaceDeploymentNotFoundError,
+        WorkspaceViolation,
+        WorkspaceFileNotFound,
+        WorkspaceFileTooLarge,
+        WorkspacePreviewDisabledError,
+        WorkspacePreviewStartError,
+    ) as exc:
+        raise _map_deployment_error(exc) from exc
+    return WorkspaceDeploymentResponse.model_validate(deployment)
+
+
 @router.get("/{conversation_id}/deployments/{deployment_id}/download")
 async def download_workspace_deployment(
     conversation_id: UUID,

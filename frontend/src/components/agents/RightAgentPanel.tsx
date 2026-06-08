@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   Activity,
+  Archive,
   Box,
   Brain,
   ChevronRight,
   Check,
+  CircleHelp,
+  FileImage,
+  FileText,
   Files,
   GripVertical,
   PanelRight,
   PanelRightClose,
   Pencil,
   Pin,
+  Presentation,
   RefreshCw,
   Trash2,
 } from 'lucide-react';
@@ -27,8 +32,19 @@ import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatu
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
 import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
 import { useCreateDeployment } from '@/hooks/useDeployments';
-import { useConversationMemoryMounts, useForgetMemory, useMemories, useUpdateMemory } from '@/hooks/useMemories';
-import { useWorkspaceFile, useWorkspaceTree, useWriteWorkspaceFile } from '@/hooks/useWorkspace';
+import {
+  useConversationMemoryMounts,
+  useForgetMemory,
+  useMemories,
+  useUpdateMemory,
+} from '@/hooks/useMemories';
+import {
+  useWorkspaceArtifacts,
+  useWorkspaceFile,
+  useWorkspaceTree,
+  useWriteWorkspaceFile,
+} from '@/hooks/useWorkspace';
+import type { WorkspaceArtifact } from '@/lib/adapters/workspaces';
 import type { Agent, Memory, WorkspaceDeploymentRequest } from '@/lib/types';
 import { extractApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -36,7 +52,11 @@ import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
 
 type AgentWorkStatus = 'active' | 'done' | 'idle';
 
-function getAgentWorkStatus(agent: Agent, messages: DemoMessage[], activeAgentId: string): AgentWorkStatus {
+function getAgentWorkStatus(
+  agent: Agent,
+  messages: DemoMessage[],
+  activeAgentId: string,
+): AgentWorkStatus {
   if (agent.id === activeAgentId) return 'active';
 
   const taskCard = findLatestTaskCard(messages);
@@ -46,7 +66,9 @@ function getAgentWorkStatus(agent: Agent, messages: DemoMessage[], activeAgentId
   return 'idle';
 }
 
-function taskAgentId(task: NonNullable<ReturnType<typeof findLatestTaskCard>>['tasks'][number]): string {
+function taskAgentId(
+  task: NonNullable<ReturnType<typeof findLatestTaskCard>>['tasks'][number],
+): string {
   return task.final_agent_id ?? task.current_agent_id ?? task.agent_id;
 }
 
@@ -134,7 +156,10 @@ export function RightAgentPanel({
             <h2 className="truncate text-sm font-semibold text-white">工作台</h2>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-xs text-slate-500" title={conversation.title}>
+            <span
+              className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-xs text-slate-500"
+              title={conversation.title}
+            >
               {conversation.mode === 'group' ? 'Group' : 'Single'}
             </span>
             <button
@@ -174,7 +199,10 @@ export function RightAgentPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 scrollbar-thin max-[800px]:p-3 [@media(max-height:800px)]:p-3">
         {activeTab === 'workspace' && (
-          <RealWorkspacePanel conversationId={conversation.id} touchedFilesCount={touchedFiles.length} />
+          <RealWorkspacePanel
+            conversationId={conversation.id}
+            touchedFilesCount={touchedFiles.length}
+          />
         )}
         {activeTab === 'context' && (
           <ContextPanel
@@ -280,7 +308,10 @@ function AgentsPanel({
               <div className="flex items-center gap-3">
                 <AgentAvatar agent={agent} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-white" title={`${agent.name} · ${agent.provider}`}>
+                  <div
+                    className="truncate text-sm font-medium text-white"
+                    title={`${agent.name} · ${agent.provider}`}
+                  >
                     {agent.name}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-slate-600">{agent.provider}</div>
@@ -292,7 +323,10 @@ function AgentsPanel({
               </div>
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {agent.capabilities.slice(0, 3).map((capability) => (
-                  <span key={capability} className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
+                  <span
+                    key={capability}
+                    className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300"
+                  >
                     {capability}
                   </span>
                 ))}
@@ -319,6 +353,9 @@ function WorkspacePanel({
   touchedFilesCount,
   selectedArtifactPath,
   selectedArtifact,
+  artifacts,
+  artifactsLoading,
+  artifactsError,
   onSelectArtifact,
   onRetryWorkspace,
   onRetryArtifact,
@@ -333,6 +370,9 @@ function WorkspacePanel({
   touchedFilesCount: number;
   selectedArtifactPath: string | null;
   selectedArtifact: PreviewArtifactFile | null;
+  artifacts: WorkspaceArtifact[];
+  artifactsLoading: boolean;
+  artifactsError?: unknown;
   onSelectArtifact: (path: string) => void;
   onRetryWorkspace: () => void;
   onRetryArtifact: () => void;
@@ -409,93 +449,103 @@ function WorkspacePanel({
   return (
     <section className="space-y-5">
       <div>
-      <PanelHeader icon={Box} title="Workspace" meta={`${touchedFilesCount} outputs`} />
+        <PanelHeader icon={Box} title="Workspace" meta={`${touchedFilesCount} outputs`} />
 
-      {isLoading && !workspace ? (
-        <div className="rounded-md border border-slate-800 p-4 text-sm text-slate-500">
-          正在加载 workspace...
-        </div>
-      ) : !workspace && Boolean(workspaceError) ? (
-        <div className="space-y-3 rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
-          <p>Workspace 加载失败，请稍后重试。</p>
-          <button
-            type="button"
-            onClick={onRetryWorkspace}
-            className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1.5 text-xs font-medium text-red-50 transition hover:bg-red-400/10"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            重试
-          </button>
-        </div>
-      ) : workspace ? (
-        <div className="space-y-3">
-          {Boolean(workspaceError) && (
-            <div className="flex items-center justify-between gap-3 rounded-md border border-amber-400/30 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700 dark:border-amber-400/25 dark:bg-amber-950/20 dark:text-amber-200">
-              <span className="min-w-0">Workspace 刷新失败，已保留上一次可用内容。</span>
-              <button
-                type="button"
-                onClick={onRetryWorkspace}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-amber-400/40 px-2 py-1 font-medium transition hover:bg-amber-400/10"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                重试
-              </button>
-            </div>
-          )}
-          <div className="rounded-md border border-slate-800 bg-slate-950/60 p-2">
-            <div className="mb-1 truncate px-2 py-1 text-[11px] text-slate-600" title={workspace.root}>
-              {workspace.root}
-            </div>
-            <WorkspaceFileTree
-              nodes={workspace.tree}
-              selectedPath={selectedArtifactPath}
-              onSelectFile={onSelectArtifact}
-            />
+        {isLoading && !workspace ? (
+          <div className="rounded-md border border-slate-800 p-4 text-sm text-slate-500">
+            正在加载 workspace...
           </div>
-          {artifactError ? (
-            <div className="space-y-3 rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
-              <p>文件预览加载失败，请稍后重试。</p>
-              <button
-                type="button"
-                onClick={onRetryArtifact}
-                className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1.5 text-xs font-medium text-red-50 transition hover:bg-red-400/10"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                重试
-              </button>
-            </div>
-          ) : (
-            <ArtifactPreview
-              artifact={selectedArtifact}
-              onSave={onSaveArtifact}
-              isSaving={isSavingArtifact}
-            />
-          )}
-          <DeploymentReleaseActions
-            intents={actionIntents}
-            pendingKind={activeDeploymentKind}
-            onCreate={createRelease}
-          />
-          {deploymentNotice && (
-            <p
-              className={cn(
-                'rounded-md border px-3 py-2 text-xs leading-5',
-                deploymentNotice.tone === 'success'
-                  ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-950/20 dark:text-emerald-200'
-                  : deploymentNotice.tone === 'warning'
-                    ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/25 dark:bg-amber-950/20 dark:text-amber-200'
-                    : 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-950/20 dark:text-rose-200',
-              )}
+        ) : !workspace && Boolean(workspaceError) ? (
+          <div className="space-y-3 rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
+            <p>Workspace 加载失败，请稍后重试。</p>
+            <button
+              type="button"
+              onClick={onRetryWorkspace}
+              className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1.5 text-xs font-medium text-red-50 transition hover:bg-red-400/10"
             >
-              {deploymentNotice.text}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm leading-6 text-slate-500">
-          当前会话还没有 workspace 产物。真 Agent 调用 write_file 后会在这里出现。
-        </div>
-      )}
+              <RefreshCw className="h-3.5 w-3.5" />
+              重试
+            </button>
+          </div>
+        ) : workspace ? (
+          <div className="space-y-3">
+            {Boolean(workspaceError) && (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-amber-400/30 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700 dark:border-amber-400/25 dark:bg-amber-950/20 dark:text-amber-200">
+                <span className="min-w-0">Workspace 刷新失败，已保留上一次可用内容。</span>
+                <button
+                  type="button"
+                  onClick={onRetryWorkspace}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-amber-400/40 px-2 py-1 font-medium transition hover:bg-amber-400/10"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  重试
+                </button>
+              </div>
+            )}
+            <div className="rounded-md border border-slate-800 bg-slate-950/60 p-2">
+              <div
+                className="mb-1 truncate px-2 py-1 text-[11px] text-slate-600"
+                title={workspace.root}
+              >
+                {workspace.root}
+              </div>
+              <WorkspaceFileTree
+                nodes={workspace.tree}
+                selectedPath={selectedArtifactPath}
+                onSelectFile={onSelectArtifact}
+              />
+            </div>
+            <ArtifactManifestPanel
+              artifacts={artifacts}
+              selectedPath={selectedArtifactPath}
+              isLoading={artifactsLoading}
+              hasError={Boolean(artifactsError)}
+              onSelectArtifact={onSelectArtifact}
+            />
+            {artifactError ? (
+              <div className="space-y-3 rounded-md border border-red-500/30 bg-red-950/20 p-4 text-sm leading-6 text-red-100">
+                <p>文件预览加载失败，请稍后重试。</p>
+                <button
+                  type="button"
+                  onClick={onRetryArtifact}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1.5 text-xs font-medium text-red-50 transition hover:bg-red-400/10"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  重试
+                </button>
+              </div>
+            ) : (
+              <ArtifactPreview
+                artifact={selectedArtifact}
+                onSave={onSaveArtifact}
+                isSaving={isSavingArtifact}
+              />
+            )}
+            <DeploymentReleaseActions
+              intents={actionIntents}
+              pendingKind={activeDeploymentKind}
+              onCreate={createRelease}
+            />
+            {deploymentNotice && (
+              <p
+                className={cn(
+                  'rounded-md border px-3 py-2 text-xs leading-5',
+                  deploymentNotice.tone === 'success'
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-950/20 dark:text-emerald-200'
+                    : deploymentNotice.tone === 'warning'
+                      ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/25 dark:bg-amber-950/20 dark:text-amber-200'
+                      : 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-950/20 dark:text-rose-200',
+                )}
+              >
+                {deploymentNotice.text}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm leading-6 text-slate-500">
+            当前会话还没有 workspace 产物。真 Agent 调用 write_file 后会在这里出现。
+          </div>
+        )}
       </div>
       <DeploymentHistory conversationId={conversationId} />
     </section>
@@ -553,6 +603,95 @@ function DeploymentReleaseActions({
   );
 }
 
+function ArtifactManifestPanel({
+  artifacts,
+  selectedPath,
+  isLoading,
+  hasError,
+  onSelectArtifact,
+}: {
+  artifacts: WorkspaceArtifact[];
+  selectedPath: string | null;
+  isLoading: boolean;
+  hasError: boolean;
+  onSelectArtifact: (path: string) => void;
+}) {
+  const stats = useMemo(() => artifactStats(artifacts), [artifacts]);
+  const visibleArtifacts = artifacts.slice(0, 8);
+
+  return (
+    <section className="rounded-md border border-slate-800 bg-slate-950/70 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Artifact Manifest
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            按后端 manifest 聚合产物类型、评估状态和任务归属。
+          </p>
+        </div>
+        {isLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-500" />}
+      </div>
+      {hasError && (
+        <p className="mb-3 rounded-md border border-amber-400/30 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700 dark:border-amber-400/25 dark:bg-amber-950/20 dark:text-amber-200">
+          Manifest 暂不可用，文件树和基础预览仍可继续使用。
+        </p>
+      )}
+      <div className="grid grid-cols-3 gap-2">
+        <ArtifactStat label="总数" value={artifacts.length} />
+        <ArtifactStat label="通过" value={stats.passed} />
+        <ArtifactStat label="需处理" value={stats.needsAttention} />
+      </div>
+      {visibleArtifacts.length ? (
+        <div className="mt-3 space-y-2">
+          {visibleArtifacts.map((artifact) => {
+            const Icon = artifactKindIcon(artifact.artifact_kind);
+            const selected = selectedPath === artifact.path;
+            return (
+              <button
+                key={artifact.path}
+                type="button"
+                onClick={() => onSelectArtifact(artifact.path)}
+                className={cn(
+                  'flex w-full min-w-0 items-start gap-2 rounded-md border px-2 py-2 text-left transition',
+                  selected
+                    ? 'border-brand/40 bg-brand/10'
+                    : 'border-slate-800 bg-slate-900/60 hover:border-slate-700 hover:bg-slate-900',
+                )}
+              >
+                <Icon className="mt-0.5 h-4 w-4 shrink-0 text-brand-light" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-slate-200">
+                    {artifact.filename}
+                  </span>
+                  <span className="mt-1 block truncate text-[11px] text-slate-500">
+                    {artifactKindLabel(artifact.artifact_kind)} ·{' '}
+                    {evaluationLabel(artifact.evaluation_status)}
+                    {artifact.task_id ? ` · task ${artifact.task_id}` : ''}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs leading-5 text-slate-600">
+          暂无 manifest 产物。Agent 产出 document/ppt/image/archive 后会自动出现在这里。
+        </p>
+      )}
+    </section>
+  );
+}
+
+function ArtifactStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2">
+      <div className="text-sm font-semibold text-white">{value}</div>
+      <div className="text-[11px] text-slate-500">{label}</div>
+    </div>
+  );
+}
+
 function RealWorkspacePanel({
   conversationId,
   touchedFilesCount,
@@ -561,6 +700,7 @@ function RealWorkspacePanel({
   touchedFilesCount: number;
 }) {
   const workspaceQuery = useWorkspaceTree(conversationId);
+  const artifactsQuery = useWorkspaceArtifacts(conversationId, true);
   const workspace = useMemo(() => {
     if (!workspaceQuery.data) return null;
     const rootNode = workspaceQuery.data.tree;
@@ -581,6 +721,21 @@ function RealWorkspacePanel({
   const artifactQuery = useWorkspaceFile(conversationId, activeArtifactPath);
   const writeWorkspaceFile = useWriteWorkspaceFile(conversationId);
   const realTouchedFilesCount = workspace ? workspaceFiles.length : touchedFilesCount;
+  const artifactsByPath = useMemo(() => {
+    const map = new Map<string, WorkspaceArtifact>();
+    for (const artifact of artifactsQuery.data ?? []) {
+      map.set(artifact.path, artifact);
+    }
+    return map;
+  }, [artifactsQuery.data]);
+  const selectedArtifact = useMemo(
+    () =>
+      mergePreviewArtifact(
+        artifactQuery.data ?? null,
+        activeArtifactPath ? artifactsByPath.get(activeArtifactPath) : null,
+      ),
+    [activeArtifactPath, artifactQuery.data, artifactsByPath],
+  );
 
   useEffect(() => {
     setSelectedArtifactPath(null);
@@ -591,7 +746,8 @@ function RealWorkspacePanel({
       if (selectedArtifactPath !== null) setSelectedArtifactPath(null);
       return;
     }
-    if (selectedArtifactPath && workspaceFiles.some((file) => file.path === selectedArtifactPath)) return;
+    if (selectedArtifactPath && workspaceFiles.some((file) => file.path === selectedArtifactPath))
+      return;
     setSelectedArtifactPath(workspaceFiles[0].path);
   }, [workspaceFiles, selectedArtifactPath]);
 
@@ -604,7 +760,10 @@ function RealWorkspacePanel({
       artifactError={artifactQuery.error}
       touchedFilesCount={realTouchedFilesCount}
       selectedArtifactPath={activeArtifactPath}
-      selectedArtifact={artifactQuery.data ?? null}
+      selectedArtifact={selectedArtifact}
+      artifacts={artifactsQuery.data ?? []}
+      artifactsLoading={artifactsQuery.isLoading}
+      artifactsError={artifactsQuery.error}
       onSelectArtifact={setSelectedArtifactPath}
       onRetryWorkspace={() => {
         setSelectedArtifactPath(null);
@@ -619,6 +778,69 @@ function RealWorkspacePanel({
       isSavingArtifact={writeWorkspaceFile.isPending}
     />
   );
+}
+
+function mergePreviewArtifact(
+  file: PreviewArtifactFile | null,
+  manifestArtifact: WorkspaceArtifact | null | undefined,
+): PreviewArtifactFile | null {
+  if (!file) return null;
+  if (!manifestArtifact) return file;
+  return {
+    ...file,
+    artifact_kind: manifestArtifact.artifact_kind,
+    preview_text: manifestArtifact.preview_text,
+    preview_truncated: manifestArtifact.preview_truncated,
+    metadata: manifestArtifact.metadata,
+    evaluation_status: manifestArtifact.evaluation_status,
+    evaluation_results: manifestArtifact.evaluation_results,
+    task_id: manifestArtifact.task_id,
+    run_id: manifestArtifact.run_id,
+  };
+}
+
+function artifactStats(artifacts: WorkspaceArtifact[]) {
+  return artifacts.reduce(
+    (acc, artifact) => {
+      if (artifact.evaluation_status === 'passed') acc.passed += 1;
+      if (artifact.evaluation_status !== 'passed') acc.needsAttention += 1;
+      return acc;
+    },
+    { passed: 0, needsAttention: 0 },
+  );
+}
+
+function artifactKindIcon(kind: WorkspaceArtifact['artifact_kind']) {
+  if (kind === 'image') return FileImage;
+  if (kind === 'ppt') return Presentation;
+  if (kind === 'archive') return Archive;
+  if (kind === 'document') return FileText;
+  if (kind === 'workflow') return Activity;
+  if (kind === 'code') return Files;
+  return CircleHelp;
+}
+
+function artifactKindLabel(kind: WorkspaceArtifact['artifact_kind']) {
+  const labels: Record<WorkspaceArtifact['artifact_kind'], string> = {
+    document: '文档',
+    ppt: 'PPT',
+    image: '图片',
+    archive: '压缩包',
+    code: '代码',
+    workflow: 'Workflow',
+    other: '文件',
+  };
+  return labels[kind] ?? kind;
+}
+
+function evaluationLabel(status: WorkspaceArtifact['evaluation_status']) {
+  const labels: Record<WorkspaceArtifact['evaluation_status'], string> = {
+    passed: '评估通过',
+    failed: '评估失败',
+    manual_review_required: '需人工复核',
+    unknown: '未知',
+  };
+  return labels[status] ?? status;
 }
 
 function flattenFiles(nodes: WorkspaceNode[]): Array<Extract<WorkspaceNode, { type: 'file' }>> {
@@ -637,7 +859,9 @@ function buildDeploymentActionIntents(
   const dockerfile = files.find((file) => file.path === 'Dockerfile');
   return {
     static_site: {
-      payload: staticEntry ? { kind: 'static_site', entry_path: staticEntry.path } : { kind: 'static_site' },
+      payload: staticEntry
+        ? { kind: 'static_site', entry_path: staticEntry.path }
+        : { kind: 'static_site' },
       detail: staticEntry ? `静态入口：${staticEntry.path}` : '未找到 HTML 入口文件',
       disabledReason: staticEntry ? null : '需要 index.html 或 HTML 入口文件',
     },
@@ -704,7 +928,11 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
   return (
     <div className="space-y-5">
       <section>
-        <PanelHeader icon={Brain} title="MemoryHub" meta={`${activeMemories.data?.total ?? 0} active`} />
+        <PanelHeader
+          icon={Brain}
+          title="MemoryHub"
+          meta={`${activeMemories.data?.total ?? 0} active`}
+        />
         <p className="mb-3 text-xs leading-5 text-slate-500">
           重要记忆会长期保留；动态挂载只在当前回复中临时进入上下文。
         </p>
@@ -735,7 +963,10 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
         onPromote={(memory) =>
           updateMemory.mutate({
             memoryId: memory.id,
-            payload: { status: 'active', importance: memory.importance === 'low' ? 'normal' : memory.importance },
+            payload: {
+              status: 'active',
+              importance: memory.importance === 'low' ? 'normal' : memory.importance,
+            },
           })
         }
         onForget={(memory) => forgetMemory.mutate(memory.id)}
@@ -744,11 +975,16 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
       <section>
         <PanelHeader icon={Activity} title="动态挂载" meta={`${mounts.data?.total ?? 0} mounts`} />
         {mounts.isLoading ? (
-          <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">正在加载挂载记录...</div>
+          <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">
+            正在加载挂载记录...
+          </div>
         ) : mounts.data?.items.length ? (
           <div className="space-y-2">
             {mounts.data.items.slice(0, 8).map((mount) => (
-              <div key={mount.id} className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+              <div
+                key={mount.id}
+                className="rounded-md border border-slate-800 bg-slate-950/60 p-3"
+              >
                 <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
                   <span>{mount.mount_reason}</span>
                   <span>{mount.rank_score.toFixed(1)}</span>
@@ -796,9 +1032,13 @@ function MemoryListSection({
 }) {
   return (
     <section>
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {title}
+      </div>
       {isLoading ? (
-        <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">正在加载记忆...</div>
+        <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">
+          正在加载记忆...
+        </div>
       ) : memories.length ? (
         <div className="space-y-2">
           {memories.map((memory) => (
@@ -912,7 +1152,6 @@ function ContextPanel({
           </div>
         )}
       </section>
-
     </div>
   );
 }

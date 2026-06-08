@@ -430,6 +430,34 @@ class WorkspaceDeploymentService:
         await db.flush()
         return deployment
 
+    async def retry(
+        self,
+        db: AsyncSession,
+        conversation_id: UUID,
+        deployment_id: UUID,
+    ) -> WorkspaceDeployment | None:
+        previous = await self.get(db, conversation_id, deployment_id)
+        if previous is None:
+            return None
+        if previous.status not in {"failed", "stopped", "not_supported"}:
+            raise WorkspaceDeploymentError(
+                "Only failed, stopped, or unsupported deployments can be retried"
+            )
+        deployment = await self.create(
+            db,
+            conversation_id,
+            kind=previous.kind,
+            entry_path=previous.entry_path,
+            container_port=previous.container_port,
+        )
+        previous.logs = [
+            *previous.logs,
+            f"Retry requested; created deployment {deployment.id}.",
+        ]
+        self._touch(previous)
+        await db.flush()
+        return deployment
+
     def export_path(self, conversation_id: UUID, deployment_id: UUID) -> Path:
         return (
             Path(settings.deployment_export_dir).expanduser()
