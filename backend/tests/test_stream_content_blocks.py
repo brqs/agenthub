@@ -21,6 +21,7 @@ from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.types import StreamChunk
 from app.api.v1.orchestrator_group_messages import _safe_error_text
 from app.api.v1.stream_accumulator import StreamContentAccumulator
+from app.api.v1.stream_preview import _has_platform_preview_tool_call
 from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
@@ -49,6 +50,15 @@ async def test_group_message_error_text_sanitizes_internal_runtime_terms() -> No
     )
     assert all(item not in text for item in forbidden)
     assert "运行时认证或权限配置需要检查" in text
+
+
+async def test_stream_preview_autostart_skips_existing_preview_or_deployment_blocks() -> None:
+    assert _has_platform_preview_tool_call(
+        [{"type": "web_preview", "url": "http://127.0.0.1:8082/index.html"}]
+    )
+    assert _has_platform_preview_tool_call(
+        [{"type": "deployment_status", "status": "published"}]
+    )
 
 
 async def test_stream_accumulator_persists_deployment_status_block() -> None:
@@ -548,6 +558,58 @@ async def test_stream_accumulator_updates_task_card_from_agent_switch() -> None:
             "title": "Review HTML",
             "status": "running",
         },
+    ]
+
+
+async def test_stream_accumulator_task_card_tracks_fallback_agent() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="task_card",
+            metadata={
+                "title": "Orchestrator plan",
+                "tasks": [
+                    {
+                        "id": "task-a",
+                        "agent_id": "agent-a",
+                        "planned_agent_id": "agent-a",
+                        "title": "Build HTML",
+                        "status": "pending",
+                    }
+                ],
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+    accumulator.feed(
+        StreamChunk(
+            event_type="agent_switch",
+            from_agent="orchestrator",
+            to_agent="agent-a",
+            task="Build HTML",
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="agent_switch",
+            from_agent="orchestrator",
+            to_agent="agent-b",
+            task="Build HTML",
+        )
+    )
+    accumulator.finalize_task_cards(success=True)
+
+    assert accumulator.to_list()[0]["tasks"] == [
+        {
+            "id": "task-a",
+            "agent_id": "agent-b",
+            "planned_agent_id": "agent-a",
+            "final_agent_id": "agent-b",
+            "title": "Build HTML",
+            "status": "done",
+        }
     ]
 
 

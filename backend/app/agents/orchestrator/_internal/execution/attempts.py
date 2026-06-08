@@ -12,7 +12,6 @@ from app.agents.orchestrator._internal.execution.summary import (
 )
 from app.agents.orchestrator.availability import (
     runnable_agent_ids,
-    runtime_cooldown_agent_ids,
     runtime_cooldown_status,
     scoped_runnable_agent_ids,
 )
@@ -122,10 +121,9 @@ def task_fallback_agent_ids(config: Mapping[str, Any]) -> list[str]:
     strict_scope = scoped_runnable_agent_ids(config)
     strict_allowed = set(strict_scope) if strict_scope is not None else None
     runnable_allowed = set(ordered_runnable_ids) if ordered_runnable_ids else None
-    cooled_down = runtime_cooldown_agent_ids()
 
     def permitted(agent_id: str) -> bool:
-        if agent_id == "orchestrator" or agent_id in cooled_down:
+        if agent_id == "orchestrator":
             return False
         if strict_allowed is not None:
             return agent_id in strict_allowed
@@ -267,13 +265,32 @@ def agent_for_attempt(
     considered_agents: set[str],
     config: Mapping[str, Any],
     run_context: OrchestratorRunContext,
+    *,
+    excluded_agent_ids: set[str] | None = None,
 ) -> AttemptAgentSelection:
     skipped_agent_ids: list[str] = []
-    for agent_id in dedupe_strings([task.agent_id, *fallback_agents]):
+    candidate_ids = dedupe_strings([task.agent_id, *fallback_agents])
+    excluded_agent_ids = excluded_agent_ids or set()
+    for agent_id in candidate_ids:
         if agent_id in considered_agents:
+            continue
+        if agent_id in excluded_agent_ids:
             continue
         if not agent_permitted_for_attempt(config, run_context, agent_id):
             skipped_agent_ids.append(agent_id)
+            continue
+        return AttemptAgentSelection(agent_id=agent_id, skipped_agent_ids=tuple(skipped_agent_ids))
+    for agent_id in candidate_ids:
+        if agent_id in considered_agents:
+            continue
+        if agent_id in excluded_agent_ids:
+            continue
+        if not agent_permitted_for_attempt(
+            config,
+            run_context,
+            agent_id,
+            ignore_global_cooldown=True,
+        ):
             continue
         return AttemptAgentSelection(agent_id=agent_id, skipped_agent_ids=tuple(skipped_agent_ids))
     return AttemptAgentSelection(agent_id=None, skipped_agent_ids=tuple(skipped_agent_ids))
@@ -283,10 +300,12 @@ def agent_permitted_for_attempt(
     config: Mapping[str, Any],
     run_context: OrchestratorRunContext,
     agent_id: str,
+    *,
+    ignore_global_cooldown: bool = False,
 ) -> bool:
     if agent_id == "orchestrator" or agent_id in run_context.failed_runtime_agent_ids:
         return False
-    if runtime_cooldown_status(agent_id)[0] == "cooldown":
+    if not ignore_global_cooldown and runtime_cooldown_status(agent_id)[0] == "cooldown":
         return False
 
     scoped_ids = scoped_runnable_agent_ids(config)

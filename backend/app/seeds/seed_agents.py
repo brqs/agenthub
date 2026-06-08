@@ -38,6 +38,21 @@ EXTERNAL_RUNTIME_PROMPT_SUFFIX = (
     "or server dependencies merely to expose a preview port."
 )
 
+CODEX_PLANNING_PROFILE = (
+    "适合复杂 AgentHub 代码任务的方案拆解、总体规划、仓库理解、架构判断和任务验收；"
+    "负责审阅其他 agent 完成并测试后的代码；当其他 agent 无法解决复杂 bug 或需要求助时"
+    "接手处理；作为多 agent 工作流的总负责人和技术兜底者。除非任务需要最高复杂度判断或"
+    "兜底修复，否则不要把普通并行实现任务全部交给它。"
+)
+CLAUDE_CODE_PLANNING_PROFILE = (
+    "适合承担明确子任务的代码实现、文件编辑、功能补全、bug 修复和代码审阅；在并行开发"
+    "场景中应与 OpenCode 同时承担不同实现任务；适合把 Codex 拆好的方案落地为代码。"
+)
+OPENCODE_PLANNING_PROFILE = (
+    "适合 OpenCode CLI 驱动的代码实现、文件修改、补充开发、独立验证和修复；在并行开发"
+    "场景中应与 Claude Code 同时承担不同实现任务；适合作为第二实现者或验证修复者。"
+)
+
 BUILTIN_AGENTS: list[dict[str, Any]] = [
     {
         "id": "claude-code",
@@ -50,6 +65,21 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
         "config": {
+            "planning_profile": CLAUDE_CODE_PLANNING_PROFILE,
+            "planning_strengths": [
+                "file_editing",
+                "implementation",
+                "code_generation",
+                "debugging",
+                "code_review",
+                "workspace_changes",
+                "parallel_implementation",
+            ],
+            "planning_weaknesses": [
+                "global_architecture_ownership",
+                "unresolved_complex_escalations",
+            ],
+            "preferred_task_types": ["implementation", "repair", "review"],
             "sdk_options": {"permission_mode": "acceptEdits"},
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 180,
@@ -72,6 +102,27 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
         "config": {
+            "planning_profile": CODEX_PLANNING_PROFILE,
+            "planning_strengths": [
+                "architecture",
+                "repo_analysis",
+                "task_planning",
+                "final_review",
+                "difficult_bug_fixing",
+                "escalation_owner",
+                "technical_lead",
+            ],
+            "planning_weaknesses": [
+                "routine_parallel_implementation",
+                "simple_file_edits",
+            ],
+            "preferred_task_types": [
+                "planning",
+                "architecture",
+                "review",
+                "repair",
+                "escalation",
+            ],
             "runtime": "cli",
             "sandbox_mode": "danger-full-access",
             "max_runtime_seconds": 600,
@@ -91,6 +142,21 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
         "config": {
+            "planning_profile": OPENCODE_PLANNING_PROFILE,
+            "planning_strengths": [
+                "cli_workflow",
+                "implementation",
+                "file_editing",
+                "verification",
+                "repair",
+                "parallel_execution",
+                "parallel_implementation",
+            ],
+            "planning_weaknesses": [
+                "global_architecture_ownership",
+                "final_technical_arbitration",
+            ],
+            "preferred_task_types": ["implementation", "verification", "repair"],
             "command": "opencode",
             "args": [],
             "model": "deepseek/deepseek-chat",
@@ -118,48 +184,7 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
                 "claude-code",
                 "codex-helper",
                 "opencode-helper",
-                "web-designer",
             ],
-        },
-    },
-    {
-        "id": "writer",
-        "name": "Writer",
-        "provider": "builtin",
-        "avatar_url": "/avatars/writer.png",
-        "capabilities": ["writing", "copywriting", "editing"],
-        "system_prompt": (
-            "You are a professional writer. Help users craft clear, engaging, "
-            "and well-structured prose."
-        ),
-        "config": {
-            "model_backend": "claude",
-            "max_iterations": 10,
-            "mcp_servers": [],
-        },
-    },
-    {
-        "id": "web-designer",
-        "name": "Web Designer",
-        "provider": "builtin",
-        "avatar_url": "/avatars/web-designer.png",
-        "capabilities": ["design", "html", "css"],
-        "system_prompt": (
-            "You are a senior web designer. Generate clean, modern HTML/CSS, suggest layouts, "
-            "and explain design rationale. When using write_file or read_file tools, pass "
-            "a path argument with a workspace-relative path such as snake.html; do not use "
-            "absolute paths or file_path for native AgentHub tools. Treat the latest user "
-            "message as the only active request; earlier messages are context only. Create "
-            "and edit files only. "
-            "Do not run, suggest, output, or call tools for foreground or background "
-            "preview/deploy servers or other long-running processes. If asked to preview or "
-            "deploy on a port, create the files and state that AgentHub platform preview/deploy "
-            "must be started outside the agent runtime."
-        ),
-        "config": {
-            "model_backend": "claude",
-            "max_iterations": 10,
-            "mcp_servers": [],
         },
     },
 ]
@@ -175,6 +200,16 @@ async def seed() -> None:
         )
 
     async with SessionFactory() as db:
+        active_builtin_ids = {agent["id"] for agent in BUILTIN_AGENTS}
+        existing_builtins = (
+            await db.execute(select(Agent).where(Agent.is_builtin.is_(True)))
+        ).scalars()
+        for existing_builtin in existing_builtins:
+            if existing_builtin.id in active_builtin_ids:
+                continue
+            await db.delete(existing_builtin)
+            print(f"  deleted stale builtin {existing_builtin.id}")
+
         for a in BUILTIN_AGENTS:
             exists = (
                 await db.execute(select(Agent).where(Agent.id == a["id"]))

@@ -14,7 +14,7 @@ from app.api.releases import router as releases_router
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.database import SessionFactory
-from app.services.builtin_agent_config import upgrade_builtin_orchestrator_config
+from app.services.builtin_agent_config import reconcile_builtin_agents
 from app.services.workspace.janitor import WorkspaceResourceJanitor
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 async def _upgrade_builtin_agent_configs() -> None:
     try:
         async with SessionFactory() as db:
-            changed = await upgrade_builtin_orchestrator_config(db)
+            changed = await reconcile_builtin_agents(db)
             if changed:
                 await db.commit()
     except Exception as exc:  # noqa: BLE001

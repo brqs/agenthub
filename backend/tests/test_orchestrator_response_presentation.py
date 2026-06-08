@@ -139,6 +139,32 @@ async def test_pending_tasks_make_visible_summary_partial() -> None:
     assert "was not run before orchestration stopped" in text
 
 
+async def test_fulfillment_pending_makes_visible_summary_partial() -> None:
+    tasks, states, context = _context()
+    context.fulfillment_items = [
+        {
+            "id": "deployment",
+            "label": "部署/发布",
+            "status": "pending",
+            "evidence": [],
+            "reason": "尚未完成平台部署。",
+        }
+    ]
+
+    text = await presented_response_text(
+        {},
+        [ChatMessage(role="user", content="Create and deploy a report")],
+        tasks,
+        states,
+        context,
+        "Execution summary\n- succeeded: @agent-a - Write report\n",
+    )
+
+    assert "Done. I completed the requested work." not in text
+    assert "I completed the parts that could be finished" in text
+    assert "部署/发布: 尚未完成平台部署。" in text
+
+
 async def test_polish_success_uses_model_output() -> None:
     tasks, states, context = _context()
     gateway = FakePolishGateway("Done. I wrote `report.md` and validation passed.")
@@ -194,6 +220,29 @@ async def test_polish_forbidden_or_empty_output_falls_back() -> None:
     assert "call_" not in forbidden_text
     assert "Write report" in forbidden_text
     assert empty_text == forbidden_text
+
+
+async def test_polish_local_server_command_falls_back() -> None:
+    tasks, states, context = _context()
+    gateway = FakePolishGateway(
+        "需要你手动执行 `python3 -m http.server 8082` 来预览页面。"
+    )
+
+    text = await presented_response_text(
+        {
+            "orchestrator_response_polish_enabled": True,
+            "orchestrator_response_polish_gateway": gateway,
+        },
+        [ChatMessage(role="user", content="创建并部署网站")],
+        tasks,
+        states,
+        context,
+        "Execution summary\n- succeeded: @agent-a - Write report\n",
+    )
+
+    assert "python3 -m http.server" not in text
+    assert "手动执行" not in text
+    assert "Write report" in text
 
 
 async def test_process_block_marks_pending_tasks_partial_and_sanitizes_terms() -> None:

@@ -7,6 +7,12 @@ from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    fulfillment_payload as _fulfillment_payload,
+)
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    mark_tool_fulfillment as _mark_tool_fulfillment,
+)
 from app.agents.orchestrator._internal.memory import record_event as _memory_record_event
 from app.agents.orchestrator._internal.quality.deployment import (
     deployment_health_result as _deployment_health_result,
@@ -58,7 +64,9 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 DEPLOY_INTENT_RE = re.compile(
     r"(?i)(部署|发布|上线|端口|preview\s+(?:on|at|to)|deploy(?:ed|ment)?|port\s*\d{2,5})"
 )
-FRONTEND_INTENT_RE = re.compile(r"(?i)(前端|网页|页面|html|css|javascript|js|frontend|web)")
+FRONTEND_INTENT_RE = re.compile(
+    r"(?i)(前端|网页|页面|网站|站点|html|css|javascript|js|frontend|web|website|site)"
+)
 BROWSER_VERIFY_INTENT_RE = re.compile(
     r"(?i)(浏览器|质量验收|移动端|按钮|交互|browser|quality|viewport|mobile)"
 )
@@ -196,6 +204,13 @@ async def run_quality_gate(
     else:
         result = await executor("start_workspace_preview", preview_args)
     yield _tool_result(preview_call_id, result), next_block_index
+    await _record_fulfillment_tool_result(
+        config,
+        run_context,
+        preview_call_id,
+        "start_workspace_preview",
+        result,
+    )
     if result.status != "ok":
         await _record_evaluation_failure(
             config,
@@ -247,6 +262,13 @@ async def run_quality_gate(
             )
             refresh_result = await executor("start_workspace_preview", preview_args)
             yield _tool_result(refresh_call_id, refresh_result), next_block_index
+            await _record_fulfillment_tool_result(
+                config,
+                run_context,
+                refresh_call_id,
+                "start_workspace_preview",
+                refresh_result,
+            )
             if refresh_result.status != "ok":
                 await _record_evaluation_failure(
                     config,
@@ -274,6 +296,13 @@ async def run_quality_gate(
         yield _tool_call(verify_call_id, "verify_web_preview", verify_args), next_block_index
         verify_result = await executor("verify_web_preview", verify_args)
         yield _tool_result(verify_call_id, verify_result), next_block_index
+        await _record_fulfillment_tool_result(
+            config,
+            run_context,
+            verify_call_id,
+            "verify_web_preview",
+            verify_result,
+        )
         verify_payload = _json_payload(verify_result.output)
         if verify_result.status == "ok" and verify_payload.get("passed") is True:
             await _record_evaluation_result(
@@ -313,10 +342,30 @@ async def run_quality_gate(
                 ):
                     next_block_index = updated_block_index
                     yield chunk, updated_block_index
+                    if chunk.event_type == "tool_result" and chunk.tool_name:
+                        await _record_fulfillment_tool_result(
+                            config,
+                            run_context,
+                            chunk.call_id,
+                            chunk.tool_name,
+                            OrchestratorToolResult(
+                                status=chunk.tool_status or "error",
+                                output=chunk.tool_output or "",
+                                error_code=chunk.error_code,
+                            ),
+                        )
                 deployment_result = _deployment_health_result(
                     user_request,
                     deployment_tool_results,
                 )
+                for tool_name, _arguments, tool_result in deployment_tool_results:
+                    await _record_fulfillment_tool_result(
+                        config,
+                        run_context,
+                        None,
+                        tool_name,
+                        tool_result,
+                    )
                 if deployment_result is None:
                     break
                 repairable = _deployment_result_repairable(deployment_result)
@@ -471,6 +520,29 @@ def _requested_port(text: str) -> int | None:
     if 1 <= port <= 65535:
         return port
     return None
+
+
+async def _record_fulfillment_tool_result(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    call_id: str | None,
+    tool_name: str,
+    result: OrchestratorToolResult,
+) -> None:
+    _mark_tool_fulfillment(run_context, tool_name, result.status, result.output)
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="command_fulfillment_status",
+        agent_id="orchestrator",
+        payload={
+            "stage": "tool_result",
+            "call_id": call_id,
+            "tool_name": tool_name,
+            "tool_status": result.status,
+            **_fulfillment_payload(run_context),
+        },
+    )
 
 
 async def _record_evaluation_started(

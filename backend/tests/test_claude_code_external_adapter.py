@@ -861,3 +861,40 @@ class TestClaudeCodeAdapterStream:
 
         assert chunks[-1].event_type == "done"
         assert seen_command[0] == "C:\\Users\\qq\\.local\\bin\\claude.exe"
+
+    async def test_runtime_cli_bypasses_sdk(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        def fail_load_sdk() -> Any:
+            raise AssertionError("SDK should not load when runtime=cli")
+
+        seen_command: list[str] = []
+
+        async def fake_stream_cli_text(
+            command: list[str],
+            *,
+            cwd: Path,
+            budget_config: Any,
+            agent_id: str,
+            provider: str,
+            activity_paths: list[Path] | None = None,
+            env: dict[str, str] | None = None,
+        ) -> AsyncIterator[StreamChunk | CliCompleted]:
+            _ = cwd, budget_config, agent_id, provider, activity_paths, env
+            seen_command.extend(command)
+            yield CliCompleted(CliResult(return_code=0, stdout="cli runtime ok\n", stderr=""))
+
+        monkeypatch.setattr(adapter, "_load_sdk", fail_load_sdk)
+        monkeypatch.setattr(claude_code_module, "stream_cli_text", fake_stream_cli_text)
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={"runtime": "cli", "command": "/tmp/custom-claude-cli"},  # noqa: S108
+        )
+
+        assert chunks[-1].event_type == "done"
+        assert seen_command[0] == "/tmp/custom-claude-cli"

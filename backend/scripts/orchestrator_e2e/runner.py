@@ -10,8 +10,10 @@ import asyncio
 import json
 import os
 import re
+import stat
 import time
 import zipfile
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -48,6 +50,7 @@ GENERIC_GROUP_PROCESS_SCENARIOS = {
 GENERIC_GROUP_PROCESS_SCENARIO = SCENARIO in GENERIC_GROUP_PROCESS_SCENARIOS
 GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO = SCENARIO == "group_process_frontend_preview"
 AGENT_FALLBACK_MATRIX_SCENARIO = SCENARIO == "agent_fallback_matrix"
+COMMAND_FULFILLMENT_SCENARIO = SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
 P1_SCENARIO = (
     P1_ATTRIBUTION_SCENARIO
     or P1_WORKFLOW_SCENARIO
@@ -66,6 +69,8 @@ EXPECT_CONTAINER_STATUS = SETTINGS.expect_container_status
 CONTAINER_TERMINAL_STATUSES = {"published", "failed", "stopped", "not_supported"}
 CONTAINER_POLL_TIMEOUT_SECONDS = SETTINGS.container_poll_timeout_seconds
 CONTAINER_POLL_INTERVAL_SECONDS = SETTINGS.container_poll_interval_seconds
+AGENT_FALLBACK_E2E_FAIL_RUNTIME = "/tmp/agenthub-e2e-fail-runtime.py"  # noqa: S108
+AGENT_FALLBACK_E2E_WRITE_RUNTIME = "/tmp/agenthub-e2e-write-runtime.py"  # noqa: S108
 DEFAULT_P1_ATTRIBUTION_SSE_PATH = "/tmp/agenthub_p1_attribution_sse.jsonl"  # noqa: S108
 DEFAULT_P1_WORKFLOW_SSE_PATH = "/tmp/agenthub_p1_workflow_sse.jsonl"  # noqa: S108
 DEFAULT_P1_WORKFLOW_RUNTIME_SSE_PATH = (  # noqa: S108
@@ -101,6 +106,9 @@ DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_SSE_PATH = (  # noqa: S108
 )
 DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_agent_fallback_matrix_sse.jsonl"  # noqa: S108
+)
+DEFAULT_COMMAND_FULFILLMENT_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_command_fulfillment_sse.jsonl"  # noqa: S108
 )
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
@@ -149,6 +157,9 @@ DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_REPORT_PATH = (  # noqa: S108
 DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_agent_fallback_matrix_report.json"  # noqa: S108
 )
+DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_command_fulfillment_report.json"  # noqa: S108
+)
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
@@ -172,6 +183,9 @@ DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_process_frontend_preview_browser.json"  # noqa: S108
+)
+DEFAULT_COMMAND_FULFILLMENT_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_command_fulfillment_browser.json"  # noqa: S108
 )
 SSE_PATH = SETTINGS.sse_path
 REPORT_PATH = SETTINGS.report_path
@@ -387,6 +401,11 @@ AGENT_FALLBACK_MATRIX_PROMPT = (
     "如果它失败，请自动调配其他可用 Agent 继续，创建指定 markdown 文件，并在最终总结"
     "说明 fallback 归属。不要预览、不要部署。"
 )
+COMMAND_FULFILLMENT_PROMPT = (
+    "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
+    "然后交由两个智能体并行开发工作，包含代码产物、Diff、按钮交互和移动端适配，"
+    "最后再进行审阅，最后部署在端口8082，并完成浏览器级质量验收。"
+)
 
 PROMPT = SETTINGS.prompt_override or (
     P1_ATTRIBUTION_PROMPT
@@ -415,6 +434,8 @@ PROMPT = SETTINGS.prompt_override or (
     if SCENARIO == "group_process_failure_readable"
     else AGENT_FALLBACK_MATRIX_PROMPT
     if AGENT_FALLBACK_MATRIX_SCENARIO
+    else COMMAND_FULFILLMENT_PROMPT
+    if COMMAND_FULFILLMENT_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -430,6 +451,7 @@ PROMPT = SETTINGS.prompt_override or (
     )
 )
 AGENT_IDS = ["orchestrator", "claude-code", "opencode-helper", "codex-helper"]
+BUILTIN_SUB_AGENT_IDS = ("claude-code", "opencode-helper", "codex-helper")
 P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS = [
     "orchestrator",
     "claude-code",
@@ -485,23 +507,35 @@ GENERIC_GROUP_PROCESS_CASES: dict[str, dict[str, Any]] = {
 }
 AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
     {
-        "name": "agent_fallback_codex_unavailable",
-        "target_agent_id": "codex-helper",
-        "artifact_path": "fallback-codex.md",
-        "agent_config_patch": {"runtime": "unavailable-runtime"},
-    },
-    {
         "name": "agent_fallback_claude_unavailable",
         "target_agent_id": "claude-code",
         "artifact_path": "fallback-claude.md",
-        "agent_config_patch": {"command": "/tmp/agenthub-missing-claude-cli"},  # noqa: S108
-        "agent_provider_patch": "agenthub_missing_runtime",
+        "sub_agent_config_overrides": {
+            "claude-code": {
+                "runtime": "cli",
+                "command": ["python3", AGENT_FALLBACK_E2E_FAIL_RUNTIME],
+            },
+            "opencode-helper": {
+                "command": ["python3", AGENT_FALLBACK_E2E_WRITE_RUNTIME],
+                "jsonl": False,
+            },
+        },
     },
     {
         "name": "agent_fallback_opencode_unavailable",
         "target_agent_id": "opencode-helper",
         "artifact_path": "fallback-opencode.md",
-        "agent_config_patch": {"command": "/tmp/agenthub-missing-opencode-cli"},  # noqa: S108
+        "sub_agent_config_overrides": {
+            "opencode-helper": {"command": "/tmp/agenthub-missing-opencode-cli"},  # noqa: S108
+        },
+    },
+    {
+        "name": "agent_fallback_codex_unavailable",
+        "target_agent_id": "codex-helper",
+        "artifact_path": "fallback-codex.md",
+        "sub_agent_config_overrides": {
+            "codex-helper": {"command": ["python3", AGENT_FALLBACK_E2E_FAIL_RUNTIME]},
+        },
     },
 )
 FORBIDDEN_VISIBLE_TRACE_TERMS = (
@@ -1191,26 +1225,26 @@ async def _patch_orchestrator_static_task_config(
     *,
     target_agent_id: str,
     artifact_path: str,
+    sub_agent_config_overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    fallback_agent_ids = [
+        agent_id for agent_id in BUILTIN_SUB_AGENT_IDS if agent_id != target_agent_id
+    ]
     return await _patch_builtin_agent_config(
         "orchestrator",
         {
             "react_enabled": False,
             "llm_planning": False,
+            "available_agents_authoritative": False,
             "orchestrator_parallel_enabled": False,
+            "orchestrator_runtime_cooldown_enabled": False,
             "max_task_attempts": 3,
-            "managed_agent_ids": [
-                "claude-code",
-                "opencode-helper",
-                "codex-helper",
-                "writer",
-            ],
-            "task_fallback_agent_ids": [
-                "claude-code",
-                "opencode-helper",
-                "codex-helper",
-                "writer",
-            ],
+            "managed_agent_ids": list(BUILTIN_SUB_AGENT_IDS),
+            "task_fallback_agent_ids": fallback_agent_ids,
+            "sub_agent_config_overrides": {
+                agent_id: dict(agent_config)
+                for agent_id, agent_config in (sub_agent_config_overrides or {}).items()
+            },
             "tasks": [
                 {
                     "task_id": "fallback-task",
@@ -1247,6 +1281,198 @@ def final_summary_from_report(report: dict[str, Any]) -> str:
         if isinstance(run, dict):
             return str(run.get("final_summary") or "")
     return ""
+
+
+def fallback_group_agent_ids(target_agent_id: str) -> list[str]:
+    return [
+        "orchestrator",
+        target_agent_id,
+        *(agent_id for agent_id in BUILTIN_SUB_AGENT_IDS if agent_id != target_agent_id),
+    ]
+
+
+def _ensure_agent_fallback_matrix_runtime_helpers() -> None:
+    fail_runtime = Path(AGENT_FALLBACK_E2E_FAIL_RUNTIME)
+    fail_runtime.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import sys",
+                "sys.stderr.write('E2E forced runtime failure\\n')",
+                "raise SystemExit(1)",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    fail_runtime.chmod(fail_runtime.stat().st_mode | stat.S_IXUSR)
+
+    write_runtime = Path(AGENT_FALLBACK_E2E_WRITE_RUNTIME)
+    write_runtime.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "from pathlib import Path",
+                "import re",
+                "import sys",
+                "args = sys.argv[1:]",
+                "workspace = Path.cwd()",
+                "if '--dir' in args:",
+                "    try:",
+                "        workspace = Path(args[args.index('--dir') + 1])",
+                "    except (IndexError, ValueError):",
+                "        pass",
+                "prompt = args[-1] if args else ''",
+                "path_match = re.search(r'Create `([^`]+)`', prompt)",
+                "sentinel_match = re.search(r'`(AGENT_FALLBACK_SENTINEL=[^`]+)`', prompt)",
+                "artifact = path_match.group(1) if path_match else 'fallback-evidence.md'",
+                "sentinel = (sentinel_match.group(1) if sentinel_match "
+                "else 'AGENT_FALLBACK_SENTINEL=e2e')",
+                "target = workspace / artifact",
+                "target.parent.mkdir(parents=True, exist_ok=True)",
+                "target.write_text(",
+                "    '# Fallback evidence\\n\\n' + sentinel + '\\n',",
+                "    encoding='utf-8',",
+                ")",
+                "sys.stdout.write(f'Created {artifact}\\n')",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    write_runtime.chmod(write_runtime.stat().st_mode | stat.S_IXUSR)
+
+
+def _task_cards_from_message(message: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(message, dict):
+        return []
+    content = message.get("content")
+    if not isinstance(content, list):
+        return []
+    return [
+        block
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "task_card"
+    ]
+
+
+def _fallback_task_card_task(
+    message: dict[str, Any] | None,
+    *,
+    task_id: str = "fallback-task",
+) -> dict[str, Any]:
+    for card in _task_cards_from_message(message):
+        tasks = card.get("tasks")
+        if not isinstance(tasks, list):
+            continue
+        for task in tasks:
+            if isinstance(task, dict) and task.get("id") == task_id:
+                return task
+    return {}
+
+
+def _attempts_from_run_detail(run_detail: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(run_detail, dict):
+        return []
+    attempts: list[dict[str, Any]] = []
+    raw_attempts = run_detail.get("attempts")
+    if isinstance(raw_attempts, list):
+        attempts.extend(item for item in raw_attempts if isinstance(item, dict))
+    events = run_detail.get("events")
+    if isinstance(events, list):
+        for event in events:
+            if not isinstance(event, dict) or event.get("event_type") != "task_result":
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            payload_attempts = payload.get("attempts")
+            if isinstance(payload_attempts, list):
+                attempts.extend(
+                    item for item in payload_attempts if isinstance(item, dict)
+                )
+    return attempts
+
+
+def _fallback_attempt_agents(
+    run_detail: dict[str, Any] | None,
+    *,
+    target_agent_id: str,
+    task_id: str = "fallback-task",
+) -> dict[str, Any]:
+    attempts = [
+        attempt
+        for attempt in _attempts_from_run_detail(run_detail)
+        if attempt.get("task_id") == task_id
+        and attempt.get("state") not in {"pending", "skipped"}
+    ]
+    attempt_agents = [
+        str(attempt.get("agent_id"))
+        for attempt in attempts
+        if isinstance(attempt.get("agent_id"), str)
+    ]
+    fallback_agents = [agent_id for agent_id in attempt_agents if agent_id != target_agent_id]
+    terminal_attempts = [
+        attempt
+        for attempt in attempts
+        if attempt.get("state") in {"succeeded", "manual_review_required", "done"}
+        and isinstance(attempt.get("agent_id"), str)
+    ]
+    final_agent = None
+    if terminal_attempts:
+        final_agent = str(terminal_attempts[-1].get("agent_id"))
+    elif fallback_agents:
+        final_agent = fallback_agents[-1]
+    elif attempt_agents:
+        final_agent = attempt_agents[-1]
+    return {
+        "attempt_agents": attempt_agents,
+        "fallback_agents": fallback_agents,
+        "final_agent": final_agent,
+    }
+
+
+def evaluate_fallback_task_card_case(case_report: dict[str, Any]) -> dict[str, Any]:
+    target_agent_id = str(case_report.get("target_agent_id") or "")
+    task_card_task = _fallback_task_card_task(case_report.get("target_agent_message"))
+    attempt_evidence = _fallback_attempt_agents(
+        case_report.get("orchestrator_run_detail"),
+        target_agent_id=target_agent_id,
+    )
+    final_attempt_agent = attempt_evidence.get("final_agent")
+    task_agent_id = task_card_task.get("agent_id")
+    planned_agent_id = task_card_task.get("planned_agent_id")
+    final_agent_id = task_card_task.get("final_agent_id")
+    result = {
+        "task_card_task": task_card_task,
+        "attempt_agents": attempt_evidence["attempt_agents"],
+        "fallback_attempt_agents": attempt_evidence["fallback_agents"],
+        "final_attempt_agent": final_attempt_agent,
+        "planned_agent_matches_target": planned_agent_id == target_agent_id,
+        "task_agent_matches_final_attempt": (
+            isinstance(final_attempt_agent, str)
+            and task_agent_id == final_attempt_agent
+        ),
+        "final_agent_matches_final_attempt": (
+            isinstance(final_attempt_agent, str)
+            and final_agent_id == final_attempt_agent
+        ),
+        "task_agent_reassigned_from_planned": (
+            isinstance(task_agent_id, str)
+            and isinstance(planned_agent_id, str)
+            and task_agent_id != planned_agent_id
+        ),
+    }
+    result["passed"] = all(
+        bool(result[key])
+        for key in (
+            "planned_agent_matches_target",
+            "task_agent_matches_final_attempt",
+            "final_agent_matches_final_attempt",
+            "task_agent_reassigned_from_planned",
+        )
+    )
+    return result
 
 
 def fetch_orchestrator_run_detail(
@@ -1457,8 +1683,7 @@ def child_messages_for_user(
         if item.get("role") == "agent"
         and item.get("id") != parent_message_id
         and item.get("reply_to_id") == user_message_id
-        and item.get("agent_id")
-        in {"codex-helper", "claude-code", "opencode-helper", "writer", "web-designer"}
+        and item.get("agent_id") in BUILTIN_SUB_AGENT_IDS
     ]
 
 
@@ -1503,8 +1728,7 @@ def group_process_report(
     parent_embedded_child_blocks = [
         block
         for block in message_blocks(parent_message)
-        if block.get("agent_id")
-        in {"codex-helper", "claude-code", "opencode-helper", "writer", "web-designer"}
+        if block.get("agent_id") in BUILTIN_SUB_AGENT_IDS
     ]
     return {
         "message_start_agents": message_start_agents,
@@ -1516,6 +1740,74 @@ def group_process_report(
         "child_process_message_count": len(child_process_agents),
         "parent_embedded_child_block_count": len(parent_embedded_child_blocks),
     }
+
+
+def command_fulfillment_statuses(run_detail: dict[str, Any]) -> dict[str, str]:
+    events = run_detail.get("events") if isinstance(run_detail, dict) else []
+    events = events if isinstance(events, list) else []
+    payloads = [
+        event.get("payload")
+        for event in events
+        if isinstance(event, dict)
+        and event.get("event_type") == "command_fulfillment_status"
+        and isinstance(event.get("payload"), dict)
+    ]
+    status_rank = {"pending": 0, "skipped": 1, "failed": 2, "satisfied": 3}
+    statuses: dict[str, str] = {}
+    ranks: dict[str, int] = {}
+    for payload in payloads:
+        items = payload.get("items") if isinstance(payload, dict) else []
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            item_id = str(item.get("id"))
+            status = str(item.get("status") or "pending")
+            rank = status_rank.get(status, 0)
+            if rank >= ranks.get(item_id, -1):
+                statuses[item_id] = status
+                ranks[item_id] = rank
+    return statuses
+
+
+def command_fulfillment_review_independent(run_detail: dict[str, Any]) -> bool:
+    tasks = run_detail.get("tasks") if isinstance(run_detail, dict) else []
+    attempts = run_detail.get("attempts") if isinstance(run_detail, dict) else []
+    tasks = tasks if isinstance(tasks, list) else []
+    attempts = attempts if isinstance(attempts, list) else []
+    task_by_id = {
+        str(task.get("task_id") or task.get("id")): task
+        for task in tasks
+        if isinstance(task, dict) and (task.get("task_id") or task.get("id"))
+    }
+    final_agents: dict[str, str] = {}
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        task_id = attempt.get("task_id")
+        agent_id = attempt.get("agent_id")
+        state = attempt.get("state") or attempt.get("final_state")
+        if isinstance(task_id, str) and isinstance(agent_id, str) and state == "succeeded":
+            final_agents[task_id] = agent_id
+    for task_id, task in task_by_id.items():
+        if task.get("task_type") != "review":
+            continue
+        review_agent = final_agents.get(task_id) or task.get("agent_id")
+        if not isinstance(review_agent, str):
+            continue
+        reviewed_ids = task.get("review_of") or task.get("depends_on") or []
+        if not isinstance(reviewed_ids, list):
+            continue
+        reviewed_agents = {
+            final_agents.get(str(reviewed_id))
+            or task_by_id.get(str(reviewed_id), {}).get("agent_id")
+            for reviewed_id in reviewed_ids
+        }
+        reviewed_agents = {agent for agent in reviewed_agents if isinstance(agent, str)}
+        if reviewed_agents and review_agent not in reviewed_agents:
+            return True
+    return False
 
 
 def evaluate_generic_group_process(
@@ -2563,6 +2855,7 @@ def run_agent_fallback_matrix_case(
     report: dict[str, Any],
     started_at: float,
 ) -> None:
+    _ensure_agent_fallback_matrix_runtime_helpers()
     case_reports: list[dict[str, Any]] = []
     for case in AGENT_FALLBACK_MATRIX_CASES:
         target_agent_id = str(case["target_agent_id"])
@@ -2574,34 +2867,18 @@ def run_agent_fallback_matrix_case(
             "checks": {},
         }
         original_orchestrator_config: dict[str, Any] | None = None
-        original_agent_config: dict[str, Any] | None = None
         original_agent_provider: str | None = None
-        original_writer_config: dict[str, Any] | None = None
         try:
-            original_agent_config = asyncio.run(
-                _patch_builtin_agent_config(
-                    target_agent_id,
-                    dict(case["agent_config_patch"]),
-                )
-            )
             provider_patch = case.get("agent_provider_patch")
             if isinstance(provider_patch, str) and provider_patch.strip():
                 original_agent_provider = asyncio.run(
                     _patch_agent_provider(target_agent_id, provider_patch.strip())
                 )
-            original_writer_config = asyncio.run(
-                _patch_builtin_agent_config(
-                    "writer",
-                    {
-                        "allowed_tools": ["write_file"],
-                        "max_iterations": 4,
-                    },
-                )
-            )
             original_orchestrator_config = asyncio.run(
                 _patch_orchestrator_static_task_config(
                     target_agent_id=target_agent_id,
                     artifact_path=artifact_path,
+                    sub_agent_config_overrides=case.get("sub_agent_config_overrides"),
                 )
             )
             conversation = client.post(
@@ -2610,7 +2887,7 @@ def run_agent_fallback_matrix_case(
                 json={
                     "title": f"{case['name']} Live E2E {int(started_at)}",
                     "mode": "group",
-                    "agent_ids": ["orchestrator", target_agent_id, "writer"],
+                    "agent_ids": fallback_group_agent_ids(target_agent_id),
                 },
             )
             conversation.raise_for_status()
@@ -2691,6 +2968,20 @@ def run_agent_fallback_matrix_case(
             checks["parent_not_embedding_child_blocks"] = (
                 int(case_report["group_chat"]["parent_embedded_child_block_count"]) == 0
             )
+            task_card_evidence = evaluate_fallback_task_card_case(case_report)
+            case_report["task_card_fallback"] = task_card_evidence
+            checks["task_card_planned_agent_matches_target"] = bool(
+                task_card_evidence["planned_agent_matches_target"]
+            )
+            checks["task_card_agent_matches_final_attempt"] = bool(
+                task_card_evidence["task_agent_matches_final_attempt"]
+            )
+            checks["task_card_final_agent_matches_final_attempt"] = bool(
+                task_card_evidence["final_agent_matches_final_attempt"]
+            )
+            checks["task_card_agent_reassigned_from_planned"] = bool(
+                task_card_evidence["task_agent_reassigned_from_planned"]
+            )
             case_report["fallback_agents"] = fallback_agents
             case_report["target_attempted"] = target_attempted
             case_report["target_skipped_before_attempt"] = target_skipped_before_attempt
@@ -2708,16 +2999,6 @@ def run_agent_fallback_matrix_case(
                     )
                 except Exception as exc:  # noqa: BLE001
                     restores["orchestrator"] = {"restored": False, "error": str(exc)}
-            if original_agent_config is not None:
-                try:
-                    restores[target_agent_id] = asyncio.run(
-                        _restore_builtin_agent_config(
-                            target_agent_id,
-                            original_agent_config,
-                        )
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    restores[target_agent_id] = {"restored": False, "error": str(exc)}
             if original_agent_provider is not None:
                 try:
                     restores[f"{target_agent_id}.provider"] = asyncio.run(
@@ -2728,16 +3009,6 @@ def run_agent_fallback_matrix_case(
                         "restored": False,
                         "error": str(exc),
                     }
-            if original_writer_config is not None:
-                try:
-                    restores["writer"] = asyncio.run(
-                        _restore_builtin_agent_config(
-                            "writer",
-                            original_writer_config,
-                        )
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    restores["writer"] = {"restored": False, "error": str(exc)}
             case_report["restores"] = restores
         case_reports.append(case_report)
 
@@ -4074,6 +4345,96 @@ def main() -> None:
                 }
             )
 
+        if COMMAND_FULFILLMENT_SCENARIO:
+            run_detail = (
+                report.get("orchestrator_run_detail")
+                if isinstance(report.get("orchestrator_run_detail"), dict)
+                else {}
+            )
+            fulfillment_statuses = command_fulfillment_statuses(run_detail)
+            report["command_fulfillment_statuses"] = fulfillment_statuses
+            content_blocks = (target or {}).get("content") or []
+            deployment_tool_blocks = [
+                block
+                for block in content_blocks
+                if block.get("type") == "tool_call"
+                and block.get("tool_name") == "create_deployment"
+            ]
+            deployment_status_blocks = [
+                block
+                for block in content_blocks
+                if block.get("type") == "deployment_status"
+            ]
+            deployments = client.get(
+                f"/api/v1/workspaces/{conv_id}/deployments",
+                headers=headers,
+            )
+            report["command_deployment_list_status_code"] = deployments.status_code
+            deployment_items = (
+                deployments.json().get("items", [])
+                if deployments.status_code == 200
+                else []
+            )
+            deployment_items = deployment_items if isinstance(deployment_items, list) else []
+            static_items = [
+                item
+                for item in deployment_items
+                if item.get("kind") == "static_site"
+                and item.get("status") == "published"
+            ]
+            file_names_lower = {name.lower() for name in file_names}
+            report["command_deployments"] = deployment_items
+            report["checks"]["command_child_agents_at_least_2"] = len(child_agents) >= 2
+            report["checks"]["command_child_process_delta_at_least_2"] = (
+                child_process_delta_count >= 2
+            )
+            report["checks"]["command_review_independent"] = (
+                command_fulfillment_review_independent(run_detail)
+            )
+            report["checks"]["command_document_file_present"] = any(
+                name.endswith(".md") and ("design" in name or "plan" in name or "文档" in name)
+                for name in file_names_lower
+            )
+            report["checks"]["command_review_file_present"] = any(
+                name.endswith(".md") and "review" in name for name in file_names_lower
+            )
+            report["checks"]["command_diff_evidence_present"] = (
+                any("diff" in name for name in file_names_lower)
+                or bool(fulfillment_statuses.get("diff") == "satisfied")
+            )
+            for item_id in (
+                "document",
+                "code_artifacts",
+                "multi_agent",
+                "review",
+                "preview",
+                "browser_verify",
+                "deployment",
+                "diff",
+            ):
+                report["checks"][f"command_fulfillment_{item_id}_satisfied"] = (
+                    fulfillment_statuses.get(item_id) == "satisfied"
+                )
+            report["checks"]["command_deployment_tool_called"] = bool(
+                deployment_tool_blocks
+            )
+            report["checks"]["command_deployment_status_block_present"] = bool(
+                deployment_status_blocks
+            )
+            report["checks"]["command_static_deployment_published"] = bool(static_items)
+            if static_items:
+                static_url = static_items[0].get("url")
+                report["command_static_site_deployment_url"] = static_url
+                if isinstance(static_url, str) and static_url.startswith("http"):
+                    static_response = httpx.get(static_url, timeout=10, trust_env=False)
+                    report["checks"]["command_static_site_url_200"] = (
+                        static_response.status_code == 200
+                    )
+                else:
+                    report["checks"]["command_static_site_url_200"] = False
+            else:
+                report["checks"]["command_static_site_url_200"] = False
+
         message_blocks = (target or {}).get("content") or []
         text = block_text(message_blocks)
         server_command_scan_text = "\n".join(
@@ -4218,6 +4579,8 @@ def main() -> None:
                 False,
             ),
         }
+        if COMMAND_FULFILLMENT_SCENARIO:
+            hard_checks.pop("planner_used_llm", None)
         if FULLSTACK_SCENARIO:
             hard_checks.update(
                 {
@@ -4309,6 +4672,83 @@ def main() -> None:
                     ),
                     "group_parent_does_not_embed_child_outputs": report["checks"].get(
                         "group_parent_does_not_embed_child_outputs",
+                        False,
+                    ),
+                }
+            )
+        elif COMMAND_FULFILLMENT_SCENARIO:
+            hard_checks.update(
+                {
+                    "command_child_agents_at_least_2": report["checks"].get(
+                        "command_child_agents_at_least_2",
+                        False,
+                    ),
+                    "command_child_process_delta_at_least_2": report["checks"].get(
+                        "command_child_process_delta_at_least_2",
+                        False,
+                    ),
+                    "command_review_independent": report["checks"].get(
+                        "command_review_independent",
+                        False,
+                    ),
+                    "command_document_file_present": report["checks"].get(
+                        "command_document_file_present",
+                        False,
+                    ),
+                    "command_review_file_present": report["checks"].get(
+                        "command_review_file_present",
+                        False,
+                    ),
+                    "command_diff_evidence_present": report["checks"].get(
+                        "command_diff_evidence_present",
+                        False,
+                    ),
+                    "command_fulfillment_document_satisfied": report["checks"].get(
+                        "command_fulfillment_document_satisfied",
+                        False,
+                    ),
+                    "command_fulfillment_code_artifacts_satisfied": report["checks"].get(
+                        "command_fulfillment_code_artifacts_satisfied",
+                        False,
+                    ),
+                    "command_fulfillment_multi_agent_satisfied": report["checks"].get(
+                        "command_fulfillment_multi_agent_satisfied",
+                        False,
+                    ),
+                    "command_fulfillment_review_satisfied": report["checks"].get(
+                        "command_fulfillment_review_satisfied",
+                        False,
+                    ),
+                    "command_fulfillment_preview_satisfied": report["checks"].get(
+                        "command_fulfillment_preview_satisfied",
+                        False,
+                    ),
+                    "command_fulfillment_browser_verify_satisfied": report["checks"].get(
+                        "command_fulfillment_browser_verify_satisfied",
+                        False,
+                    ),
+                    "command_fulfillment_deployment_satisfied": report["checks"].get(
+                        "command_fulfillment_deployment_satisfied",
+                        False,
+                    ),
+                    "command_fulfillment_diff_satisfied": report["checks"].get(
+                        "command_fulfillment_diff_satisfied",
+                        False,
+                    ),
+                    "command_deployment_tool_called": report["checks"].get(
+                        "command_deployment_tool_called",
+                        False,
+                    ),
+                    "command_deployment_status_block_present": report["checks"].get(
+                        "command_deployment_status_block_present",
+                        False,
+                    ),
+                    "command_static_deployment_published": report["checks"].get(
+                        "command_static_deployment_published",
+                        False,
+                    ),
+                    "command_static_site_url_200": report["checks"].get(
+                        "command_static_site_url_200",
                         False,
                     ),
                 }

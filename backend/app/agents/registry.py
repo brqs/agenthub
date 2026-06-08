@@ -42,7 +42,6 @@ DEFAULT_ORCHESTRATOR_SUB_AGENT_IDS = [
     "claude-code",
     "codex-helper",
     "opencode-helper",
-    "web-designer",
 ]
 
 

@@ -1154,10 +1154,24 @@ def _is_bypass_request(text: str) -> bool:
 
 def _missing_spec_count(text: str) -> int:
     categories = (
-        ("platform", ("web", "html", "react", "网页", "网页版", "页面", "静态")),
+        ("platform", ("web", "html", "react", "网页", "网页版", "页面", "网站", "站点", "静态")),
         ("interaction", ("键盘", "鼠标", "点击", "拖拽", "触屏", "玩法", "交互", "控制")),
         ("visual", ("精致", "视觉", "风格", "配色", "动效", "布局", "美观")),
-        ("output", ("index.html", "styles.css", "app.js", "文件", "组件", "入口")),
+        (
+            "output",
+            (
+                "index.html",
+                "styles.css",
+                "app.js",
+                "文件",
+                "组件",
+                "入口",
+                "代码",
+                "产物",
+                "diff",
+                "文档",
+            ),
+        ),
         ("acceptance", ("测试", "验收", "无错误", "响应式", "移动端", "桌面")),
     )
     return sum(1 for _name, markers in categories if not any(marker in text for marker in markers))

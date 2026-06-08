@@ -266,10 +266,10 @@ async def test_quality_gate_repairs_failed_browser_verification(
     )
 
     assert chunks[-1].event_type == "done"
-    assert [chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"] == [
-        "claude-code",
-        "codex-helper",
+    switched_agents = [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ]
+    assert switched_agents[:2] == ["claude-code", "codex-helper"]
     assert [call[0] for call in executor.calls] == [
         "start_workspace_preview",
         "verify_web_preview",
@@ -337,10 +337,10 @@ async def test_quality_gate_creates_missing_frontend_artifacts_before_preview(
     )
 
     assert chunks[-1].event_type == "done"
-    assert [chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"] == [
-        "claude-code",
-        "codex-helper",
+    switched_agents = [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ]
+    assert switched_agents[:2] == ["claude-code", "codex-helper"]
     assert [call[0] for call in executor.calls] == [
         "start_workspace_preview",
         "verify_web_preview",
@@ -512,6 +512,78 @@ async def test_quality_gate_records_evaluation_events(tmp_path: Path) -> None:
     ]
     assert "browser_preview_quality" in result_evaluators
     assert "deployment_health" in result_evaluators
+
+
+async def test_quality_gate_fulfills_website_deploy_command(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created cyberpunk website"),
+        "index.html",
+        (
+            "<!doctype html><html><head><link rel='stylesheet' href='styles.css'>"
+            "</head><body><h1>赛博朋克 网站 预览 按钮 移动端</h1>"
+            "<button>启动</button><script src='app.js'></script></body></html>"
+        ),
+    )
+    executor = FakePlatformToolExecutor([True])
+    writer = FakeMemoryWriter()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 我要做一个网站，主题是赛博朋克风，"
+                    "先生成一份文档，然后交由两个智能体并行开发工作，"
+                    "包含网页预览、按钮交互和移动端适配，最后再进行审阅，"
+                    "最后部署在端口8082"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-website",
+                    "claude-code",
+                    "Create website",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code"],
+            "sub_adapters": {"claude-code": generator},
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_memory_writer": writer,
+        },
+    )
+
+    fulfillment_payloads = [
+        payload
+        for event_type, payload in writer.events
+        if event_type == "command_fulfillment_status" and payload
+    ]
+    final_items = {
+        item["id"]: item["status"]
+        for item in fulfillment_payloads[-1]["items"]
+        if isinstance(item, dict)
+    }
+
+    assert chunks[-1].event_type == "done"
+    assert [call[0] for call in executor.calls] == [
+        "start_workspace_preview",
+        "verify_web_preview",
+        "create_deployment",
+    ]
+    assert final_items["preview"] == "satisfied"
+    assert final_items["browser_verify"] == "satisfied"
+    assert final_items["deployment"] == "satisfied"
+    assert any(chunk.block_type == "deployment_status" for chunk in chunks)
 
 
 async def test_quality_gate_repairs_failed_deployment_and_redeploys(

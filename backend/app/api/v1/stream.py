@@ -553,14 +553,20 @@ async def _runtime_event_generator(
         if final_done is not None:
             if session is not None and session.interrupt_event.is_set():
                 raise StreamInterruptedError("User interrupted this agent turn.")
-            preview_chunks, next_block_index = await maybe_autostart_platform_preview(
-                db=db,
-                message=message,
-                history=history,
-                workspace_path=Path(workspace.root_path),
-                block_index=next_block_index,
-                existing_blocks=accumulator.to_list(),
-            )
+            try:
+                preview_chunks, next_block_index = await asyncio.wait_for(
+                    maybe_autostart_platform_preview(
+                        db=db,
+                        message=message,
+                        history=history,
+                        workspace_path=Path(workspace.root_path),
+                        block_index=next_block_index,
+                        existing_blocks=accumulator.to_list(),
+                    ),
+                    timeout=max(1.0, float(settings.preview_start_timeout_seconds) + 2.0),
+                )
+            except TimeoutError:
+                preview_chunks = []
             for preview_chunk in preview_chunks:
                 accumulator_error = accumulator.feed(preview_chunk)
                 if accumulator_error is not None:
