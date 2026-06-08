@@ -331,11 +331,10 @@ def balance_requested_multi_agent_plan(
         return tasks
     allowed_agent_ids = allowed_agent_ids or _allowed_agent_ids_from_config(config)
     ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
-    tasks = _avoid_self_review_tasks(tasks, ordered_agents)
     if not _explicit_multi_agent_distribution_requested(user_request):
-        return tasks
+        return _avoid_self_review_tasks(tasks, ordered_agents)
     if len(ordered_agents) < 2:
-        return tasks
+        return _avoid_self_review_tasks(tasks, ordered_agents)
 
     implementation_indices = [
         index for index, task in enumerate(tasks) if _is_parallel_implementation_task(task)
@@ -349,9 +348,9 @@ def balance_requested_multi_agent_plan(
         if split_tasks is not tasks:
             return _avoid_self_review_tasks(split_tasks, ordered_agents)
     if len({task.agent_id for task in tasks if task.agent_id != "orchestrator"}) > 1:
-        return tasks
+        return _avoid_self_review_tasks(tasks, ordered_agents)
     if len(implementation_indices) < 2:
-        return tasks
+        return _avoid_self_review_tasks(tasks, ordered_agents)
 
     redistributed = list(tasks)
     for offset, task_index in enumerate(implementation_indices):
@@ -423,7 +422,10 @@ def _split_single_parallel_implementation_task(
         depends_on = current.depends_on
         if task.task_id in depends_on and second_task_id not in depends_on:
             depends_on = (*depends_on, second_task_id)
-        updated.append(replace(current, depends_on=depends_on))
+        review_of = current.review_of
+        if task.task_id in review_of and second_task_id not in review_of:
+            review_of = (*review_of, second_task_id)
+        updated.append(replace(current, depends_on=depends_on, review_of=review_of))
     return updated
 
 

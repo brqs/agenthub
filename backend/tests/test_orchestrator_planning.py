@@ -84,7 +84,7 @@ def test_planner_prompt_references_agent_capability_profile_rule() -> None:
     assert "override historical" in PLANNER_SYSTEM_PROMPT
     assert "Do not probe a" in PLANNER_SYSTEM_PROMPT
     assert "outside the available agents list" in PLANNER_SYSTEM_PROMPT
-    assert "should not" in PLANNER_SYSTEM_PROMPT
+    assert "must not" in PLANNER_SYSTEM_PROMPT
     assert "profile, strengths, weaknesses" in PLANNER_SYSTEM_PROMPT
     assert "split implementation work across distinct implementation-capable agents" in (
         PLANNER_SYSTEM_PROMPT
@@ -798,10 +798,12 @@ async def test_orchestrator_splits_single_parallel_development_task() -> None:
         "opencode-helper",
         "codex-helper",
     ]
-    assert "Create cyberpunk-website-design.md." in codex.received_messages[0].content
     assert "primary implementation slice" in claude.received_messages[-1].content
     assert "complementary implementation" in opencode.received_messages[-1].content
-    assert "Review all generated website files." in codex.received_messages[-1].content
+    assert any(
+        "Review all generated website files." in message.content
+        for message in codex.received_messages
+    )
 
 
 async def test_orchestrator_splits_single_chained_implementation_for_multi_agent_request() -> None:

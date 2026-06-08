@@ -3,7 +3,7 @@
 > 目的：作为 Orchestrator 相关 spec 的包级入口，区分当前契约和当前验证报告。
 >
 > 状态：Current package index
-> 最后更新：2026-06-07
+> 最后更新：2026-06-08
 
 ---
 
@@ -103,6 +103,7 @@
 - Command fulfillment backend MVP 已实现：Orchestrator 会 deterministic 提取文档、代码产物、多智能体、审阅、预览、浏览器验收、部署、Diff、源码打包等显式要求，写入 run detail `command_fulfillment_status` event，并让最终用户可见 summary 只根据 fulfillment 状态说明完成或未完成。
 - 用户要求“部署/发布/上线”时，平台 preview URL 不等于部署完成；Orchestrator 需要在 preview/browser verify 后调用 `create_deployment`，失败时不得在 final text 中误报“已部署”。
 - 2026-06-07 command fulfillment 公网 repair loop 已通过：`/tmp/agenthub_command_fulfillment_report.json`、`/tmp/agenthub_command_fulfillment_sse.jsonl`、`/tmp/agenthub_command_fulfillment_browser.json`，conversation `25ff9e75-7776-46b2-8549-babb78555177`，`passed=true`；覆盖 Codex/OpenCode runtime failure 后 fallback/repair、Orchestrator coordination review fallback 生成 `review.md`、8082 preview、browser verify 和 static release deployment。
+- 2026-06-08 02:24 E2E repair loop 已通过：同一 `command_fulfillment_cyberpunk_group_deploy` 场景 conversation `9fd3cd30-6b65-45a4-8833-dcadffd78f64`，`passed=true`；SSE `message_error.error` 不再泄露 raw runtime transcript，final summary 不早于 preview/verify/deploy 完成，container deployment smoke 在生产默认关闭时返回受控 `not_supported`。
 
 ---
 
