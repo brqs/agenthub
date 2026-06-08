@@ -478,7 +478,7 @@ describe('RightAgentPanel', () => {
     });
   });
 
-  it('disables container deployment until Dockerfile exists', async () => {
+  it('allows container deployment requests even before Dockerfile exists', async () => {
     renderPanel(
       <RightAgentPanel
         conversation={{ ...conversation, id: 'conv-demo-flow' }}
@@ -490,8 +490,15 @@ describe('RightAgentPanel', () => {
     expect(await screen.findAllByText('demo.html')).not.toHaveLength(0);
     const containerButton = screen.getByRole('button', { name: actionButtonName('container') });
 
-    expect(containerButton).toBeDisabled();
-    expect(containerButton).toHaveAttribute('title', '需要 Dockerfile 才能容器部署');
+    expect(containerButton).not.toBeDisabled();
+    expect(containerButton).toHaveAttribute('title', '后端将检查 Dockerfile 和容器部署能力');
+    fireEvent.click(containerButton);
+
+    await waitFor(() => {
+      expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
+        kind: 'container',
+      });
+    });
   });
 
   it('creates a container deployment when Dockerfile exists', async () => {
@@ -548,6 +555,11 @@ describe('RightAgentPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: actionButtonName('container') }));
 
+    await waitFor(() => {
+      expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
+        kind: 'container',
+      });
+    });
     expect(await screen.findByText(/容器部署请求已创建，但未发布成功/)).toBeInTheDocument();
     expect(screen.getByText(/Container deployment is not enabled/)).toBeInTheDocument();
   });

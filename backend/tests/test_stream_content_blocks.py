@@ -52,6 +52,26 @@ async def test_group_message_error_text_sanitizes_internal_runtime_terms() -> No
     assert "运行时认证或权限配置需要检查" in text
 
 
+async def test_group_message_error_text_sanitizes_raw_external_runtime_terms() -> None:
+    text = _safe_error_text(
+        "Codex CLI exited with code 1: OpenAI Codex v0.137.0 "
+        "workdir: /workspaces/demo approval: never sandbox: danger-full-access "
+        "{'name': 'UnknownError'} (external_runtime_error)"
+    )
+
+    forbidden = (
+        "/workspaces/",
+        "OpenAI Codex",
+        "workdir:",
+        "approval:",
+        "sandbox:",
+        "UnknownError",
+        "external_runtime_error",
+    )
+    assert all(item not in text for item in forbidden)
+    assert "外部运行时返回异常" in text
+
+
 async def test_stream_preview_autostart_skips_existing_preview_or_deployment_blocks() -> None:
     assert _has_platform_preview_tool_call(
         [{"type": "web_preview", "url": "http://127.0.0.1:8082/index.html"}]

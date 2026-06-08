@@ -889,4 +889,24 @@ static_release_url: http://111.229.151.159:8000/releases/vw1Obog5VUQ1cY4lCNzBaev
   - `command_final_text_no_contradictory_completion`
   - `container_deployment_smoke_request_created`
 
-待本轮代码部署后重跑公网 E2E，并把最新 conversation / report / SSE 证据补回 live E2E report。
+本轮代码已部署并完成公网 repair loop：
+
+```text
+old_backend_pid: 3829008
+new_backend_pid: 3840267
+seed_agents: not required
+alembic_current: 9f012abcde34 (head), a0b1c2d3e4f5 (head)
+local_health: {"status":"ok"}
+public_health: {"status":"ok"}
+
+scenario: command_fulfillment_cyberpunk_group_deploy
+base_url: http://111.229.151.159:8000
+conversation_id: 9fd3cd30-6b65-45a4-8833-dcadffd78f64
+report: /tmp/agenthub_command_fulfillment_report.json
+sse: /tmp/agenthub_command_fulfillment_sse.jsonl
+browser_report: /tmp/agenthub_command_fulfillment_browser.json
+passed: true
+message_error_no_forbidden_terms: true
+command_final_text_no_contradictory_completion: true
+container_deployment_smoke_status: not_supported
+```

@@ -415,7 +415,7 @@ def _classify_sentence(sentence: str) -> tuple[str, str, str | None]:
 
 
 def _normalized_key(kind: str, content: str) -> str:
-    tokens = _tokens(content)
+    tokens = sorted(_tokens(content))
     return f"{kind}:{'-'.join(tokens[:8])}"[:192] if tokens else kind
 
 

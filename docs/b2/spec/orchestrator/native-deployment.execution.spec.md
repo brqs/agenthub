@@ -1,7 +1,7 @@
 # Orchestrator Native Deployment Execution Spec
 
 > 状态：Production hardening API E2E passed
-> 最后更新：2026-06-07
+> 最后更新：2026-06-08
 > 依据：课程设计第五点“部署发布”，以聊天中直接发送“部署”指令并返回部署状态卡片为产品目标。
 
 ## 1. 背景与重构目标
@@ -148,6 +148,13 @@ DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=false
 DEPLOYMENT_CONTAINER_PORT_START=8081
 DEPLOYMENT_CONTAINER_PORT_END=8085
 ```
+
+前端交互策略：
+
+- “容器化部署”按钮不以 workspace 是否已有 `Dockerfile` 作为静默禁用条件。
+- 只要有 conversation / workspace，前端可以发起 `create_deployment(kind="container")`。
+- 缺少 `Dockerfile`、容器 worker 未启用或平台策略拒绝时，由后端返回受控 `failed` / `not_supported` 状态和可读原因。
+- 按钮可点击不代表生产默认启用容器 worker；生产默认仍是 `DEPLOYMENT_CONTAINER_ENABLED=false`。
 
 课程 demo 如需继续真实 Docker container deployment，必须显式 override：
 
@@ -448,6 +455,18 @@ container_health_ok: true
 
 本轮同时确认 container managed resources 中仍运行的 container 均有 DB 中 `published`
 deployment 记录，不是 orphan；失败路径清理和 janitor orphan cleanup 已由单元/集成测试覆盖。
+
+2026-06-08 Command Fulfillment repair loop container smoke：
+
+```text
+scenario: command_fulfillment_cyberpunk_group_deploy
+report: /tmp/agenthub_command_fulfillment_report.json
+conversation_id: 9fd3cd30-6b65-45a4-8833-dcadffd78f64
+container_deployment_smoke_status_code: 201
+container_deployment_smoke_status: not_supported
+container_error: Container deployment is disabled. Enable DEPLOYMENT_CONTAINER_ENABLED to use it.
+result: passed
+```
 
 ## 10. 验收标准
 
