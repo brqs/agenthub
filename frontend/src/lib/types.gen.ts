@@ -519,6 +519,74 @@ export interface paths {
         patch: operations["update_agent_api_v1_agents__agent_id__patch"];
         trace?: never;
     };
+    "/api/v1/agents/{agent_id}/knowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Agent Knowledge */
+        post: operations["create_agent_knowledge_api_v1_agents__agent_id__knowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/knowledge/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Agent Knowledge */
+        delete: operations["delete_agent_knowledge_api_v1_agents__agent_id__knowledge__upload_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Agent Skill */
+        post: operations["create_agent_skill_api_v1_agents__agent_id__skills_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/skills/{skill_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Agent Skill */
+        delete: operations["delete_agent_skill_api_v1_agents__agent_id__skills__skill_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/uploads": {
         parameters: {
             query?: never;
@@ -807,10 +875,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read Static Release
-         * @description Return one file from a published immutable release snapshot.
+         * Read Release
+         * @description Return a static release file or proxy a published container release.
          */
-        get: operations["read_static_release_releases__release_token___path__get"];
+        get: operations["read_release_releases__release_token___path__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -827,10 +895,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read Static Release
-         * @description Return one file from a published immutable release snapshot.
+         * Read Release
+         * @description Return a static release file or proxy a published container release.
          */
-        get: operations["read_static_release_releases__release_token__get"];
+        get: operations["read_release_releases__release_token__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -974,6 +1042,35 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** AgentKnowledgeOut */
+        AgentKnowledgeOut: {
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Filename */
+            filename: string;
+            /** Label */
+            label: string;
+            /**
+             * Usage
+             * @default reference
+             * @enum {string}
+             */
+            usage: "reference" | "policy" | "template" | "example";
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** AgentList */
         AgentList: {
             /** Items */
@@ -1020,6 +1117,37 @@ export interface components {
              */
             created_at: string;
         };
+        /** AgentSkillOut */
+        AgentSkillOut: {
+            /** Skill Id */
+            skill_id: string;
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
         /** AttachmentBlock */
         AttachmentBlock: {
             /**
@@ -1044,7 +1172,7 @@ export interface components {
              * Purpose
              * @enum {string}
              */
-            purpose: "message_attachment" | "workspace_file";
+            purpose: "message_attachment" | "workspace_file" | "workspace_import" | "agent_knowledge" | "agent_icon" | "skill_package" | "mcp_config";
             /**
              * Safety Status
              * @enum {string}
@@ -1093,6 +1221,28 @@ export interface components {
             expires_in: number;
             user: components["schemas"]["UserOut"];
         };
+        /** Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post */
+        Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post: {
+            /** File */
+            file: string;
+            /** Label */
+            label?: string | null;
+            /**
+             * Usage
+             * @default reference
+             * @enum {string}
+             */
+            usage: "reference" | "policy" | "template" | "example";
+        };
+        /** Body_create_agent_skill_api_v1_agents__agent_id__skills_post */
+        Body_create_agent_skill_api_v1_agents__agent_id__skills_post: {
+            /** File */
+            file: string;
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+        };
         /** Body_create_upload_api_v1_uploads_post */
         Body_create_upload_api_v1_uploads_post: {
             /** File */
@@ -1102,7 +1252,7 @@ export interface components {
              * @default message_attachment
              * @enum {string}
              */
-            purpose: "message_attachment" | "workspace_file";
+            purpose: "message_attachment" | "workspace_file" | "workspace_import" | "agent_knowledge" | "agent_icon" | "skill_package" | "mcp_config";
             /** Conversation Id */
             conversation_id?: string | null;
         };
@@ -2197,7 +2347,7 @@ export interface components {
              * Purpose
              * @enum {string}
              */
-            purpose: "message_attachment" | "workspace_file";
+            purpose: "message_attachment" | "workspace_file" | "workspace_import" | "agent_knowledge" | "agent_icon" | "skill_package" | "mcp_config";
             /**
              * Status
              * @enum {string}
@@ -4044,6 +4194,136 @@ export interface operations {
             };
         };
     };
+    create_agent_knowledge_api_v1_agents__agent_id__knowledge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentKnowledgeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_agent_knowledge_api_v1_agents__agent_id__knowledge__upload_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_agent_skill_api_v1_agents__agent_id__skills_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_create_agent_skill_api_v1_agents__agent_id__skills_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_agent_skill_api_v1_agents__agent_id__skills__skill_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_upload_api_v1_uploads_post: {
         parameters: {
             query?: never;
@@ -4823,7 +5103,7 @@ export interface operations {
             };
         };
     };
-    read_static_release_releases__release_token___path__get: {
+    read_release_releases__release_token___path__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -4855,7 +5135,7 @@ export interface operations {
             };
         };
     };
-    read_static_release_releases__release_token__get: {
+    read_release_releases__release_token__get: {
         parameters: {
             query?: {
                 path?: string;

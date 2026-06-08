@@ -1267,6 +1267,135 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}/knowledge:
+    post:
+      tags:
+      - Agents
+      summary: Create Agent Knowledge
+      operationId: create_agent_knowledge_api_v1_agents__agent_id__knowledge_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentKnowledgeOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}/knowledge/{upload_id}:
+    delete:
+      tags:
+      - Agents
+      summary: Delete Agent Knowledge
+      operationId: delete_agent_knowledge_api_v1_agents__agent_id__knowledge__upload_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}/skills:
+    post:
+      tags:
+      - Agents
+      summary: Create Agent Skill
+      operationId: create_agent_skill_api_v1_agents__agent_id__skills_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Body_create_agent_skill_api_v1_agents__agent_id__skills_post'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSkillOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}/skills/{skill_id}:
+    delete:
+      tags:
+      - Agents
+      summary: Delete Agent Skill
+      operationId: delete_agent_skill_api_v1_agents__agent_id__skills__skill_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/uploads:
     post:
       tags:
@@ -2108,9 +2237,9 @@ paths:
     get:
       tags:
       - Releases
-      summary: Read Static Release
-      description: Return one file from a published immutable release snapshot.
-      operationId: read_static_release_releases__release_token___path__get
+      summary: Read Release
+      description: Return a static release file or proxy a published container release.
+      operationId: read_release_releases__release_token___path__get
       parameters:
       - name: release_token
         in: path
@@ -2140,9 +2269,9 @@ paths:
     get:
       tags:
       - Releases
-      summary: Read Static Release
-      description: Return one file from a published immutable release snapshot.
-      operationId: read_static_release_releases__release_token__get
+      summary: Read Release
+      description: Return a static release file or proxy a published container release.
+      operationId: read_release_releases__release_token__get
       parameters:
       - name: release_token
         in: path
@@ -2398,6 +2527,50 @@ components:
       - generated_at
       - total
       title: AgentCapabilityProfileV2Out
+    AgentKnowledgeOut:
+      properties:
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        filename:
+          type: string
+          title: Filename
+        label:
+          type: string
+          title: Label
+        usage:
+          type: string
+          enum:
+          - reference
+          - policy
+          - template
+          - example
+          title: Usage
+          default: reference
+        content_type:
+          type: string
+          title: Content Type
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        sha256:
+          type: string
+          title: Sha256
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - upload_id
+      - filename
+      - label
+      - content_type
+      - size_bytes
+      - sha256
+      - created_at
+      title: AgentKnowledgeOut
     AgentList:
       properties:
         items:
@@ -2475,6 +2648,53 @@ components:
       - provider
       - created_at
       title: AgentOut
+    AgentSkillOut:
+      properties:
+        skill_id:
+          type: string
+          title: Skill Id
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        name:
+          type: string
+          title: Name
+        description:
+          type: string
+          title: Description
+        filename:
+          type: string
+          title: Filename
+        content_type:
+          type: string
+          title: Content Type
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        sha256:
+          type: string
+          title: Sha256
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+      type: object
+      required:
+      - skill_id
+      - upload_id
+      - name
+      - description
+      - filename
+      - content_type
+      - size_bytes
+      - sha256
+      - created_at
+      title: AgentSkillOut
     AttachmentBlock:
       properties:
         type:
@@ -2505,6 +2725,11 @@ components:
           enum:
           - message_attachment
           - workspace_file
+          - workspace_import
+          - agent_knowledge
+          - agent_icon
+          - skill_package
+          - mcp_config
           title: Purpose
         safety_status:
           type: string
@@ -2601,6 +2826,50 @@ components:
       - expires_in
       - user
       title: AuthResponse
+    Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Label
+        usage:
+          type: string
+          enum:
+          - reference
+          - policy
+          - template
+          - example
+          title: Usage
+          default: reference
+      type: object
+      required:
+      - file
+      title: Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post
+    Body_create_agent_skill_api_v1_agents__agent_id__skills_post:
+      properties:
+        file:
+          type: string
+          contentMediaType: application/octet-stream
+          title: File
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+      type: object
+      required:
+      - file
+      title: Body_create_agent_skill_api_v1_agents__agent_id__skills_post
     Body_create_upload_api_v1_uploads_post:
       properties:
         file:
@@ -2612,6 +2881,11 @@ components:
           enum:
           - message_attachment
           - workspace_file
+          - workspace_import
+          - agent_knowledge
+          - agent_icon
+          - skill_package
+          - mcp_config
           title: Purpose
           default: message_attachment
         conversation_id:
@@ -3868,21 +4142,6 @@ components:
         agent_id:
           type: string
           title: Agent Id
-        planned_agent_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Planned Agent Id
-        current_agent_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Current Agent Id
-        final_agent_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Final Agent Id
         title:
           type: string
           title: Title
@@ -4318,6 +4577,21 @@ components:
         agent_id:
           type: string
           title: Agent Id
+        planned_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Planned Agent Id
+        current_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Current Agent Id
+        final_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Final Agent Id
         title:
           type: string
           title: Title
@@ -4826,6 +5100,11 @@ components:
           enum:
           - message_attachment
           - workspace_file
+          - workspace_import
+          - agent_knowledge
+          - agent_icon
+          - skill_package
+          - mcp_config
           title: Purpose
         status:
           type: string
