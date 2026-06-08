@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 import zipfile
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
@@ -66,6 +67,10 @@ class WorkspaceDeploymentNotFoundError(RuntimeError):
     """Raised when a deployment record is not found."""
 
 
+def _container_runtime_available(runtime: str) -> bool:
+    return shutil.which(runtime) is not None
+
+
 class WorkspaceDeploymentService:
     """Create, query, stop, and export platform-owned workspace deployments."""
 
@@ -75,6 +80,7 @@ class WorkspaceDeploymentService:
         static_release_service: WorkspaceStaticReleaseService | None = None,
         container_worker: ContainerDeployWorker | None = None,
         container_dispatcher: ContainerDeploymentDispatcher | None = None,
+        container_runtime_available: Callable[[str], bool] | None = None,
     ) -> None:
         self._workspace_service = workspace_service or WorkspaceService()
         self._static_release_service = static_release_service or WorkspaceStaticReleaseService()
@@ -84,6 +90,14 @@ class WorkspaceDeploymentService:
             or InProcessContainerDeploymentDispatcher(container_worker=self._container_worker)
         )
         self._container_policy_validator = ContainerPolicyValidator()
+        if container_runtime_available is not None:
+            self._container_runtime_available = container_runtime_available
+        elif container_worker is not None or container_dispatcher is not None:
+            self._container_runtime_available = lambda _runtime: True
+        else:
+            self._container_runtime_available = (
+                lambda runtime: _container_runtime_available(runtime)
+            )
 
     async def create(
         self,
@@ -260,6 +274,17 @@ class WorkspaceDeploymentService:
                 workspace.id,
                 str(exc),
             )
+        if not self._container_runtime_available(settings.deployment_container_runtime):
+            return await self._create_container_not_supported(
+                db,
+                conversation_id,
+                workspace.id,
+                (
+                    "Container runtime is not available on this host: "
+                    f"{settings.deployment_container_runtime}. Install/configure the runtime "
+                    "or set DEPLOYMENT_CONTAINER_RUNTIME to an available runtime."
+                ),
+            )
         deployment = WorkspaceDeployment(
             conversation_id=conversation_id,
             workspace_id=workspace.id,
@@ -383,6 +408,7 @@ class WorkspaceDeploymentService:
             deployment.image_id = None
             deployment.host_port = None
             deployment.runtime_status = "stopped"
+            deployment.release_token = None
             deployment.url = None
             deployment.healthcheck_url = None
         deployment.status = "stopped"
@@ -436,6 +462,7 @@ class WorkspaceDeploymentService:
                 deployment.container_id = None
                 deployment.runtime_id = None
                 deployment.runtime_status = "stopped"
+                deployment.release_token = None
                 deployment.url = None
                 deployment.healthcheck_url = None
             deployment.status = "stopped"

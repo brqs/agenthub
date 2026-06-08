@@ -67,11 +67,11 @@ def is_runnable_agent_context(item: object) -> bool:
 def available_agents_authoritative(config: Mapping[str, object]) -> bool:
     """Return true when available_agents should block global fallback candidates."""
 
+    if config.get("conversation_scoped_agents") is True:
+        return True
     if config.get("available_agents_authoritative") is False:
         return False
     if config.get("available_agents_authoritative") is True:
-        return True
-    if config.get("conversation_scoped_agents") is True:
         return True
     return isinstance(config.get("available_agents"), list)
 

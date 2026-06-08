@@ -52,10 +52,11 @@ async def test_container_worker_adds_tmpfs_for_common_read_only_services(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     commands: list[list[str]] = []
+    timeouts: list[tuple[str, int]] = []
 
     async def fake_runner(command: list[str], timeout: int) -> tuple[int, str, str]:
-        _ = timeout
         commands.append(command)
+        timeouts.append((" ".join(command[:2]), timeout))
         if command[:2] == ["docker", "run"]:
             return 0, "container-123\n", ""
         return 0, "ok\n", ""
@@ -81,6 +82,9 @@ async def test_container_worker_adds_tmpfs_for_common_read_only_services(
     (workspace / "index.html").write_text("<html>ok</html>", encoding="utf-8")
     monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
     monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", True)
+    monkeypatch.setattr(settings, "deployment_container_build_timeout_seconds", 123)
+    monkeypatch.setattr(settings, "deployment_container_run_timeout_seconds", 11)
+    monkeypatch.setattr(settings, "deployment_container_health_timeout_seconds", 7)
     worker = ContainerDeployWorker(
         command_runner=fake_runner,
         http_client_factory=cast(Any, FakeClient),
@@ -102,6 +106,63 @@ async def test_container_worker_adds_tmpfs_for_common_read_only_services(
     assert "/tmp:rw,noexec,nosuid,size=64m" in run_command
     assert "/var/cache/nginx:rw,noexec,nosuid,size=64m" in run_command
     assert "/var/run:rw,noexec,nosuid,size=16m" in run_command
+    assert ("docker build", 123) in timeouts
+    assert ("docker run", 11) in timeouts
+
+
+async def test_container_worker_recovers_detached_container_after_run_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    async def fake_runner(command: list[str], timeout: int) -> tuple[int, str, str]:
+        _ = timeout
+        if command[:2] == ["podman", "run"]:
+            return 124, "", ""
+        if command[:2] == ["podman", "ps"]:
+            return 0, "container-456\n", ""
+        return 0, "ok\n", ""
+
+    async def event_sink(event_type: str, payload: dict[str, Any]) -> None:
+        events.append((event_type, payload))
+
+    class FakeClient:
+        async def __aenter__(self) -> FakeClient:
+            return self
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+        async def get(self, url: str) -> object:
+            _ = url
+
+            class Response:
+                status_code = 200
+
+            return Response()
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "Dockerfile").write_text("FROM python:3.12-slim\nEXPOSE 8000\n")
+    monkeypatch.setattr(settings, "deployment_container_runtime", "podman")
+    monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", False)
+    worker = ContainerDeployWorker(
+        command_runner=fake_runner,
+        http_client_factory=cast(Any, FakeClient),
+    )
+
+    result = await worker.publish(
+        workspace,
+        uuid4(),
+        container_port=None,
+        health_path="/health",
+        event_sink=event_sink,
+    )
+
+    assert result.container_id == "container-456"
+    assert result.runtime_status == "running"
+    assert any(event_type == "run_recovered" for event_type, _ in events)
 
 
 async def test_container_worker_cleans_build_context_on_build_failure(
@@ -150,6 +211,8 @@ async def test_container_worker_cleans_resources_on_run_failure(
         commands.append(command)
         if command[:2] == ["docker", "run"]:
             return 1, "", "run failed"
+        if command[:2] == ["docker", "ps"]:
+            return 0, "", ""
         return 0, "ok\n", ""
 
     workspace = tmp_path / "workspace"

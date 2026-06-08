@@ -101,7 +101,8 @@ Backend targeted tests 覆盖：
   - `message_error_no_forbidden_terms`
   - `command_final_text_no_contradictory_completion`
   - `container_deployment_smoke_request_created`
-- 容器化部署 smoke 使用同一个 workspace deployment API 发起 `kind="container"` 请求；生产默认关闭容器 worker 时应得到可解释的 `not_supported`，而不是前端按钮静默不可点击。
+- 容器化部署 smoke 使用同一个 workspace deployment API 发起 `kind="container"` 请求；Podman 可用时应进入
+  `queued/published` 状态，runtime 不可用或管理员关闭 worker 时应得到可解释的 `not_supported`，而不是前端按钮静默不可点击。
 
 2026-06-08 公网 repair loop 通过：
 
@@ -114,7 +115,7 @@ Backend targeted tests 覆盖：
 - preview：`http://111.229.151.159:8082/index.html`
 - static release：`http://111.229.151.159:8000/releases/j1k19e_7KaHDGrY-dF9s2blPdUIYVucC/index.html`
 - `message_error_no_forbidden_terms=true`
-- container smoke：HTTP `201`，status `not_supported`，符合生产默认关闭容器 worker 的安全策略。
+- container smoke：HTTP `201`，status `not_supported`；这是当时容器 worker 默认关闭的历史证据。
 
 2026-06-07 公网 E2E `command_fulfillment_cyberpunk_group_deploy` 已通过：
 

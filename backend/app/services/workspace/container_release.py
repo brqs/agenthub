@@ -192,7 +192,7 @@ class ContainerDeployWorker:
                 image_tag,
                 str(build_context),
             ],
-            settings.deployment_container_health_timeout_seconds,
+            settings.deployment_container_build_timeout_seconds,
         )
         logs.append(_trim_logs(build_out, build_err))
         if build_rc != 0:
@@ -249,14 +249,39 @@ class ContainerDeployWorker:
         )
         run_rc, run_out, run_err = await self._command_runner(
             run_command,
-            settings.deployment_container_health_timeout_seconds,
+            settings.deployment_container_run_timeout_seconds,
         )
         logs.append(_trim_logs(run_out, run_err))
+        container_id = run_out.strip().splitlines()[-1] if run_out.strip() else None
         if run_rc != 0:
+            container_id = await self._find_container_by_deployment(deployment_id)
+            if container_id:
+                logs.append(
+                    "Recovered detached container after runtime command did not return cleanly."
+                )
+                await _emit_event(
+                    event_sink,
+                    "run_recovered",
+                    {"step": "run", "container_id": container_id, "exit_code": run_rc},
+                )
+            else:
+                await self.remove(
+                    container_id=None,
+                    image_id=image_tag,
+                    snapshot_path=build_context,
+                )
+                await _emit_event(
+                    event_sink,
+                    "run_failed",
+                    {"step": "run", "exit_code": run_rc},
+                )
+                raise ContainerDeploymentError(_trim_message("container run failed", logs))
+        if not container_id:
+            container_id = await self._find_container_by_deployment(deployment_id)
+        if not container_id:
             await self.remove(container_id=None, image_id=image_tag, snapshot_path=build_context)
             await _emit_event(event_sink, "run_failed", {"step": "run", "exit_code": run_rc})
-            raise ContainerDeploymentError(_trim_message("container run failed", logs))
-        container_id = run_out.strip().splitlines()[-1] if run_out.strip() else image_tag
+            raise ContainerDeploymentError("container run failed: runtime did not return an id")
         await _emit_event(
             event_sink,
             "run_completed",
@@ -438,6 +463,24 @@ class ContainerDeployWorker:
         if resolved != root:
             shutil.rmtree(resolved, ignore_errors=True)
 
+    async def _find_container_by_deployment(self, deployment_id: UUID) -> str | None:
+        runtime = settings.deployment_container_runtime
+        rc, out, _ = await self._command_runner(
+            [
+                runtime,
+                "ps",
+                "-a",
+                "--filter",
+                f"label={DEPLOYMENT_LABEL}={deployment_id}",
+                "--format",
+                "{{.ID}}",
+            ],
+            settings.deployment_container_health_timeout_seconds,
+        )
+        if rc != 0:
+            return None
+        return next((line.strip() for line in out.splitlines() if line.strip()), None)
+
     async def _check_health(
         self,
         url: str,
@@ -496,9 +539,26 @@ async def _run_command(command: list[str], timeout_seconds: int) -> tuple[int, s
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout_seconds)
     except TimeoutError:
-        process.kill()
-        stdout, stderr = await process.communicate()
-        return 124, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5)
+        except TimeoutError:
+            return (
+                124,
+                "",
+                (
+                    f"command timed out after {timeout_seconds} seconds "
+                    "and did not terminate promptly"
+                ),
+            )
+        stdout_text = stdout.decode(errors="replace")
+        stderr_text = stderr.decode(errors="replace") or (
+            f"command timed out after {timeout_seconds} seconds"
+        )
+        return 124, stdout_text, stderr_text
     return process.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
 
 
