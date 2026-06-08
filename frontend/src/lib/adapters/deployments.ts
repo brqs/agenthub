@@ -48,6 +48,16 @@ export async function stopDeployment(
   return data;
 }
 
+export async function retryDeployment(
+  conversationId: string,
+  deploymentId: string,
+): Promise<WorkspaceDeploymentResponse> {
+  const { data } = await api.post<WorkspaceDeploymentResponse>(
+    `${deploymentPath(conversationId, deploymentId)}/retry`,
+  );
+  return data;
+}
+
 export async function downloadSourceArchive(
   conversationId: string,
   deploymentId: string,

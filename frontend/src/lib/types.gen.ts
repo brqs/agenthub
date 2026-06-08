@@ -519,6 +519,57 @@ export interface paths {
         patch: operations["update_agent_api_v1_agents__agent_id__patch"];
         trace?: never;
     };
+    "/api/v1/agents/{agent_id}/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Agent Assets */
+        get: operations["list_agent_assets_api_v1_agents__agent_id__assets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/assets/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Agent Asset History */
+        get: operations["list_agent_asset_history_api_v1_agents__agent_id__assets_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/assets/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Agent Asset Usage */
+        get: operations["list_agent_asset_usage_api_v1_agents__agent_id__assets_usage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agents/{agent_id}/knowledge": {
         parameters: {
             query?: never;
@@ -800,6 +851,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Workspace Deployment */
+        post: operations["retry_workspace_deployment_api_v1_workspaces__conversation_id__deployments__deployment_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download": {
         parameters: {
             query?: never;
@@ -913,6 +981,155 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentAssetBindingOut */
+        AgentAssetBindingOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Agent Id */
+            agent_id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "knowledge" | "skill";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "active" | "unbound";
+            /**
+             * Upload Id
+             * Format: uuid
+             */
+            upload_id: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256: string;
+            /** Label */
+            label?: string | null;
+            /** Usage */
+            usage?: ("reference" | "policy" | "template" | "example") | null;
+            /** Skill Id */
+            skill_id?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Unbound At */
+            unbound_at?: string | null;
+        };
+        /** AgentAssetHistoryOut */
+        AgentAssetHistoryOut: {
+            /** Items */
+            items?: components["schemas"]["AgentAssetVersionOut"][];
+            /** Total */
+            total: number;
+        };
+        /** AgentAssetUsageEventOut */
+        AgentAssetUsageEventOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Binding Id */
+            binding_id?: string | null;
+            /** Agent Id */
+            agent_id: string;
+            /** Upload Id */
+            upload_id?: string | null;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+            /** Event Type */
+            event_type: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "injected" | "skipped" | "failed";
+            /** Reason */
+            reason?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** AgentAssetUsageListOut */
+        AgentAssetUsageListOut: {
+            /** Items */
+            items?: components["schemas"]["AgentAssetUsageEventOut"][];
+            /** Total */
+            total: number;
+        };
+        /** AgentAssetVersionOut */
+        AgentAssetVersionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "created" | "updated" | "unbound" | "materialized";
+            /** Snapshot */
+            snapshot?: {
+                [key: string]: unknown;
+            };
+            /** Actor User Id */
+            actor_user_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** AgentAssetsOut */
+        AgentAssetsOut: {
+            /** Knowledge */
+            knowledge?: components["schemas"]["AgentKnowledgeOut"][];
+            /** Skills */
+            skills?: components["schemas"]["AgentSkillOut"][];
+            /** Bindings */
+            bindings?: components["schemas"]["AgentAssetBindingOut"][];
+        };
         /** AgentCapabilityProfileItemOut */
         AgentCapabilityProfileItemOut: {
             /** Agent Id */
@@ -4210,6 +4427,103 @@ export interface operations {
             };
         };
     };
+    list_agent_assets_api_v1_agents__agent_id__assets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAssetsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_agent_asset_history_api_v1_agents__agent_id__assets_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAssetHistoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_agent_asset_usage_api_v1_agents__agent_id__assets_usage_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAssetUsageListOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_agent_knowledge_api_v1_agents__agent_id__knowledge_post: {
         parameters: {
             query?: never;
@@ -5007,6 +5321,38 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDeploymentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_workspace_deployment_api_v1_workspaces__conversation_id__deployments__deployment_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                deployment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

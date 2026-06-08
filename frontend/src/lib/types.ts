@@ -403,6 +403,72 @@ export interface AgentSkillRef {
   metadata?: Record<string, unknown>;
 }
 
+export type AgentAssetKind = 'knowledge' | 'skill';
+export type AgentAssetStatus = 'active' | 'unbound';
+export type AgentAssetVersionAction = 'created' | 'updated' | 'unbound' | 'materialized';
+export type AgentAssetUsageStatus = 'injected' | 'skipped' | 'failed';
+
+export interface AgentAssetBindingRef {
+  id: string;
+  agent_id: string;
+  kind: AgentAssetKind;
+  status: AgentAssetStatus;
+  upload_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  label?: string | null;
+  usage?: AgentKnowledgeUsage | null;
+  skill_id?: string | null;
+  name?: string | null;
+  description?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  unbound_at?: string | null;
+}
+
+export interface AgentAssetsResponse {
+  knowledge: AgentKnowledgeRef[];
+  skills: AgentSkillRef[];
+  bindings: AgentAssetBindingRef[];
+}
+
+export interface AgentAssetVersionRef {
+  id: string;
+  binding_id: string;
+  version: number;
+  action: AgentAssetVersionAction;
+  snapshot: Record<string, unknown>;
+  actor_user_id?: string | null;
+  created_at: string;
+}
+
+export interface AgentAssetHistoryResponse {
+  items: AgentAssetVersionRef[];
+  total: number;
+}
+
+export interface AgentAssetUsageEventRef {
+  id: string;
+  binding_id?: string | null;
+  agent_id: string;
+  upload_id?: string | null;
+  conversation_id?: string | null;
+  run_id?: string | null;
+  event_type: string;
+  status: AgentAssetUsageStatus;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AgentAssetUsageResponse {
+  items: AgentAssetUsageEventRef[];
+  total: number;
+}
+
 // ─── SSE events (hand-written; not in OpenAPI) ───
 export interface QueuedNextPayload {
   user_message: Message;

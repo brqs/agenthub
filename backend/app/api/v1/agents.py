@@ -20,6 +20,9 @@ from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.user import User
 from app.schemas.agent import (
+    AgentAssetHistoryOut,
+    AgentAssetsOut,
+    AgentAssetUsageListOut,
     AgentKnowledgeOut,
     AgentKnowledgeUsage,
     AgentList,
@@ -189,6 +192,49 @@ async def update_agent(
         setattr(agent, field, value)
     await db.flush()
     return AgentOut.model_validate(agent)
+
+
+@router.get("/{agent_id}/assets", response_model=AgentAssetsOut)
+async def list_agent_assets(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentAssetsOut:
+    return await agent_asset_service.list_assets(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+    )
+
+
+@router.get("/{agent_id}/assets/history", response_model=AgentAssetHistoryOut)
+async def list_agent_asset_history(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> AgentAssetHistoryOut:
+    return await agent_asset_service.list_history(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        limit=limit,
+    )
+
+
+@router.get("/{agent_id}/assets/usage", response_model=AgentAssetUsageListOut)
+async def list_agent_asset_usage(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=50, ge=1, le=200),
+) -> AgentAssetUsageListOut:
+    return await agent_asset_service.list_usage(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        limit=limit,
+    )
 
 
 @router.post("/{agent_id}/knowledge", response_model=AgentKnowledgeOut, status_code=201)

@@ -25,6 +25,10 @@ AgentProvider = Literal[
 CreatableAgentProvider = Literal["claude_code", "codex", "opencode", "builtin"]
 ModelBackend = Literal["claude", "deepseek", "openai"]
 AgentKnowledgeUsage = Literal["reference", "policy", "template", "example"]
+AgentAssetKind = Literal["knowledge", "skill"]
+AgentAssetStatus = Literal["active", "unbound"]
+AgentAssetVersionAction = Literal["created", "updated", "unbound", "materialized"]
+AgentAssetUsageStatus = Literal["injected", "skipped", "failed"]
 
 
 class AgentConfig(BaseModel):
@@ -247,6 +251,67 @@ class AgentSkillOut(BaseModel):
 class UpdateAgentSkillRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, min_length=1, max_length=240)
+
+
+class AgentAssetBindingOut(BaseModel):
+    id: UUID
+    agent_id: str
+    kind: AgentAssetKind
+    status: AgentAssetStatus
+    upload_id: UUID
+    filename: str
+    content_type: str
+    size_bytes: int
+    sha256: str
+    label: str | None = None
+    usage: AgentKnowledgeUsage | None = None
+    skill_id: str | None = None
+    name: str | None = None
+    description: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+    unbound_at: datetime | None = None
+
+
+class AgentAssetsOut(BaseModel):
+    knowledge: list[AgentKnowledgeOut] = Field(default_factory=list)
+    skills: list[AgentSkillOut] = Field(default_factory=list)
+    bindings: list[AgentAssetBindingOut] = Field(default_factory=list)
+
+
+class AgentAssetVersionOut(BaseModel):
+    id: UUID
+    binding_id: UUID
+    version: int
+    action: AgentAssetVersionAction
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+    actor_user_id: UUID | None = None
+    created_at: datetime
+
+
+class AgentAssetHistoryOut(BaseModel):
+    items: list[AgentAssetVersionOut] = Field(default_factory=list)
+    total: int
+
+
+class AgentAssetUsageEventOut(BaseModel):
+    id: UUID
+    binding_id: UUID | None = None
+    agent_id: str
+    upload_id: UUID | None = None
+    conversation_id: UUID | None = None
+    run_id: str | None = None
+    event_type: str
+    status: AgentAssetUsageStatus
+    reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class AgentAssetUsageListOut(BaseModel):
+    items: list[AgentAssetUsageEventOut] = Field(default_factory=list)
+    total: int
 
 
 class CreateAgentRequest(BaseModel):

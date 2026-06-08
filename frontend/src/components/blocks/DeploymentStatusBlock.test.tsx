@@ -7,6 +7,7 @@ import type { DeploymentStatusBlock as DeploymentStatusBlockType } from '@/lib/t
 vi.mock('@/lib/adapters/deployments', () => ({
   getDeployment: vi.fn(),
   stopDeployment: vi.fn(),
+  retryDeployment: vi.fn(),
   downloadSourceArchive: vi.fn(),
 }));
 
@@ -30,7 +31,9 @@ function renderBlock(value: DeploymentStatusBlockType = block) {
 
 describe('DeploymentStatusBlock', () => {
   beforeEach(() => {
-    vi.mocked(deploymentsAdapter.getDeployment).mockImplementation(() => new Promise(() => undefined));
+    vi.mocked(deploymentsAdapter.getDeployment).mockImplementation(
+      () => new Promise(() => undefined),
+    );
     vi.mocked(deploymentsAdapter.stopDeployment).mockResolvedValue({
       id: 'deployment-1',
       conversation_id: 'conversation-1',
@@ -72,7 +75,7 @@ describe('DeploymentStatusBlock', () => {
     });
   });
 
-  it('renders queued deployments without stop actions', () => {
+  it('allows queued deployments to be stopped', () => {
     renderBlock({
       ...block,
       status: 'queued',
@@ -80,7 +83,7 @@ describe('DeploymentStatusBlock', () => {
     });
 
     expect(screen.getByText('排队中')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '停止发布' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '停止发布' })).toBeInTheDocument();
   });
 
   it('shows container runtime and health check details', () => {

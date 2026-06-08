@@ -1267,6 +1267,108 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}/assets:
+    get:
+      tags:
+      - Agents
+      summary: List Agent Assets
+      operationId: list_agent_assets_api_v1_agents__agent_id__assets_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentAssetsOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}/assets/history:
+    get:
+      tags:
+      - Agents
+      summary: List Agent Asset History
+      operationId: list_agent_asset_history_api_v1_agents__agent_id__assets_history_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentAssetHistoryOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/agents/{agent_id}/assets/usage:
+    get:
+      tags:
+      - Agents
+      summary: List Agent Asset Usage
+      operationId: list_agent_asset_usage_api_v1_agents__agent_id__assets_usage_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentAssetUsageListOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agents/{agent_id}/knowledge:
     post:
       tags:
@@ -2122,6 +2224,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/retry:
+    post:
+      tags:
+      - Workspaces
+      summary: Retry Workspace Deployment
+      operationId: retry_workspace_deployment_api_v1_workspaces__conversation_id__deployments__deployment_id__retry_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Deployment Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceDeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download:
     get:
       tags:
@@ -2379,6 +2517,258 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    AgentAssetBindingOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        agent_id:
+          type: string
+          title: Agent Id
+        kind:
+          type: string
+          enum:
+          - knowledge
+          - skill
+          title: Kind
+        status:
+          type: string
+          enum:
+          - active
+          - unbound
+          title: Status
+        upload_id:
+          type: string
+          format: uuid
+          title: Upload Id
+        filename:
+          type: string
+          title: Filename
+        content_type:
+          type: string
+          title: Content Type
+        size_bytes:
+          type: integer
+          title: Size Bytes
+        sha256:
+          type: string
+          title: Sha256
+        label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Label
+        usage:
+          anyOf:
+          - type: string
+            enum:
+            - reference
+            - policy
+            - template
+            - example
+          - type: 'null'
+          title: Usage
+        skill_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Skill Id
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        unbound_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Unbound At
+      type: object
+      required:
+      - id
+      - agent_id
+      - kind
+      - status
+      - upload_id
+      - filename
+      - content_type
+      - size_bytes
+      - sha256
+      - created_at
+      - updated_at
+      title: AgentAssetBindingOut
+    AgentAssetHistoryOut:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AgentAssetVersionOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - total
+      title: AgentAssetHistoryOut
+    AgentAssetUsageEventOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        binding_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Binding Id
+        agent_id:
+          type: string
+          title: Agent Id
+        upload_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Upload Id
+        conversation_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Conversation Id
+        run_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Run Id
+        event_type:
+          type: string
+          title: Event Type
+        status:
+          type: string
+          enum:
+          - injected
+          - skipped
+          - failed
+          title: Status
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+        metadata:
+          additionalProperties: true
+          type: object
+          title: Metadata
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - agent_id
+      - event_type
+      - status
+      - created_at
+      title: AgentAssetUsageEventOut
+    AgentAssetUsageListOut:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AgentAssetUsageEventOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - total
+      title: AgentAssetUsageListOut
+    AgentAssetVersionOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        binding_id:
+          type: string
+          format: uuid
+          title: Binding Id
+        version:
+          type: integer
+          title: Version
+        action:
+          type: string
+          enum:
+          - created
+          - updated
+          - unbound
+          - materialized
+          title: Action
+        snapshot:
+          additionalProperties: true
+          type: object
+          title: Snapshot
+        actor_user_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Actor User Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - binding_id
+      - version
+      - action
+      - created_at
+      title: AgentAssetVersionOut
+    AgentAssetsOut:
+      properties:
+        knowledge:
+          items:
+            $ref: '#/components/schemas/AgentKnowledgeOut'
+          type: array
+          title: Knowledge
+        skills:
+          items:
+            $ref: '#/components/schemas/AgentSkillOut'
+          type: array
+          title: Skills
+        bindings:
+          items:
+            $ref: '#/components/schemas/AgentAssetBindingOut'
+          type: array
+          title: Bindings
+      type: object
+      title: AgentAssetsOut
     AgentCapabilityProfileItemOut:
       properties:
         agent_id:

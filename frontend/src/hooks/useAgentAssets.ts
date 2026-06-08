@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as agentsAdapter from '@/lib/adapters/agents';
 import { queryKeys } from '@/lib/queryKeys';
 import type { AgentKnowledgeUsage } from '@/lib/types';
@@ -10,7 +10,7 @@ async function refreshAgent(agentId: string) {
   return agents.find((agent) => agent.id === agentId) ?? null;
 }
 
-export function useAgentAssets() {
+export function useAgentAssets(agentId?: string | null) {
   const queryClient = useQueryClient();
   const userId = useAuthStore((state) => state.user?.id);
   const updateAgentLocal = useAgentStore((state) => state.updateAgentLocal);
@@ -19,7 +19,28 @@ export function useAgentAssets() {
     const agent = await refreshAgent(agentId);
     if (agent) updateAgentLocal(agent);
     void queryClient.invalidateQueries({ queryKey: queryKeys.agents(userId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.agentAssets(userId, agentId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.agentAssetHistory(userId, agentId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.agentAssetUsage(userId, agentId) });
   }
+
+  const assets = useQuery({
+    queryKey: queryKeys.agentAssets(userId, agentId),
+    queryFn: () => agentsAdapter.listAgentAssets(agentId ?? ''),
+    enabled: Boolean(userId && agentId),
+  });
+
+  const history = useQuery({
+    queryKey: queryKeys.agentAssetHistory(userId, agentId),
+    queryFn: () => agentsAdapter.listAgentAssetHistory(agentId ?? '', 20),
+    enabled: Boolean(userId && agentId),
+  });
+
+  const usage = useQuery({
+    queryKey: queryKeys.agentAssetUsage(userId, agentId),
+    queryFn: () => agentsAdapter.listAgentAssetUsage(agentId ?? '', 20),
+    enabled: Boolean(userId && agentId),
+  });
 
   const uploadKnowledge = useMutation({
     mutationFn: (input: {
@@ -78,6 +99,9 @@ export function useAgentAssets() {
   });
 
   return {
+    assets,
+    history,
+    usage,
     uploadKnowledge,
     deleteKnowledge,
     updateKnowledge,

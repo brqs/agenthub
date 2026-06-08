@@ -1,6 +1,9 @@
 import { api } from '@/lib/api';
 import type {
   Agent,
+  AgentAssetHistoryResponse,
+  AgentAssetsResponse,
+  AgentAssetUsageResponse,
   AgentKnowledgeRef,
   AgentKnowledgeUsage,
   AgentSkillRef,
@@ -41,6 +44,33 @@ export async function updateAgent(agentId: string, input: UpdateAgentRequest): P
 
 export async function deleteAgent(agentId: string): Promise<void> {
   await api.delete(`/api/v1/agents/${agentId}`);
+}
+
+export async function listAgentAssets(agentId: string): Promise<AgentAssetsResponse> {
+  const { data } = await api.get<AgentAssetsResponse>(`/api/v1/agents/${agentId}/assets`);
+  return data;
+}
+
+export async function listAgentAssetHistory(
+  agentId: string,
+  limit = 50,
+): Promise<AgentAssetHistoryResponse> {
+  const { data } = await api.get<AgentAssetHistoryResponse>(
+    `/api/v1/agents/${agentId}/assets/history`,
+    { params: { limit } },
+  );
+  return data;
+}
+
+export async function listAgentAssetUsage(
+  agentId: string,
+  limit = 50,
+): Promise<AgentAssetUsageResponse> {
+  const { data } = await api.get<AgentAssetUsageResponse>(
+    `/api/v1/agents/${agentId}/assets/usage`,
+    { params: { limit } },
+  );
+  return data;
 }
 
 export async function uploadAgentKnowledge(input: {
