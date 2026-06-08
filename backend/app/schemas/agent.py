@@ -226,6 +226,11 @@ class AgentKnowledgeOut(BaseModel):
     created_at: datetime
 
 
+class UpdateAgentKnowledgeRequest(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=160)
+    usage: AgentKnowledgeUsage | None = None
+
+
 class AgentSkillOut(BaseModel):
     skill_id: str
     upload_id: UUID
@@ -237,6 +242,11 @@ class AgentSkillOut(BaseModel):
     sha256: str
     created_at: datetime
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class UpdateAgentSkillRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, min_length=1, max_length=240)
 
 
 class CreateAgentRequest(BaseModel):

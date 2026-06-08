@@ -6,12 +6,15 @@ MVP implementation target: 2026-06-08.
 
 This spec narrows the broader Deep Custom Agent Builder roadmap into the urgent
 B2 handoff need: user-owned custom Agents can receive Markdown knowledge files
-and uploaded skills, and users can delete those bindings.
+and uploaded skills, users can edit their binding metadata, and users can
+delete those bindings.
 
 ## Goals
 
 - Let users attach Markdown files to a custom Agent as explicit knowledge.
 - Let users upload a Markdown skill definition for a custom Agent.
+- Let users edit knowledge labels/usages and skill name/description after upload.
+- Let users download the original uploaded asset from the Agent detail panel.
 - Let users remove Agent knowledge and Agent skills without deleting the source
   upload record for historical audit.
 - Keep B2 runtime consumption simple: assets are persisted in `Agent.config` so
@@ -126,6 +129,32 @@ Rules:
 - Keeps the upload metadata/payload available through the upload API unless the
   user separately deletes the upload.
 
+### Update Knowledge Metadata
+
+```http
+PATCH /api/v1/agents/{agent_id}/knowledge/{upload_id}
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "label": "Updated display name",
+  "usage": "template"
+}
+```
+
+Response: `AgentKnowledgeOut`.
+
+Rules:
+
+- `label` is optional and normalized to a short display string.
+- `usage` is optional and must be one of `reference`, `policy`, `template`, or
+  `example`.
+- The endpoint edits only the Agent config binding. It does not rewrite the
+  upload payload.
+
 ### Create Skill
 
 ```http
@@ -149,6 +178,9 @@ Validation:
 - Upload purpose is persisted as `skill_package`.
 - No script or template execution happens during import.
 - `name` and `description` are normalized to safe short strings.
+- P1 requires both `name` and `description`. They can come from form fields,
+  YAML frontmatter, a Markdown heading/body fallback, or a combination of those
+  sources.
 
 ### Delete Skill
 
@@ -163,6 +195,32 @@ Rules:
 - Removes only the Agent config binding.
 - Keeps the upload metadata/payload available through the upload API.
 
+### Update Skill Metadata
+
+```http
+PATCH /api/v1/agents/{agent_id}/skills/{skill_id}
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{
+  "name": "Draft Reviewer",
+  "description": "Review draft Markdown files."
+}
+```
+
+Response: `AgentSkillOut`.
+
+Rules:
+
+- `name` and `description` are optional, but at least one should be provided by
+  the client.
+- Values are normalized to safe short strings.
+- The endpoint edits only the Agent config binding. It does not rewrite the
+  upload payload or parsed Markdown metadata.
+
 ### Delete Agent Cleanup
 
 `DELETE /api/v1/agents/{agent_id}` must remove the deleted Agent id from every
@@ -175,8 +233,10 @@ conversation `agent_ids` from referencing missing custom Agents.
 
 For user-owned custom Agents, show two editable sections:
 
-- `知识文件`: list `config.knowledge`, upload Markdown, delete binding.
-- `Skills`: list `config.skills`, upload Markdown skill, delete binding.
+- `知识文件`: list `config.knowledge`, upload Markdown, download original file,
+  edit label/usage, delete binding.
+- `Skills`: list `config.skills`, upload Markdown skill, download original file,
+  edit name/description, delete binding.
 
 Built-in Agents remain read-only and only display existing config assets if any.
 
@@ -185,6 +245,12 @@ Built-in Agents remain read-only and only display existing config assets if any.
 - Upload uses native file picker via `<input type="file">`.
 - Accept `.md,.markdown,.txt` for knowledge.
 - Accept `.md,.markdown` for skill MVP.
+- Let users choose knowledge `usage`.
+- Let users provide skill `name` and `description` when the Markdown file does
+  not include frontmatter.
+- Let users download the original upload through the existing upload download
+  API.
+- Delete copy must say "解除绑定" because the original upload remains.
 - Show uploading/deleting disabled state.
 - After success, update the selected Agent in local store and invalidate Agent
   list query.
@@ -205,24 +271,46 @@ B2 can read:
 - `agent.config["knowledge"]`
 - `agent.config["skills"]`
 
-The runtime should treat these as user-approved context references. It must not
-read deleted bindings because frontend/backend remove them from config. If B2
-needs full content, it should ask B1 for an explicit read/download helper rather
-than reading storage paths from untrusted config.
+The MVP runtime path is implemented at `agents.registry.get_adapter()`: before
+an adapter is instantiated, B1's safe asset helper resolves ready/passed upload
+refs owned by the Agent owner, reads bounded Markdown/text content, and appends
+it to the adapter `system_prompt` inside an `<agent_uploaded_assets>` section.
+
+Runtime rules:
+
+- B2 must not read upload `storage_key` directly.
+- Deleted bindings are not injected because frontend/backend remove them from
+  config.
+- Uploads with wrong owner, missing file, non-ready status, or blocked safety
+  status are skipped.
+- Context is bounded and may be truncated. Agents must not assume hidden content
+  beyond what is shown.
+
+This gives builtin/custom/external adapters the same P0 asset context because
+all runtime adapter creation goes through the registry.
 
 ## Tests
 
 Backend:
 
 - Upload Markdown knowledge to custom Agent.
+- Patch knowledge label and usage.
 - Reject knowledge upload to builtin Agent.
 - Upload Markdown skill to custom Agent and parse metadata.
+- Reject skill upload without resolvable name/description.
+- Patch skill name and description.
 - Delete skill binding.
 - Delete custom Agent removes it from user conversations.
+
+Frontend:
+
+- Agent detail panel upload controls for knowledge and skills.
+- Knowledge usage select and skill name/description fields.
+- Existing bindings expose download, edit, and unbind actions.
+- Failed upload/edit/delete displays inline error and does not break the page.
 
 Frontend:
 
 - Agent detail displays knowledge and skill sections.
 - Upload buttons call the correct adapter and refresh local Agent state.
 - Delete buttons call the correct adapter.
-

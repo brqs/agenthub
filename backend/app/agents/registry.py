@@ -20,6 +20,10 @@ from app.agents.external.codex import CodexAdapter
 from app.agents.external.opencode import OpenCodeAdapter
 from app.agents.orchestrator import OrchestratorAdapter
 from app.models.agent import Agent
+from app.services.agent_asset_service import (
+    append_agent_asset_context,
+    build_agent_asset_context,
+)
 
 # provider string → adapter class
 PROVIDER_MAP: dict[str, type[BaseAgentAdapter]] = {
@@ -69,6 +73,11 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
     if not agent:
         raise AgentNotFoundError(f"Agent {agent_id!r} not found")
 
+    system_prompt = append_agent_asset_context(
+        agent.system_prompt,
+        await build_agent_asset_context(db, agent),
+    )
+
     if agent.id == ORCHESTRATOR_AGENT_ID:
         adapter_factory_lock = asyncio.Lock()
 
@@ -86,14 +95,14 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
         default_config["adapter_factory"] = adapter_factory
         return OrchestratorAdapter(
             agent_id=agent.id,
-            system_prompt=agent.system_prompt,
+            system_prompt=system_prompt,
             default_config=default_config,
         )
 
     adapter_cls, default_config = _adapter_class_and_config(agent)
     return adapter_cls(
         agent_id=agent.id,
-        system_prompt=agent.system_prompt,
+        system_prompt=system_prompt,
         default_config=default_config,
     )
 
@@ -113,8 +122,7 @@ def _adapter_class_and_config(agent: Agent) -> tuple[type[BaseAgentAdapter], dic
 def _legacy_builtin_config(provider: str, config: dict[str, Any]) -> dict[str, object]:
     migrated = dict(config)
     migrated["model_backend"] = str(
-        migrated.pop("upstream_provider", None)
-        or LEGACY_RAW_PROVIDER_TO_MODEL_BACKEND[provider]
+        migrated.pop("upstream_provider", None) or LEGACY_RAW_PROVIDER_TO_MODEL_BACKEND[provider]
     )
     migrated.setdefault("max_iterations", 10)
     migrated.setdefault("mcp_servers", [])
