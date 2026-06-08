@@ -648,8 +648,8 @@ function buildDeploymentActionIntents(
     },
     container: {
       payload: { kind: 'container' },
-      detail: dockerfile ? '容器入口：Dockerfile' : '缺少 Dockerfile',
-      disabledReason: dockerfile ? null : '需要 Dockerfile 才能容器部署',
+      detail: dockerfile ? '容器入口：Dockerfile' : '后端将检查 Dockerfile 和容器部署能力',
+      disabledReason: null,
     },
   };
 }

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
 
 from app.models.message import Message
 
-StreamRunner = Callable[["StreamRunSession"], Awaitable[None]]
+StreamRunner = Callable[["StreamRunSession"], Coroutine[object, object, None]]
 
 
 @dataclass

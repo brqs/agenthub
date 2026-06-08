@@ -268,6 +268,12 @@ def _safe_error_text(text: str | None) -> str:
             "该 Agent 在当前阶段未能完成。执行超时，可能需要缩小任务或稍后重试。"
             "Orchestrator 会尝试改派其他可用 Agent。"
         )
+    elif _looks_like_raw_runtime_error(raw, lowered):
+        cleaned = (
+            "该 Agent 在当前阶段未能完成。外部运行时返回异常，"
+            "Orchestrator 会尝试改派其他可用 Agent；如果持续失败，"
+            "请检查该 Agent 的运行配置。"
+        )
     elif "no html entry file" in lowered:
         cleaned = "该 Agent 未生成可预览的 HTML 入口文件，Orchestrator 会尝试补齐或改派。"
     else:
@@ -280,10 +286,41 @@ def _safe_error_text(text: str | None) -> str:
     return cleaned
 
 
+def _looks_like_raw_runtime_error(raw: str, lowered: str) -> bool:
+    raw_markers = (
+        "/workspaces/",
+        "OpenAI Codex",
+        "Codex CLI exited",
+        "Reading additional input from stdin",
+    )
+    lowered_markers = (
+        "workdir:",
+        "approval:",
+        "sandbox:",
+        "unknownerror",
+        "external_runtime_error",
+        "runtime_idle_timeout",
+        "cli exited",
+        "{'name':",
+        '"name":',
+        "provider_error",
+    )
+    return any(marker in raw for marker in raw_markers) or any(
+        marker in lowered for marker in lowered_markers
+    )
+
+
 def _strip_internal_error_terms(text: str) -> str:
     cleaned = re.sub(r"\bcall[_-][A-Za-z0-9_.-]+", "调用记录", text)
+    cleaned = re.sub(r"/workspaces/\S+", "workspace 路径", cleaned)
     cleaned = re.sub(r"/root/\.agenthub/\S+", "本地认证配置", cleaned)
     cleaned = cleaned.replace(".claude.json", "认证配置")
+    cleaned = re.sub(r"OpenAI Codex[^\n。；;]*", "外部 Agent 运行时", cleaned)
+    cleaned = re.sub(r"\bworkdir:\s*\S+", "workspace 路径", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bapproval:\s*\S+", "运行审批配置", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bsandbox:\s*\S+", "运行沙箱配置", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bexternal_runtime_error\b", "外部运行异常", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bUnknownError\b", "运行异常", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\[Errno\s+\d+\]", "系统错误", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"Permission denied", "权限配置异常", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"Traceback.*", "运行过程异常。", cleaned, flags=re.IGNORECASE)
