@@ -343,6 +343,10 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 ### Phase 4 - E2E 与前端联调
 
 - 直接 API E2E 已扩展 container case；当前生产默认应返回 `not_supported`，demo override 下才要求 `published`。
+- 前端发布操作中的“容器化部署”按钮可以发起受控 `create_deployment(kind="container")`
+  请求；按钮可点不表示生产默认已启用容器 worker。缺少 Dockerfile 或
+  `DEPLOYMENT_CONTAINER_ENABLED=false` 时，应展示后端返回的受控失败 / `not_supported`
+  状态，而不是静默禁用入口。
 - 前端未完成时，后端验收以直接 API E2E 和 Orchestrator API/SSE E2E 为准，不要求远端 UI 渲染状态卡。
 - 历史 Orchestrator API/SSE E2E 已在 demo override 下验证静态发布、源码包和容器发布链路。
 - 2026-06-04 direct API E2E 证据：

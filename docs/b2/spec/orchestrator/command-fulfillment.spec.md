@@ -77,6 +77,7 @@ Response presentation 会读取 fulfillment 状态：
 
 - 全部显式要求满足时，可以自然说明已完成。
 - 任一显式要求 `pending/failed/skipped` 时，最终回复必须进入 partial / needs-attention 语气。
+- Orchestrator 的最终可见 text 必须在 task execution、browser quality gate、preview/verify/deployment tool 全部结束后生成；不能先输出“尚未完成部署/验收”，再在同一条消息后半段展示成功的 preview/deployment block。
 - 用户可见文案不得包含 raw stderr、stack trace、call id、planner/debug prompt、`ReAct step`、`Observation:`、`Action:`、`Tools:` 或长 tool output。
 
 ## 7. Current Verification
@@ -91,6 +92,15 @@ Backend targeted tests 覆盖：
   - `/tmp/agenthub_command_fulfillment_report.json`
   - `/tmp/agenthub_command_fulfillment_sse.jsonl`
   - `/tmp/agenthub_command_fulfillment_browser.json`
+
+2026-06-08 repair hardening 补充：
+
+- `message_error.error` 也纳入 visible sanitizer / live E2E forbidden term 检查，避免前端直接渲染 raw Codex/OpenCode runtime transcript。
+- `command_fulfillment_cyberpunk_group_deploy` hard checks 新增：
+  - `message_error_no_forbidden_terms`
+  - `command_final_text_no_contradictory_completion`
+  - `container_deployment_smoke_request_created`
+- 容器化部署 smoke 使用同一个 workspace deployment API 发起 `kind="container"` 请求；生产默认关闭容器 worker 时应得到可解释的 `not_supported`，而不是前端按钮静默不可点击。
 
 2026-06-07 公网 E2E `command_fulfillment_cyberpunk_group_deploy` 已通过：
 
