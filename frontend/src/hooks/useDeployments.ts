@@ -39,10 +39,7 @@ export function useCreateDeployment(conversationId: string | null | undefined) {
     mutationFn: (payload: WorkspaceDeploymentRequest) =>
       deploymentsAdapter.createDeployment(conversationId as string, payload),
     onSuccess: (deployment) => {
-      queryClient.setQueryData(
-        ['workspace-deployment', conversationId, deployment.id],
-        deployment,
-      );
+      queryClient.setQueryData(['workspace-deployment', conversationId, deployment.id], deployment);
       void queryClient.invalidateQueries({
         queryKey: ['workspace-deployments', conversationId],
       });
@@ -57,10 +54,22 @@ export function useStopDeployment(conversationId: string | null | undefined) {
     mutationFn: (deploymentId: string) =>
       deploymentsAdapter.stopDeployment(conversationId as string, deploymentId),
     onSuccess: (deployment) => {
-      queryClient.setQueryData(
-        ['workspace-deployment', conversationId, deployment.id],
-        deployment,
-      );
+      queryClient.setQueryData(['workspace-deployment', conversationId, deployment.id], deployment);
+      void queryClient.invalidateQueries({
+        queryKey: ['workspace-deployments', conversationId],
+      });
+    },
+  });
+}
+
+export function useRetryDeployment(conversationId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (deploymentId: string) =>
+      deploymentsAdapter.retryDeployment(conversationId as string, deploymentId),
+    onSuccess: (deployment) => {
+      queryClient.setQueryData(['workspace-deployment', conversationId, deployment.id], deployment);
       void queryClient.invalidateQueries({
         queryKey: ['workspace-deployments', conversationId],
       });

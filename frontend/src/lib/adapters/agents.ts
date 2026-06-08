@@ -1,6 +1,9 @@
 import { api } from '@/lib/api';
 import type {
   Agent,
+  AgentAssetHistoryResponse,
+  AgentAssetsResponse,
+  AgentAssetUsageResponse,
   AgentKnowledgeRef,
   AgentKnowledgeUsage,
   AgentSkillRef,
@@ -43,6 +46,33 @@ export async function deleteAgent(agentId: string): Promise<void> {
   await api.delete(`/api/v1/agents/${agentId}`);
 }
 
+export async function listAgentAssets(agentId: string): Promise<AgentAssetsResponse> {
+  const { data } = await api.get<AgentAssetsResponse>(`/api/v1/agents/${agentId}/assets`);
+  return data;
+}
+
+export async function listAgentAssetHistory(
+  agentId: string,
+  limit = 50,
+): Promise<AgentAssetHistoryResponse> {
+  const { data } = await api.get<AgentAssetHistoryResponse>(
+    `/api/v1/agents/${agentId}/assets/history`,
+    { params: { limit } },
+  );
+  return data;
+}
+
+export async function listAgentAssetUsage(
+  agentId: string,
+  limit = 50,
+): Promise<AgentAssetUsageResponse> {
+  const { data } = await api.get<AgentAssetUsageResponse>(
+    `/api/v1/agents/${agentId}/assets/usage`,
+    { params: { limit } },
+  );
+  return data;
+}
+
 export async function uploadAgentKnowledge(input: {
   agentId: string;
   file: File;
@@ -65,6 +95,18 @@ export async function deleteAgentKnowledge(agentId: string, uploadId: string): P
   await api.delete(`/api/v1/agents/${agentId}/knowledge/${uploadId}`);
 }
 
+export async function updateAgentKnowledge(
+  agentId: string,
+  uploadId: string,
+  input: { label?: string; usage?: AgentKnowledgeUsage },
+): Promise<AgentKnowledgeRef> {
+  const { data } = await api.patch<AgentKnowledgeRef>(
+    `/api/v1/agents/${agentId}/knowledge/${uploadId}`,
+    input,
+  );
+  return data;
+}
+
 export async function uploadAgentSkill(input: {
   agentId: string;
   file: File;
@@ -85,4 +127,16 @@ export async function uploadAgentSkill(input: {
 
 export async function deleteAgentSkill(agentId: string, skillId: string): Promise<void> {
   await api.delete(`/api/v1/agents/${agentId}/skills/${skillId}`);
+}
+
+export async function updateAgentSkill(
+  agentId: string,
+  skillId: string,
+  input: { name?: string; description?: string },
+): Promise<AgentSkillRef> {
+  const { data } = await api.patch<AgentSkillRef>(
+    `/api/v1/agents/${agentId}/skills/${skillId}`,
+    input,
+  );
+  return data;
 }
