@@ -550,7 +550,9 @@ followup_attempt_agents: [opencode-helper]
 - PDF 第五点演示 MVP 已达标。
 - repair/redeploy 与清理 MVP 已完成。
 - 2026-06-04 后端 production hardening 已通过公网 direct API E2E：container 默认关闭、生产推荐 Podman、Docker 仅 trusted demo override；container API 返回 `queued` 后由 in-process queueable worker 推进状态。
-- Production-default E2E：container 最终 `not_supported`，runtime_kind `podman`；preview、static release、source zip、cleanup 均通过。
+- 2026-06-08 容器部署默认策略已调整为 `DEPLOYMENT_CONTAINER_ENABLED=true` + `DEPLOYMENT_CONTAINER_RUNTIME=podman`；
+  runtime 不可用或管理员关闭 worker 时仍返回受控 `not_supported`。
+- 历史 Production-default E2E：container 最终 `not_supported`，runtime_kind `podman`；preview、static release、source zip、cleanup 均通过。
 - Demo override E2E：container `queued -> published`，`worker_id`、`attempt_count=1`、`state_events` 已写入报告；healthcheck / stop / cleanup 均通过。
 - 2026-06-04 Orchestrator API/SSE queued worker 回归已通过：
   - Production-default report：`/tmp/agenthub_b2_todo_05_orch_prod_default_report.json`，
@@ -882,8 +884,10 @@ static_release_url: http://111.229.151.159:8000/releases/vw1Obog5VUQ1cY4lCNzBaev
 
 - Orchestrator 最终可见 summary 延后到 quality gate / preview / browser verify / deployment 之后统一生成，避免同一条父消息前半段说“尚未完成部署/验收”、后半段又展示成功发布块。
 - SSE `message_error.error` 也纳入可见错误清洗和 live E2E hard check，覆盖 Codex/OpenCode raw runtime transcript、workspace path、`approval: never`、`external_runtime_error` 等泄露。
-- 前端“容器化部署”按钮不再因为 workspace 缺少 Dockerfile 静默禁用；点击后创建受控 container deployment 请求，由后端返回 `not_supported`、缺 Dockerfile 的 failed 状态或 demo worker 启用后的发布状态。
-- 后端容器 worker 生产默认保持 `DEPLOYMENT_CONTAINER_ENABLED=false`；按钮可点表示“可发起平台请求”，不表示容器化部署默认启用。
+- 前端“容器化部署”按钮不再因为 workspace 缺少 Dockerfile 静默禁用；点击后创建受控 container deployment 请求，由后端返回 runtime unavailable 的 `not_supported`、缺 Dockerfile 的 failed 状态或 worker 发布状态。
+- 后端容器 worker 当前默认启用 Podman；按钮可点表示“可发起平台请求”，真实发布取决于 runtime preflight、policy 和 worker 状态。
+- 2026-06-08 已完成默认 Podman 真发布公网 API E2E；container 用户可见 URL 改为后端
+  `/releases/{token}` 代理，不再依赖云安全组开放动态端口。
 - Live E2E `command_fulfillment_cyberpunk_group_deploy` 增加 hard checks：
   - `message_error_no_forbidden_terms`
   - `command_final_text_no_contradictory_completion`
@@ -909,4 +913,18 @@ passed: true
 message_error_no_forbidden_terms: true
 command_final_text_no_contradictory_completion: true
 container_deployment_smoke_status: not_supported
+```
+
+2026-06-08 默认 Podman container deployment API E2E：
+
+```text
+script: backend/scripts/deployment_release_api_e2e.py
+report: /tmp/agenthub_container_enabled_deployment_e2e_report.json
+base_url: http://111.229.151.159:8000
+conversation_id: b9a40a55-6786-43b2-a3fb-1fa06141a94e
+passed: true
+container_status: published
+container_url: http://111.229.151.159:8000/releases/<token>
+container_runtime_kind: podman
+container_stop_cleanup_ok: true
 ```

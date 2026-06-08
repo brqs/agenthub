@@ -1094,8 +1094,8 @@ passed: true
   `browser_verify/deployment` 已 `satisfied` 时，父 Orchestrator 可见 text 不得仍写
   “尚未完成浏览器级验收 / 尚未完成平台部署”。
 - 新增 `container_deployment_smoke_request_created`：同一 workspace 额外发起
-  `create_deployment(kind="container")`，生产默认关闭容器 worker 时应返回受控
-  `not_supported`，demo worker 启用时可进入 queued / published / failed 终态。
+  `create_deployment(kind="container")`，Podman 可用时应进入 queued / published / failed
+  终态；runtime 不可用或管理员关闭 worker 时应返回受控 `not_supported`。
 - 公网重跑已通过：conversation `9fd3cd30-6b65-45a4-8833-dcadffd78f64`，
   report `/tmp/agenthub_command_fulfillment_report.json`，SSE
   `/tmp/agenthub_command_fulfillment_sse.jsonl`，`passed=true`。

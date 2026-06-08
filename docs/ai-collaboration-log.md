@@ -2047,7 +2047,7 @@ agent_fallback_codex_unavailable: planned=codex-helper, final=claude-code, passe
 1. 后端 `message_error.error` 继续使用 Orchestrator child-message sanitizer，并补强 Codex/OpenCode raw runtime transcript、workspace path、`approval: never`、`external_runtime_error` 等内部痕迹的识别和归一化文案。
 2. Orchestrator static / parallel / ReAct 执行阶段不再提前写 memory final summary 或输出最终 text；adapter 在 `run_quality_gate()` 之后统一生成最终可见 summary，避免部署/验收成功后仍显示“尚未完成”的矛盾文本。
 3. 前端 `RightAgentPanel` 容器化部署动作不再因缺少 Dockerfile 禁用；用户可以发起受控 `create_deployment(kind="container")` 请求，后端返回 `not_supported`、缺 Dockerfile 失败或 demo worker 发布状态后由 UI 展示。
-4. 保持后端容器 worker 默认关闭：`DEPLOYMENT_CONTAINER_ENABLED=false` 是安全策略；按钮可点表示可发起平台请求，不表示生产默认启用容器化部署。
+4. 当时保持后端容器 worker 默认关闭：`DEPLOYMENT_CONTAINER_ENABLED=false` 是安全策略；按钮可点表示可发起平台请求，不表示当时生产默认启用容器化部署。
 5. Live E2E 脚本新增 hard checks：`message_error_no_forbidden_terms`、`command_final_text_no_contradictory_completion`、`container_deployment_smoke_request_created`。
 6. 文档已更新：`command-fulfillment.spec.md`、`native-deployment.execution.spec.md`、`live-e2e-report.spec.md`、`b2-pdf-gap-todo.spec.md` 和本协作日志。
 
@@ -2112,3 +2112,67 @@ container_deployment_smoke_status: not_supported
 
 ### 经验
 这次失败点不在任务能力本身，而在“错误边界”：持久化消息已经清洗，但 SSE lifecycle event 仍可能把 runtime 原文直接递给前端。凡是用户可见事件都必须在发出前清洗；容器化部署也应由后端返回受控状态，而不是靠前端静默禁用来隐藏能力。
+
+## 2026-06-08 — Codex 默认启用容器化部署与 Rootless Podman 环境
+
+### 任务
+执行“容器化部署默认支持”计划：让后端默认启用 container deployment，优先使用 rootless Podman，
+并在 runtime 不可用时返回受控 `not_supported`，而不是长期默认关闭能力。
+
+### AI 输出摘要
+1. 后端默认配置改为 `DEPLOYMENT_CONTAINER_ENABLED=true`，runtime 默认保持 `podman`，
+   Docker 仍需 `DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=true`。
+2. `WorkspaceDeploymentService` 增加 runtime preflight；runtime 命令不可用时创建
+   `not_supported` deployment 记录并返回可读原因。
+3. 当前服务器安装并验证 Podman/rootless 运行环境，启用 `ubuntu` linger，并在顶层 `.env`
+   持久写入 container deployment 配置。
+4. 前端容器部署按钮保持可发起请求，缺 Dockerfile、runtime 不可用或策略拒绝均由后端状态解释。
+
+### 验证
+
+```text
+podman info: rootless=true, graph driver=overlay
+podman hello-world: passed
+backend targeted: workspace container deployment + container release tests passed
+frontend RightAgentPanel: passed
+```
+
+## 2026-06-08 — Codex Container Deployment 默认启用收口与公网 API E2E
+
+### 任务
+把容器化部署从“按钮可发起请求，但生产默认可能 not_supported”推进到当前后端默认可真实发布：
+rootless Podman 默认启用，公网用户可通过后端 8000 release proxy 访问容器服务。
+
+### AI 输出摘要
+1. `DEPLOYMENT_CONTAINER_ENABLED` 默认改为 `true`，runtime 默认 `podman`，Docker 仍需显式 trusted host override。
+2. 增加 runtime preflight，Podman/Docker 不可用时返回受控 `not_supported`。
+3. 拆分 build/run/health timeout：首次拉镜像不再被 health timeout 截断；rootless Podman detached run
+   客户端超时时，可按 deployment label 恢复 container id 并继续 health check。
+4. container published URL 改为 `http://111.229.151.159:8000/releases/{token}`，
+   由后端代理到本机 host port；stop / conversation cleanup 会清除 token 并停止容器。
+5. 服务器已安装并验证 rootless Podman，`.env` 写入持久 container deployment 配置。
+
+### 验证
+
+```text
+backend_pid: 4011223 -> 4018974
+local_health: {"status":"ok"}
+public_health: {"status":"ok"}
+alembic_current: 9f012abcde34 (head), a0b1c2d3e4f5 (head)
+
+pytest: 101 passed
+frontend deployment tests: 21 passed
+ruff: passed
+mypy: passed
+git diff --check: passed
+
+public_api_e2e: passed
+report: /tmp/agenthub_container_enabled_deployment_e2e_report.json
+conversation_id: b9a40a55-6786-43b2-a3fb-1fa06141a94e
+container_status: published
+container_url: http://111.229.151.159:8000/releases/<token>
+container_runtime_kind: podman
+container_state_events: queued -> publishing -> run_recovered -> health_passed -> published
+container_stop_cleanup_ok: true
+podman_leftover_containers: none
+```

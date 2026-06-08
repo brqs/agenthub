@@ -783,6 +783,85 @@ async def test_orchestrator_context_skips_unauthenticated_claude_code(
     assert claude_context["runtime_status"] == "unavailable"
 
 
+async def test_orchestrator_group_scope_overrides_global_default_sub_agents(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _ensure_orchestrator_group_agents()
+    _, headers = await _register(client)
+    conversation = await _create_group_conversation(
+        client,
+        headers,
+        ["orchestrator", "claude-code", "codex-helper"],
+    )
+    captured: dict[str, Any] = {}
+
+    class FakeOrchestratorAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        def __init__(self) -> None:
+            super().__init__(
+                agent_id="orchestrator",
+                default_config={
+                    "available_agents_authoritative": False,
+                    "managed_agent_ids": [
+                        "claude-code",
+                        "opencode-helper",
+                        "codex-helper",
+                    ],
+                },
+            )
+
+        async def stream(
+            self,
+            messages: list[ChatMessage],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            captured["config"] = config
+            _ = messages, system_prompt, workspace_path, tool_specs
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=0)
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> FakeOrchestratorAdapter:
+        _ = db
+        assert agent_id == "orchestrator"
+        return FakeOrchestratorAdapter()
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id="orchestrator",
+        text="@orchestrator build a page",
+    )
+    status_code, _ = await _stream_message(
+        client,
+        headers,
+        messages["agent_message"]["id"],
+    )
+
+    assert status_code == 200
+    assert captured["config"]["available_agents_authoritative"] is True
+    assert captured["config"]["conversation_scoped_agents"] is True
+    assert captured["config"]["managed_agent_ids"] == [
+        "claude-code",
+        "codex-helper",
+    ]
+    assert [
+        agent["id"] for agent in captured["config"]["available_agents"]
+    ] == ["claude-code", "codex-helper"]
+    assert all(
+        agent["id"] != "opencode-helper"
+        for agent in captured["config"]["conversation_agents"]
+    )
+
+
 async def test_stream_persists_tool_call_block_error(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
