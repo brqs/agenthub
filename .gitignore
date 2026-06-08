@@ -118,3 +118,18 @@ workspaces/*
 
 # Local AI tool settings
 .claude/
+
+# Local Codex transfer packages and runtime snapshots
+mac-codex-package.zip
+windows-codex-package.zip
+mac-codex-package/
+windows-codex-package/
+
+# Packaged runtime state/data snapshots produced by export scripts
+agenthub.sql
+claude-state.tgz
+opencode-state.tgz
+uploads-data.tgz
+workspaces.tgz
+agenthub-backend-linux-amd64.tar
+agenthub-source.tgz

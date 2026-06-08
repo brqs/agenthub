@@ -54,9 +54,15 @@ class OpenAIBackend:
         return openai
 
     def _api_key(self) -> str:
+        runtime_key = self.default_config.get("_runtime_api_key")
+        if isinstance(runtime_key, str) and runtime_key:
+            return runtime_key
         return str(getattr(self._settings(), self.api_key_setting))
 
     def _base_url(self) -> str:
+        runtime_base_url = self.default_config.get("_runtime_base_url")
+        if isinstance(runtime_base_url, str) and runtime_base_url:
+            return runtime_base_url
         return str(getattr(self._settings(), self.base_url_setting))
 
     def _create_client(self) -> Any:
@@ -181,6 +187,16 @@ class OpenAIBackend:
             openai_messages.insert(0, {"role": "system", "content": effective_system})
 
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
+
+        runtime_account_error = merged.get("_runtime_model_account_error")
+        if isinstance(runtime_account_error, str) and runtime_account_error.strip():
+            yield self._error_chunk(
+                error_code="missing_api_key",
+                error=f"Model account is unavailable: {runtime_account_error.strip()}",
+                attempts=0,
+                retryable=False,
+            )
+            return
 
         if not self._api_key():
             yield self._error_chunk(

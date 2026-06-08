@@ -65,6 +65,21 @@
 - `model_backend` 必须是 `claude` / `deepseek` / `openai` 之一。
 - `max_iterations` 如果存在，必须是整数且满足 `1 <= max_iterations <= 50`。
 - `mcp_servers` 如果存在，必须是对象数组。
+- No-code custom Agent Builder stores product-facing settings in
+  `builder_profile`, `permissions`, and `memory_policy`.
+- `builder_profile` must be an object. `role`, `purpose`, `tone`, and
+  `output_style` are strings; `goals`, `do_not_do`, and `starters` are string
+  arrays; `clarification_policy` is `ask_first`, `balanced`, or
+  `decide_with_defaults`.
+- `permissions` must be an object. `workspace_read` and `workspace_write` are
+  booleans; `run_commands` is `never`, `ask`, or `auto_low_risk`; `network` is
+  `never`, `ask`, or `allowlisted`; `deploy` and `external_accounts` are
+  `never` or `ask`.
+- `memory_policy` is `none`, `conversation`, `project`, or `user`. MVP stores
+  all four values but only `none` and `conversation` have runtime behavior.
+- `allowed_tools` remains the final runtime boundary. UI permissions may map
+  into `read_file`, `write_file`, and `bash`, but they must not bypass
+  `allowed_tools`.
 
 ### Legacy raw provider 规则
 

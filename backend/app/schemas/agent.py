@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.agents.config_fields import numeric_field
 from app.schemas.common import OffsetPagination
+from app.schemas.message import ContentBlock
 
 AgentProvider = Literal[
     "claude_code",
@@ -24,17 +25,56 @@ AgentProvider = Literal[
 ]
 CreatableAgentProvider = Literal["claude_code", "codex", "opencode", "builtin"]
 ModelBackend = Literal["claude", "deepseek", "openai"]
+ModelProfileSource = Literal["agenthub_default", "user_account"]
 AgentKnowledgeUsage = Literal["reference", "policy", "template", "example"]
 AgentAssetKind = Literal["knowledge", "skill"]
 AgentAssetStatus = Literal["active", "unbound"]
 AgentAssetVersionAction = Literal["created", "updated", "unbound", "materialized"]
 AgentAssetUsageStatus = Literal["injected", "skipped", "failed"]
+AgentMemoryPolicy = Literal["none", "conversation", "project", "user"]
+AgentClarificationPolicy = Literal["ask_first", "balanced", "decide_with_defaults"]
+AgentPermissionCommandPolicy = Literal["never", "ask", "auto_low_risk"]
+AgentPermissionNetworkPolicy = Literal["never", "ask", "allowlisted"]
+AgentPermissionAskPolicy = Literal["never", "ask"]
+AgentMCPHealthStatus = Literal["ready", "unavailable"]
+AgentTestRunStatus = Literal["done", "error"]
+
+
+class AgentBuilderProfile(BaseModel):
+    role: str | None = Field(default=None, max_length=400)
+    purpose: str | None = Field(default=None, max_length=400)
+    goals: list[str] = Field(default_factory=list, max_length=12)
+    tone: str | None = Field(default=None, max_length=160)
+    do_not_do: list[str] = Field(default_factory=list, max_length=12)
+    clarification_policy: AgentClarificationPolicy = "balanced"
+    output_style: str | None = Field(default=None, max_length=400)
+    starters: list[str] = Field(default_factory=list, max_length=8)
+
+
+class AgentPermissions(BaseModel):
+    workspace_read: bool = False
+    workspace_write: bool = False
+    run_commands: AgentPermissionCommandPolicy = "never"
+    network: AgentPermissionNetworkPolicy = "never"
+    deploy: AgentPermissionAskPolicy = "never"
+    external_accounts: AgentPermissionAskPolicy = "never"
+
+
+class AgentModelProfile(BaseModel):
+    source: ModelProfileSource = "agenthub_default"
+    account_id: UUID | None = None
+    provider: str | None = Field(default=None, max_length=32)
+    model: str | None = Field(default=None, max_length=160)
 
 
 class AgentConfig(BaseModel):
     model_backend: ModelBackend | None = Field(
         default=None,
         description="ModelGateway backend for builtin agents.",
+    )
+    model_profile: AgentModelProfile | None = Field(
+        default=None,
+        description="User-facing model selection for builtin custom agents.",
     )
     answer_model_backend: ModelBackend | None = Field(
         default=None,
@@ -68,6 +108,9 @@ class AgentConfig(BaseModel):
             "Omit to keep legacy behavior; [] means no tools."
         ),
     )
+    builder_profile: AgentBuilderProfile | None = None
+    permissions: AgentPermissions | None = None
+    memory_policy: AgentMemoryPolicy | None = None
     command: str | list[str] | None = None
     args: list[str] | None = None
     timeout_seconds: float | None = Field(
@@ -312,6 +355,50 @@ class AgentAssetUsageEventOut(BaseModel):
 class AgentAssetUsageListOut(BaseModel):
     items: list[AgentAssetUsageEventOut] = Field(default_factory=list)
     total: int
+
+
+class AgentTemplateOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    category: str
+    capabilities: list[str] = Field(default_factory=list)
+    builder_profile: AgentBuilderProfile
+    permissions: AgentPermissions = Field(default_factory=AgentPermissions)
+    memory_policy: AgentMemoryPolicy = "conversation"
+    model_backend: ModelBackend = "deepseek"
+
+
+class AgentTemplateListOut(BaseModel):
+    items: list[AgentTemplateOut] = Field(default_factory=list)
+
+
+class AgentMCPToolOut(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class AgentMCPServerHealthOut(BaseModel):
+    name: str
+    status: AgentMCPHealthStatus
+    tools: list[AgentMCPToolOut] = Field(default_factory=list)
+    error: str | None = None
+
+
+class AgentMCPHealthOut(BaseModel):
+    status: AgentMCPHealthStatus
+    servers: list[AgentMCPServerHealthOut] = Field(default_factory=list)
+
+
+class AgentTestRunRequest(BaseModel):
+    prompt: str = Field(min_length=1, max_length=4000)
+
+
+class AgentTestRunOut(BaseModel):
+    status: AgentTestRunStatus
+    content: list[ContentBlock] = Field(default_factory=list)
+    error: str | None = None
+    error_code: str | None = None
 
 
 class CreateAgentRequest(BaseModel):
