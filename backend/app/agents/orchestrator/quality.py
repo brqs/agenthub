@@ -14,6 +14,9 @@ from app.agents.orchestrator._internal.execution.fulfillment import (
     mark_tool_fulfillment as _mark_tool_fulfillment,
 )
 from app.agents.orchestrator._internal.memory import record_event as _memory_record_event
+from app.agents.orchestrator._internal.presentation_markers import (
+    artifact_evidence_presentation as _artifact_evidence_presentation,
+)
 from app.agents.orchestrator._internal.quality.deployment import (
     deployment_health_result as _deployment_health_result,
 )
@@ -76,8 +79,18 @@ REPAIR_AGENT_MISSING_TEXT = (
     "我已经保留了本轮验收证据；请检查可用 Agent 配置，或先补齐静态前端产物后重试。"
 )
 
-TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
 PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
+
+
+class TextBlockWithNext(Protocol):
+    def __call__(
+        self,
+        block_index: int,
+        text: str,
+        *,
+        agent_id: str = "orchestrator",
+        presentation: Mapping[str, Any] | None = None,
+    ) -> Iterable[tuple[StreamChunk, int]]: ...
 
 
 class RunTaskWithPrefix(Protocol):
@@ -151,6 +164,7 @@ async def run_quality_gate(
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 REPAIR_AGENT_MISSING_TEXT,
+                presentation=_artifact_evidence_presentation(),
             ):
                 next_block_index = updated_block_index
                 yield chunk, updated_block_index
@@ -235,6 +249,7 @@ async def run_quality_gate(
     for chunk, updated_block_index in text_block_with_next(
         next_block_index,
         f"Platform preview deployed: {preview_url or '(unknown url)'}\n",
+        presentation=_artifact_evidence_presentation(),
     ):
         next_block_index = updated_block_index
         yield chunk, updated_block_index
@@ -247,6 +262,7 @@ async def run_quality_gate(
                 "url": preview_url,
                 "title": f"Workspace preview: {entry_path}",
                 "description": "AgentHub platform-managed static preview.",
+                "presentation": _artifact_evidence_presentation(),
             },
         ), next_block_index + 1
         yield (
@@ -438,6 +454,7 @@ async def run_quality_gate(
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 _quality_passed_text(deployment_result, deployment_repair_round),
+                presentation=_artifact_evidence_presentation(),
             ):
                 next_block_index = updated_block_index
                 yield chunk, updated_block_index
@@ -470,6 +487,7 @@ async def run_quality_gate(
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 REPAIR_AGENT_MISSING_TEXT,
+                presentation=_artifact_evidence_presentation(),
             ):
                 next_block_index = updated_block_index
                 yield chunk, updated_block_index

@@ -203,6 +203,93 @@ async def test_stream_accumulator_persists_task_card_block() -> None:
     ]
 
 
+async def test_stream_accumulator_persists_presentation_metadata() -> None:
+    accumulator = StreamContentAccumulator()
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=0,
+            block_type="text",
+            metadata={
+                "presentation": {
+                    "role": "final_answer",
+                    "collapsible": False,
+                    "boundary": "answer_start",
+                    "closes_group_id": "execution-main",
+                    "label": "最终回答",
+                }
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="delta", block_index=0, text_delta="done"))
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=0))
+    accumulator.feed(
+        StreamChunk(
+            event_type="tool_call",
+            call_id="call-1",
+            tool_name="Read",
+            tool_arguments={"path": "index.html"},
+            metadata={
+                "presentation": {
+                    "role": "tool_trace",
+                    "collapsible": True,
+                    "group_id": "execution-main",
+                }
+            },
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="tool_result",
+            call_id="call-1",
+            tool_name="Read",
+            tool_status="ok",
+            tool_output="ok",
+        )
+    )
+    accumulator.feed(
+        StreamChunk(
+            event_type="block_start",
+            block_index=1,
+            block_type="process",
+            metadata={
+                "title": "执行过程",
+                "status": "done",
+                "default_collapsed": False,
+                "steps": [],
+                "presentation": {
+                    "role": "execution_process",
+                    "collapsible": True,
+                    "group_id": "execution-main",
+                    "boundary": "execution_start",
+                },
+            },
+        )
+    )
+    accumulator.feed(StreamChunk(event_type="block_end", block_index=1))
+
+    blocks = accumulator.to_list()
+
+    assert blocks[0]["presentation"] == {
+        "role": "final_answer",
+        "collapsible": False,
+        "boundary": "answer_start",
+        "closes_group_id": "execution-main",
+        "label": "最终回答",
+    }
+    assert blocks[1]["presentation"] == {
+        "role": "tool_trace",
+        "collapsible": True,
+        "group_id": "execution-main",
+    }
+    assert blocks[2]["presentation"] == {
+        "role": "execution_process",
+        "collapsible": True,
+        "group_id": "execution-main",
+        "boundary": "execution_start",
+    }
+
+
 async def test_stream_chunk_and_accumulator_persist_process_block() -> None:
     chunk = StreamChunk(
         event_type="block_start",
@@ -1026,8 +1113,12 @@ async def test_openapi_includes_process_block_contract() -> None:
     app.openapi_schema = None
     schemas = app.openapi()["components"]["schemas"]
 
+    assert "PresentationMetadata" in schemas
+    assert "presentation" in schemas["TextBlock"]["properties"]
+    assert "presentation" in schemas["ToolCallBlock"]["properties"]
     assert "ProcessBlock" in schemas
     assert "ProcessStep" in schemas
+    assert "presentation" in schemas["ProcessBlock"]["properties"]
     assert schemas["ProcessBlock"]["properties"]["type"].get("const") == "process"
     content_schema = schemas["MessageOut"]["properties"]["content"]["items"]
     refs = {item["$ref"] for item in content_schema["oneOf"]}
@@ -1257,12 +1348,30 @@ async def test_orchestrator_group_stream_persists_child_agent_message(
     assert child.content[0]["agent_id"] == child_agent_id
     assert child.content[0]["status"] == "done"
     assert child.content[0]["default_collapsed"] is False
+    assert child.content[0]["presentation"]["role"] == "execution_process"
     assert child.content[0]["steps"][0]["agent_id"] == child_agent_id
     assert child.content[1:] == [
         {
             "type": "text",
             "agent_id": child_agent_id,
+            "presentation": {
+                "role": "execution_text",
+                "collapsible": True,
+                "group_id": "execution-main",
+            },
             "text": "child agent built the demo",
+        },
+        {
+            "type": "text",
+            "agent_id": child_agent_id,
+            "presentation": {
+                "role": "agent_summary",
+                "collapsible": False,
+                "boundary": "answer_start",
+                "closes_group_id": "execution-main",
+                "label": "阶段总结",
+            },
+            "text": "已完成：Build demo。\n验证：1/1 项通过。\n",
         }
     ]
     assert parent.status == "done"

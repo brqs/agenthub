@@ -51,6 +51,7 @@ GENERIC_GROUP_PROCESS_SCENARIO = SCENARIO in GENERIC_GROUP_PROCESS_SCENARIOS
 GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO = SCENARIO == "group_process_frontend_preview"
 AGENT_FALLBACK_MATRIX_SCENARIO = SCENARIO == "agent_fallback_matrix"
 CONTEXT_FOLLOWUP_SCENARIO = SCENARIO == "orchestrator_context_followup_repair"
+PRESENTATION_COLLAPSE_SCENARIO = SCENARIO == "presentation_collapse_markers_smoke"
 COMMAND_FULFILLMENT_SCENARIO = (
     SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
 )
@@ -119,6 +120,9 @@ DEFAULT_COMMAND_FULFILLMENT_SSE_PATH = (  # noqa: S108
 DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_orchestrator_context_followup_sse.jsonl"  # noqa: S108
 )
+DEFAULT_PRESENTATION_MARKERS_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_presentation_markers_sse.jsonl"  # noqa: S108
+)
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
@@ -172,6 +176,9 @@ DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH = (  # noqa: S108
 DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_orchestrator_context_followup_report.json"  # noqa: S108
 )
+DEFAULT_PRESENTATION_MARKERS_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_presentation_markers_report.json"  # noqa: S108
+)
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
@@ -201,6 +208,9 @@ DEFAULT_COMMAND_FULFILLMENT_BROWSER_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_CONTEXT_FOLLOWUP_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_orchestrator_context_followup_browser.json"  # noqa: S108
+)
+DEFAULT_PRESENTATION_MARKERS_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_presentation_markers_browser.json"  # noqa: S108
 )
 SSE_PATH = SETTINGS.sse_path
 REPORT_PATH = SETTINGS.report_path
@@ -421,6 +431,11 @@ COMMAND_FULFILLMENT_PROMPT = (
     "然后交由两个智能体并行开发工作，包含代码产物、Diff、按钮交互和移动端适配，"
     "最后再进行审阅，最后部署在端口8082，并完成浏览器级质量验收。"
 )
+PRESENTATION_COLLAPSE_PROMPT = (
+    "@orchestrator 请让一个可用 Agent 创建 collapse-marker.txt，"
+    "内容包含 PRESENTATION_COLLAPSE_SENTINEL；然后由 Orchestrator 用自然语言总结。"
+    "这个任务用于验证 presentation marker，请保留成员独立消息、公开执行过程和最终回答。"
+)
 
 PROMPT = SETTINGS.prompt_override or (
     P1_ATTRIBUTION_PROMPT
@@ -451,6 +466,8 @@ PROMPT = SETTINGS.prompt_override or (
     if AGENT_FALLBACK_MATRIX_SCENARIO
     else COMMAND_FULFILLMENT_PROMPT
     if COMMAND_FULFILLMENT_FLOW_SCENARIO
+    else PRESENTATION_COLLAPSE_PROMPT
+    if PRESENTATION_COLLAPSE_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -1694,6 +1711,7 @@ def workflow_blocks_from_messages(messages: list[dict[str, Any]]) -> list[dict[s
 
 
 def forbidden_visible_terms(text: str) -> list[str]:
+    text = re.sub(r"/api/v1/workspaces/[A-Za-z0-9_.-]+/files/", "/api/v1/workspace-files/", text)
     return [term for term in FORBIDDEN_VISIBLE_TRACE_TERMS if term in text]
 
 
@@ -1777,6 +1795,173 @@ def group_process_report(
         "child_process_message_count": len(child_process_agents),
         "parent_embedded_child_block_count": len(parent_embedded_child_blocks),
     }
+
+
+def block_presentation(block: dict[str, Any]) -> dict[str, Any]:
+    presentation = block.get("presentation")
+    return presentation if isinstance(presentation, dict) else {}
+
+
+def event_presentation(event: dict[str, Any]) -> dict[str, Any]:
+    data = event_data(event)
+    metadata = data.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    presentation = metadata.get("presentation")
+    return presentation if isinstance(presentation, dict) else {}
+
+
+def presentation_marker_report(
+    events: list[dict[str, Any]],
+    parent_message: dict[str, Any],
+    child_messages: list[dict[str, Any]],
+) -> dict[str, Any]:
+    all_messages = [parent_message, *child_messages]
+    blocks = [
+        block
+        for message in all_messages
+        for block in message_blocks(message)
+        if isinstance(block, dict)
+    ]
+    block_presentations = [
+        block_presentation(block) for block in blocks if block_presentation(block)
+    ]
+    event_presentations = [
+        event_presentation(event) for event in events if event_presentation(event)
+    ]
+    all_presentations = [*block_presentations, *event_presentations]
+    roles = [
+        str(presentation.get("role"))
+        for presentation in all_presentations
+        if isinstance(presentation.get("role"), str)
+    ]
+    boundaries = [
+        str(presentation.get("boundary"))
+        for presentation in all_presentations
+        if isinstance(presentation.get("boundary"), str)
+    ]
+    child_agent_summaries = [
+        block
+        for message in child_messages
+        for block in message_blocks(message)
+        if block_presentation(block).get("role") == "agent_summary"
+    ]
+    parent_final_answers = [
+        block
+        for block in message_blocks(parent_message)
+        if block_presentation(block).get("role") == "final_answer"
+    ]
+    collapsible_blocks = [
+        block
+        for block in blocks
+        if block_presentation(block).get("collapsible") is True
+    ]
+    return {
+        "presentation_roles": sorted(set(roles)),
+        "presentation_boundaries": sorted(set(boundaries)),
+        "persisted_presentation_count": len(block_presentations),
+        "sse_presentation_count": len(event_presentations),
+        "child_agent_summary_count": len(child_agent_summaries),
+        "parent_final_answer_count": len(parent_final_answers),
+        "collapsible_block_count": len(collapsible_blocks),
+        "child_message_count": len(child_messages),
+    }
+
+
+def run_presentation_collapse_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"Presentation Collapse Smoke {int(started_at)}",
+            "mode": "group",
+            "agent_ids": AGENT_IDS,
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+
+    sent, events, target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    parent_message_id = sent["agent_message"]["id"]
+    user_message_id = sent["user_message"]["id"]
+    messages = fetch_conversation_messages(client, headers, conv_id, report)
+    parent_message = next(
+        (item for item in messages if item.get("id") == parent_message_id),
+        target or {},
+    )
+    child_messages = child_messages_for_user(
+        messages,
+        parent_message_id=parent_message_id,
+        user_message_id=user_message_id,
+    )
+    visible_text = all_visible_message_text([parent_message, *child_messages])
+    event_error_text = message_error_text(events)
+    forbidden_terms = forbidden_visible_terms(f"{visible_text}\n{event_error_text}")
+    marker_report = presentation_marker_report(events, parent_message, child_messages)
+
+    report["user_message_id"] = user_message_id
+    report["agent_message_id"] = parent_message_id
+    report["target_agent_message"] = parent_message
+    report["child_agent_messages"] = child_messages
+    report["stream_event_count"] = len(events)
+    report["presentation_markers"] = marker_report
+    report["presentation_visible_forbidden_terms"] = forbidden_terms
+    fetch_orchestrator_run_detail(client, headers, conv_id, report)
+
+    checks = report["checks"]
+    checks["message_done"] = parent_message.get("status") == "done"
+    checks["presentation_sse_roles_seen"] = marker_report["sse_presentation_count"] > 0
+    checks["presentation_persisted_roles_seen"] = (
+        marker_report["persisted_presentation_count"] > 0
+    )
+    checks["presentation_execution_start_seen"] = (
+        "execution_start" in marker_report["presentation_boundaries"]
+    )
+    checks["presentation_answer_start_seen"] = (
+        "answer_start" in marker_report["presentation_boundaries"]
+    )
+    checks["presentation_agent_summary_seen"] = (
+        marker_report["child_agent_summary_count"] >= 1
+    )
+    checks["presentation_final_answer_seen"] = (
+        marker_report["parent_final_answer_count"] >= 1
+    )
+    checks["presentation_collapsible_execution_seen"] = (
+        marker_report["collapsible_block_count"] >= 1
+    )
+    checks["presentation_visible_text_no_forbidden_terms"] = not forbidden_terms
+
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "presentation_sse_roles_seen",
+        "presentation_persisted_roles_seen",
+        "presentation_execution_start_seen",
+        "presentation_answer_start_seen",
+        "presentation_agent_summary_seen",
+        "presentation_final_answer_seen",
+        "presentation_collapsible_execution_seen",
+        "presentation_visible_text_no_forbidden_terms",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
 
 
 def command_fulfillment_statuses(run_detail: dict[str, Any]) -> dict[str, str]:
@@ -3532,6 +3717,18 @@ def main() -> None:
             write_json(REPORT_PATH, report)
             print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
             print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if PRESENTATION_COLLAPSE_SCENARIO:
+            run_presentation_collapse_case(client, headers, report, started_at)
+            maybe_run_frontend_ui_smoke(report)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"browser_report={BROWSER_REPORT_PATH}")
             print(f"sse={SSE_PATH}")
             return
 

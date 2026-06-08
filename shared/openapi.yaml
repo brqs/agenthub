@@ -3176,6 +3176,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         upload_id:
           type: string
           format: uuid
@@ -3379,6 +3383,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         mode:
           type: string
           enum:
@@ -3475,6 +3483,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         language:
           type: string
           title: Language
@@ -3791,6 +3803,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         deployment_id:
           type: string
           title: Deployment Id
@@ -3909,6 +3925,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         filename:
           type: string
           title: Filename
@@ -3936,6 +3956,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         path:
           anyOf:
           - type: string
@@ -4672,6 +4696,49 @@ components:
       - created_at
       - updated_at
       title: OrchestratorTaskOut
+    PresentationMetadata:
+      properties:
+        role:
+          type: string
+          enum:
+          - execution_process
+          - tool_trace
+          - execution_text
+          - artifact_evidence
+          - agent_summary
+          - final_answer
+          title: Role
+        collapsible:
+          type: boolean
+          title: Collapsible
+        group_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Group Id
+        boundary:
+          anyOf:
+          - type: string
+            enum:
+            - execution_start
+            - answer_start
+          - type: 'null'
+          title: Boundary
+        closes_group_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Closes Group Id
+        label:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Label
+      type: object
+      required:
+      - role
+      - collapsible
+      title: PresentationMetadata
     ProcessBlock:
       properties:
         type:
@@ -4684,6 +4751,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         title:
           type: string
           title: Title
@@ -5026,6 +5097,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         title:
           type: string
           title: Title
@@ -5092,6 +5167,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         text:
           type: string
           title: Text
@@ -5111,6 +5190,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         call_id:
           type: string
           title: Call Id
@@ -5161,6 +5244,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         kind:
           type: string
           enum:
@@ -5760,6 +5847,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         url:
           type: string
           title: Url
@@ -5794,6 +5885,10 @@ components:
           - type: string
           - type: 'null'
           title: Agent Id
+        presentation:
+          anyOf:
+          - $ref: '#/components/schemas/PresentationMetadata'
+          - type: 'null'
         last_run_id:
           anyOf:
           - type: string
