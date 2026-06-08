@@ -20,6 +20,9 @@ from app.agents.orchestrator._internal.execution.process_block import (
     task_result_step,
     task_running_step,
 )
+from app.agents.orchestrator._internal.presentation_markers import (
+    final_answer_presentation,
+)
 from app.agents.orchestrator._internal.streams import attach_agent_id
 from app.agents.orchestrator._internal.tools.catalog import (
     available_agent_ids,
@@ -65,10 +68,20 @@ DEPLOYMENT_TOOL_NAMES = {
     "package_workspace_source",
 }
 
-TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
 LatestUserRequest = Callable[[list[ChatMessage]], str]
 PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
 FormatTaskResultContext = Callable[[str, TaskResult, int], str]
+
+
+class TextBlockWithNext(Protocol):
+    def __call__(
+        self,
+        block_index: int,
+        text: str,
+        *,
+        agent_id: str = "orchestrator",
+        presentation: Mapping[str, Any] | None = None,
+    ) -> Iterable[tuple[StreamChunk, int]]: ...
 
 
 class RunTaskWithPrefix(Protocol):
@@ -210,6 +223,7 @@ async def run_orchestrator_tool_loop(
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 presented_summary,
+                presentation=final_answer_presentation(),
             ):
                 next_block_index = updated_block_index
                 yield chunk, updated_block_index

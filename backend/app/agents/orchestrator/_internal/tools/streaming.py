@@ -5,6 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.agents.orchestrator._internal.presentation_markers import (
+    sanitize_presentation_trace_value,
+    tool_trace_presentation,
+)
 from app.agents.orchestrator._internal.tools.types import (
     OrchestratorToolCall,
     OrchestratorToolResult,
@@ -36,7 +40,7 @@ def _normalize_tool_call(
     return OrchestratorToolCall(
         call_id=call_id,
         name=chunk.tool_name or "",
-        arguments=chunk.tool_arguments or {},
+        arguments=sanitize_presentation_trace_value(chunk.tool_arguments or {}),
     )
 
 def _tool_call_chunk(call: OrchestratorToolCall) -> StreamChunk:
@@ -45,7 +49,8 @@ def _tool_call_chunk(call: OrchestratorToolCall) -> StreamChunk:
         agent_id="orchestrator",
         call_id=call.call_id,
         tool_name=call.name,
-        tool_arguments=call.arguments,
+        tool_arguments=sanitize_presentation_trace_value(call.arguments),
+        metadata={"presentation": tool_trace_presentation()},
     )
 
 def _tool_result_chunk(
@@ -62,7 +67,7 @@ def _tool_result_chunk(
         agent_id="orchestrator",
         call_id=call.call_id,
         tool_status="ok" if result.status == "ok" else "error",
-        tool_output=result.output,
+        tool_output=sanitize_presentation_trace_value(result.output),
         tool_output_truncated=result.output_truncated,
         metadata=metadata or None,
     )

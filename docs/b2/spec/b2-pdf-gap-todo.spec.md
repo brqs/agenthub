@@ -990,3 +990,49 @@ static_release_url: http://111.229.151.159:8000/releases/Deo-L2-iNQbkHrJ7ZiktHJp
 
 额外修复：`GET /messages/{id}/stream` 对已存在 stream session 的 subscriber 会先释放
 message row lock 再订阅，避免公网 E2E 在最终 `done` 前被长事务阻塞。
+
+## 14. 2026-06-08 Orchestrator Presentation Collapse Markers
+
+本轮新增执行过程折叠展示契约，先写 spec 再实现：
+
+- 新增 [orchestrator/presentation-collapse.spec.md](orchestrator/presentation-collapse.spec.md)。
+- ContentBlock 增加可选 `presentation` metadata，不新增 ContentBlock 类型、不新增 SSE event。
+- 后端标记 `execution_process` / `tool_trace` / `execution_text` / `artifact_evidence` / `agent_summary` / `final_answer`。
+- 前端默认折叠执行过程，只常显成员 summary 和 Orchestrator final answer。
+- `process` block 仍为公开过程摘要，不是 hidden chain-of-thought。
+
+live E2E：
+
+```text
+scenario: presentation_collapse_markers_smoke
+report: /tmp/agenthub_presentation_markers_report.json
+sse: /tmp/agenthub_presentation_markers_sse.jsonl
+```
+
+2026-06-08 公网 API/SSE 复验已通过：
+
+```text
+conversation_id: 35d4a022-684f-4a0d-8650-58f56ad9be89
+user_message_id: 78122f29-63da-4236-9fbf-4eaec1c0e75e
+agent_message_id: 0412fec9-09fe-442f-8afe-d08d9353c3d9
+run_id: a75b19fd-2e76-4303-99ab-2e3a722c3af9
+passed: true
+presentation_roles: agent_summary, artifact_evidence, execution_process, execution_text, final_answer, tool_trace
+presentation_boundaries: answer_start, execution_start
+persisted_presentation_count: 15
+sse_presentation_count: 17
+child_agent_summary_count: 1
+parent_final_answer_count: 1
+collapsible_block_count: 13
+child_message_count: 3
+visible_text_no_forbidden_terms: true
+backend_pid: 92312 -> 99712 -> 105909
+alembic_current: c5d6e7f809ab (head)
+health: local ok, public ok
+seed_agents: not required
+frontend_remote_deploy: not performed
+```
+
+本轮没有新增 ContentBlock 类型、SSE event 或 DB migration。远端前端静态资源不在当前后端
+主机，本轮只完成本地前端消费测试和公网 API/SSE E2E；如需验收真实远端折叠 UI，需要在
+前端部署链路同步静态资源后另跑 UI smoke。

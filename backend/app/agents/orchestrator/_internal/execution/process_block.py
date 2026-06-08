@@ -6,6 +6,9 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from app.agents.orchestrator._internal.presentation_markers import (
+    execution_process_presentation,
+)
 from app.agents.orchestrator.evaluation import evaluation_results_payload
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
@@ -71,7 +74,10 @@ def process_block_chunks(
                 block_index=block_index,
                 block_type="process",
                 agent_id="orchestrator",
-                metadata=sanitize_process_payload(payload),
+                metadata={
+                    **sanitize_process_payload(payload),
+                    "presentation": execution_process_presentation(),
+                },
             ),
             next_block_index,
         ),
@@ -102,7 +108,7 @@ def process_block_start(
             block_index=block_index,
             block_type="process",
             agent_id="orchestrator",
-            metadata=clean,
+            metadata={**clean, "presentation": execution_process_presentation()},
         ),
         block_index + 1,
     )
@@ -190,7 +196,10 @@ def agent_process_block_start(
             block_index=block_index,
             block_type="process",
             agent_id=agent_id,
-            metadata=clean,
+            metadata={
+                **clean,
+                "presentation": execution_process_presentation(label="思考与执行"),
+            },
         ),
         block_index + 1,
     )

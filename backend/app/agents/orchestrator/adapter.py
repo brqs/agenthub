@@ -68,6 +68,12 @@ from app.agents.orchestrator._internal.memory import (
 from app.agents.orchestrator._internal.memory import (
     start_run as _memory_start_run,
 )
+from app.agents.orchestrator._internal.presentation_markers import (
+    execution_text_presentation as _execution_text_presentation,
+)
+from app.agents.orchestrator._internal.presentation_markers import (
+    final_answer_presentation as _final_answer_presentation,
+)
 from app.agents.orchestrator._internal.react import react_enabled, run_react_loop
 from app.agents.orchestrator._internal.routing.custom_agent import (
     custom_agent_result_text as _custom_agent_result_text,
@@ -288,6 +294,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
             for chunk in _text_block(
                 next_block_index,
                 platform_fact_text(merged_config, platform_fact),
+                presentation=_final_answer_presentation(),
             ):
                 yield chunk
             next_block_index += 1
@@ -352,7 +359,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             ):
                 next_block_index = updated_block_index
                 yield chunk
-            for chunk in _text_block(next_block_index, action_answer):
+            for chunk in _text_block(
+                next_block_index,
+                action_answer,
+                presentation=_final_answer_presentation(),
+            ):
                 yield chunk
             next_block_index += 1
             yield StreamChunk(
@@ -412,7 +423,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
             ):
                 next_block_index = updated_block_index
                 yield chunk
-            for chunk in _text_block(next_block_index, final_text):
+            for chunk in _text_block(
+                next_block_index,
+                final_text,
+                presentation=_final_answer_presentation(),
+            ):
                 yield chunk
             next_block_index += 1
             yield StreamChunk(
@@ -526,7 +541,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 ):
                     next_block_index = updated_block_index
                     yield process_chunk
-                for chunk in _text_block(next_block_index, _fallback_summary_text()):
+                for chunk in _text_block(
+                    next_block_index,
+                    _fallback_summary_text(),
+                    presentation=_final_answer_presentation(),
+                ):
                     yield chunk
                 next_block_index += 1
                 yield StreamChunk(
@@ -562,7 +581,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 ):
                     next_block_index = updated_block_index
                     yield process_chunk
-                for chunk in _text_block(next_block_index, _fallback_summary_text()):
+                for chunk in _text_block(
+                    next_block_index,
+                    _fallback_summary_text(),
+                    presentation=_final_answer_presentation(),
+                ):
                     yield chunk
                 next_block_index += 1
                 yield StreamChunk(
@@ -628,7 +651,11 @@ class OrchestratorAdapter(BaseAgentAdapter):
         for chunk, updated_block_index in _task_card_block(next_block_index, tasks):
             next_block_index = updated_block_index
             yield chunk
-        for chunk in _text_block(next_block_index, _planning_text(tasks)):
+        for chunk in _text_block(
+            next_block_index,
+            _planning_text(tasks),
+            presentation=_execution_text_presentation(),
+        ):
             yield chunk
         next_block_index += 1
 

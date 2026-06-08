@@ -13,15 +13,33 @@ from app.schemas.upload import AttachmentPreview, UploadPurpose, UploadSafetySta
 
 
 # ─── ContentBlock 联合类型 ───────────────────────────────────────
+class PresentationMetadata(BaseModel):
+    role: Literal[
+        "execution_process",
+        "tool_trace",
+        "execution_text",
+        "artifact_evidence",
+        "agent_summary",
+        "final_answer",
+    ]
+    collapsible: bool
+    group_id: str | None = None
+    boundary: Literal["execution_start", "answer_start"] | None = None
+    closes_group_id: str | None = None
+    label: str | None = None
+
+
 class TextBlock(BaseModel):
     type: Literal["text"] = "text"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     text: str
 
 
 class CodeBlock(BaseModel):
     type: Literal["code"] = "code"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     language: str
     code: str
 
@@ -29,6 +47,7 @@ class CodeBlock(BaseModel):
 class DiffBlock(BaseModel):
     type: Literal["diff"] = "diff"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     filename: str
     before: str
     after: str
@@ -37,6 +56,7 @@ class DiffBlock(BaseModel):
 class WebPreviewBlock(BaseModel):
     type: Literal["web_preview"] = "web_preview"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     url: str
     title: str | None = None
     description: str | None = None
@@ -46,6 +66,7 @@ class WebPreviewBlock(BaseModel):
 class FileBlock(BaseModel):
     type: Literal["file"] = "file"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     path: str | None = None
     artifact_kind: Literal["document", "ppt", "image", "archive", "code", "workflow", "other"] = (
         "other"
@@ -62,6 +83,7 @@ class FileBlock(BaseModel):
 class AttachmentBlock(BaseModel):
     type: Literal["attachment"] = "attachment"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     upload_id: UUID
     filename: str
     content_type: str
@@ -74,6 +96,7 @@ class AttachmentBlock(BaseModel):
 class DeploymentStatusBlock(BaseModel):
     type: Literal["deployment_status"] = "deployment_status"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     deployment_id: str
     kind: Literal["static_site", "source_zip", "container"]
     status: Literal["queued", "publishing", "published", "failed", "stopped", "not_supported"]
@@ -97,6 +120,7 @@ class DeploymentStatusBlock(BaseModel):
 class WorkflowBlock(BaseModel):
     type: Literal["workflow"] = "workflow"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     last_run_id: UUID | None = None
     name: str | None = None
     path: str | None = None
@@ -125,6 +149,7 @@ class TaskCardTask(BaseModel):
 class TaskCardBlock(BaseModel):
     type: Literal["task_card"] = "task_card"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     title: str
     tasks: list[TaskCardTask] = Field(default_factory=list)
 
@@ -153,6 +178,7 @@ class ProcessStep(BaseModel):
 class ProcessBlock(BaseModel):
     type: Literal["process"] = "process"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     title: str
     status: Literal["running", "done", "partial", "error", "interrupted"]
     default_collapsed: bool
@@ -174,6 +200,7 @@ class ClarificationQuestion(BaseModel):
 class ClarificationBlock(BaseModel):
     type: Literal["clarification"] = "clarification"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     mode: Literal[
         "auto",
         "requirement_alignment",
@@ -192,6 +219,7 @@ class ClarificationBlock(BaseModel):
 class TurnControlBlock(BaseModel):
     type: Literal["turn_control"] = "turn_control"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     kind: Literal["guidance", "side_chat", "queue_action", "stop_and_run"]
     status: Literal[
         "received",
@@ -213,6 +241,7 @@ class TurnControlBlock(BaseModel):
 class ToolCallBlock(BaseModel):
     type: Literal["tool_call"] = "tool_call"
     agent_id: str | None = None
+    presentation: PresentationMetadata | None = None
     call_id: str
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)

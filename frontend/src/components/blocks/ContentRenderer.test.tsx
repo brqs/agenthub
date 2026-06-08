@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ContentRenderer } from './ContentRenderer';
 import { mockAgents, type DemoContentBlock } from '@/lib/mockData';
@@ -16,11 +16,11 @@ vi.mock('./SyntaxHighlightedCode', () => ({
 }));
 
 describe('ContentRenderer', () => {
-  function renderBlocks(blocks: DemoContentBlock[]) {
+  function renderBlocks(blocks: DemoContentBlock[], options: { streaming?: boolean } = {}) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
       <QueryClientProvider client={queryClient}>
-        <ContentRenderer blocks={blocks} agents={mockAgents} />
+        <ContentRenderer blocks={blocks} agents={mockAgents} streaming={options.streaming ?? true} />
       </QueryClientProvider>,
     );
   }
@@ -185,6 +185,65 @@ describe('ContentRenderer', () => {
 
     expect(screen.getByText('未支持的消息块')).toBeInTheDocument();
     expect(screen.getByText(/chart/)).toBeInTheDocument();
+  });
+
+  it('collapses execution presentation blocks after streaming completes', () => {
+    const blocks: DemoContentBlock[] = [
+      {
+        type: 'text',
+        text: 'Reading files',
+        presentation: {
+          role: 'execution_text',
+          collapsible: true,
+          group_id: 'execution-main',
+          label: '执行过程',
+        },
+      },
+      {
+        type: 'tool_call',
+        call_id: 'call-read',
+        tool_name: 'Read',
+        arguments: { path: 'index.html' },
+        status: 'ok',
+        presentation: {
+          role: 'tool_trace',
+          collapsible: true,
+          group_id: 'execution-main',
+        },
+      },
+      {
+        type: 'text',
+        text: '阶段总结：已完成文件检查。',
+        presentation: {
+          role: 'agent_summary',
+          collapsible: false,
+          boundary: 'answer_start',
+          closes_group_id: 'execution-main',
+        },
+      },
+      {
+        type: 'text',
+        text: '最终回答：任务已完成。',
+        presentation: {
+          role: 'final_answer',
+          collapsible: false,
+          boundary: 'answer_start',
+          closes_group_id: 'execution-main',
+        },
+      },
+    ];
+
+    renderBlocks(blocks, { streaming: false });
+
+    expect(screen.getByText('阶段总结：已完成文件检查。')).toBeInTheDocument();
+    expect(screen.getByText('最终回答：任务已完成。')).toBeInTheDocument();
+    expect(screen.queryByText('Reading files')).not.toBeInTheDocument();
+    expect(screen.queryByText('call-read')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /执行过程/ }));
+
+    expect(screen.getByText('Reading files')).toBeInTheDocument();
+    expect(screen.getByText('call-read')).toBeInTheDocument();
   });
 
   it('groups orchestrated blocks by attributed agent', () => {

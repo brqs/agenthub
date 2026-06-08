@@ -50,6 +50,7 @@ describe('useStream', () => {
       {
         type: 'tool_call',
         agent_id: null,
+        presentation: null,
         call_id: 'call-write',
         tool_name: 'write_file',
         arguments: { path: 'demo.html' },
@@ -59,6 +60,67 @@ describe('useStream', () => {
         error_code: undefined,
       },
     ]);
+  });
+
+  it('preserves presentation metadata on stream blocks and tool calls', async () => {
+    mockStream((subscriber) => {
+      subscriber.onEvent({ event: 'start', data: {} });
+      subscriber.onEvent({
+        event: 'block_start',
+        data: {
+          block_index: 0,
+          block_type: 'text',
+          metadata: {
+            presentation: {
+              role: 'final_answer',
+              collapsible: false,
+              boundary: 'answer_start',
+              closes_group_id: 'execution-main',
+            },
+          },
+        },
+      });
+      subscriber.onEvent({ event: 'delta', data: { block_index: 0, text_delta: 'done' } });
+      subscriber.onEvent({
+        event: 'tool_call',
+        data: {
+          call_id: 'call-read',
+          tool_name: 'Read',
+          tool_arguments: {},
+          metadata: {
+            presentation: {
+              role: 'tool_trace',
+              collapsible: true,
+              group_id: 'execution-main',
+            },
+          },
+        },
+      });
+      subscriber.onEvent({ event: 'done', data: { total_blocks: 2 } });
+    });
+
+    const { result } = renderHook(() => useStream('message-presentation'));
+
+    await waitFor(() => expect(result.current.status).toBe('done'));
+    expect(result.current.blocks[0]).toMatchObject({
+      type: 'text',
+      text: 'done',
+      presentation: {
+        role: 'final_answer',
+        collapsible: false,
+        boundary: 'answer_start',
+        closes_group_id: 'execution-main',
+      },
+    });
+    expect(result.current.blocks[1]).toMatchObject({
+      type: 'tool_call',
+      call_id: 'call-read',
+      presentation: {
+        role: 'tool_trace',
+        collapsible: true,
+        group_id: 'execution-main',
+      },
+    });
   });
 
   it('reports a recoverable error when a stream closes before done', async () => {

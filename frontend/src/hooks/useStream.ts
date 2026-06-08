@@ -6,13 +6,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { subscribeMessageStream } from '@/lib/sse';
-import type { ContentBlock, StreamEvent } from '@/lib/types';
+import type { ContentBlock, PresentationMetadata, StreamEvent } from '@/lib/types';
 
 export type StreamStatus = 'idle' | 'streaming' | 'done' | 'error' | 'interrupted';
 
 interface StreamingBlock {
   type: ContentBlock['type'];
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   call_id?: string;
   tool_name?: string;
   arguments?: Record<string, unknown>;
@@ -20,6 +21,11 @@ interface StreamingBlock {
     | 'pending'
     | 'ok'
     | 'error'
+    | 'queued'
+    | 'publishing'
+    | 'published'
+    | 'stopped'
+    | 'not_supported'
     | 'running'
     | 'done'
     | 'partial'
@@ -41,6 +47,51 @@ interface StreamingBlock {
   error_code?: string;
   raw_definition?: string;
   [k: string]: unknown;
+}
+
+const PRESENTATION_ROLES = new Set<PresentationMetadata['role']>([
+  'execution_process',
+  'tool_trace',
+  'execution_text',
+  'artifact_evidence',
+  'agent_summary',
+  'final_answer',
+]);
+const PRESENTATION_BOUNDARIES = new Set<NonNullable<PresentationMetadata['boundary']>>([
+  'execution_start',
+  'answer_start',
+]);
+
+function presentationFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): PresentationMetadata | null {
+  const raw = metadata?.presentation;
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  const role = value.role;
+  if (typeof role !== 'string' || !PRESENTATION_ROLES.has(role as PresentationMetadata['role'])) {
+    return null;
+  }
+  const presentation: PresentationMetadata = {
+    role: role as PresentationMetadata['role'],
+    collapsible: Boolean(value.collapsible),
+  };
+  if (
+    typeof value.boundary === 'string' &&
+    PRESENTATION_BOUNDARIES.has(value.boundary as NonNullable<PresentationMetadata['boundary']>)
+  ) {
+    presentation.boundary = value.boundary as NonNullable<PresentationMetadata['boundary']>;
+  }
+  if (typeof value.group_id === 'string' && value.group_id) {
+    presentation.group_id = value.group_id;
+  }
+  if (typeof value.closes_group_id === 'string' && value.closes_group_id) {
+    presentation.closes_group_id = value.closes_group_id;
+  }
+  if (typeof value.label === 'string' && value.label) {
+    presentation.label = value.label;
+  }
+  return presentation;
 }
 
 export function useStream(
@@ -83,6 +134,7 @@ export function useStream(
               const newBlock: StreamingBlock = {
                 type: d.block_type as ContentBlock['type'],
                 agent_id: d.agent_id ?? null,
+                presentation: presentationFromMetadata(d.metadata),
               };
               if (d.block_type === 'code') {
                 newBlock.language = (d.metadata?.language as string) || 'text';
@@ -144,6 +196,30 @@ export function useStream(
                 newBlock.preview_text = (d.metadata?.preview_text as string) || null;
                 newBlock.preview_truncated = d.metadata?.preview_truncated ?? false;
                 newBlock.metadata = d.metadata?.metadata ?? {};
+              } else if (d.block_type === 'web_preview') {
+                newBlock.url = (d.metadata?.url as string) || '';
+                newBlock.title = (d.metadata?.title as string) || undefined;
+                newBlock.description = (d.metadata?.description as string) || undefined;
+              } else if (d.block_type === 'deployment_status') {
+                newBlock.deployment_id = (d.metadata?.deployment_id as string) || '';
+                newBlock.kind =
+                  d.metadata?.kind === 'source_zip' || d.metadata?.kind === 'container'
+                    ? d.metadata.kind
+                    : 'static_site';
+                newBlock.status =
+                  d.metadata?.status === 'queued' ||
+                  d.metadata?.status === 'publishing' ||
+                  d.metadata?.status === 'published' ||
+                  d.metadata?.status === 'failed' ||
+                  d.metadata?.status === 'stopped' ||
+                  d.metadata?.status === 'not_supported'
+                    ? d.metadata.status
+                    : 'failed';
+                newBlock.title = (d.metadata?.title as string) || null;
+                newBlock.url = (d.metadata?.url as string) || null;
+                newBlock.download_url = (d.metadata?.download_url as string) || null;
+                newBlock.error = (d.metadata?.error as string) || null;
+                newBlock.logs_preview = (d.metadata?.logs_preview as string) || null;
               }
               next[d.block_index] = newBlock;
               return next;
@@ -201,6 +277,7 @@ export function useStream(
               {
                 type: 'tool_call',
                 agent_id: ev.data.agent_id ?? null,
+                presentation: presentationFromMetadata(ev.data.metadata),
                 call_id: ev.data.call_id,
                 tool_name: ev.data.tool_name,
                 arguments: ev.data.tool_arguments,

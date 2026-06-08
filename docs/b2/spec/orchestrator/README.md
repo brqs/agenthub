@@ -21,6 +21,7 @@
 | [workspace-conflict.spec.md](workspace-conflict.spec.md) | Current contract | Workspace snapshot、file changes、同一 run 内冲突检测 |
 | [message-attribution.spec.md](message-attribution.spec.md) | Current contract | Orchestrator 合流 stream 中 block 归属与真实 Agent 子消息后端契约 |
 | [process-block.spec.md](process-block.spec.md) | Implemented MVP | 用户可见 structured process ContentBlock，展示公开执行事实 |
+| [presentation-collapse.spec.md](presentation-collapse.spec.md) | Planned for implementation | 执行过程折叠、成员 summary 与 Orchestrator final answer 展示标记 |
 | [agent-review-thread.spec.md](agent-review-thread.spec.md) | Implemented MVP + Live E2E Passed | Agent-to-Agent review、handoff、repair thread |
 | [native-deployment.execution.spec.md](native-deployment.execution.spec.md) | Implemented hardening MVP | Orchestrator 原生部署 tool、container E2E、deployment repair/redeploy |
 | [live-e2e-report.spec.md](live-e2e-report.spec.md) | Implemented report | 真实部署链路、deployment repair/redeploy、自建 Agent 工具白名单 E2E 证据 |
@@ -70,8 +71,9 @@
 
 1. [markdown-preservation-feedback.spec.md](markdown-preservation-feedback.spec.md)
 2. [process-block.spec.md](process-block.spec.md)
-3. [message-attribution.spec.md](message-attribution.spec.md)
-4. [memory-context.spec.md](memory-context.spec.md)
+3. [presentation-collapse.spec.md](presentation-collapse.spec.md)
+4. [message-attribution.spec.md](message-attribution.spec.md)
+5. [memory-context.spec.md](memory-context.spec.md)
 
 修改 Orchestrator 原生部署：
 
@@ -108,6 +110,13 @@
 - 2026-06-07 command fulfillment 公网 repair loop 已通过：`/tmp/agenthub_command_fulfillment_report.json`、`/tmp/agenthub_command_fulfillment_sse.jsonl`、`/tmp/agenthub_command_fulfillment_browser.json`，conversation `25ff9e75-7776-46b2-8549-babb78555177`，`passed=true`；覆盖 Codex/OpenCode runtime failure 后 fallback/repair、Orchestrator coordination review fallback 生成 `review.md`、8082 preview、browser verify 和 static release deployment。
 - 2026-06-08 02:24 E2E repair loop 已通过：同一 `command_fulfillment_cyberpunk_group_deploy` 场景 conversation `9fd3cd30-6b65-45a4-8833-dcadffd78f64`，`passed=true`；SSE `message_error.error` 不再泄露 raw runtime transcript，final summary 不早于 preview/verify/deploy 完成，container deployment smoke 在当时 worker 默认关闭配置下返回受控 `not_supported`。
 - 2026-06-08 context follow-up repair loop 已通过：`orchestrator_context_followup_repair` 场景 conversation `7488f39a-4eda-4f06-b21a-4540a35eb89a`，run `230826eb-7e99-4ae2-961a-31ffc6e3a84b`，`passed=true`；追问“生成了吗 / 预览地址是什么 / 浏览器验收通过了吗 / 改了哪些文件 / 继续完成缺失的部署”均走 evidence answer，不创建子 Agent message，不泄露 planner/debug/raw runtime。
+- 2026-06-08 presentation collapse markers smoke 已通过：`presentation_collapse_markers_smoke`
+  场景 conversation `35d4a022-684f-4a0d-8650-58f56ad9be89`，run
+  `a75b19fd-2e76-4303-99ab-2e3a722c3af9`，`passed=true`；SSE 与 persisted
+  ContentBlock 均包含 `presentation.role`，覆盖 `execution_start` / `answer_start`、
+  child `agent_summary`、父 Orchestrator `final_answer` 和可折叠 execution group，且可见
+  text 无内部 trace 或 workspace 绝对路径。远端前端静态资源不在当前后端主机，本轮未做远端
+  前端发布；前端折叠消费由本地 Vitest / `tsc --noEmit` 覆盖。
 
 ---
 

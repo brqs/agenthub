@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from app.agents.orchestrator._internal.execution.presentation import (
     presented_response_text,
@@ -18,6 +18,9 @@ from app.agents.orchestrator._internal.execution.process_block import (
     process_step_delta,
     task_result_step,
     task_running_step,
+)
+from app.agents.orchestrator._internal.presentation_markers import (
+    final_answer_presentation,
 )
 from app.agents.orchestrator._internal.react.decision import _react_decision
 from app.agents.orchestrator._internal.react.graph import _apply_react_decision
@@ -43,13 +46,23 @@ RunTask = Callable[
     ],
     AsyncIterator[tuple[StreamChunk, int]],
 ]
-TextBlockWithNext = Callable[[int, str], Iterable[tuple[StreamChunk, int]]]
 SummaryText = Callable[[list[SubTask], Mapping[str, TaskState], OrchestratorRunContext], str]
 FormatTaskResultContext = Callable[[str, TaskResult, int], str]
 LatestUserRequest = Callable[[list[ChatMessage]], str]
 PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
 AgentIdList = Callable[[object], list[str]]
 ErrorReason = Callable[[StreamChunk], str]
+
+
+class TextBlockWithNext(Protocol):
+    def __call__(
+        self,
+        block_index: int,
+        text: str,
+        *,
+        agent_id: str = "orchestrator",
+        presentation: Mapping[str, Any] | None = None,
+    ) -> Iterable[tuple[StreamChunk, int]]: ...
 
 
 async def run_react_loop(
@@ -246,7 +259,11 @@ async def run_react_loop(
     process_end = process_block_end(config, process_block_index)
     if process_end is not None:
         yield process_end, next_block_index
-    for chunk, updated_block_index in text_block_with_next(next_block_index, presented_summary):
+    for chunk, updated_block_index in text_block_with_next(
+        next_block_index,
+        presented_summary,
+        presentation=final_answer_presentation(),
+    ):
         yield chunk, updated_block_index
 
 def react_enabled(config: Mapping[str, Any]) -> bool:
