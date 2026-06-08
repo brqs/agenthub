@@ -160,7 +160,7 @@
   }
 
   .text-muted {
-    @apply text-slate-500 dark:text-slate-500;
+    @apply text-slate-500 dark:text-slate-400;
   }
 
   .interactive-muted {
@@ -353,8 +353,19 @@
     color: #475569;
   }
 
+  html:not(.dark) .text-brand-light {
+    color: #4338ca;
+  }
+
   html:not(.dark) .text-white:not([class*='bg-brand']):not([class*='bg-agent']) {
     color: #020617;
+  }
+
+  html:not(.dark) .user-message-bubble .text-white,
+  html:not(.dark) .user-message-bubble .text-slate-100,
+  html:not(.dark) .user-message-bubble .text-slate-200,
+  html:not(.dark) .user-message-bubble .text-slate-300 {
+    color: #ffffff;
   }
 
   html:not(.dark) .text-amber-100 {
@@ -377,6 +388,25 @@
   }
 
   html:not(.dark) .placeholder\:text-slate-600::placeholder {
+    color: #94a3b8;
+  }
+
+  html.dark .text-brand,
+  html.dark .dark\:text-brand {
+    color: #a5b4fc;
+  }
+
+  html.dark .text-brand-light,
+  html.dark .dark\:text-brand-light {
+    color: #a5b4fc;
+  }
+
+  html.dark .text-slate-500,
+  html.dark .dark\:text-slate-500,
+  html.dark .text-slate-600,
+  html.dark .dark\:text-slate-600,
+  html.dark .text-gray-500,
+  html.dark .dark\:text-gray-500 {
     color: #94a3b8;
   }
 

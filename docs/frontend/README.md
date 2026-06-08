@@ -37,6 +37,12 @@
 | [capacitor-shell](spec/frontend-capacitor-shell.spec.md) | Capacitor v8 iOS / Android 壳层、HTTPS 构建约束与原生桥接 |
 | [file-upload](spec/frontend-file-upload.spec.md) | Web / iOS / Android 文件上传、附件队列、AttachmentBlock 和 Workspace 导入 UX |
 
+## 相关 Skill
+
+| Skill | 何时使用 |
+|---|---|
+| [foreground-contrast-audit](../ai-skills/foreground-contrast-audit/SKILL.md) | 修改前景色、文本 token、深浅色主题可读性或逐组件对比度验收时使用 |
+
 ## 下一阶段前端职责
 
 - 打断对话：当前会话 streaming 时将发送按钮切换为 stop，展示 `interrupted` 终态，不把用户打断渲染成错误/重试。
