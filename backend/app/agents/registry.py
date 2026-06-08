@@ -24,6 +24,7 @@ from app.services.agent_asset_service import (
     append_agent_asset_context,
     build_agent_asset_context,
 )
+from app.services.model_accounts import resolve_agent_model_config
 
 # provider string → adapter class
 PROVIDER_MAP: dict[str, type[BaseAgentAdapter]] = {
@@ -74,7 +75,7 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
         raise AgentNotFoundError(f"Agent {agent_id!r} not found")
 
     system_prompt = append_agent_asset_context(
-        agent.system_prompt,
+        _append_builder_profile_context(agent.system_prompt, agent.config or {}),
         await build_agent_asset_context(db, agent),
     )
 
@@ -100,6 +101,8 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
         )
 
     adapter_cls, default_config = _adapter_class_and_config(agent)
+    if agent.provider == "builtin":
+        default_config = await resolve_agent_model_config(db, agent)
     return adapter_cls(
         agent_id=agent.id,
         system_prompt=system_prompt,
@@ -127,3 +130,36 @@ def _legacy_builtin_config(provider: str, config: dict[str, Any]) -> dict[str, o
     migrated.setdefault("max_iterations", 10)
     migrated.setdefault("mcp_servers", [])
     return migrated
+
+
+def _append_builder_profile_context(
+    system_prompt: str | None,
+    config: dict[str, Any],
+) -> str | None:
+    profile = config.get("builder_profile")
+    if not isinstance(profile, dict):
+        return system_prompt
+    lines = ["Custom Agent profile:"]
+    _append_profile_line(lines, "Role", profile.get("role"))
+    _append_profile_line(lines, "Purpose", profile.get("purpose"))
+    _append_profile_line(lines, "Tone", profile.get("tone"))
+    _append_profile_line(lines, "Clarification policy", profile.get("clarification_policy"))
+    _append_profile_list(lines, "Goals", profile.get("goals"))
+    _append_profile_list(lines, "Do not do", profile.get("do_not_do"))
+    _append_profile_line(lines, "Output style", profile.get("output_style"))
+    context = "\n".join(lines)
+    base = (system_prompt or "").strip()
+    return f"{base}\n\n{context}" if base else context
+
+
+def _append_profile_line(lines: list[str], label: str, value: object) -> None:
+    if isinstance(value, str) and value.strip():
+        lines.append(f"- {label}: {value.strip()}")
+
+
+def _append_profile_list(lines: list[str], label: str, value: object) -> None:
+    if not isinstance(value, list):
+        return
+    items = [str(item).strip() for item in value if isinstance(item, str) and item.strip()]
+    if items:
+        lines.append(f"- {label}: " + "; ".join(items[:8]))

@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     anthropic_base_url: str = Field(default="")
     deepseek_base_url: str = Field(default="https://api.deepseek.com")
     openai_base_url: str = Field(default="")
+    model_account_encryption_key: str = Field(default="")
+    allow_user_stdio_mcp_health_checks: bool = Field(default=False)
 
     # ─── Context Compression ───
     context_compression_mode: str = Field(default="hybrid")

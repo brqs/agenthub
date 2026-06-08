@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AgentDetailPanel } from './AgentDetailPanel';
 import type { Agent } from '@/lib/types';
 
@@ -17,7 +18,15 @@ const agent: Agent = {
 describe('AgentDetailPanel', () => {
   it('renders and closes its mobile presentation', () => {
     const onClose = vi.fn();
-    render(<AgentDetailPanel agent={agent} presentation="mobile" onClose={onClose} />);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AgentDetailPanel agent={agent} presentation="mobile" onClose={onClose} />
+      </QueryClientProvider>,
+    );
 
     expect(screen.getByText('Agent 详情')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '关闭 Agent 详情' }));

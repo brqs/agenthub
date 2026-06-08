@@ -1050,6 +1050,51 @@ describe('chatStore', () => {
     ).toEqual([userMessage.id, agentMessage.id]);
   });
 
+  it('restores active stream snapshots when route remount leaves local messages empty', () => {
+    const userMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000132',
+      conversation_id: 'conv-active-route-remount',
+      role: 'user',
+      created_at: '2026-05-31T00:00:00.000Z',
+      content: [{ type: 'text', text: 'build a fish game' }],
+    }) as DemoMessage;
+    const agentMessage = createMessage({
+      id: '00000000-0000-4000-8000-000000000133',
+      conversation_id: 'conv-active-route-remount',
+      role: 'agent',
+      agent_id: 'orchestrator',
+      reply_to_id: userMessage.id,
+      status: 'streaming',
+      created_at: '2026-05-31T00:00:01.000Z',
+      content: [{ type: 'text', text: 'analyzing' }],
+    }) as DemoMessage;
+
+    useChatStore.setState((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        'conv-active-route-remount': [userMessage, agentMessage],
+      },
+    }));
+    useChatStore.getState().startActiveStream(agentMessage);
+    useChatStore.setState((state) => ({
+      messagesByConversation: {
+        ...state.messagesByConversation,
+        'conv-active-route-remount': [],
+      },
+    }));
+
+    useChatStore.getState().hydrateMessages('conv-active-route-remount', []);
+
+    expect(
+      useChatStore
+        .getState()
+        .messagesByConversation['conv-active-route-remount'].map((message) => message.id),
+    ).toEqual([userMessage.id, agentMessage.id]);
+    expect(
+      useChatStore.getState().messagesByConversation['conv-active-route-remount'][1].content,
+    ).toEqual([{ type: 'text', text: 'analyzing' }]);
+  });
+
   it('keeps the parent user message when hydration only includes the active stream', () => {
     const userMessage = createMessage({
       id: '00000000-0000-4000-8000-000000000127',

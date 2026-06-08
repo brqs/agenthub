@@ -7,6 +7,7 @@ from app.models.conversation_memory import ConversationMemory
 from app.models.memory import Memory, MemoryMount
 from app.models.message import Message
 from app.models.message_queue import MessageQueueEntry
+from app.models.model_account import UserModelAccount
 from app.models.orchestrator_memory import (
     OrchestratorRun,
     OrchestratorRunEvent,
@@ -35,6 +36,7 @@ __all__ = [
     "MessageQueueEntry",
     "Memory",
     "MemoryMount",
+    "UserModelAccount",
     "ConversationTurnControl",
     "OrchestratorRun",
     "OrchestratorRunEvent",
