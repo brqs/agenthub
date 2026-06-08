@@ -174,7 +174,13 @@ class ClarificationQuestion(BaseModel):
 class ClarificationBlock(BaseModel):
     type: Literal["clarification"] = "clarification"
     agent_id: str | None = None
-    mode: Literal["auto", "grill_me", "grill_with_docs", "setup_matt_pocock_skills"]
+    mode: Literal[
+        "auto",
+        "requirement_alignment",
+        "grill_me",
+        "grill_with_docs",
+        "setup_matt_pocock_skills",
+    ]
     title: str
     status: Literal["waiting", "resolved", "cancelled"]
     current_question: ClarificationQuestion | None = None
@@ -237,6 +243,11 @@ ContentBlock = Annotated[
 # ─── Message DTOs ────────────────────────────────────────────────
 MessageRole = Literal["user", "agent", "system"]
 MessageStatus = Literal["pending", "streaming", "done", "error", "interrupted", "queued"]
+RequirementAlignmentMode = Literal["off", "strict"]
+
+
+class TurnOptions(BaseModel):
+    requirement_alignment: RequirementAlignmentMode = "off"
 
 
 class MessageOut(BaseModel):
@@ -252,12 +263,14 @@ class MessageOut(BaseModel):
     is_pinned: bool = False
     created_at: datetime
     queue_position: int | None = None
+    turn_options: TurnOptions = Field(default_factory=TurnOptions)
 
 
 class SendMessageRequest(BaseModel):
     content: list[ContentBlock] = Field(..., min_length=1)
     target_agent_id: str | None = None
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    requirement_alignment: RequirementAlignmentMode = "off"
 
 
 class SendMessageResponse(BaseModel):
@@ -269,11 +282,13 @@ class QueueMessageRequest(BaseModel):
     content: list[ContentBlock] = Field(..., min_length=1)
     target_agent_id: str | None = None
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    requirement_alignment: RequirementAlignmentMode = "off"
 
 
 class UpdateQueuedMessageRequest(BaseModel):
     content: list[ContentBlock] | None = Field(default=None, min_length=1)
     target_agent_id: str | None = None
+    requirement_alignment: RequirementAlignmentMode | None = None
 
 
 class QueueMessageResponse(BaseModel):

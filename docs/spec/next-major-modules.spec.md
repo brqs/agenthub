@@ -33,6 +33,17 @@ Phase 1 of Codex-style "submit while running" is now an implemented contract:
 - The same conversation remains strictly serial: one active agent response at a time. Different conversations can continue streaming independently.
 - Phase 1 is not "guide current thinking"; queued text is the next user turn and is not injected into the currently running agent context.
 
+## 2026-06-08 Implementation Note: 需求对齐
+
+The former automatic clarification gate is now a user-controlled **需求对齐** turn option:
+
+- The input toggle defaults to off per conversation. Normal chat, debate, analysis, and build requests proceed without automatic questioning unless the user enables it.
+- `SendMessageRequest`, `QueueMessageRequest`, and queued-message updates can carry `requirement_alignment: "off" | "strict"`.
+- B1 persists the selected turn option in `messages.turn_options`; queued messages keep the option through edit, hydration, and dispatch.
+- Strict mode asks at most one high-value question at a time before Orchestrator planning, and waits for explicit confirmation before creating task cards or starting runtimes.
+- Recommendations are scenario-aware. Debate/discussion requests should recommend conversational output and no files; frontend/game requests can recommend static frontend artifacts; document, analysis, and code-change requests use their own delivery defaults.
+- Slash commands such as `/grill-me`, `/grill-with-docs`, and `/setup-matt-pocock-skills` remain explicit advanced clarification flows and do not depend on the toggle.
+
 ## 2026-06-07 Implementation Note: Conversation Control Plane
 
 Phase 2/3 are now implemented as a conversation control plane layered on top of interrupt and queue:
@@ -199,6 +210,11 @@ Manual smoke:
 - Start long task, interrupt, then send a correction. New turn should start normally.
 
 ## 3. Module B - Web/iOS/Android File Upload
+
+Memory alignment note: upload implementation must also follow
+[upload-memory-alignment.spec.md](upload-memory-alignment.spec.md). That document is the
+cross-team contract for `AttachmentBlock`, `AttachmentContext`, conversation memory
+compression, Orchestrator structured memory, and workspace import events.
 
 ### 3.1 Product Goal
 

@@ -205,20 +205,29 @@ async def test_queue_message_can_be_updated_and_deleted(client: AsyncClient) -> 
     queue_response = await client.post(
         f"/api/v1/conversations/{conversation_id}/queued-messages",
         headers=headers,
-        json={"content": [{"type": "text", "text": "second"}]},
+        json={
+            "content": [{"type": "text", "text": "second"}],
+            "requirement_alignment": "strict",
+        },
     )
     assert queue_response.status_code == 201, queue_response.text
     queued = queue_response.json()["queued_message"]
     assert queued["status"] == "queued"
+    assert queued["turn_options"]["requirement_alignment"] == "strict"
     assert queue_response.json()["queue_position"] == 1
 
     update_response = await client.patch(
         f"/api/v1/queued-messages/{queued['id']}",
         headers=headers,
-        json={"content": [{"type": "text", "text": "second edited"}]},
+        json={
+            "content": [{"type": "text", "text": "second edited"}],
+            "requirement_alignment": "off",
+        },
     )
     assert update_response.status_code == 200, update_response.text
-    assert update_response.json()["queued_message"]["content"][0]["text"] == "second edited"
+    updated_queued = update_response.json()["queued_message"]
+    assert updated_queued["content"][0]["text"] == "second edited"
+    assert updated_queued["turn_options"]["requirement_alignment"] == "off"
 
     delete_response = await client.delete(
         f"/api/v1/queued-messages/{queued['id']}",
@@ -246,10 +255,15 @@ async def test_dispatch_next_queued_message_after_terminal_turn(client: AsyncCli
     queue_response = await client.post(
         f"/api/v1/conversations/{conversation_id}/queued-messages",
         headers=headers,
-        json={"content": [{"type": "text", "text": "queued next"}]},
+        json={
+            "content": [{"type": "text", "text": "queued next"}],
+            "requirement_alignment": "strict",
+        },
     )
     assert queue_response.status_code == 201, queue_response.text
-    queued_user_id = queue_response.json()["queued_message"]["id"]
+    queued_message = queue_response.json()["queued_message"]
+    queued_user_id = queued_message["id"]
+    assert queued_message["turn_options"]["requirement_alignment"] == "strict"
 
     async with SessionFactory() as db:
         active_agent = await db.get(Message, UUID(active_agent_id))
@@ -265,6 +279,7 @@ async def test_dispatch_next_queued_message_after_terminal_turn(client: AsyncCli
         assert dispatch.agent_message.agent_id == agent_id
         assert dispatch.agent_message.reply_to_id == UUID(queued_user_id)
         assert dispatch.agent_message.status == "pending"
+        assert dispatch.agent_message.turn_options["requirement_alignment"] == "strict"
         queue_entry = (
             await db.execute(
                 select(MessageQueueEntry).where(

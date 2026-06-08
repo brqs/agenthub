@@ -50,6 +50,7 @@ services:
       DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL: ${DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL:-http://host.docker.internal}
       AGENTHUB_CLAUDE_AUTH_DIR: /root/.agenthub/claude-auth
       AGENTHUB_OPENCODE_AUTH_DIR: /root/.local/share/opencode
+      UPLOAD_STORAGE_DIR: ${UPLOAD_STORAGE_DIR:-/app/data/uploads}
     ports:
       - "8000:8000"
     volumes:
@@ -60,6 +61,7 @@ services:
       - ./backend/alembic.ini:/app/alembic.ini
       - ./shared:/shared:ro
       - ./workspaces:/workspaces
+      - uploads-data:/app/data/uploads
       - claude-state:/root/.agenthub/claude-auth
       - opencode-state:/root/.local/share/opencode
       # Trusted local deployment mode: let backend run Docker containers via host Docker.
@@ -78,5 +80,6 @@ services:
 
 volumes:
   pgdata:
+  uploads-data:
   claude-state:
   opencode-state:

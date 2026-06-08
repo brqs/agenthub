@@ -114,6 +114,7 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "orchestrator_memory_context_max_chars": 6000,
     "clarification_gate_enabled": True,
     "auto_clarification_max_questions": 3,
+    "requirement_alignment_llm_enabled": True,
     "grill_max_questions": 8,
     "workspace_docs_enabled": True,
     "orchestrator_tool_calling_enabled": False,

@@ -1995,6 +1995,18 @@ Deployment 是一次可追踪发布记录。Preview 是临时开发预览，Depl
 - `queued_next.user_message` replaces the queued bubble with a normal user message; `queued_next.agent_message` is the next pending agent response to stream.
 - Queued messages are next-turn intent. They are not appended to the current runtime context and do not enable parallel agent turns inside the same conversation.
 
+## 2026-06-08 Requirement Alignment API Addendum
+
+`shared/openapi.yaml` is the machine-readable source of truth for this contract.
+
+- `SendMessageRequest`, `QueueMessageRequest`, and `UpdateQueuedMessageRequest` now accept `requirement_alignment?: "off" | "strict"`.
+- The default is `off`; Orchestrator automatic clarification must not trigger unless the turn option is `strict`.
+- `MessageOut.turn_options.requirement_alignment` exposes the persisted value so refresh/hydrate can keep queued bubble labels and agent turns consistent.
+- B1 stores the option in `messages.turn_options` for both the user message and its paired agent message.
+- Queued user messages preserve the option through create/edit/dispatch; the dispatched agent message receives the same `turn_options`.
+- `ClarificationBlock.mode` now includes `requirement_alignment`; frontend should render it as `需求对齐`.
+- Explicit slash commands (`/grill-me`, `/grill-with-docs`, `/setup-matt-pocock-skills`) remain independent of this option.
+
 ## 2026-06-07 Conversation Control Plane API Addendum
 
 `shared/openapi.yaml` is the machine-readable source of truth for this contract.

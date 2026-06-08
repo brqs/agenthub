@@ -653,7 +653,7 @@ def _process_block_from_metadata(meta: Mapping[str, Any]) -> dict[str, Any]:
 def _clarification_block_from_metadata(meta: Mapping[str, Any]) -> dict[str, Any]:
     block: dict[str, Any] = {
         "mode": _clarification_mode(meta.get("mode")),
-        "title": str(meta.get("title") or "需求澄清"),
+        "title": str(meta.get("title") or "需求对齐"),
         "status": _clarification_status(meta.get("status")),
         "questions": [],
         "metadata": meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {},
@@ -695,7 +695,13 @@ def _clarification_question(raw_question: object) -> dict[str, Any] | None:
 
 
 def _clarification_mode(value: object) -> str:
-    if value in {"auto", "grill_me", "grill_with_docs", "setup_matt_pocock_skills"}:
+    if value in {
+        "auto",
+        "requirement_alignment",
+        "grill_me",
+        "grill_with_docs",
+        "setup_matt_pocock_skills",
+    }:
         return str(value)
     return "auto"
 

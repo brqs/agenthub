@@ -501,6 +501,7 @@ async def _runtime_event_generator(
         last_activity_at = started_at
         stream_config = {
             **(stream_config or {}),
+            "turn_options": message.turn_options or {},
             "runtime_context": {
                 "conversation_id": str(message.conversation_id),
                 "agent_message_id": str(message.id),

@@ -313,6 +313,17 @@ Local dev:
 data/uploads/<user_id>/<upload_id>/<safe_filename>
 ```
 
+Docker Compose local dev:
+
+```text
+UPLOAD_STORAGE_DIR=/app/data/uploads
+uploads-data:/app/data/uploads
+```
+
+The `uploads-data` named volume is required so uploaded message attachments
+survive backend container rebuilds. Do not store uploads inside the mutable
+backend image layer.
+
 Production:
 
 - Use an object-storage-compatible driver behind an `UploadStorage` interface.

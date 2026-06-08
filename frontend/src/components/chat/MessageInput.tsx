@@ -4,6 +4,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  ListChecks,
   MessageCircleQuestion,
   MoreHorizontal,
   Paperclip,
@@ -20,7 +21,7 @@ import { AgentMentionPicker } from './AgentMentionPicker';
 import { extractApiError } from '@/lib/api';
 import { uploadFile } from '@/lib/adapters/uploads';
 import type { DemoConversation } from '@/lib/mockData';
-import type { Agent, AttachmentPreview, UploadOut } from '@/lib/types';
+import type { Agent, AttachmentPreview, RequirementAlignmentMode, UploadOut } from '@/lib/types';
 
 export interface MentionInsertRequest {
   agentId: string;
@@ -80,8 +81,16 @@ export function MessageInput({
   mentionInsertRequest = null,
 }: {
   conversation: DemoConversation;
-  onSend: (text: string, attachmentIds?: string[]) => void | Promise<void>;
-  onQueue?: (text: string, attachmentIds?: string[]) => void | Promise<void>;
+  onSend: (
+    text: string,
+    attachmentIds?: string[],
+    requirementAlignment?: RequirementAlignmentMode,
+  ) => void | Promise<void>;
+  onQueue?: (
+    text: string,
+    attachmentIds?: string[],
+    requirementAlignment?: RequirementAlignmentMode,
+  ) => void | Promise<void>;
   isSending?: boolean;
   isQueueing?: boolean;
   isOffline?: boolean;
@@ -90,7 +99,10 @@ export function MessageInput({
   onInterrupt?: () => void | Promise<void>;
   onGuidance?: (text: string) => void | Promise<void>;
   onSideChat?: (text: string) => void | Promise<void>;
-  onStopAndRun?: (text: string) => void | Promise<void>;
+  onStopAndRun?: (
+    text: string,
+    requirementAlignment?: RequirementAlignmentMode,
+  ) => void | Promise<void>;
   agents?: Agent[];
   mentionInsertRequest?: MentionInsertRequest | null;
 }) {
@@ -98,6 +110,8 @@ export function MessageInput({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadItems, setUploadItems] = useState<LocalUploadItem[]>([]);
   const [controlMenuOpen, setControlMenuOpen] = useState(false);
+  const [requirementAlignment, setRequirementAlignment] =
+    useState<RequirementAlignmentMode>('off');
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const uploadControllers = useRef<Map<string, AbortController>>(new Map());
@@ -126,6 +140,17 @@ export function MessageInput({
   const hasBlockingAttachment = uploadItems.some((item) => item.status !== 'ready');
   const canSubmitMessage = hasText || hasReadyAttachment;
 
+  useEffect(() => {
+    const stored = window.localStorage.getItem(requirementAlignmentStorageKey(conversation.id));
+    setRequirementAlignment(stored === 'strict' ? 'strict' : 'off');
+  }, [conversation.id]);
+
+  function toggleRequirementAlignment() {
+    const next = requirementAlignment === 'strict' ? 'off' : 'strict';
+    setRequirementAlignment(next);
+    window.localStorage.setItem(requirementAlignmentStorageKey(conversation.id), next);
+  }
+
   async function submit() {
     const value = text.trim();
     if ((!value && !hasReadyAttachment) || isUnavailable) return;
@@ -138,15 +163,15 @@ export function MessageInput({
       if (isStreaming) {
         if (!onQueue) return;
         if (readyAttachmentIds.length) {
-          await onQueue(value, readyAttachmentIds);
+          await onQueue(value, readyAttachmentIds, requirementAlignment);
         } else {
-          await onQueue(value);
+          await onQueue(value, undefined, requirementAlignment);
         }
       } else {
         if (readyAttachmentIds.length) {
-          await onSend(value, readyAttachmentIds);
+          await onSend(value, readyAttachmentIds, requirementAlignment);
         } else {
-          await onSend(value);
+          await onSend(value, undefined, requirementAlignment);
         }
       }
       setText('');
@@ -175,7 +200,11 @@ export function MessageInput({
     if (!handler) return;
     setSubmitError(null);
     try {
-      await handler(value);
+      if (action === 'stop_and_run') {
+        await (handler as typeof onStopAndRun)?.(value, requirementAlignment);
+      } else {
+        await handler(value);
+      }
       setText('');
       setControlMenuOpen(false);
     } catch (error) {
@@ -423,6 +452,28 @@ export function MessageInput({
         >
           <Paperclip className="h-4 w-4" />
         </button>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={requirementAlignment === 'strict'}
+          onClick={toggleRequirementAlignment}
+          disabled={isOffline}
+          className={[
+            'inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50',
+            requirementAlignment === 'strict'
+              ? 'border-brand/40 bg-brand/10 text-brand dark:border-brand-light/40 dark:bg-brand-light/10 dark:text-brand-light'
+              : 'border-slate-300 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white',
+          ].join(' ')}
+          title={
+            requirementAlignment === 'strict'
+              ? '需求对齐已开启：发送前会先确认关键边界'
+              : '开启需求对齐'
+          }
+          aria-label="需求对齐"
+        >
+          <ListChecks className="h-4 w-4" />
+          <span className="hidden sm:inline">需求对齐</span>
+        </button>
         <textarea
           ref={textareaRef}
           value={text}
@@ -533,6 +584,10 @@ function createLocalUploadItem(file: File): LocalUploadItem {
     status: 'queued',
     progress: 0,
   };
+}
+
+function requirementAlignmentStorageKey(conversationId: string) {
+  return `agenthub:requirement-alignment:${conversationId}`;
 }
 
 function localItemFromUpload(item: LocalUploadItem, upload: UploadOut): LocalUploadItem {
