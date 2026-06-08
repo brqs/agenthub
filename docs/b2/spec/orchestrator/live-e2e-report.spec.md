@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
 > 状态：Passed
-> 最后更新：2026-06-07
+> 最后更新：2026-06-08
 
 ---
 
@@ -72,6 +72,11 @@ instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`
 `message_start` 和 2 个 terminal lifecycle event，最终持久化 child messages 均非 Orchestrator
 且没有停留在 `streaming`。本轮只验收后端 SSE / persistence 契约，不验收前端真实群聊 UI。
 
+2026-06-08 02:24 E2E repair loop 结论：`command_fulfillment_cyberpunk_group_deploy`
+公网复验 `passed=true`。本轮修复并验证了 SSE `message_error.error` 清洗、最终 summary 不早于
+preview / browser verify / deployment 输出、容器化部署按钮可发起受控请求且生产默认返回
+`not_supported`。
+
 ---
 
 ## 2. Case Results
@@ -91,6 +96,32 @@ instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`
 | Case 9 - True Agent Group Messages | group + Orchestrator 运行中为实际负责 Agent 创建独立 child message；SSE 输出 `message_start` / `message_done` / `message_error` 与子 `message_id`；父 Orchestrator final text 无内部 trace | passed |
 | Case 10 - Generic Agent Fallback Matrix | Codex / Claude Code / OpenCode Helper 任一首选 Agent 失败后，Orchestrator 自动切换到可用 fallback Agent；失败与成功 attempt 分别写入独立 child message | passed |
 | Case 11 - Command Fulfillment Cyberpunk Group Deploy | 显式文档/代码/Diff/多 Agent/review/preview/browser verify/deploy 要求逐项履约；Codex/OpenCode 真实失败后 fallback/repair，最终生成 `review.md` 并发布静态站点 | passed |
+
+2026-06-08 Case 11 repair loop 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: command_fulfillment_cyberpunk_group_deploy
+report: /tmp/agenthub_command_fulfillment_report.json
+sse: /tmp/agenthub_command_fulfillment_sse.jsonl
+browser_report: /tmp/agenthub_command_fulfillment_browser.json
+conversation_id: 9fd3cd30-6b65-45a4-8833-dcadffd78f64
+user_message_id: 06db1492-ac3c-43b3-9460-a3c87d15ac84
+agent_message_id: 5e31f61d-bc85-490c-8b91-8c6171d7baa0
+passed: true
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/j1k19e_7KaHDGrY-dF9s2blPdUIYVucC/index.html
+workspace: planning.md, index.html, styles.css, app.js, diff.md, review.md
+message_error_no_forbidden_terms: true
+command_final_text_no_contradictory_completion: true
+container_deployment_smoke_status: not_supported
+container_deployment_smoke_http_status: 201
+backend_pid: 3829008 -> 3840267
+alembic_current: 9f012abcde34 (head), a0b1c2d3e4f5 (head)
+health: local ok, public ok
+seed_agents: not required
+```
 
 Case 5 证据：
 
@@ -1065,8 +1096,9 @@ passed: true
 - 新增 `container_deployment_smoke_request_created`：同一 workspace 额外发起
   `create_deployment(kind="container")`，生产默认关闭容器 worker 时应返回受控
   `not_supported`，demo worker 启用时可进入 queued / published / failed 终态。
-- 本条为 repair loop 计划和本地实现记录；公网重跑后的 conversation / report / SSE
-  证据在执行后追加。
+- 公网重跑已通过：conversation `9fd3cd30-6b65-45a4-8833-dcadffd78f64`，
+  report `/tmp/agenthub_command_fulfillment_report.json`，SSE
+  `/tmp/agenthub_command_fulfillment_sse.jsonl`，`passed=true`。
 
 ---
 

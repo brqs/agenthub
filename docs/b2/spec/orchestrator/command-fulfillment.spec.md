@@ -1,7 +1,7 @@
 # Orchestrator Command Fulfillment Spec
 
 > 状态：Backend MVP implemented
-> 最后更新：2026-06-07
+> 最后更新：2026-06-08
 > 范围：Orchestrator-routed group task 的显式命令履约跟踪、平台动作闭环和最终回复不误报。
 
 ## 1. 目标
@@ -96,11 +96,25 @@ Backend targeted tests 覆盖：
 2026-06-08 repair hardening 补充：
 
 - `message_error.error` 也纳入 visible sanitizer / live E2E forbidden term 检查，避免前端直接渲染 raw Codex/OpenCode runtime transcript。
+- sanitizer 覆盖 Codex/OpenCode CLI 原始输出中的 workspace path、`OpenAI Codex`、`workdir:`、`approval:`、`sandbox:`、`UnknownError`、`external_runtime_error` 等内部痕迹；run detail 仍保留审计证据。
 - `command_fulfillment_cyberpunk_group_deploy` hard checks 新增：
   - `message_error_no_forbidden_terms`
   - `command_final_text_no_contradictory_completion`
   - `container_deployment_smoke_request_created`
 - 容器化部署 smoke 使用同一个 workspace deployment API 发起 `kind="container"` 请求；生产默认关闭容器 worker 时应得到可解释的 `not_supported`，而不是前端按钮静默不可点击。
+
+2026-06-08 公网 repair loop 通过：
+
+- conversation：`9fd3cd30-6b65-45a4-8833-dcadffd78f64`
+- report：`/tmp/agenthub_command_fulfillment_report.json`
+- SSE：`/tmp/agenthub_command_fulfillment_sse.jsonl`
+- browser：`/tmp/agenthub_command_fulfillment_browser.json`
+- `passed=true`
+- workspace：`planning.md`、`index.html`、`styles.css`、`app.js`、`diff.md`、`review.md`
+- preview：`http://111.229.151.159:8082/index.html`
+- static release：`http://111.229.151.159:8000/releases/j1k19e_7KaHDGrY-dF9s2blPdUIYVucC/index.html`
+- `message_error_no_forbidden_terms=true`
+- container smoke：HTTP `201`，status `not_supported`，符合生产默认关闭容器 worker 的安全策略。
 
 2026-06-07 公网 E2E `command_fulfillment_cyberpunk_group_deploy` 已通过：
 

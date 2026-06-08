@@ -4475,7 +4475,7 @@ def main() -> None:
                         static_response.status_code == 200
                     )
                 else:
-                report["checks"]["command_static_site_url_200"] = False
+                    report["checks"]["command_static_site_url_200"] = False
             else:
                 report["checks"]["command_static_site_url_200"] = False
             command_parent_visible_text = visible_agent_text(content_blocks)

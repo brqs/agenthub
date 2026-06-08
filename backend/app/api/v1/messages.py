@@ -8,6 +8,7 @@ TODO(B1):
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID
@@ -183,7 +184,7 @@ async def _get_active_agent_message_for_control(
     return msg
 
 
-def _content_text(content: list[object]) -> str:
+def _content_text(content: Sequence[object]) -> str:
     parts: list[str] = []
     for block in content:
         value = block.model_dump() if hasattr(block, "model_dump") else block

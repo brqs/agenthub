@@ -2051,5 +2051,64 @@ agent_fallback_codex_unavailable: planned=codex-helper, final=claude-code, passe
 5. Live E2E 脚本新增 hard checks：`message_error_no_forbidden_terms`、`command_final_text_no_contradictory_completion`、`container_deployment_smoke_request_created`。
 6. 文档已更新：`command-fulfillment.spec.md`、`native-deployment.execution.spec.md`、`live-e2e-report.spec.md`、`b2-pdf-gap-todo.spec.md` 和本协作日志。
 
-### 待验证
-本轮完成代码与文档修复后，需要按 repair loop 重启后端并重跑 `command_fulfillment_cyberpunk_group_deploy` 公网 E2E；通过后把最新 conversation / report / SSE / browser evidence 追加到 live E2E report。
+### 验证
+
+本地门禁：
+
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_orchestrator_quality_gate.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_live_e2e_script.py \
+  tests/test_workspace_api.py -q
+# 254 passed
+
+uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts
+# passed
+
+uv run python -m mypy app/agents app/api/v1 app/schemas
+# passed
+
+pnpm test -- --run src/components/agents/RightAgentPanel.test.tsx \
+  src/components/blocks/DeploymentStatusBlock.test.tsx
+# 21 passed
+
+pnpm exec tsc --noEmit
+# passed
+
+git diff --check
+# passed
+```
+
+部署与公网 evidence：
+
+```text
+old_backend_pid: 3829008
+new_backend_pid: 3840267
+seed_agents: not required
+alembic_current: 9f012abcde34 (head), a0b1c2d3e4f5 (head)
+local_health: {"status":"ok"}
+public_health: {"status":"ok"}
+
+scenario: command_fulfillment_cyberpunk_group_deploy
+base_url: http://111.229.151.159:8000
+conversation_id: 9fd3cd30-6b65-45a4-8833-dcadffd78f64
+user_message_id: 06db1492-ac3c-43b3-9460-a3c87d15ac84
+agent_message_id: 5e31f61d-bc85-490c-8b91-8c6171d7baa0
+report: /tmp/agenthub_command_fulfillment_report.json
+sse: /tmp/agenthub_command_fulfillment_sse.jsonl
+browser_report: /tmp/agenthub_command_fulfillment_browser.json
+passed: true
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/j1k19e_7KaHDGrY-dF9s2blPdUIYVucC/index.html
+message_error_no_forbidden_terms: true
+command_final_text_no_contradictory_completion: true
+container_deployment_smoke_status_code: 201
+container_deployment_smoke_status: not_supported
+```
+
+### 经验
+这次失败点不在任务能力本身，而在“错误边界”：持久化消息已经清洗，但 SSE lifecycle event 仍可能把 runtime 原文直接递给前端。凡是用户可见事件都必须在发出前清洗；容器化部署也应由后端返回受控状态，而不是靠前端静默禁用来隐藏能力。
