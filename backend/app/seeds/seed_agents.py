@@ -68,10 +68,6 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
         "config": {
-            "sdk_options": {"permission_mode": "acceptEdits"},
-            "max_runtime_seconds": 600,
-            "idle_timeout_seconds": 180,
-            "heartbeat_interval_seconds": 15,
             "planning_profile": CLAUDE_CODE_PLANNING_PROFILE,
             "planning_strengths": [
                 "file_editing",
@@ -80,12 +76,17 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
                 "debugging",
                 "code_review",
                 "workspace_changes",
+                "parallel_implementation",
             ],
             "planning_weaknesses": [
                 "global_architecture_ownership",
                 "unresolved_complex_escalations",
             ],
             "preferred_task_types": ["implementation", "repair", "review"],
+            "sdk_options": {"permission_mode": "acceptEdits"},
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 180,
+            "heartbeat_interval_seconds": 15,
             **EXTERNAL_DIRECT_CHAT_DEFAULTS,
         },
     },
@@ -104,11 +105,6 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
         "config": {
-            "runtime": "cli",
-            "sandbox_mode": "danger-full-access",
-            "max_runtime_seconds": 600,
-            "idle_timeout_seconds": 240,
-            "heartbeat_interval_seconds": 15,
             "planning_profile": CODEX_PLANNING_PROFILE,
             "planning_strengths": [
                 "architecture",
@@ -130,6 +126,11 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
                 "repair",
                 "escalation",
             ],
+            "runtime": "cli",
+            "sandbox_mode": "danger-full-access",
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 240,
+            "heartbeat_interval_seconds": 15,
             **EXTERNAL_DIRECT_CHAT_DEFAULTS,
         },
     },
@@ -144,12 +145,6 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             f"{EXTERNAL_RUNTIME_PROMPT_SUFFIX}"
         ),
         "config": {
-            "command": "opencode",
-            "args": [],
-            "model": "deepseek/deepseek-chat",
-            "max_runtime_seconds": 600,
-            "idle_timeout_seconds": 360,
-            "heartbeat_interval_seconds": 15,
             "planning_profile": OPENCODE_PLANNING_PROFILE,
             "planning_strengths": [
                 "cli_workflow",
@@ -158,12 +153,19 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
                 "verification",
                 "repair",
                 "parallel_execution",
+                "parallel_implementation",
             ],
             "planning_weaknesses": [
                 "global_architecture_ownership",
                 "final_technical_arbitration",
             ],
             "preferred_task_types": ["implementation", "verification", "repair"],
+            "command": "opencode",
+            "args": [],
+            "model": "deepseek/deepseek-chat",
+            "max_runtime_seconds": 600,
+            "idle_timeout_seconds": 360,
+            "heartbeat_interval_seconds": 15,
             **EXTERNAL_DIRECT_CHAT_DEFAULTS,
         },
     },
@@ -209,7 +211,7 @@ async def seed() -> None:
         for stale in stale_builtins:
             if stale.id not in ACTIVE_BUILTIN_AGENT_IDS:
                 await db.delete(stale)
-                print(f"  deleted {stale.id}")
+                print(f"  deleted stale builtin {stale.id}")
         for a in BUILTIN_AGENTS:
             exists = (
                 await db.execute(select(Agent).where(Agent.id == a["id"]))

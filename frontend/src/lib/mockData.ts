@@ -9,6 +9,9 @@ export interface TaskCardBlock {
   tasks: Array<{
     id: string;
     agent_id: string;
+    planned_agent_id?: string | null;
+    current_agent_id?: string | null;
+    final_agent_id?: string | null;
     title: string;
     status: TaskStatus;
   }>;

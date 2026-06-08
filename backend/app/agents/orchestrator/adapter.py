@@ -23,6 +23,15 @@ from app.agents.orchestrator._internal.execution.attempts import (
 )
 from app.agents.orchestrator._internal.execution.events import error_code as _error_code
 from app.agents.orchestrator._internal.execution.events import error_reason as _error_reason
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    fulfillment_payload as _fulfillment_payload,
+)
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    initialize_fulfillment as _initialize_fulfillment,
+)
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    mark_plan_fulfillment as _mark_plan_fulfillment,
+)
 from app.agents.orchestrator._internal.execution.process_block import (
     process_block_end as _process_block_end,
 )
@@ -547,12 +556,21 @@ class OrchestratorAdapter(BaseAgentAdapter):
             return
 
         run_context = OrchestratorRunContext()
+        _initialize_fulfillment(run_context, _latest_user_request(messages))
+        _mark_plan_fulfillment(run_context, tasks)
         await _memory_start_run(
             merged_config,
             run_context,
             user_request=_latest_user_request(messages),
             plan_source=_plan_source(tasks),
             tasks=tasks,
+        )
+        await _memory_record_event(
+            merged_config,
+            run_context,
+            event_type="command_fulfillment_status",
+            agent_id="orchestrator",
+            payload={"stage": "planned", **_fulfillment_payload(run_context)},
         )
         messages = await _apply_guidance_safe_point(
             merged_config,

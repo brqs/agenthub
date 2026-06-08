@@ -18,6 +18,7 @@ from app.agents.orchestrator.artifacts import (
     extract_artifact_paths_from_text,
     finalize_artifact_candidates,
 )
+from app.agents.orchestrator.availability import mark_runtime_cooldown
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
     SubTask,
@@ -348,12 +349,14 @@ async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -
             {
                 "id": "task-a",
                 "agent_id": "agent-a",
+                "planned_agent_id": "agent-a",
                 "title": "Backend API",
                 "status": "pending",
             },
             {
                 "id": "task-b",
                 "agent_id": "agent-b",
+                "planned_agent_id": "agent-b",
                 "title": "Frontend UI",
                 "status": "pending",
             },
@@ -2471,6 +2474,298 @@ async def test_orchestrator_runtime_failure_falls_back_to_available_agent_withou
     assert "A retry/repair completed successfully." in summary
 
 
+async def test_orchestrator_global_cooldown_does_not_exhaust_all_fallbacks() -> None:
+    mark_runtime_cooldown("agent-b", "previous run failed")
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="external_runtime_error",
+                error="runtime failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered despite cooldown"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert "Recovered despite cooldown" in "".join(
+        chunk.text_delta or "" for chunk in chunks
+    )
+
+
+async def test_orchestrator_review_fallback_avoids_reviewed_final_agents() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("Implementation A"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Implementation B"))
+    adapter_c = FakeSubAdapter(
+        "agent-c",
+        [
+            StreamChunk(event_type="start", agent_id="agent-c"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-c",
+                error_code="review_failed",
+                error="review failed",
+            ),
+        ],
+    )
+    adapter_d = FakeSubAdapter("agent-d", _text_chunks("review_outcome: passed"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    review_task = _task(
+        "review",
+        "agent-c",
+        "Review work",
+        "Review implementation outputs.",
+        depends_on=["impl-a", "impl-b"],
+    )
+    review_task["task_type"] = "review"
+    review_task["review_of"] = ["impl-a", "impl-b"]
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("impl-a", "agent-a", "Implement A", "Do implementation A."),
+                _task("impl-b", "agent-b", "Implement B", "Do implementation B."),
+                review_task,
+            ],
+            "sub_adapters": {
+                "agent-a": adapter_a,
+                "agent-b": adapter_b,
+                "agent-c": adapter_c,
+                "agent-d": adapter_d,
+            },
+            "task_fallback_agent_ids": ["agent-b", "agent-d"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-c", "agent-d"]
+    assert "review_outcome: passed" in "".join(chunk.text_delta or "" for chunk in chunks)
+
+
+async def test_orchestrator_review_expected_output_requires_artifact(
+    tmp_path: Path,
+) -> None:
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Implementation A"),
+        "index.html",
+        "<!doctype html><h1>ok</h1>",
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("review_outcome: passed"))
+    adapter_c = FakeWorkspaceWriterAdapter(
+        "agent-c",
+        _text_chunks("review_outcome: passed"),
+        "review.md",
+        "# Review\n\nreview_outcome: passed",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    review_task = _task(
+        "review",
+        "agent-b",
+        "Review work",
+        "Review implementation outputs and create review.md.",
+        depends_on=["impl"],
+        expected_output="review.md",
+    )
+    review_task["task_type"] = "review"
+    review_task["review_of"] = ["impl"]
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "impl",
+                    "agent-a",
+                    "Implement",
+                    "Create index.html.",
+                    expected_output="index.html",
+                ),
+                review_task,
+            ],
+            "sub_adapters": {
+                "agent-a": adapter_a,
+                "agent-b": adapter_b,
+                "agent-c": adapter_c,
+            },
+            "task_fallback_agent_ids": ["agent-a", "agent-c"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-c"]
+    assert (tmp_path / "review.md").is_file()
+
+
+async def test_orchestrator_review_runs_when_failed_dependency_left_artifacts(
+    tmp_path: Path,
+) -> None:
+    doc_adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="task_failed",
+                error="document task failed after writing draft",
+            ),
+        ],
+        "planning.md",
+        "# Plan\n\nDraft architecture.",
+    )
+    impl_adapter = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Implementation complete"),
+        "index.html",
+        "<!doctype html><h1>ok</h1>",
+    )
+    review_adapter = FakeWorkspaceWriterAdapter(
+        "agent-c",
+        _text_chunks("review_outcome: passed"),
+        "review.md",
+        "# Review\n\nreview_outcome: passed",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    review_task = _task(
+        "review",
+        "agent-c",
+        "Review work",
+        "Review generated files and create review.md.",
+        depends_on=["doc", "impl"],
+        expected_output="review.md",
+    )
+    review_task["task_type"] = "review"
+    review_task["review_of"] = ["doc", "impl"]
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "doc",
+                    "agent-a",
+                    "Create plan",
+                    "Create planning.md.",
+                    expected_output="planning.md",
+                ),
+                _task(
+                    "impl",
+                    "agent-b",
+                    "Implement",
+                    "Create index.html.",
+                    expected_output="index.html",
+                ),
+                review_task,
+            ],
+            "sub_adapters": {
+                "agent-a": doc_adapter,
+                "agent-b": impl_adapter,
+                "agent-c": review_adapter,
+            },
+            "max_task_attempts": 1,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-c"]
+    assert (tmp_path / "planning.md").is_file()
+    assert (tmp_path / "review.md").is_file()
+
+
+async def test_orchestrator_review_fallback_writes_review_when_independent_agent_unavailable(
+    tmp_path: Path,
+) -> None:
+    impl_adapter = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><h1>ok</h1>",
+    )
+    review_adapter = FakeSubAdapter(
+        "agent-b",
+        [
+            StreamChunk(event_type="start", agent_id="agent-b"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-b",
+                error_code="external_runtime_error",
+                error="runtime failed",
+            ),
+        ],
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    review_task = _task(
+        "review",
+        "agent-b",
+        "Review work",
+        "Review generated files and create review.md.",
+        depends_on=["impl"],
+        expected_output="review.md",
+    )
+    review_task["task_type"] = "review"
+    review_task["review_of"] = ["impl"]
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "impl",
+                    "agent-a",
+                    "Implement",
+                    "Create index.html.",
+                    expected_output="index.html",
+                ),
+                review_task,
+            ],
+            "sub_adapters": {
+                "agent-a": impl_adapter,
+                "agent-b": review_adapter,
+            },
+            "task_fallback_agent_ids": ["agent-a"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    review_text = (tmp_path / "review.md").read_text(encoding="utf-8")
+    assert "Orchestrator completed a coordination review" in review_text
+    assert "`index.html`" in review_text
+
+
 async def test_orchestrator_dependency_continues_after_fallback_success() -> None:
     adapter_a = FakeSubAdapter(
         "agent-a",
@@ -2562,6 +2857,169 @@ async def test_orchestrator_runtime_cooldown_skips_failed_agent_for_later_task()
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b", "agent-b"]
+
+
+async def test_orchestrator_runtime_error_code_marks_agent_unavailable_for_later_task() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="external_runtime_error",
+                error="process exited",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("agent-b completed"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "First task", "Do first task"),
+                _task("task-b", "agent-a", "Second task", "Do second task"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-b"]
+
+
+async def test_orchestrator_business_error_code_does_not_runtime_cooldown_agent() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="validation_failed",
+                error="process exited",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("agent-b completed"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "First task", "Do first task"),
+                _task("task-b", "agent-a", "Second task", "Do second task"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-a", "agent-b"]
+
+
+async def test_orchestrator_skips_known_unavailable_agent_before_attempt() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("should not run"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("agent-b completed"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "available_agents": [
+                {"agent_id": "agent-a", "runtime_available": False},
+                {"agent_id": "agent-b", "runtime_available": True},
+            ],
+            "available_agents_authoritative": True,
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-b"]
+    assert adapter_a.received_messages == []
+    assert adapter_b.received_messages
+
+
+async def test_orchestrator_parallel_limits_same_failed_runtime_in_batch() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="external_runtime_error",
+                error="runtime quota exceeded",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("agent-b completed"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "First task", "Do first task"),
+                _task("task-b", "agent-a", "Second task", "Do second task"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_parallel_max_concurrency": 2,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-b"]
+
+
+async def test_artifact_missing_does_not_runtime_cooldown_agent(tmp_path: Path) -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("No artifact this time"))
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Fallback created report.md"),
+        "report.md",
+        "# Report",
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md",
+                ),
+                _task("task-b", "agent-a", "Follow-up", "Do follow-up"),
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-a"]
 
 
 async def test_orchestrator_fallbacks_are_limited_to_current_agents() -> None:
@@ -3089,6 +3547,61 @@ async def test_orchestrator_auto_clarification_gate_precedes_planning() -> None:
     assert block.metadata["mode"] == "auto"
     assert block.metadata["status"] == "waiting"
     assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
+
+
+async def test_orchestrator_auto_clarification_allows_explicit_delivery_contract() -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "create-site",
+                            "codex-helper",
+                            "Create site",
+                            "Create the requested website artifacts.",
+                        )
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
+                    "然后交由两个智能体并行开发工作，包含代码产物、Diff、按钮交互和"
+                    "移动端适配，最后再进行审阅，最后部署在端口8082，并完成浏览器级质量验收。"
+                ),
+            )
+        ],
+        config={
+            "planner_gateway": planner,
+            "available_agents": [
+                {"id": "codex-helper", "provider": "codex", "runtime_available": True}
+            ],
+            "available_agents_authoritative": True,
+            "managed_agent_ids": ["codex-helper"],
+            "sub_adapters": {
+                "codex-helper": FakeSubAdapter("codex-helper", _text_chunks("done"))
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert not any(chunk.block_type == "clarification" for chunk in chunks)
+    assert any(chunk.event_type == "agent_switch" for chunk in chunks)
+    assert len(planner.calls) == 1
 
 
 async def test_orchestrator_explicit_tasks_skip_auto_clarification_gate() -> None:

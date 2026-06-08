@@ -79,15 +79,9 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
             if value:
                 context[key] = value
         for key in AGENT_PLANNING_CONFIG_LIST_KEYS:
-            value = agent.config.get(key)
-            if isinstance(value, list):
-                items = [
-                    item.strip()
-                    for item in value
-                    if isinstance(item, str) and item.strip()
-                ]
-                if items:
-                    context[key] = items[:40]
+            items = _planning_list(agent.config.get(key))
+            if items:
+                context[key] = items
     if agent.provider == "opencode":
         status, error = opencode_runtime_status(
             agent.config if isinstance(agent.config, dict) else None
@@ -131,6 +125,24 @@ def _planning_text(value: Any) -> str | None:
     return normalized
 
 
+def _planning_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [item.strip() for item in value.split(",")]
+    elif isinstance(value, list):
+        raw_items = [item.strip() for item in value if isinstance(item, str)]
+    else:
+        return []
+    items: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        normalized = " ".join(item.replace("\x00", "").split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        items.append(normalized[:120])
+    return items[:40]
+
+
 async def _orchestrator_conversation_config(
     db: AsyncSession,
     message: Message,
@@ -164,8 +176,9 @@ async def _orchestrator_conversation_config(
     ]
     managed_agent_ids = [
         agent["id"]
-        for agent in available_agents
+        for agent in conversation_agents
         if isinstance(agent.get("id"), str)
+        and agent.get("id") != ORCHESTRATOR_AGENT_ID
     ]
     config: dict[str, Any] = {
         "conversation_agents": conversation_agents,
@@ -190,6 +203,12 @@ async def apply_orchestrator_stream_context(
 
     stream_config = stream_config or {}
     merged_config = adapter.merged_config(stream_config)
+    if adapter.default_config.get("available_agents_authoritative") is False:
+        stream_config["available_agents_authoritative"] = False
+        if isinstance(adapter.default_config.get("managed_agent_ids"), list):
+            stream_config["managed_agent_ids"] = adapter.default_config["managed_agent_ids"]
+    if adapter.default_config.get("conversation_scoped_agents") is False:
+        stream_config["conversation_scoped_agents"] = False
     db_lock = asyncio.Lock()
     stream_config["orchestrator_db_lock"] = db_lock
     memory_message = await _orchestrator_memory_context_message(

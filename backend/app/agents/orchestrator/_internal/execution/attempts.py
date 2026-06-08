@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,6 @@ from app.agents.orchestrator._internal.execution.summary import (
 )
 from app.agents.orchestrator.availability import (
     runnable_agent_ids,
-    runtime_cooldown_agent_ids,
     runtime_cooldown_status,
     scoped_runnable_agent_ids,
 )
@@ -27,6 +27,12 @@ from app.agents.orchestrator.types import (
     TaskState,
 )
 from app.agents.types import ChatMessage
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptAgentSelection:
+    agent_id: str | None
+    skipped_agent_ids: tuple[str, ...] = ()
 
 
 def task_messages(
@@ -117,10 +123,9 @@ def task_fallback_agent_ids(config: Mapping[str, Any]) -> list[str]:
     strict_scope = scoped_runnable_agent_ids(config)
     strict_allowed = set(strict_scope) if strict_scope is not None else None
     runnable_allowed = set(ordered_runnable_ids) if ordered_runnable_ids else None
-    cooled_down = runtime_cooldown_agent_ids()
 
     def permitted(agent_id: str) -> bool:
-        if agent_id == "orchestrator" or agent_id in cooled_down:
+        if agent_id == "orchestrator":
             return False
         if strict_allowed is not None:
             return agent_id in strict_allowed
@@ -259,14 +264,71 @@ def positive_int_config(
 def agent_for_attempt(
     task: SubTask,
     fallback_agents: list[str],
-    attempted_agents: set[str],
+    considered_agents: set[str],
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    *,
+    excluded_agent_ids: set[str] | None = None,
+) -> AttemptAgentSelection:
+    skipped_agent_ids: list[str] = []
+    candidate_ids = dedupe_strings([task.agent_id, *fallback_agents])
+    excluded_agent_ids = excluded_agent_ids or set()
+    for agent_id in candidate_ids:
+        if agent_id in considered_agents:
+            continue
+        if agent_id in excluded_agent_ids:
+            continue
+        if not agent_permitted_for_attempt(config, run_context, agent_id):
+            skipped_agent_ids.append(agent_id)
+            continue
+        return AttemptAgentSelection(agent_id=agent_id, skipped_agent_ids=tuple(skipped_agent_ids))
+    for agent_id in candidate_ids:
+        if agent_id in considered_agents:
+            continue
+        if agent_id in excluded_agent_ids:
+            continue
+        if not agent_permitted_for_attempt(
+            config,
+            run_context,
+            agent_id,
+            ignore_global_cooldown=True,
+        ):
+            continue
+        return AttemptAgentSelection(agent_id=agent_id, skipped_agent_ids=tuple(skipped_agent_ids))
+    return AttemptAgentSelection(agent_id=None, skipped_agent_ids=tuple(skipped_agent_ids))
+
+
+def agent_permitted_for_attempt(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    agent_id: str,
+    *,
+    ignore_global_cooldown: bool = False,
+) -> bool:
+    if agent_id == "orchestrator" or agent_id in run_context.failed_runtime_agent_ids:
+        return False
+    if not ignore_global_cooldown and runtime_cooldown_status(agent_id)[0] == "cooldown":
+        return False
+
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return agent_id in set(scoped_ids)
+
+    runnable_ids = _ordered_runnable_agent_ids(config)
+    if runnable_ids:
+        return agent_id in set(runnable_ids)
+    return True
+
+
+def preferred_agent_for_task(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    task: SubTask,
 ) -> str | None:
+    fallback_agents = task_fallback_agent_ids(config)
     for agent_id in dedupe_strings([task.agent_id, *fallback_agents]):
-        if agent_id in attempted_agents:
-            continue
-        if runtime_cooldown_status(agent_id)[0] == "cooldown":
-            continue
-        return agent_id
+        if agent_permitted_for_attempt(config, run_context, agent_id):
+            return agent_id
     return None
 
 

@@ -154,6 +154,10 @@ function createTaskCard(metadata: Record<string, unknown> | undefined): TaskCard
     tasks: value.tasks.map((task) => ({
       id: String(task.id),
       agent_id: String(task.agent_id),
+      planned_agent_id:
+        typeof task.planned_agent_id === 'string' ? task.planned_agent_id : String(task.agent_id),
+      current_agent_id: typeof task.current_agent_id === 'string' ? task.current_agent_id : null,
+      final_agent_id: typeof task.final_agent_id === 'string' ? task.final_agent_id : null,
       title: String(task.title),
       status: task.status as TaskStatus,
     })),
@@ -249,24 +253,73 @@ function applyProcessDelta(
   return block;
 }
 
+type TaskCardTask = TaskCardBlock['tasks'][number];
+
+function findTaskForAgentSwitch(
+  tasks: TaskCardTask[],
+  event: Extract<StreamEvent, { event: 'agent_switch' }>,
+): TaskCardTask | null {
+  const taskTitle = event.data.task?.trim();
+  if (taskTitle) {
+    return (
+      tasks.find(
+        (task) =>
+          task.title === taskTitle && (task.status === 'pending' || task.status === 'running'),
+      ) ?? null
+    );
+  }
+  return (
+    tasks.find((task) => task.status === 'pending' && task.agent_id === event.data.to_agent) ??
+    null
+  );
+}
+
+function setTaskCurrentAgent(task: TaskCardTask, agentId: string): TaskCardTask {
+  if (task.agent_id === agentId && task.current_agent_id == null) {
+    return { ...task, status: 'running' };
+  }
+  return {
+    ...task,
+    agent_id: agentId,
+    planned_agent_id: task.planned_agent_id ?? task.agent_id,
+    current_agent_id: agentId,
+    final_agent_id: null,
+    status: 'running',
+  };
+}
+
+function setTaskFinalAgent(
+  task: TaskCardTask,
+  status: Extract<TaskStatus, 'done' | 'error'>,
+): TaskCardTask {
+  if (task.current_agent_id == null) {
+    return { ...task, status };
+  }
+  const agentId = task.current_agent_id ?? task.agent_id;
+  return {
+    ...task,
+    agent_id: agentId,
+    current_agent_id: null,
+    final_agent_id: agentId,
+    status,
+  };
+}
+
 function updateTaskStatuses(
   blocks: DemoContentBlock[],
   event: Extract<StreamEvent, { event: 'agent_switch' }>,
 ): DemoContentBlock[] {
   return blocks.map((block) => {
     if (block.type !== 'task_card') return block;
+    const targetTask = findTaskForAgentSwitch(block.tasks, event);
     return {
       ...block,
       tasks: block.tasks.map((task) => {
-        if (task.status === 'running') {
-          return { ...task, status: 'done' as const };
+        if (task === targetTask) {
+          return setTaskCurrentAgent(task, event.data.to_agent);
         }
-        if (
-          task.status === 'pending' &&
-          task.agent_id === event.data.to_agent &&
-          (!event.data.task || task.title === event.data.task)
-        ) {
-          return { ...task, status: 'running' as const };
+        if (task.status === 'running') {
+          return setTaskFinalAgent(task, 'done');
         }
         return task;
       }),
@@ -280,7 +333,7 @@ function completeRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
     return {
       ...block,
       tasks: block.tasks.map((task) =>
-        task.status === 'running' ? { ...task, status: 'done' as const } : task,
+        task.status === 'running' ? setTaskFinalAgent(task, 'done') : task,
       ),
     };
   });
@@ -292,7 +345,7 @@ function failRunningTasks(blocks: DemoContentBlock[]): DemoContentBlock[] {
     return {
       ...block,
       tasks: block.tasks.map((task) =>
-        task.status === 'running' ? { ...task, status: 'error' as const } : task,
+        task.status === 'running' ? setTaskFinalAgent(task, 'error') : task,
       ),
     };
   });

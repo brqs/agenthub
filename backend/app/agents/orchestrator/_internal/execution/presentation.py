@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    fulfillment_needs_attention as _fulfillment_needs_attention,
+)
 from app.agents.orchestrator.evaluation import evaluation_results_payload
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
@@ -26,6 +29,9 @@ Use only the provided facts. Do not invent completed work, files, URLs, or valid
 Mention failures or manual review needs clearly.
 Never reveal internal orchestration/debug terms, task ids, call ids, raw tool output,
 JSON, code blocks, agent @ ids, hidden reasoning, ReAct traces, or planner labels.
+Never ask the user to manually start local preview, server, deployment, or validation
+commands; AgentHub platform tools handle preview, browser validation, and deployment
+when requested.
 """
 
 FORBIDDEN_VISIBLE_PATTERNS = (
@@ -44,6 +50,12 @@ FORBIDDEN_VISIBLE_PATTERNS = (
     "You are observing a group conversation",
     "Do not run, suggest, or output shell commands",
     "Messages prefixed with [Agent:",
+)
+LONG_RUNNING_SERVER_COMMAND_RE = re.compile(
+    r"npm\s+run\s+dev|pnpm\s+dev|vite\s+--host|python\d*\s+-m\s+http\.server|"
+    r"http-server|next\s+dev|npm\s+(?:run\s+)?start|node\s+server\.js|"
+    r"app\.listen\s*\(|express\s+server",
+    re.I,
 )
 MAX_PRESENTED_ITEMS = 8
 MAX_FACT_TEXT_CHARS = 6000
@@ -218,6 +230,7 @@ def _response_facts(
 
     urls = _tool_urls(tool_results)
     needs_attention.extend(_tool_attention(tool_results))
+    needs_attention.extend(_fulfillment_needs_attention(run_context))
     overall_status = _overall_status(states.values(), run_context, needs_attention)
     return ResponseFacts(
         user_request=user_request,
@@ -383,6 +396,7 @@ def _facts_prompt(facts: ResponseFacts) -> str:
             "no internal terms or ids",
             "no code blocks",
             "do not mention unavailable facts",
+            "do not ask the user to run local preview/server/deploy commands",
         ],
     }
     return _truncate_for_facts(
@@ -516,6 +530,8 @@ def _contains_forbidden_visible_text(text: str) -> bool:
     for pattern in FORBIDDEN_VISIBLE_PATTERNS:
         if pattern.lower() in lowered:
             return True
+    if LONG_RUNNING_SERVER_COMMAND_RE.search(text):
+        return True
     return bool(re.search(r"\borch\.[\w.-]+", text))
 
 

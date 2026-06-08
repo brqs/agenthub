@@ -1127,7 +1127,7 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
       "avatar_url": "/avatars/openai.png",
       "capabilities": ["coding", "sandbox"],
       "system_prompt": "You are Codex Helper...",
-      "config": {"model": "gpt-4.1", "timeout_seconds": 120},
+      "config": {"runtime": "cli", "sandbox_mode": "danger-full-access", "timeout_seconds": 120},
       "is_builtin": true,
       "created_at": "2026-05-22T00:00:00Z"
     },
@@ -1190,12 +1190,16 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 | `config.model_backend` | 仅 `builtin` 使用，取值 `claude` / `deepseek` / `openai` |
 | `config.max_iterations` | 仅 `builtin` 使用，1 - 50 |
 | `config.mcp_servers` | 仅 `builtin` 使用，MCP server 配置数组 |
-| `config.command` / `config.args` / `config.timeout_seconds` | 仅 `opencode` 使用 |
+| `config.runtime` | `claude_code` 可选 `sdk` / `cli`；`codex` 可选 `cli` / `sdk` |
+| `config.command` | `claude_code` CLI runtime、`codex` CLI runtime、`opencode` CLI runtime 可使用，string 或 string array |
+| `config.args` | `opencode` 可使用，string array |
+| `config.timeout_seconds` | external runtime 可使用 |
 
 **Provider 规则**：
 - `builtin` 使用 `model_backend` 选择内部 ModelGateway backend，raw LLM provider 不再作为顶层 Agent provider。
+- `claude_code` 默认 `runtime=sdk`，可显式 `runtime=cli` 走 `claude` CLI。
+- `codex` 默认 `runtime=cli`，可通过 `command` 指定 Codex CLI 可执行文件。
 - `opencode` 允许 `command` / `args` / `timeout_seconds` 配置 CLI runtime。
-- `claude_code` / `codex` 配置透传给对应 external runtime adapter。
 
 **响应 201**：（同 6.1 列表项）
 
@@ -1398,6 +1402,8 @@ interface AgentConfig {
   model_backend?: "claude" | "deepseek" | "openai";
   max_iterations?: number;
   mcp_servers?: object[];
+  runtime?: "sdk" | "cli";
+  sandbox_mode?: "read-only" | "workspace-write" | "danger-full-access";
   command?: string | string[];
   args?: string[];
   timeout_seconds?: number;

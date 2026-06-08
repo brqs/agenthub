@@ -45,9 +45,10 @@
 - If OpenCode is absent or unauthenticated, Orchestrator must treat
   `opencode-helper` as unavailable for task dispatch and surface a retryable
   runtime error instead of completing successfully.
-- Claude Code is a backend-container runtime too. The adapter uses
-  `claude_agent_sdk` when installed and falls back to the `claude` CLI only when
-  the SDK module is absent.
+- Claude Code is a backend-container runtime too. The adapter defaults to
+  `runtime="sdk"` and uses `claude_agent_sdk`; it can be explicitly configured
+  with `runtime="cli"` to launch the `claude` CLI through the shared CLI runner.
+  If `runtime` is omitted, SDK remains the production default.
 - Claude Code auth may come from backend `.env` provider keys (`ANTHROPIC_*` /
   `CLAUDE_*`) or from persisted CLI login state in the `claude-state` compose
   volume. The shared auth directory is `$AGENTHUB_CLAUDE_AUTH_DIR` and should
@@ -60,6 +61,9 @@
   backend-container probe with the same isolated HOME/auth-copy contract, caches
   the result briefly, and marks `claude-code` runnable only when the probe
   succeeds.
+- Codex defaults to CLI runtime and now honors `config.command`, allowing tests
+  or deployments to point `codex-helper` at a specific executable. OpenCode is
+  CLI-only and continues to honor `config.command` / `config.args`.
 - Manual CLI smoke tests must set `HOME=$AGENTHUB_CLAUDE_AUTH_DIR`, for example
   `docker compose exec backend sh -lc 'HOME=$AGENTHUB_CLAUDE_AUTH_DIR claude -p "只回复 OK" --output-format text'`.
 - The direct-chat shortcut is separate: simple Q&A may use `qa_model_backend`

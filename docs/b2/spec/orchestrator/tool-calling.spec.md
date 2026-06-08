@@ -350,6 +350,7 @@ Schema：
 - 指定 `requested_port=8082` 时必须使用 8082；端口不可用时返回失败，不静默 fallback。
 - 禁止 agent runtime 通过 `npm run dev`、`vite --host`、`python -m http.server` 等命令自行启动服务。
 - 返回 preview URL、port、entry path、session 状态。
+- `web_preview` / preview URL 只代表临时工作区预览，不等于 release/deployment。用户明确要求“部署/发布/上线”时，Orchestrator 仍必须后续调用 `create_deployment`。
 
 ### 5.6 `verify_web_preview`
 
@@ -382,6 +383,7 @@ Schema：
 - 保存验证 JSON 和截图到 `/tmp/agenthub_browser_verify/{conversation_id}/`。
 - 至少一次按钮点击后不得新增 JS error。
 - 返回 `passed`、检查项、错误列表、截图路径。
+- 用户明确要求部署静态前端时，Orchestrator 的平台闭环顺序是 `start_workspace_preview -> verify_web_preview -> create_deployment`；浏览器验收失败时应先 repair，再重新 preview/verify/deploy。
 
 ### 5.7 `create_custom_agent`
 
@@ -487,6 +489,7 @@ Schema：
   `not_supported`。
 - 返回 deployment id、kind、status、url/download_url、error、logs preview。
 - 成功或失败都应产生 `deployment_status` 消息块，方便前端展示状态卡片。
+- 用户只看到 preview URL 不能算部署完成；只有 `create_deployment` 返回 published/running，或 deployment health 通过后，command fulfillment 才能把 `deployment` item 标记为 satisfied。
 - 当 `deployment_health` 判断发布失败且状态不是 `not_supported` 时，Orchestrator 会生成结构化
   reflection，调用 repair agent 修复 workspace，然后重新调用同一个 deployment tool；这条闭环不新增
   REST endpoint，也不允许 Agent 手动运行 Docker / dev server。

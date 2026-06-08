@@ -663,6 +663,15 @@ def _result_summary_steps(
 def _task_detail(state: TaskState, result: TaskResult | None) -> str:
     if state == TaskState.SUCCEEDED:
         attempts = len(result.attempts) if result is not None else 0
+        skipped_agents = (
+            result.skipped_unavailable_agents
+            if result is not None
+            else []
+        )
+        if skipped_agents and result is not None and result.attempts:
+            final_agent = result.attempts[-1].agent_id
+            skipped_label = ", ".join(_dedupe(skipped_agents))
+            return f"{skipped_label} 当前不可用，已改派 {final_agent} 完成。"
         if attempts > 1:
             failed_agents = [
                 attempt.agent_id

@@ -52,6 +52,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-06 通用 Agent 失败自动调度 repair loop：B2 已将 fallback 扩展为所有 Orchestrator 委派任务的通用执行层能力。任意首选 Agent 出现 runtime 不可用、认证/权限/CLI/timeout 等硬失败、产物缺失或 evaluation failed 时，Orchestrator 会短期 cooldown 该 Agent 并选择其他可用 Agent 继续；失败 attempt 与 fallback attempt 分别持久化为对应 Agent 的独立 child message。公网 API/SSE `agent_fallback_matrix` 已通过：report `/tmp/agenthub_agent_fallback_matrix_report.json`、SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`，`passed=true`，覆盖 `codex-helper`、`claude-code`、`opencode-helper` 三个首选 Agent 失败后切换到可用 fallback Agent。该能力不依赖前端质量演示模板。
 
+2026-06-07 fallback / 真实群聊体验 hardening：B2 进一步修复“已知不可用 Agent 先红框失败再 fallback”的体验问题。Orchestrator 在每次 attempt 前过滤当前会话不可运行、cooldown、run-local 已硬失败和非 group scope Agent；已知不可运行时不创建该 Agent child message，只在 process / memory 记录改派。单次 run 内硬失败 Agent 会立即进入 run-local unavailable，当前 run 后续 task 和并行 batch 避开它；全局 cooldown 才会影响后续 planner / fallback selection。并行 batch 会按首选可运行 Agent 去重，避免同一坏 runtime 刷多条失败气泡。runtime hard failure 判定收窄为认证/配额/credential/CLI missing/provider runtime unavailable/明确 runtime timeout；子 Agent error chunk 会保留 `error_code`，避免 `process exited` 这类泛化 error 漏掉 `external_runtime_error` / `runtime_idle_timeout` 信号；artifact missing、普通 not found、验证/构建/test 失败只触发当前 task fallback，不进入 runtime cooldown。子消息错误文本继续清洗本地路径、Errno、认证文件、stderr、stack trace 和 call id；legacy fullstack fallback 不再硬编码 OKR 主题。本地 targeted gate `180 passed`，Ruff/Mypy/`git diff --check` passed。公网 `agent_fallback_matrix` 已重跑通过，report `/tmp/agenthub_agent_fallback_matrix_report.json`、SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`、`passed=true`；Codex / OpenCode 覆盖 preflight skip，Claude 覆盖运行中失败后 fallback。
+
 2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
 
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
@@ -794,18 +796,97 @@ local_health: {"status":"ok"}
 public_health: {"status":"ok"}
 
 scenario: agent_fallback_matrix
-base_url: http://111.229.151.159:8000
-report: /tmp/agenthub_agent_fallback_matrix_report.json
-sse: /tmp/agenthub_agent_fallback_matrix_sse.jsonl
+base_url: http://127.0.0.1:8000
+report: /tmp/agenthub_agent_fallback_matrix_taskcard_report.json
+sse: /tmp/agenthub_agent_fallback_matrix_taskcard_sse.jsonl
 passed: true
 ```
 
 Matrix case 结果：
 
-| Case | Switch | Child messages | Artifact | Result |
-|---|---|---|---|---|
-| `agent_fallback_codex_unavailable` | `codex-helper -> opencode-helper` | `codex-helper=error`, `opencode-helper=done` | `fallback-codex.md` | passed |
-| `agent_fallback_claude_unavailable` | `claude-code -> opencode-helper` | `claude-code=error`, `opencode-helper=done` | `fallback-claude.md` | passed |
-| `agent_fallback_opencode_unavailable` | `opencode-helper -> claude-code` | `opencode-helper=error`, `claude-code=done` | `fallback-opencode.md` | passed |
+| Case | planned_agent_id | final_agent_id / task_card.agent_id | Child messages | Artifact | Result |
+|---|---|---|---|---|---|
+| `agent_fallback_claude_unavailable` | `claude-code` | `opencode-helper` | `claude-code=error`, `opencode-helper=done` | `fallback-claude.md` | passed |
+| `agent_fallback_opencode_unavailable` | `opencode-helper` | `claude-code` | `opencode-helper=error`, `claude-code=done` | `fallback-opencode.md` | passed |
+| `agent_fallback_codex_unavailable` | `codex-helper` | `claude-code` | `codex-helper=error`, `claude-code=done` | `fallback-codex.md` | passed |
 
-该 matrix 是通用 fallback 验收，不为前端质量演示创建模板，不验收前端 UI。
+该 matrix 是通用 fallback 与 task card 展示语义验收，不为前端质量演示创建模板，不验收前端 UI。
+
+## 11. 2026-06-07 Command Fulfillment Repair Loop 进展
+
+本轮新增 Orchestrator 显式命令履约 backend MVP，避免“planner task graph 跑完”被误判为“用户整条命令完成”：
+
+- 新增 [orchestrator/command-fulfillment.spec.md](orchestrator/command-fulfillment.spec.md)。
+- Orchestrator run-local context deterministic 提取文档、代码产物、多智能体、审阅、预览、浏览器验收、部署、Diff、源码打包等 fulfillment items。
+- `command_fulfillment_status` run detail event 记录 planned / tasks_finished / tool_result 阶段状态；不新增 migration 或 ContentBlock 类型。
+- Planning 层补齐中文多 Agent 触发词和 review 避免自审；显式要求两个/多个智能体时，如果 planner 全派给同一 Agent，后端会重平衡 implementation tasks。
+- Quality gate 将“网站/站点”纳入前端意图；部署请求的完整平台闭环为 `start_workspace_preview -> verify_web_preview -> create_deployment`，preview 不等于部署。
+- Response presentation 读取 fulfillment 状态；存在 pending/failed/skipped item 时，最终可见 summary 不能误报“全部完成/已部署”。
+- Live E2E 脚本新增 `command_fulfillment_cyberpunk_group_deploy`，默认证据路径：
+  - `/tmp/agenthub_command_fulfillment_report.json`
+  - `/tmp/agenthub_command_fulfillment_sse.jsonl`
+  - `/tmp/agenthub_command_fulfillment_browser.json`
+
+当前本地门禁：
+
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_orchestrator_quality_gate.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_live_e2e_script.py -q
+# 209 passed
+```
+
+静态检查：
+
+```text
+uv run python -m ruff check app/agents app/api/v1 app/schemas tests scripts
+# passed
+uv run python -m mypy app/agents app/api/v1 app/schemas
+# passed
+cd ../frontend && pnpm test -- --run src/stores/chatStore.test.ts src/components/blocks/TaskCardBlock.test.tsx
+# passed; 当前仓库只匹配到 chatStore.test.ts
+pnpm exec tsc --noEmit
+# passed
+git diff --check
+# passed
+```
+
+公网 E2E 已通过：
+
+```text
+scenario: command_fulfillment_cyberpunk_group_deploy
+base_url: http://111.229.151.159:8000
+conversation_id: 25ff9e75-7776-46b2-8549-babb78555177
+report: /tmp/agenthub_command_fulfillment_report.json
+sse: /tmp/agenthub_command_fulfillment_sse.jsonl
+browser_report: /tmp/agenthub_command_fulfillment_browser.json
+passed: true
+workspace: planning.md, design-doc.md, index.html, styles.css, app.js, diff.md, review.md
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/vw1Obog5VUQ1cY4lCNzBaevfgnDc1Epy/index.html
+```
+
+本轮 repair loop 额外修复：
+
+- LLM polish 输出如果建议用户手动运行本地长服务命令（如 `python -m http.server`、`npm run dev`），会被视为不安全并回退 deterministic summary。
+- `review` fulfillment 不再仅因 plan 存在 independent review task 就标记 satisfied；必须有成功 review attempt 与 review artifact。
+- 当独立 review Agent 真实失败或不可用、且前置任务留下可审阅产物时，Orchestrator 生成 coordinator-level `review.md` 作为兜底审阅证据，不让实现 Agent 自审。
+
+## 12. 2026-06-08 Command Fulfillment 02:24 E2E Repair Hardening
+
+本轮针对 02:24 公网 E2E 截图中的体验问题补 repair loop：
+
+- Orchestrator 最终可见 summary 延后到 quality gate / preview / browser verify / deployment 之后统一生成，避免同一条父消息前半段说“尚未完成部署/验收”、后半段又展示成功发布块。
+- SSE `message_error.error` 也纳入可见错误清洗和 live E2E hard check，覆盖 Codex/OpenCode raw runtime transcript、workspace path、`approval: never`、`external_runtime_error` 等泄露。
+- 前端“容器化部署”按钮不再因为 workspace 缺少 Dockerfile 静默禁用；点击后创建受控 container deployment 请求，由后端返回 `not_supported`、缺 Dockerfile 的 failed 状态或 demo worker 启用后的发布状态。
+- 后端容器 worker 生产默认保持 `DEPLOYMENT_CONTAINER_ENABLED=false`；按钮可点表示“可发起平台请求”，不表示容器化部署默认启用。
+- Live E2E `command_fulfillment_cyberpunk_group_deploy` 增加 hard checks：
+  - `message_error_no_forbidden_terms`
+  - `command_final_text_no_contradictory_completion`
+  - `container_deployment_smoke_request_created`
+
+待本轮代码部署后重跑公网 E2E，并把最新 conversation / report / SSE 证据补回 live E2E report。

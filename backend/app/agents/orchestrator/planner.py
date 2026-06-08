@@ -55,6 +55,12 @@ require otherwise. Do not probe a weaker agent first and rely on fallback when t
 profile already provides clear evidence.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
+Assign planning, implementation, verification, review, repair, and escalation work by
+matching the request to each available agent's profile, strengths, weaknesses, and
+preferred task types.
+When the user explicitly asks for two agents, multiple agents, or parallel development,
+split implementation work across distinct implementation-capable agents when available
+unless the request explicitly names a specific agent.
 For complex multi-step work, use codex-helper as the lead architect/planner when it is
 available, then assign implementation and verification work to Claude Code and OpenCode
 according to their strengths. Do not force this architect step for simple direct answers,
@@ -410,11 +416,15 @@ def _append_list_part(
     label: str,
 ) -> None:
     value = item.get(key)
-    if not isinstance(value, list):
+    if isinstance(value, str):
+        raw_items = [item.strip() for item in value.split(",")]
+    elif isinstance(value, list):
+        raw_items = [item for item in value if isinstance(item, str)]
+    else:
         return
     items = [
         text
-        for raw in value
+        for raw in raw_items
         for text in [_clean_planner_text(raw, 160)]
         if text
     ]

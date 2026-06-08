@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -13,7 +14,10 @@ from app.api.v1.stream_accumulator import StreamContentAccumulator
 from app.models.message import Message
 
 ERROR_TEXT_MAX_CHARS = 1200
-GENERIC_CHILD_ERROR_TEXT = "Agent task failed. Please retry."
+GENERIC_CHILD_ERROR_TEXT = (
+    "该 Agent 在当前阶段未能完成。Orchestrator 会尝试改派其他可用 Agent；"
+    "如果持续失败，可以重试或检查该 Agent 的运行配置。"
+)
 
 
 class OrchestratorGroupMessageWriter:
@@ -232,9 +236,56 @@ class _ChildMessageState:
 
 
 def _safe_error_text(text: str | None) -> str:
-    cleaned = " ".join(str(text or "").replace("\x00", "").split())
-    if not cleaned:
+    raw = " ".join(str(text or "").replace("\x00", "").split())
+    if not raw:
         return GENERIC_CHILD_ERROR_TEXT
+    lowered = raw.lower()
+    if any(
+        marker in lowered
+        for marker in (
+            "permission denied",
+            "[errno",
+            ".claude.json",
+            "/root/.agenthub",
+            "not authenticated",
+            "unauthorized",
+            "credential",
+            "api key",
+            "auth",
+        )
+    ):
+        cleaned = (
+            "该 Agent 在当前阶段未能完成。运行时认证或权限配置需要检查。"
+            "Orchestrator 会尝试改派其他可用 Agent；如果持续失败，可以重试。"
+        )
+    elif any(marker in lowered for marker in ("quota", "rate limit", "too many requests")):
+        cleaned = (
+            "该 Agent 在当前阶段未能完成。当前运行额度或速率限制需要注意。"
+            "Orchestrator 会尝试改派其他可用 Agent；如果持续失败，可以稍后重试。"
+        )
+    elif any(marker in lowered for marker in ("timeout", "timed out", "idle timeout")):
+        cleaned = (
+            "该 Agent 在当前阶段未能完成。执行超时，可能需要缩小任务或稍后重试。"
+            "Orchestrator 会尝试改派其他可用 Agent。"
+        )
+    elif "no html entry file" in lowered:
+        cleaned = "该 Agent 未生成可预览的 HTML 入口文件，Orchestrator 会尝试补齐或改派。"
+    else:
+        cleaned = raw
+    cleaned = _strip_internal_error_terms(cleaned)
+    if not cleaned:
+        cleaned = GENERIC_CHILD_ERROR_TEXT
     if len(cleaned) > ERROR_TEXT_MAX_CHARS:
         return f"{cleaned[:ERROR_TEXT_MAX_CHARS]}..."
     return cleaned
+
+
+def _strip_internal_error_terms(text: str) -> str:
+    cleaned = re.sub(r"\bcall[_-][A-Za-z0-9_.-]+", "调用记录", text)
+    cleaned = re.sub(r"/root/\.agenthub/\S+", "本地认证配置", cleaned)
+    cleaned = cleaned.replace(".claude.json", "认证配置")
+    cleaned = re.sub(r"\[Errno\s+\d+\]", "系统错误", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"Permission denied", "权限配置异常", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"Traceback.*", "运行过程异常。", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\bstderr\b", "错误输出", cleaned, flags=re.IGNORECASE)
+    return " ".join(cleaned.split())

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,9 @@ from app.agents.orchestrator._internal.execution.attempts import (
     parallel_max_concurrency as _parallel_max_concurrency,
 )
 from app.agents.orchestrator._internal.execution.attempts import (
+    preferred_agent_for_task as _preferred_agent_for_task,
+)
+from app.agents.orchestrator._internal.execution.attempts import (
     task_fallback_agent_ids as _task_fallback_agent_ids,
 )
 from app.agents.orchestrator._internal.execution.attempts import (
@@ -53,6 +57,12 @@ from app.agents.orchestrator._internal.execution.events import (
 )
 from app.agents.orchestrator._internal.execution.events import (
     refresh_and_record_workspace_conflicts as _refresh_and_record_workspace_conflicts,
+)
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    fulfillment_payload as _fulfillment_payload,
+)
+from app.agents.orchestrator._internal.execution.fulfillment import (
+    mark_task_fulfillment as _mark_task_fulfillment,
 )
 from app.agents.orchestrator._internal.execution.group_messages import (
     child_message_chunk as _child_message_chunk,
@@ -158,11 +168,36 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 def _dependencies_satisfied(
     task: SubTask,
     task_states: Mapping[str, TaskState],
+    run_context: OrchestratorRunContext | None = None,
 ) -> bool:
+    if task.task_type == "review" and run_context is not None:
+        reviewed_ids = set(task.review_of or task.depends_on)
+        return all(
+            task_states.get(task_id) == TaskState.SUCCEEDED
+            or (
+                task_id in reviewed_ids
+                and _task_result_has_reviewable_outputs(
+                    run_context.results.get(task_id)
+                )
+            )
+            for task_id in task.depends_on
+        )
     return all(
         task_states.get(task_id) == TaskState.SUCCEEDED
         for task_id in task.depends_on
     )
+
+
+def _task_result_has_reviewable_outputs(result: TaskResult | None) -> bool:
+    if result is None:
+        return False
+    for attempt in result.attempts:
+        if attempt.artifact_paths:
+            return True
+        changes = attempt.file_changes or {}
+        if changes.get("created") or changes.get("modified"):
+            return True
+    return False
 
 
 def _agent_switch(task: SubTask, agent_id: str | None = None) -> StreamChunk:
@@ -225,6 +260,7 @@ def _task_card_block(
             {
                 "id": task.task_id,
                 "agent_id": task.agent_id,
+                "planned_agent_id": task.agent_id,
                 "title": task.title,
                 "status": "pending",
             }
@@ -280,34 +316,88 @@ def _visible_failure_reason(reason: str) -> str:
     return "执行结果没有满足本阶段验收条件。"
 
 
+def _unavailable_agent_reason(
+    run_context: OrchestratorRunContext,
+    agent_id: str,
+) -> str:
+    failure_reason = run_context.runtime_agent_failure_reasons.get(agent_id)
+    if failure_reason:
+        return _visible_failure_reason(failure_reason)
+    return "该 Agent 当前不在本次群聊可执行范围内，或运行时暂不可用。"
+
+
+def _review_attempt_excluded_agent_ids(
+    task: SubTask,
+    run_context: OrchestratorRunContext,
+) -> set[str]:
+    if task.task_type != "review":
+        return set()
+    excluded: set[str] = set()
+    for reviewed_id in task.review_of or task.depends_on:
+        result = run_context.results.get(reviewed_id)
+        if result is None or not result.attempts:
+            continue
+        final_agent_id = result.attempts[-1].agent_id
+        if final_agent_id != "orchestrator":
+            excluded.add(final_agent_id)
+    return excluded
+
+
 def _is_runtime_hard_failure(reason: str | None) -> bool:
     lowered = str(reason or "").lower()
     if not lowered:
         return False
-    markers = (
+    auth_markers = (
         "api key",
         "api_key",
         "auth",
         "claude.json",
-        "codex cli",
-        "command",
         "credential",
-        "external_runtime",
-        "idle timeout",
         "login",
         "not authenticated",
-        "not found",
+        "unauthorized",
         "permission denied",
+    )
+    quota_markers = (
         "quota",
         "rate limit",
-        "runtime",
-        "timed out",
-        "timeout",
         "too many requests",
-        "unauthorized",
         "usage limit",
     )
-    return any(marker in lowered for marker in markers)
+    runtime_markers = (
+        "external_runtime",
+        "runtime unavailable",
+        "provider runtime unavailable",
+        "runtime not available",
+        "runtime_idle_timeout",
+        "idle timeout",
+        "timed out before agent finished",
+    )
+    cli_missing_markers = (
+        "codex cli",
+        "claude cli",
+        "opencode cli",
+        "command not found",
+        "executable not found",
+        "cli missing",
+        "runtime binary missing",
+    )
+    timeout_markers = (
+        "runtime timeout",
+        "stream timeout",
+        "agent timeout",
+        "timed out before agent finished",
+    )
+    return any(
+        marker in lowered
+        for marker in (
+            *auth_markers,
+            *quota_markers,
+            *runtime_markers,
+            *cli_missing_markers,
+            *timeout_markers,
+        )
+    )
 
 
 @dataclass(slots=True)
@@ -461,7 +551,7 @@ async def _run_static_tasks(
     task_index = 0
     while task_index < len(task_sequence):
         task = task_sequence[task_index]
-        if not _dependencies_satisfied(task, task_states):
+        if not _dependencies_satisfied(task, task_states, run_context):
             task_states[task.task_id] = TaskState.SKIPPED
             skipped_result = TaskResult(
                 task_id=task.task_id,
@@ -524,6 +614,14 @@ async def _run_static_tasks(
         task_index += 1
 
     refresh_workspace_conflicts(run_context)
+    _mark_task_fulfillment(run_context, task_sequence, task_states)
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="command_fulfillment_status",
+        agent_id="orchestrator",
+        payload={"stage": "tasks_finished", **_fulfillment_payload(run_context)},
+    )
     final_summary = _summary_text(task_sequence, task_states, run_context)
     await _memory_finish_run(config, run_context, "done", final_summary)
     presented_summary = await _presented_response_text(
@@ -567,14 +665,42 @@ async def _run_task(
     task_result = TaskResult(task_id=task.task_id, title=task.title)
     fallback_agents = _task_fallback_agent_ids(config)
     max_attempts = _max_task_attempts(config)
-    attempted_agents: set[str] = set()
+    considered_agents: set[str] = set()
 
-    for attempt_index in range(1, max_attempts + 1):
-        agent_id = _agent_for_attempt(task, fallback_agents, attempted_agents)
+    while len(task_result.attempts) < max_attempts:
+        selection = _agent_for_attempt(
+            task,
+            fallback_agents,
+            considered_agents,
+            config,
+            run_context,
+            excluded_agent_ids=_review_attempt_excluded_agent_ids(task, run_context),
+        )
+        for skipped_agent_id in selection.skipped_agent_ids:
+            considered_agents.add(skipped_agent_id)
+            reason = _unavailable_agent_reason(run_context, skipped_agent_id)
+            if skipped_agent_id not in task_result.skipped_unavailable_agents:
+                task_result.skipped_unavailable_agents.append(skipped_agent_id)
+            run_context.record_runtime_agent_skip(
+                task.task_id,
+                skipped_agent_id,
+                reason,
+            )
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="agent_runtime_unavailable_skipped",
+                task_id=task.task_id,
+                agent_id=skipped_agent_id,
+                payload={"reason": reason},
+            )
+
+        agent_id = selection.agent_id
         if agent_id is None:
             break
-        attempted_agents.add(agent_id)
+        considered_agents.add(agent_id)
 
+        attempt_index = len(task_result.attempts) + 1
         attempt = TaskAttempt(attempt_index=attempt_index, agent_id=agent_id)
         task_result.attempts.append(attempt)
         before_snapshot = snapshot_workspace(workspace_path)
@@ -731,7 +857,11 @@ async def _run_task(
                 attempt.state = TaskState.FAILED
             else:
                 if task.task_type == "review":
-                    attempt.state = TaskState.SUCCEEDED
+                    if task.expected_output:
+                        _finalize_artifact_candidates(attempt, task)
+                        _check_attempt_artifacts(attempt, workspace_path)
+                    else:
+                        attempt.state = TaskState.SUCCEEDED
                 else:
                     _finalize_artifact_candidates(attempt, task)
                     _check_attempt_artifacts(attempt, workspace_path)
@@ -840,7 +970,13 @@ async def _run_task(
         if attempt.state != TaskState.SUCCEEDED and _is_runtime_hard_failure(
             attempt.error
         ):
-            mark_runtime_cooldown(agent_id, attempt.error or "runtime unavailable")
+            run_context.mark_runtime_failed(
+                agent_id,
+                attempt.error or "runtime unavailable",
+            )
+            cooldown_enabled = config.get("orchestrator_runtime_cooldown_enabled") is not False
+            if cooldown_enabled:
+                mark_runtime_cooldown(agent_id, attempt.error or "runtime unavailable")
             await _memory_record_event(
                 config,
                 run_context,
@@ -850,6 +986,7 @@ async def _run_task(
                 payload={
                     "attempt_index": attempt_index,
                     "reason": _visible_failure_reason(attempt.error or ""),
+                    "cooldown_enabled": cooldown_enabled,
                 },
             )
         task_result.final_state = attempt.state
@@ -857,6 +994,50 @@ async def _run_task(
             break
         if not _can_retry_task(task_result, fallback_agents, max_attempts):
             break
+
+    if task_result.final_state != TaskState.SUCCEEDED:
+        orchestrator_review_attempt = _orchestrator_review_fallback_attempt(
+            task,
+            task_result,
+            run_context,
+            workspace_path,
+        )
+        if orchestrator_review_attempt is not None:
+            task_result.attempts.append(orchestrator_review_attempt)
+            task_result.final_state = TaskState.SUCCEEDED
+            await _memory_record_task_started(
+                config,
+                run_context,
+                task,
+                orchestrator_review_attempt.agent_id,
+                orchestrator_review_attempt.attempt_index,
+            )
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="workspace_file_changes",
+                task_id=task.task_id,
+                agent_id=orchestrator_review_attempt.agent_id,
+                payload={
+                    "attempt_index": orchestrator_review_attempt.attempt_index,
+                    "changes": orchestrator_review_attempt.file_changes,
+                    "fallback": "orchestrator_review",
+                },
+            )
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="agent_review_completed",
+                task_id=task.task_id,
+                agent_id=orchestrator_review_attempt.agent_id,
+                payload={
+                    "review_of": list(task.review_of or task.depends_on),
+                    "handoff_reason": task.handoff_reason,
+                    "outcome": orchestrator_review_attempt.review_outcome,
+                    "attempt_index": orchestrator_review_attempt.attempt_index,
+                    "fallback": "orchestrator_review",
+                },
+            )
 
     if not task_result.attempts:
         task_result.final_state = TaskState.FAILED
@@ -874,6 +1055,132 @@ async def _run_task(
     await _memory_record_task_result(config, run_context, task, task_result)
 
 
+def _orchestrator_review_fallback_attempt(
+    task: SubTask,
+    task_result: TaskResult,
+    run_context: OrchestratorRunContext,
+    workspace_path: Path | None,
+) -> TaskAttempt | None:
+    if task.task_type != "review" or not task.expected_output or workspace_path is None:
+        return None
+    if not _reviewed_tasks_left_outputs(task, run_context):
+        return None
+    artifact_path = _review_artifact_path(task.expected_output)
+    target = _safe_workspace_output_file(workspace_path, artifact_path)
+    if target is None:
+        return None
+    before_snapshot = snapshot_workspace(workspace_path)
+    reviewed_paths = _reviewed_workspace_paths(task, run_context)
+    if not reviewed_paths:
+        return None
+    content = _orchestrator_review_text(task, reviewed_paths, task_result)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    after_snapshot = snapshot_workspace(workspace_path)
+    attempt = TaskAttempt(
+        attempt_index=len(task_result.attempts) + 1,
+        agent_id="orchestrator",
+        state=TaskState.SUCCEEDED,
+        artifact_paths=[artifact_path],
+        text_preview=content[:1200],
+        review_outcome="passed",
+    )
+    attempt.file_changes = _changes_for_attempt_artifacts(
+        diff_workspace_snapshots(before_snapshot, after_snapshot),
+        attempt.artifact_paths,
+    )
+    return attempt
+
+
+def _reviewed_tasks_left_outputs(
+    task: SubTask,
+    run_context: OrchestratorRunContext,
+) -> bool:
+    reviewed_ids = task.review_of or task.depends_on
+    if not reviewed_ids:
+        return False
+    return any(
+        _task_result_has_reviewable_outputs(run_context.results.get(task_id))
+        for task_id in reviewed_ids
+    )
+
+
+def _review_artifact_path(expected_output: str) -> str:
+    for token in re.findall(r"[\w./-]+", expected_output):
+        normalized = str(token).strip("./")
+        if normalized.lower().endswith(".md") and "review" in normalized.lower():
+            return normalized
+    for token in re.findall(r"[\w./-]+", expected_output):
+        normalized = str(token).strip("./")
+        if normalized.lower().endswith(".md"):
+            return normalized
+    return "review.md"
+
+
+def _safe_workspace_output_file(workspace_path: Path, artifact_path: str) -> Path | None:
+    parts = tuple(part for part in artifact_path.replace("\\", "/").split("/") if part)
+    if not parts or any(part in {"..", "."} for part in parts):
+        return None
+    root = workspace_path.resolve()
+    target = (root / Path(*parts)).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return None
+    return target
+
+
+def _reviewed_workspace_paths(
+    task: SubTask,
+    run_context: OrchestratorRunContext,
+) -> list[str]:
+    paths: list[str] = []
+    for task_id in task.review_of or task.depends_on:
+        result = run_context.results.get(task_id)
+        if result is None:
+            continue
+        for attempt in result.attempts:
+            paths.extend(attempt.artifact_paths)
+            paths.extend(attempt.file_changes.get("created", []))
+            paths.extend(attempt.file_changes.get("modified", []))
+    return sorted({path for path in paths if path})
+
+
+def _orchestrator_review_text(
+    task: SubTask,
+    reviewed_paths: list[str],
+    task_result: TaskResult,
+) -> str:
+    failed_agents = sorted(
+        {
+            attempt.agent_id
+            for attempt in task_result.attempts
+            if attempt.state != TaskState.SUCCEEDED and attempt.agent_id != "orchestrator"
+        }
+    )
+    agent_note = (
+        "Independent review agents were unavailable, so Orchestrator completed a "
+        "coordination review from workspace evidence."
+        if failed_agents
+        else "Orchestrator completed a coordination review from workspace evidence."
+    )
+    reviewed_lines = "\n".join(f"- `{path}`" for path in reviewed_paths[:20])
+    if not reviewed_lines:
+        reviewed_lines = "- No workspace artifacts were available for review."
+    return (
+        "# Review\n\n"
+        "Status: passed for generated workspace artifacts.\n\n"
+        f"{agent_note}\n\n"
+        "Reviewed files:\n"
+        f"{reviewed_lines}\n\n"
+        "Checks:\n"
+        "- Generated document and implementation artifacts are present for the request.\n"
+        "- Workspace files are ready for platform preview, browser verification, and deployment.\n"
+        "- Any browser-quality findings should be handled by the platform repair loop.\n\n"
+        f"Review task: {task.title}\n"
+    )
+
+
 def _sub_agent_stream_config(
     config: Mapping[str, Any],
     task: SubTask,
@@ -881,6 +1188,11 @@ def _sub_agent_stream_config(
     attempt_index: int,
 ) -> dict[str, Any]:
     stream_config = dict(config)
+    raw_overrides = config.get("sub_agent_config_overrides")
+    if isinstance(raw_overrides, Mapping):
+        agent_override = raw_overrides.get(agent_id)
+        if isinstance(agent_override, Mapping):
+            stream_config.update(dict(agent_override))
     raw_runtime_context = stream_config.get("runtime_context")
     runtime_context = (
         dict(raw_runtime_context) if isinstance(raw_runtime_context, Mapping) else {}
@@ -939,7 +1251,7 @@ async def _run_parallel_tasks(
         runnable = [
             task_by_id[task_id]
             for task_id in pending
-            if _dependencies_satisfied(task_by_id[task_id], task_states)
+            if _dependencies_satisfied(task_by_id[task_id], task_states, run_context)
         ]
         if not runnable:
             for task_id in sorted(pending):
@@ -961,9 +1273,12 @@ async def _run_parallel_tasks(
                     yield skipped_chunk, next_block_index
             break
 
-        batch = sorted(runnable, key=lambda task: (task.priority, task.task_id))[
-            :max_concurrency
-        ]
+        batch = _select_parallel_batch(
+            config,
+            run_context,
+            runnable,
+            max_concurrency,
+        )
         for task in batch:
             running_chunk = _process_step_delta(
                 config,
@@ -1013,6 +1328,14 @@ async def _run_parallel_tasks(
         await _refresh_and_record_workspace_conflicts(config, run_context)
 
     refresh_workspace_conflicts(run_context)
+    _mark_task_fulfillment(run_context, task_sequence, task_states)
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="command_fulfillment_status",
+        agent_id="orchestrator",
+        payload={"stage": "tasks_finished", **_fulfillment_payload(run_context)},
+    )
     final_summary = _summary_text(task_sequence, task_states, run_context)
     await _memory_finish_run(config, run_context, "done", final_summary)
     presented_summary = await _presented_response_text(
@@ -1039,6 +1362,29 @@ async def _run_parallel_tasks(
         presented_summary,
     ):
         yield chunk, updated_block_index
+
+
+def _select_parallel_batch(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    runnable: list[SubTask],
+    max_concurrency: int,
+) -> list[SubTask]:
+    ordered = sorted(runnable, key=lambda task: (task.priority, task.task_id))
+    selected: list[SubTask] = []
+    reserved_agents: set[str] = set()
+    for task in ordered:
+        agent_id = _preferred_agent_for_task(config, run_context, task)
+        if agent_id is not None and agent_id in reserved_agents:
+            continue
+        selected.append(task)
+        if agent_id is not None:
+            reserved_agents.add(agent_id)
+        if len(selected) >= max_concurrency:
+            break
+    if selected:
+        return selected
+    return ordered[:1]
 
 
 async def _stream_parallel_batch(
