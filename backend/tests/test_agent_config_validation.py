@@ -19,9 +19,55 @@ from app.agents.config_validation import (
     merge_agent_config,
     validate_agent_config,
 )
+from app.api.v1.stream_orchestrator_context import _agent_context
+from app.models.agent import Agent
 from app.schemas.agent import AgentConfig, AgentOut, CreateAgentRequest
 from app.seeds.seed_agents import BUILTIN_AGENTS
-from app.services.builtin_agent_config import upgraded_orchestrator_config
+from app.services.builtin_agent_config import (
+    upgrade_builtin_orchestrator_config,
+    upgraded_orchestrator_config,
+)
+
+
+class FakeUpgradeDb:
+    def __init__(self, agents: dict[str, Agent]) -> None:
+        self.agents = agents
+        self.deleted: list[str] = []
+
+    async def get(self, model: object, key: str) -> Agent | None:
+        assert model is Agent
+        return self.agents.get(key)
+
+    async def execute(self, _statement: object) -> FakeUpgradeResult:
+        return FakeUpgradeResult(
+            [agent for agent in self.agents.values() if agent.is_builtin]
+        )
+
+    async def delete(self, agent: Agent) -> None:
+        self.deleted.append(agent.id)
+        self.agents.pop(agent.id, None)
+
+
+class FakeUpgradeResult:
+    def __init__(self, agents: list[Agent]) -> None:
+        self._agents = agents
+
+    def scalars(self) -> list[Agent]:
+        return self._agents
+
+
+def _builtin_agent_row(agent_id: str, config: dict[str, object] | None = None) -> Agent:
+    return Agent(
+        id=agent_id,
+        user_id=None,
+        name=agent_id,
+        provider="builtin",
+        avatar_url="",
+        capabilities=[],
+        system_prompt=None,
+        config=config or {},
+        is_builtin=True,
+    )
 
 
 class TestValidConfigs:
@@ -133,14 +179,123 @@ class TestValidConfigs:
                 "answer_model_backend": "claude",
                 "planner_model_backend": "claude",
                 "react_trace_visible": True,
-                "managed_agent_ids": ["claude-code", "opencode-helper"],
+                "managed_agent_ids": [
+                    "claude-code",
+                    "codex-helper",
+                    "web-designer",
+                    "writer",
+                    "deepseek-assistant",
+                    "browser-validator",
+                    "testdbg-3089345d",
+                    "opencode-helper",
+                ],
             }
         )
 
         assert result["answer_model_backend"] == "deepseek"
         assert result["planner_model_backend"] == "deepseek"
         assert result["react_trace_visible"] is False
-        assert result["managed_agent_ids"] == ["claude-code", "opencode-helper"]
+        assert result["managed_agent_ids"] == [
+            "claude-code",
+            "codex-helper",
+            "opencode-helper",
+        ]
+
+    async def test_stale_builtin_agents_are_removed_during_upgrade(self) -> None:
+        orchestrator = _builtin_agent_row(
+            "orchestrator",
+            {
+                "model_backend": "claude",
+                "managed_agent_ids": [
+                    "claude-code",
+                    "codex-helper",
+                    "web-designer",
+                    "writer",
+                    "deepseek-assistant",
+                    "browser-validator",
+                    "testdbg-3089345d",
+                    "opencode-helper",
+                ],
+            },
+        )
+        user_agent_named_writer = _builtin_agent_row("custom-writer")
+        user_agent_named_writer.is_builtin = False
+        db = FakeUpgradeDb(
+            {
+                "orchestrator": orchestrator,
+                "claude-code": _builtin_agent_row("claude-code"),
+                "codex-helper": _builtin_agent_row("codex-helper"),
+                "opencode-helper": _builtin_agent_row("opencode-helper"),
+                "writer": _builtin_agent_row("writer"),
+                "web-designer": _builtin_agent_row("web-designer"),
+                "deepseek-assistant": _builtin_agent_row("deepseek-assistant"),
+                "browser-validator": _builtin_agent_row("browser-validator"),
+                "testdbg-3089345d": _builtin_agent_row("testdbg-3089345d"),
+                "custom-writer": user_agent_named_writer,
+            }
+        )
+
+        changed = await upgrade_builtin_orchestrator_config(db)  # type: ignore[arg-type]
+
+        assert changed is True
+        assert sorted(db.deleted) == [
+            "browser-validator",
+            "deepseek-assistant",
+            "testdbg-3089345d",
+            "web-designer",
+            "writer",
+        ]
+        for agent_id in db.deleted:
+            assert agent_id not in db.agents
+        assert "claude-code" in db.agents
+        assert "codex-helper" in db.agents
+        assert "opencode-helper" in db.agents
+        assert "custom-writer" in db.agents
+        assert orchestrator.config["managed_agent_ids"] == [
+            "claude-code",
+            "codex-helper",
+            "opencode-helper",
+        ]
+
+    def test_agent_context_exposes_only_safe_planning_profile_fields(self) -> None:
+        agent = Agent(
+            id="custom-reviewer",
+            user_id=None,
+            name="Custom Reviewer",
+            provider="custom",
+            avatar_url="",
+            capabilities=["review", "frontend"],
+            system_prompt="你负责审查前端交互、视觉一致性和可演示性。",
+            config={
+                "planning_profile": "适合作为最终审阅 agent。",
+                "planning_strengths": ["ui_review", "verification"],
+                "planning_weaknesses": ["backend"],
+                "preferred_task_types": ["review"],
+                "allowed_tools": ["read_file"],
+                "model_backend": "claude",
+                "api_key": "should-not-leak",
+                "env": {"TOKEN": "hidden"},
+                "command": "secret-command",
+                "args": ["--secret"],
+                "sdk_options": {"token": "hidden"},
+            },
+            is_builtin=False,
+        )
+
+        context = _agent_context(agent)
+
+        assert context["planning_profile"] == "适合作为最终审阅 agent。"
+        assert context["planning_strengths"] == ["ui_review", "verification"]
+        assert context["planning_weaknesses"] == ["backend"]
+        assert context["preferred_task_types"] == ["review"]
+        assert context["allowed_tools"] == ["read_file"]
+        assert context["system_prompt_summary"] == "你负责审查前端交互、视觉一致性和可演示性。"
+        assert context["model_backend"] == "claude"
+        assert "api_key" not in context
+        assert "env" not in context
+        assert "command" not in context
+        assert "args" not in context
+        assert "sdk_options" not in context
 
     def test_valid_builtin_mcp_allowed_tool(self) -> None:
         config = {
@@ -655,6 +810,14 @@ class TestMergeAgentConfig:
 
 
 class TestBuiltinAgents:
+    def test_builtin_agents_are_curated_runtime_set(self) -> None:
+        assert {agent["id"] for agent in BUILTIN_AGENTS} == {
+            "orchestrator",
+            "claude-code",
+            "codex-helper",
+            "opencode-helper",
+        }
+
     def test_builtin_agents_pass_validation(self) -> None:
         for agent in BUILTIN_AGENTS:
             result = validate_agent_config(
@@ -687,6 +850,30 @@ class TestBuiltinAgents:
         assert config["react_trace_visible"] is False
         assert config["available_agents_authoritative"] is False
         assert config["orchestrator_response_polish_enabled"] is True
+        assert config["managed_agent_ids"] == [
+            "claude-code",
+            "codex-helper",
+            "opencode-helper",
+        ]
+
+    def test_external_seed_agents_define_planning_profiles(self) -> None:
+        codex = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "codex-helper")
+        claude = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "claude-code")
+        opencode = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "opencode-helper")
+
+        assert "总体规划" in codex["config"]["planning_profile"]
+        assert "审阅其他 agent" in codex["config"]["planning_profile"]
+        assert "difficult_bug_fixing" in codex["config"]["planning_strengths"]
+        assert "routine_parallel_implementation" in codex["config"]["planning_weaknesses"]
+        assert "escalation" in codex["config"]["preferred_task_types"]
+
+        assert "并行开发场景" in claude["config"]["planning_profile"]
+        assert "code_review" in claude["config"]["planning_strengths"]
+        assert "implementation" in claude["config"]["preferred_task_types"]
+
+        assert "并行开发场景" in opencode["config"]["planning_profile"]
+        assert "parallel_execution" in opencode["config"]["planning_strengths"]
+        assert "verification" in opencode["config"]["preferred_task_types"]
 
     def test_external_runtime_prompts_prevent_foreground_servers(self) -> None:
         for agent_id in ("claude-code", "codex-helper", "opencode-helper"):
@@ -705,17 +892,6 @@ class TestBuiltinAgents:
             assert "npm run dev" not in prompt
             assert "pnpm dev" not in prompt
             assert "vite --host" not in prompt
-
-    def test_web_designer_prompt_documents_native_tool_path_contract(self) -> None:
-        agent = next(agent for agent in BUILTIN_AGENTS if agent["id"] == "web-designer")
-        prompt = agent["system_prompt"]
-
-        assert "path argument" in prompt
-        assert "workspace-relative path such as snake.html" in prompt
-        assert "absolute paths" in prompt
-        assert "Treat the latest user message as the only active request" in prompt
-        assert "Do not run, suggest, output, or call tools" in prompt
-        assert "platform preview/deploy must be started outside the agent runtime" in prompt
 
 
 class TestCreateAgentRequestSchema:

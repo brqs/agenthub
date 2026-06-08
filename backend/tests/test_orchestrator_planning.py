@@ -89,6 +89,9 @@ def test_planner_prompt_references_agent_capability_profile_rule() -> None:
     assert "split implementation work across distinct implementation-capable agents" in (
         PLANNER_SYSTEM_PROMPT
     )
+    assert "planning_profile" in PLANNER_SYSTEM_PROMPT
+    assert "codex-helper as the technical lead" in PLANNER_SYSTEM_PROMPT
+    assert "claude-code and opencode-helper" in PLANNER_SYSTEM_PROMPT
 
 
 def test_generic_template_review_task_is_independent_review() -> None:
@@ -206,7 +209,7 @@ async def test_orchestrator_planner_cannot_select_agent_outside_available_agents
             StreamChunk(
                 event_type="delta",
                 text_delta=(
-                    '{"tasks":[{"task_id":"task-a","agent_id":"web-designer",'
+                    '{"tasks":[{"task_id":"task-a","agent_id":"outside-agent",'
                     '"title":"Design","instruction":"Build UI"}]}'
                 ),
             ),
@@ -235,9 +238,9 @@ async def test_orchestrator_planner_cannot_select_agent_outside_available_agents
 
     assert len(planner.calls) == 1
     assert "- codex-helper" in planner.calls[0]["messages"][0].content
-    assert "web-designer" not in planner.calls[0]["messages"][0].content
+    assert "outside-agent" not in planner.calls[0]["messages"][0].content
     assert chunks[-1].event_type == "error"
-    assert "unknown agent_id 'web-designer'" in (chunks[-1].error or "")
+    assert "unknown agent_id 'outside-agent'" in (chunks[-1].error or "")
     assert not any(chunk.event_type == "agent_switch" for chunk in chunks)
 
 
@@ -307,6 +310,103 @@ async def test_orchestrator_planner_receives_safe_planning_profiles() -> None:
     assert "token" not in planner_message
 
 
+async def test_orchestrator_planner_prompt_includes_safe_planning_profiles() -> None:
+    codex = FakeSubAdapter("codex-helper", _text_chunks("planned review"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "review",
+                            "codex-helper",
+                            "Review implementation",
+                            "Review the implementation and report issues.",
+                        )
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Plan and review this work")],
+        config={
+            "planner_gateway": planner,
+            "sub_adapters": {"codex-helper": codex},
+            "available_agents": [
+                {
+                    "id": "codex-helper",
+                    "name": "Codex Helper",
+                    "provider": "codex",
+                    "capabilities": ["coding", "sandbox"],
+                    "planning_profile": "总负责人，负责 architecture、review 和 escalation",
+                    "planning_strengths": ["architecture", "final_review"],
+                    "planning_weaknesses": ["routine_parallel_implementation"],
+                    "preferred_task_types": ["planning", "review", "escalation"],
+                    "api_key": "should-not-leak",
+                    "env": {"TOKEN": "hidden"},
+                    "command": "secret-command",
+                    "args": ["--secret"],
+                    "sdk_options": {"token": "hidden"},
+                    "runtime_available": True,
+                },
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files"],
+                    "planning_profile": "并行实现主力之一",
+                    "planning_strengths": ["implementation", "code_review"],
+                    "preferred_task_types": ["implementation", "repair", "review"],
+                    "runtime_available": True,
+                },
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "capabilities": ["coding", "cli"],
+                    "planning_profile": "并行实现主力之二",
+                    "planning_strengths": ["parallel_execution", "verification"],
+                    "preferred_task_types": ["implementation", "verification"],
+                    "runtime_available": True,
+                },
+                {
+                    "id": "custom-codex-runtime",
+                    "name": "Custom Codex",
+                    "provider": "codex",
+                    "capabilities": ["testing"],
+                    "system_prompt_summary": "自建 agent 只使用自己的摘要。",
+                    "runtime_available": True,
+                },
+            ],
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    planner_message = planner.calls[0]["messages"][0].content
+    assert "planning_profile=总负责人，负责 architecture、review 和 escalation" in planner_message
+    assert "strengths=architecture, final_review" in planner_message
+    assert "weaknesses=routine_parallel_implementation" in planner_message
+    assert "preferred_task_types=planning, review, escalation" in planner_message
+    assert "planning_profile=并行实现主力之一" in planner_message
+    assert "planning_profile=并行实现主力之二" in planner_message
+    assert "system_prompt_summary=自建 agent 只使用自己的摘要。" in planner_message
+    assert planner_message.count("总负责人，负责 architecture") == 1
+    assert "api_key" not in planner_message
+    assert "should-not-leak" not in planner_message
+    assert "TOKEN" not in planner_message
+    assert "secret-command" not in planner_message
+    assert "sdk_options" not in planner_message
+
+
 async def test_orchestrator_direct_routing_only_matches_current_managed_agents() -> None:
     claude = FakeSubAdapter("claude-code", _text_chunks("claude response"))
     codex = FakeSubAdapter("codex-helper", _text_chunks("codex response"))
@@ -319,7 +419,7 @@ async def test_orchestrator_direct_routing_only_matches_current_managed_agents()
             ChatMessage(
                 role="user",
                 content=(
-                    '@orchestrator ask claude code, codex, and web-designer '
+                    '@orchestrator ask claude code, codex, and outside-agent '
                     '"hello" and return their outputs'
                 ),
             )
@@ -339,7 +439,7 @@ async def test_orchestrator_direct_routing_only_matches_current_managed_agents()
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["claude-code", "codex-helper"]
-    assert not any(chunk.to_agent == "web-designer" for chunk in chunks)
+    assert not any(chunk.to_agent == "outside-agent" for chunk in chunks)
 
 
 async def test_orchestrator_plans_tasks_with_llm_tool_call() -> None:
@@ -1102,7 +1202,7 @@ async def test_fullstack_delivery_template_does_not_hardcode_okr_theme() -> None
 
 
 async def test_orchestrator_filters_planner_port_service_tasks() -> None:
-    web_designer = FakeSubAdapter("web-designer", _text_chunks("created snake.html"))
+    frontend_agent = FakeSubAdapter("frontend-agent", _text_chunks("created snake.html"))
     planner = FakePlannerGateway(
         [
             StreamChunk(event_type="start", agent_id="planner"),
@@ -1114,7 +1214,7 @@ async def test_orchestrator_filters_planner_port_service_tasks() -> None:
                     "tasks": [
                         _task(
                             "task-create",
-                            "web-designer",
+                            "frontend-agent",
                             "Create snake.html",
                             "Create a complete snake.html game file.",
                         ),
@@ -1143,8 +1243,8 @@ async def test_orchestrator_filters_planner_port_service_tasks() -> None:
         ],
         config={
             "planner_gateway": planner,
-            "managed_agent_ids": ["web-designer", "claude-code"],
-            "sub_adapters": {"web-designer": web_designer},
+            "managed_agent_ids": ["frontend-agent", "claude-code"],
+            "sub_adapters": {"frontend-agent": frontend_agent},
         },
     )
 
@@ -1156,7 +1256,7 @@ async def test_orchestrator_filters_planner_port_service_tasks() -> None:
     assert "Start 8082 preview service" not in planning_text
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["web-designer"]
+    ] == ["frontend-agent"]
 
 
 async def test_orchestrator_plans_tasks_from_llm_json_text() -> None:

@@ -44,7 +44,6 @@ ARCHITECT_AGENT_PREFERENCE = (
     "codex-helper",
     "claude-code",
     "opencode-helper",
-    "web-designer",
 )
 
 

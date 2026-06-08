@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Coroutine
+import json
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
 
 from app.models.message import Message
 
-StreamRunner = Callable[["StreamRunSession"], Coroutine[object, object, None]]
+StreamRunner = Callable[["StreamRunSession"], Awaitable[None]]
 
 
 @dataclass
@@ -77,6 +78,23 @@ class StreamRunManager:
             session.events.append(event)
             session.condition.notify_all()
 
+    async def publish_turn_control_event(
+        self,
+        message_id: UUID,
+        turn_control: dict[str, object],
+    ) -> bool:
+        session = await self.get(message_id)
+        if session is None:
+            return False
+        await self.publish(
+            session,
+            {
+                "event": "turn_control",
+                "data": _json_turn_control(turn_control),
+            },
+        )
+        return True
+
     async def subscribe(
         self,
         session: StreamRunSession,
@@ -123,3 +141,7 @@ class StreamRunManager:
 
 
 stream_run_manager = StreamRunManager()
+
+
+def _json_turn_control(turn_control: dict[str, object]) -> str:
+    return json.dumps({"turn_control": turn_control}, default=str, ensure_ascii=False)

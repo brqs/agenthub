@@ -41,10 +41,10 @@ describe('AgentsPage', () => {
     expect(screen.getAllByText('内置 Agent').length).toBeGreaterThan(0);
 
     fireEvent.change(screen.getByPlaceholderText('搜索 Agent、Provider 或能力'), {
-      target: { value: 'Web Designer' },
+      target: { value: 'OpenCode Helper' },
     });
 
-    expect(screen.getAllByText('Web Designer').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('OpenCode Helper').length).toBeGreaterThan(0);
     expect(screen.queryByText('Claude Code')).not.toBeInTheDocument();
   });
 

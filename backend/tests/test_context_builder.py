@@ -263,6 +263,63 @@ async def test_pending_and_error_messages_are_excluded() -> None:
     assert "error should not appear" not in joined
 
 
+async def test_side_chat_turn_control_messages_are_excluded() -> None:
+    conversation_id = await _create_conversation()
+    async with SessionFactory() as db:
+        db.add_all(
+            [
+                Message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=[{"type": "text", "text": "main task context"}],
+                    status="done",
+                ),
+                Message(
+                    conversation_id=conversation_id,
+                    role="user",
+                    content=[
+                        {"type": "text", "text": "side question should not enter context"},
+                        {
+                            "type": "turn_control",
+                            "kind": "side_chat",
+                            "status": "answered",
+                            "active_agent_message_id": str(uuid4()),
+                            "title": "Side chat",
+                            "body": "side question should not enter context",
+                        },
+                    ],
+                    status="done",
+                ),
+                Message(
+                    conversation_id=conversation_id,
+                    role="agent",
+                    agent_id="test-agent",
+                    content=[
+                        {
+                            "type": "turn_control",
+                            "kind": "side_chat",
+                            "status": "answered",
+                            "active_agent_message_id": str(uuid4()),
+                            "title": "Side chat answered",
+                            "body": "side answer should not enter context",
+                        },
+                        {"type": "text", "text": "side answer should not enter context"},
+                    ],
+                    status="done",
+                ),
+            ]
+        )
+        await db.commit()
+
+    async with SessionFactory() as db:
+        context = await build_context(db, conversation_id)
+
+    joined = "\n".join(message.content for message in context)
+    assert "main task context" in joined
+    assert "side question should not enter context" not in joined
+    assert "side answer should not enter context" not in joined
+
+
 async def test_group_pending_and_error_agent_messages_are_excluded() -> None:
     conversation_id = await _create_conversation(
         mode="group",
@@ -343,7 +400,7 @@ async def test_key_facts_survive_long_history_summary() -> None:
 async def test_group_long_history_creates_shared_memory_with_agent_labels() -> None:
     conversation_id = await _create_conversation(
         mode="group",
-        agent_ids=["claude-code", "codex-helper", "web-designer"],
+        agent_ids=["claude-code", "codex-helper", "opencode-helper"],
     )
     rows: list[tuple[str, str, str | None, str, bool]] = [
         (

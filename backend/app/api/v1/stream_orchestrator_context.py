@@ -33,40 +33,28 @@ from app.services.orchestrator_memory import (
 from app.services.orchestrator_platform_tools import OrchestratorPlatformToolExecutor
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 
-PLANNING_TEXT_FIELDS = ("planning_profile",)
-PLANNING_LIST_FIELDS = (
+AGENT_PLANNING_TEXT_MAX_CHARS = 1200
+AGENT_PLANNING_CONFIG_TEXT_KEYS = (
+    "description",
+    "planning_profile",
+    "planner_description",
+    "planning_notes",
+    "role_description",
+)
+AGENT_PLANNING_CONFIG_LIST_KEYS = (
+    "allowed_tools",
     "planning_strengths",
     "planning_weaknesses",
     "preferred_task_types",
 )
-PLANNING_TEXT_MAX_CHARS = 1200
-
-
-def _safe_planning_text(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = " ".join(value.split())
-    if not normalized:
-        return None
-    return normalized[:PLANNING_TEXT_MAX_CHARS]
-
-
-def _safe_planning_list(value: object) -> list[str]:
-    if isinstance(value, str):
-        raw_items = [item.strip() for item in value.split(",")]
-    elif isinstance(value, list):
-        raw_items = [item.strip() for item in value if isinstance(item, str)]
-    else:
-        return []
-    items: list[str] = []
-    seen: set[str] = set()
-    for item in raw_items:
-        normalized = " ".join(item.split())
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        items.append(normalized[:120])
-    return items[:12]
+AGENT_PLANNING_CONFIG_SCALAR_KEYS = (
+    "model_backend",
+    "answer_model_backend",
+    "planner_model_backend",
+    "qa_model_backend",
+    "qa_model",
+    "runtime",
+)
 
 
 def _agent_context(agent: Agent) -> dict[str, Any]:
@@ -78,26 +66,22 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         "capabilities": [item for item in capabilities if isinstance(item, str)],
         "is_builtin": agent.is_builtin,
     }
+    system_prompt_summary = _planning_text(agent.system_prompt)
+    if system_prompt_summary:
+        context["system_prompt_summary"] = system_prompt_summary
     if isinstance(agent.config, dict):
-        for key in (
-            "model_backend",
-            "answer_model_backend",
-            "planner_model_backend",
-            "qa_model_backend",
-            "qa_model",
-            "runtime",
-        ):
+        for key in AGENT_PLANNING_CONFIG_SCALAR_KEYS:
             value = agent.config.get(key)
             if isinstance(value, str) and value.strip():
                 context[key] = value.strip()
-        for key in PLANNING_TEXT_FIELDS:
-            value = _safe_planning_text(agent.config.get(key))
+        for key in AGENT_PLANNING_CONFIG_TEXT_KEYS:
+            value = _planning_text(agent.config.get(key))
             if value:
                 context[key] = value
-        for key in PLANNING_LIST_FIELDS:
-            value = _safe_planning_list(agent.config.get(key))
-            if value:
-                context[key] = value
+        for key in AGENT_PLANNING_CONFIG_LIST_KEYS:
+            items = _planning_list(agent.config.get(key))
+            if items:
+                context[key] = items
     if agent.provider == "opencode":
         status, error = opencode_runtime_status(
             agent.config if isinstance(agent.config, dict) else None
@@ -128,6 +112,35 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         context["runtime_available"] = False
         context["runtime_error"] = cooldown_error
     return context
+
+
+def _planning_text(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.replace("\x00", "").split())
+    if not normalized:
+        return None
+    if len(normalized) > AGENT_PLANNING_TEXT_MAX_CHARS:
+        return f"{normalized[:AGENT_PLANNING_TEXT_MAX_CHARS].rstrip()}..."
+    return normalized
+
+
+def _planning_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [item.strip() for item in value.split(",")]
+    elif isinstance(value, list):
+        raw_items = [item.strip() for item in value if isinstance(item, str)]
+    else:
+        return []
+    items: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        normalized = " ".join(item.replace("\x00", "").split())
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        items.append(normalized[:120])
+    return items[:40]
 
 
 async def _orchestrator_conversation_config(

@@ -827,7 +827,7 @@ model tool_call
 - group conversation 中启用 tool calling 后，Orchestrator 使用 `dispatch_agent` 调用当前群聊 agent。
 - SSE 中出现标准 `tool_call/tool_result/agent_switch`。
 - message content 持久化后 tool blocks 配对完整，无 orphan tool call。
-- 不调度 `web-designer` 等群外 agent。
+- 不调度当前群聊外的 agent。
 - direct answer/platform fact 仍然短路，不进入 tool loop。
 
 ### 11.3 真实 Agent Smoke

@@ -763,11 +763,11 @@ group_messages_deterministic_smoke:
     message_error: 1
     done: 1
   child_messages:
-    writer:
+    claude-code:
       status: error
-      note: business-level workspace path failure was isolated to the writer child message
+      note: business-level workspace path failure was isolated to the child message
       content_types: [tool_call, tool_call, tool_call, text, tool_call, text]
-    web-designer:
+    opencode-helper:
       status: done
       content_types: [tool_call, text, code, text, file]
   checks:
@@ -946,7 +946,32 @@ public_health: {"status":"ok"}
 passed: true
 ```
 
-历史验收结论：
+Case evidence：
+
+```text
+agent_fallback_codex_unavailable:
+  conversation_id: cad4c511-81d4-4b65-8478-7bca741feee3
+  parent_message_id: fb162108-218c-4179-b529-d9649eced613
+  switches: codex-helper -> opencode-helper
+  child_messages: codex-helper=error, opencode-helper=done
+  artifact: fallback-codex.md
+
+agent_fallback_claude_unavailable:
+  conversation_id: 8e05abfc-0f95-49b9-89f0-56e359a21b6b
+  parent_message_id: e9c94c8e-20ab-420b-a94d-4f889378b633
+  switches: claude-code -> opencode-helper
+  child_messages: claude-code=error, opencode-helper=done
+  artifact: fallback-claude.md
+
+agent_fallback_opencode_unavailable:
+  conversation_id: 216b5061-cf5e-430f-aff0-d4d319bb344a
+  parent_message_id: 8e5de0b8-fe6b-491b-ba65-f82bd5cdd939
+  switches: opencode-helper -> claude-code
+  child_messages: opencode-helper=error, claude-code=done
+  artifact: fallback-opencode.md
+```
+
+验收结论：
 
 - 三个 case 均先尝试首选 Agent，再自动调配 fallback Agent。
 - 失败 Agent 独立 child message 以 `message_error` / `status="error"` 结束；fallback Agent 独立 child message 以 `message_done` / `status="done"` 结束。
@@ -1027,6 +1052,21 @@ passed: true
 - `agent_output_no_long_running_server_command=true`，Orchestrator 最终/中间可见文本不再建议用户手动运行 `python -m http.server`、`npm run dev` 等本地长运行服务命令。
 - 本轮真实遇到 `codex-helper` 与 `opencode-helper` runtime failure；Orchestrator 没有停止整条命令，后续通过 fallback/repair 和 Orchestrator coordination review 生成 `review.md` 并完成部署。
 - `planner_used_llm=false` 作为诊断项保留，但不属于该 scenario 的 hard acceptance：显式 command contract 下允许 LLM planner 失败后进入通用 command fallback，不视为产品失败。
+
+2026-06-08 02:24 repair loop 补充 hardening：
+
+- `command_fulfillment_cyberpunk_group_deploy` 新增硬验收
+  `message_error_no_forbidden_terms`，SSE `message_error.error` 不得泄露
+  Codex/OpenCode raw runtime transcript、workspace path、`approval: never`、
+  `external_runtime_error` 等内部细节。
+- 新增 `command_final_text_no_contradictory_completion`：当 run detail 中
+  `browser_verify/deployment` 已 `satisfied` 时，父 Orchestrator 可见 text 不得仍写
+  “尚未完成浏览器级验收 / 尚未完成平台部署”。
+- 新增 `container_deployment_smoke_request_created`：同一 workspace 额外发起
+  `create_deployment(kind="container")`，生产默认关闭容器 worker 时应返回受控
+  `not_supported`，demo worker 启用时可进入 queued / published / failed 终态。
+- 本条为 repair loop 计划和本地实现记录；公网重跑后的 conversation / report / SSE
+  证据在执行后追加。
 
 ---
 

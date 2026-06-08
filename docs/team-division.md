@@ -523,7 +523,7 @@ Python 3.11
 | 任务 | 验收 |
 |------|------|
 | 性能优化（流式延迟） | 首 token < 2s |
-| 添加更多内置 Agent（Writer、Translator） | 至少 5 个内置 |
+| 添加更多自建 Agent 示例（文章助手、翻译助手） | 覆盖自建 Agent 创建与使用 |
 | Adapter 设计文档 | `docs/tech-architecture.md` 含 |
 | Orchestrator 任务图设计文档 | 同上 |
 | AI 协作记录沉淀 | `docs/ai-collaboration-log.md` |

@@ -208,6 +208,9 @@ class StreamContentAccumulator:
             elif chunk.block_type == "clarification":
                 meta = chunk.metadata or {}
                 self.current.update(_clarification_block_from_metadata(meta))
+            elif chunk.block_type == "turn_control":
+                meta = chunk.metadata or {}
+                self.current.update(_turn_control_block_from_metadata(meta))
         elif chunk.event_type == "delta" and self.current is not None:
             if self.current.get("type") == "process":
                 return None
@@ -707,6 +710,43 @@ def _clarification_question_status(value: object) -> str:
     if value in {"pending", "answered", "skipped"}:
         return str(value)
     return "pending"
+
+
+def _turn_control_block_from_metadata(meta: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": _turn_control_kind(meta.get("kind")),
+        "status": _turn_control_status(meta.get("status")),
+        "control_id": str(meta.get("control_id") or "") or None,
+        "active_agent_message_id": str(meta.get("active_agent_message_id") or ""),
+        "title": str(meta.get("title") or "Turn control"),
+        "body": meta.get("body") if isinstance(meta.get("body"), str) else None,
+        "source_message_ids": [
+            str(item)
+            for item in meta.get("source_message_ids", [])
+            if isinstance(item, str)
+        ],
+        "metadata": meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {},
+    }
+
+
+def _turn_control_kind(value: object) -> str:
+    if value in {"guidance", "side_chat", "queue_action", "stop_and_run"}:
+        return str(value)
+    return "guidance"
+
+
+def _turn_control_status(value: object) -> str:
+    if value in {
+        "received",
+        "waiting_safe_point",
+        "applied",
+        "answered",
+        "cancelled",
+        "expired",
+        "failed",
+    }:
+        return str(value)
+    return "received"
 
 
 def _apply_process_delta(

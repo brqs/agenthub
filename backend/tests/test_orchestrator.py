@@ -1640,7 +1640,6 @@ async def test_orchestrator_smoke_flows_create_then_verify_html(
 
     persisted_html = (tmp_path / html_path).read_text(encoding="utf-8")
     planning_text = "".join(chunk.text_delta or "" for chunk in chunks)
-    planner_prompt = planner.calls[0]["messages"][0].content
     verifier_system_messages = [
         message for message in verifier.received_messages if message.role == "system"
     ]
@@ -1650,7 +1649,6 @@ async def test_orchestrator_smoke_flows_create_then_verify_html(
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["codex-helper", "opencode-helper"]
-    assert "web-designer" not in planner_prompt
     assert "Previous sub-agent results" in verifier_system_messages[0].content
     assert "create-html @codex-helper succeeded" in verifier_system_messages[0].content
     assert html_path in verifier_system_messages[0].content
@@ -3045,7 +3043,7 @@ async def test_orchestrator_fallbacks_are_limited_to_current_agents() -> None:
             "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
             "managed_agent_ids": ["agent-a", "agent-b"],
             "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
-            "task_fallback_agent_ids": ["web-designer", "agent-b"],
+            "task_fallback_agent_ids": ["outside-agent", "agent-b"],
             "max_task_attempts": 3,
         },
     )
@@ -3054,7 +3052,7 @@ async def test_orchestrator_fallbacks_are_limited_to_current_agents() -> None:
     assert [
         chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
     ] == ["agent-a", "agent-b"]
-    assert "web-designer" not in summary
+    assert "outside-agent" not in summary
     assert "Work" in summary
     assert "A retry/repair completed successfully." in summary
 

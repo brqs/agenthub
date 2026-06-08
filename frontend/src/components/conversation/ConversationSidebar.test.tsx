@@ -18,7 +18,7 @@ const conversations: DemoConversation[] = [
     id: 'conv-recent',
     title: 'Recent Frontend Polish',
     mode: 'group',
-    agent_ids: ['orchestrator', 'web-designer'],
+    agent_ids: ['orchestrator', 'opencode-helper'],
     is_pinned: false,
     is_archived: false,
     last_message_at: '2026-05-29T12:01:00.000Z',

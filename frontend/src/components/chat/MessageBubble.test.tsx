@@ -156,6 +156,59 @@ describe('MessageBubble', () => {
     });
   });
 
+  it('renders queued user messages with active-turn queue actions', async () => {
+    const onMoveQueuedUp = vi.fn().mockResolvedValue(undefined);
+    const onMoveQueuedDown = vi.fn().mockResolvedValue(undefined);
+    const onMergeQueuedWithPrevious = vi.fn().mockResolvedValue(undefined);
+    const onConvertQueuedToGuidance = vi.fn().mockResolvedValue(undefined);
+    const onStopAndRunQueuedMessage = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessageBubble
+        message={{
+          id: 'msg-queued',
+          conversation_id: 'conv-group',
+          role: 'user',
+          agent_id: null,
+          reply_to_id: null,
+          status: 'queued',
+          is_pinned: false,
+          created_at: new Date().toISOString(),
+          content: [{ type: 'text', text: 'queued next' }],
+        }}
+        onMoveQueuedUp={onMoveQueuedUp}
+        onMoveQueuedDown={onMoveQueuedDown}
+        onMergeQueuedWithPrevious={onMergeQueuedWithPrevious}
+        onConvertQueuedToGuidance={onConvertQueuedToGuidance}
+        onStopAndRunQueuedMessage={onStopAndRunQueuedMessage}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move queued message up' }));
+    await waitFor(() => {
+      expect(onMoveQueuedUp).toHaveBeenCalledWith('msg-queued');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move queued message down' }));
+    await waitFor(() => {
+      expect(onMoveQueuedDown).toHaveBeenCalledWith('msg-queued');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Merge queued message with previous' }));
+    await waitFor(() => {
+      expect(onMergeQueuedWithPrevious).toHaveBeenCalledWith('msg-queued');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Convert queued message to guidance' }));
+    await waitFor(() => {
+      expect(onConvertQueuedToGuidance).toHaveBeenCalledWith('msg-queued');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop current reply and run this queued message' }));
+    await waitFor(() => {
+      expect(onStopAndRunQueuedMessage).toHaveBeenCalledWith('msg-queued');
+    });
+  });
+
   it('renders a failure card for visible error text', () => {
     render(
       <MessageBubble
