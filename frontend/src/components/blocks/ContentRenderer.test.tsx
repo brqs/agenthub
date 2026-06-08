@@ -190,6 +190,25 @@ describe('ContentRenderer', () => {
   it('collapses execution presentation blocks after streaming completes', () => {
     const blocks: DemoContentBlock[] = [
       {
+        type: 'process',
+        agent_id: 'orchestrator',
+        title: '执行过程',
+        status: 'done',
+        default_collapsed: false,
+        metadata: {},
+        steps: [
+          { label: '整理计划', kind: 'planning', status: 'done' },
+          { label: '调用工具', kind: 'tool', status: 'done' },
+        ],
+        presentation: {
+          role: 'execution_process',
+          collapsible: true,
+          group_id: 'execution-main',
+          boundary: 'execution_start',
+          label: '执行过程',
+        },
+      },
+      {
         type: 'text',
         text: 'Reading files',
         presentation: {
@@ -239,9 +258,11 @@ describe('ContentRenderer', () => {
     expect(screen.getByText('最终回答：任务已完成。')).toBeInTheDocument();
     expect(screen.queryByText('Reading files')).not.toBeInTheDocument();
     expect(screen.queryByText('call-read')).not.toBeInTheDocument();
+    expect(screen.getByText('2 步骤 · 1 工具 · 3 项')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /执行过程/ }));
 
+    expect(screen.getByText('整理计划')).toBeInTheDocument();
     expect(screen.getByText('Reading files')).toBeInTheDocument();
     expect(screen.getByText('call-read')).toBeInTheDocument();
   });

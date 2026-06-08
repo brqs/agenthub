@@ -190,6 +190,7 @@ function ExecutionGroup({
   const [collapsed, setCollapsed] = useState(!streaming);
   const visibleStatus = streaming ? '进行中' : '已折叠';
   const blockLabel = useMemo(() => executionGroupSummary(item), [item]);
+  const metaLabel = useMemo(() => executionGroupMeta(item), [item]);
 
   useEffect(() => {
     if (!userChanged) {
@@ -215,7 +216,7 @@ function ExecutionGroup({
         <ListChecks className="h-4 w-4 shrink-0 text-brand" />
         <span className="min-w-0 flex-1 truncate font-medium">{blockLabel}</span>
         <span className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-          {item.blocks.length} 项
+          {metaLabel}
         </span>
         <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{visibleStatus}</span>
       </button>
@@ -400,6 +401,26 @@ function executionGroupSummary(
     return firstProcess.summary;
   }
   return item.label;
+}
+
+function executionGroupMeta(item: Extract<PresentationItem, { type: 'execution_group' }>): string {
+  let stepCount = 0;
+  let toolCount = 0;
+
+  item.blocks.forEach(({ block }) => {
+    if (block.type === 'process') {
+      stepCount += block.steps.length;
+    }
+    if (block.type === 'tool_call') {
+      toolCount += 1;
+    }
+  });
+
+  const parts: string[] = [];
+  if (stepCount > 0) parts.push(`${stepCount} 步骤`);
+  if (toolCount > 0) parts.push(`${toolCount} 工具`);
+  parts.push(`${item.blocks.length} 项`);
+  return parts.join(' · ');
 }
 
 function groupBlocksByAgent(blocks: DemoContentBlock[]) {
