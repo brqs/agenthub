@@ -268,6 +268,23 @@ def _safe_error_text(text: str | None) -> str:
             "该 Agent 在当前阶段未能完成。执行超时，可能需要缩小任务或稍后重试。"
             "Orchestrator 会尝试改派其他可用 Agent。"
         )
+    elif "output_incomplete" in lowered:
+        reason = re.sub(
+            r"\boutput_incomplete\s*:\s*",
+            "",
+            raw,
+            flags=re.IGNORECASE,
+        ).strip()
+        if reason:
+            cleaned = (
+                f"该 Agent 的输出没有满足本阶段要求：{reason}"
+                "Orchestrator 会尝试纠偏或改派其他可用 Agent。"
+            )
+        else:
+            cleaned = (
+                "该 Agent 的输出没有满足本阶段要求。"
+                "Orchestrator 会尝试纠偏或改派其他可用 Agent。"
+            )
     elif _looks_like_raw_runtime_error(raw, lowered):
         cleaned = (
             "该 Agent 在当前阶段未能完成。外部运行时返回异常，"

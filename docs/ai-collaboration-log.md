@@ -2345,3 +2345,111 @@ visible_text_no_forbidden_terms: true
 折叠边界不能靠文本启发式判断，必须由后端给稳定 metadata。公网 E2E 还暴露了两个边缘点：
 文件名中的 `presentation` 会误触 PPT evaluator；外部 Agent 工具输出和成员文本可能主动输出
 workspace 绝对路径，因此可见 stream 与 persistence 需要做展示层清洗，run detail 原始证据仍保留。
+
+## 2026-06-08 — Orchestrator 纯对话群聊任务修复
+
+### 任务
+修复群聊辩论 / 角色对话 / 不生成文件任务被 Orchestrator 误判为 artifact/build 任务的问题，避免
+`Do not create server.js/package.json` 这类负向约束被反向提取为 required artifacts。
+
+### 关键 Prompt
+> 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出，注意是对话场景而不是书面书写。
+
+### AI 输出摘要
+1. `SubTask.task_type` 增加 `conversation`，planner schema / prompt / tool dispatch 均支持该类型。
+2. Legacy template 在命中辩论、对话场景、群组内、角色扮演、圆桌讨论且明确不生成文件时，生成两个独立 conversation 发言任务，不再生成 artifact fallback 模板。
+3. LLM planner 若把明确多智能体的 conversation 请求压成一个任务，后端会拆成至少两个可用 Agent 的 conversation tasks。
+4. Execution 对 conversation task 跳过 artifact missing / evaluation artifact 检查，子 Agent 文本标记为 `agent_summary` 常显。
+5. Artifact path 提取跳过负向约束句，避免 `server.js` / `package.json` 被误识别为 required output；显式文件产物任务仍保持校验。
+6. Live E2E 新增 `group_dialogue_debate_no_artifacts` 场景，并同步文档 Case 14。
+
+### 完成证据
+```text
+backend_pid: 105909 -> 171391
+seed_agents: not required
+alembic_current: c5d6e7f809ab (head)
+local_health: {"status":"ok"} 200
+public_health: {"status":"ok"} 200
+
+backend targeted pytest:
+  tests/test_orchestrator.py
+  tests/test_orchestrator_planning.py
+  tests/test_stream_content_blocks.py
+  tests/test_orchestrator_response_presentation.py
+  tests/test_orchestrator_live_e2e_script.py
+  result: 220 passed
+backend ruff: passed
+backend mypy: passed
+git diff --check: passed
+
+scenario: group_dialogue_debate_no_artifacts
+report: /tmp/agenthub_group_dialogue_debate_report.json
+sse: /tmp/agenthub_group_dialogue_debate_sse.jsonl
+conversation_id: a918dc3f-42f0-4e64-8e71-bc6e3f9ed4b4
+user_message_id: 1574dd6d-522e-4584-bcb0-b73219d74475
+agent_message_id: cc401cc0-41de-4af2-b7d2-a6a2c8884081
+plan_source: dialogue template
+child_messages: codex-helper done, claude-code done
+passed: true
+no_artifact_missing: true
+no_server_package_missing: true
+visible_text_no_forbidden_terms: true
+```
+
+### 经验
+“不创建文件”不是 artifact requirement 的另一种写法，而是 artifact check 的关闭信号。文件名提取必须理解负向语境；否则越严格的安全/约束提示，越容易被系统错误地当成缺失产物。
+
+## 2026-06-08 — Orchestrator 子 Agent 实质输出合同
+
+### 任务
+修复真实群聊中 child message `done` 但成员没有实际完成发言、分析、实现或审阅的问题。范围不局限于辩论，覆盖纯对话、角色扮演、头脑风暴、策略/数据分析、代码/文档产物、review 和平台动作。
+
+### AI 输出摘要
+1. 新增内部 output contract，对 conversation、analysis/data、artifact/code/document、review、platform 等任务类型做 deterministic 验收。
+2. 子 Agent 原始流式 text 先标记为 `execution_text` 折叠过程；只有通过 contract 后才追加常显 `agent_summary`。
+3. 对“请登场 / 下面有请 / 我来主持 / 已完成”等空泛或主持式输出，Orchestrator 会在同一 child message 内追加 `output-correction` process step，让同一 Agent 补充一次。
+4. 同一 Agent 纠偏仍不合格时，attempt 记为 `output_incomplete`，后续走通用 fallback 到其他可用 Agent；失败和 fallback 仍保持独立 child message 归属。
+5. Conversation legacy fallback 扩展到辩论、圆桌、角色扮演、头脑风暴、观点对比、群聊讨论，不再硬编码 AI 利弊辩论。
+6. E2E 脚本新增 `group_substantive_output_matrix`，report 记录每个 child 的 `output_contract_type`、`substantive_output_passed`、`retry_count`、`fallback_agent_id` 和失败原因。
+
+### 完成证据
+```text
+backend targeted pytest:
+  tests/test_orchestrator.py
+  tests/test_orchestrator_planning.py
+  tests/test_orchestrator_response_presentation.py
+  tests/test_stream_content_blocks.py
+  tests/test_orchestrator_live_e2e_script.py
+  tests/test_orchestrator_output_contracts.py
+  result: 235 passed
+
+backend ruff: passed
+backend mypy: passed
+git diff --check: passed
+
+backend_pid: 271584 -> 292704
+seed_agents: not required
+alembic_current: c5d6e7f809ab (head)
+local_health: {"status":"ok"} 200
+public_health: {"status":"ok"} 200
+
+scenario:
+  group_substantive_output_matrix
+  report: /tmp/agenthub_group_substantive_output_matrix_report.json
+  sse: /tmp/agenthub_group_substantive_output_matrix_sse.jsonl
+  passed: true
+  cases: debate_no_artifacts, roundtable_no_artifacts, roleplay_dialogue,
+         strategy_brainstorm, data_analysis_no_file, code_artifact_with_summary,
+         review_requires_gaps
+  matrix_done_children_have_substantive_agent_summary: true
+  matrix_error_children_have_readable_failure_or_fallback: true
+  matrix_no_artifact_missing: true
+  matrix_visible_text_no_forbidden_terms: true
+```
+
+### Repair Loop 发现
+公网 matrix 暴露了一个边界：部分外部 Agent 已经输出了合格的对话/分析内容，但尾部 runtime
+timeout/error 会把 child message 判成 `error`。本轮补充了文本类 output contract salvage：
+conversation / analysis / direct output / 无显式产物 review 通过 contract 时，Orchestrator
+保留 runtime 错误审计事件，但 child message 正常 `done` 并追加常显 `agent_summary`；代码、
+文档、部署类仍必须依赖 artifact / tool / fulfillment 证据，不能靠文本声明完成。

@@ -76,6 +76,15 @@ from app.agents.orchestrator._internal.execution.group_messages import (
 from app.agents.orchestrator._internal.execution.group_messages import (
     start_group_message as _start_group_message,
 )
+from app.agents.orchestrator._internal.execution.output_contracts import (
+    OutputValidation as _OutputValidation,
+)
+from app.agents.orchestrator._internal.execution.output_contracts import (
+    correction_task as _correction_task,
+)
+from app.agents.orchestrator._internal.execution.output_contracts import (
+    validate_task_output as _validate_task_output,
+)
 from app.agents.orchestrator._internal.execution.presentation import (
     presented_response_text as _presented_response_text,
 )
@@ -556,6 +565,61 @@ def _child_process_finish_chunks(
     return chunks
 
 
+def _child_output_correction_chunk(
+    config: Mapping[str, Any],
+    *,
+    child_message_id: str,
+    agent_id: str,
+    block_index: int | None,
+    validation: _OutputValidation,
+) -> StreamChunk | None:
+    step = _agent_process_step_delta(
+        config,
+        block_index,
+        agent_id=agent_id,
+        step={
+            "id": "output-correction",
+            "label": "补充实质输出",
+            "kind": "repair",
+            "status": "running",
+            "detail": validation.reason or "输出未满足本阶段验收条件，正在补充。",
+            "agent_id": agent_id,
+        },
+    )
+    if step is None:
+        return None
+    return _child_message_chunk(step, message_id=child_message_id, agent_id=agent_id)
+
+
+def _output_correction_enabled(config: Mapping[str, Any]) -> bool:
+    return config.get("orchestrator_output_correction_enabled", True) is not False
+
+
+def _output_incomplete_error(validation: _OutputValidation) -> str:
+    reason = validation.reason or "输出没有满足本阶段验收条件。"
+    return f"output_incomplete: {reason}"
+
+
+def _validated_agent_summary_text(task: SubTask, attempt: TaskAttempt) -> str:
+    validation = _validate_task_output(task, attempt)
+    if validation.summary_text:
+        return validation.summary_text
+    return _agent_summary_text(task, attempt)
+
+
+def _salvageable_textual_output(
+    task: SubTask,
+    attempt: TaskAttempt,
+) -> _OutputValidation | None:
+    validation = _validate_task_output(task, attempt)
+    if not validation.passed:
+        return None
+    if validation.contract_type in {"conversation", "analysis", "direct_output"}:
+        return validation
+    if validation.contract_type == "review" and not task.expected_output:
+        return validation
+    return None
+
 
 async def _run_static_tasks(
     config: Mapping[str, Any],
@@ -924,9 +988,32 @@ async def _run_task(
                 task_failed = subtask_failed
                 yield chunk, updated_block_index
             if task_failed:
-                attempt.state = TaskState.FAILED
+                salvaged = _salvageable_textual_output(task, attempt)
+                if salvaged is None:
+                    attempt.state = TaskState.FAILED
+                else:
+                    original_error = attempt.error
+                    attempt.state = TaskState.SUCCEEDED
+                    attempt.error = None
+                    await _memory_record_event(
+                        config,
+                        run_context,
+                        event_type="task_output_contract_salvaged_runtime_error",
+                        task_id=task.task_id,
+                        agent_id=agent_id,
+                        payload={
+                            "attempt_index": attempt_index,
+                            "contract_type": salvaged.contract_type,
+                            "reason": salvaged.reason,
+                            "runtime_error": _visible_failure_reason(
+                                original_error or ""
+                            ),
+                        },
+                    )
             else:
-                if task.task_type == "review":
+                if task.task_type == "conversation":
+                    attempt.state = TaskState.SUCCEEDED
+                elif task.task_type == "review":
                     if task.expected_output:
                         _finalize_artifact_candidates(attempt, task)
                         _check_attempt_artifacts(attempt, workspace_path)
@@ -970,6 +1057,185 @@ async def _run_task(
                     else:
                         next_block_index = artifact_next_block_index
 
+            if attempt.state == TaskState.SUCCEEDED:
+                validation = _validate_task_output(task, attempt)
+                await _memory_record_event(
+                    config,
+                    run_context,
+                    event_type="task_output_contract_evaluated",
+                    task_id=task.task_id,
+                    agent_id=agent_id,
+                    payload={
+                        "attempt_index": attempt_index,
+                        "contract_type": validation.contract_type,
+                        "passed": validation.passed,
+                        "reason": validation.reason,
+                        "correction": False,
+                    },
+                )
+                if (
+                    not validation.passed
+                    and _output_correction_enabled(config)
+                    and not task_failed
+                ):
+                    await _memory_record_event(
+                        config,
+                        run_context,
+                        event_type="task_output_incomplete",
+                        task_id=task.task_id,
+                        agent_id=agent_id,
+                        payload={
+                            "attempt_index": attempt_index,
+                            "contract_type": validation.contract_type,
+                            "reason": validation.reason,
+                            "action": "same_agent_correction",
+                        },
+                    )
+                    if child_message_id:
+                        correction_chunk = _child_output_correction_chunk(
+                            config,
+                            child_message_id=child_message_id,
+                            agent_id=agent_id,
+                            block_index=child_process_block_index,
+                            validation=validation,
+                        )
+                        if correction_chunk is not None:
+                            yield correction_chunk, next_block_index
+
+                    correction = _correction_task(task, validation)
+                    correction_messages = _task_messages(
+                        correction,
+                        messages,
+                        run_context,
+                        config,
+                    )
+                    correction_stream_config = _sub_agent_stream_config(
+                        config,
+                        correction,
+                        agent_id,
+                        attempt_index,
+                    )
+                    if child_message_id:
+                        runtime_context = dict(
+                            correction_stream_config.get("runtime_context") or {}
+                        )
+                        parent_message_id = runtime_context.get("agent_message_id")
+                        if parent_message_id:
+                            runtime_context["parent_agent_message_id"] = str(
+                                parent_message_id
+                            )
+                        runtime_context["agent_message_id"] = child_message_id
+                        correction_stream_config["runtime_context"] = runtime_context
+
+                    correction_failed = False
+                    base_call_id_prefix = _attempt_call_id_prefix(
+                        task.task_id,
+                        attempt_index,
+                        call_id_prefix=call_id_prefix,
+                    )
+                    correction_prefix = (
+                        f"{base_call_id_prefix}.output-correction"
+                    )
+                    async for (
+                        correction_chunk,
+                        updated_block_index,
+                        subtask_failed,
+                    ) in _remapped_sub_stream(
+                        sub_adapter,
+                        correction,
+                        agent_id,
+                        correction_prefix,
+                        correction_messages,
+                        child_next_block_index if child_message_id else next_block_index,
+                        workspace_path,
+                        tool_specs,
+                        attempt,
+                        text_block=_text_block,
+                        failure_text=_failure_text,
+                        error_reason=_error_reason,
+                        accumulate_text_event=_accumulate_text_event,
+                        accumulate_tool_event=_accumulate_tool_event,
+                        stream_config=correction_stream_config,
+                        text_visible=bool(
+                            child_message_id
+                            or config.get("orchestrator_subagent_text_visible") is True
+                        ),
+                    ):
+                        if child_message_id:
+                            child_next_block_index = updated_block_index
+                            yield _child_message_chunk(
+                                correction_chunk,
+                                message_id=child_message_id,
+                                agent_id=agent_id,
+                            ), next_block_index
+                            correction_failed = subtask_failed
+                            continue
+                        next_block_index = updated_block_index
+                        correction_failed = subtask_failed
+                        yield correction_chunk, updated_block_index
+
+                    if correction_failed:
+                        salvaged = _salvageable_textual_output(task, attempt)
+                        if salvaged is None:
+                            attempt.state = TaskState.FAILED
+                        else:
+                            original_error = attempt.error
+                            attempt.state = TaskState.SUCCEEDED
+                            attempt.error = None
+                            await _memory_record_event(
+                                config,
+                                run_context,
+                                event_type=(
+                                    "task_output_contract_salvaged_runtime_error"
+                                ),
+                                task_id=task.task_id,
+                                agent_id=agent_id,
+                                payload={
+                                    "attempt_index": attempt_index,
+                                    "contract_type": salvaged.contract_type,
+                                    "reason": salvaged.reason,
+                                    "correction": True,
+                                    "runtime_error": _visible_failure_reason(
+                                        original_error or ""
+                                    ),
+                                },
+                            )
+                    else:
+                        validation = _validate_task_output(task, attempt)
+                        await _memory_record_event(
+                            config,
+                            run_context,
+                            event_type="task_output_contract_evaluated",
+                            task_id=task.task_id,
+                            agent_id=agent_id,
+                            payload={
+                                "attempt_index": attempt_index,
+                                "contract_type": validation.contract_type,
+                                "passed": validation.passed,
+                                "reason": validation.reason,
+                                "correction": True,
+                            },
+                        )
+                        if not validation.passed:
+                            attempt.state = TaskState.FAILED
+                            attempt.error = _output_incomplete_error(validation)
+                            await _memory_record_event(
+                                config,
+                                run_context,
+                                event_type="task_output_incomplete",
+                                task_id=task.task_id,
+                                agent_id=agent_id,
+                                payload={
+                                    "attempt_index": attempt_index,
+                                    "contract_type": validation.contract_type,
+                                    "reason": validation.reason,
+                                    "action": "fallback",
+                                },
+                            )
+                elif not validation.passed:
+                    attempt.state = TaskState.FAILED
+                    attempt.error = _output_incomplete_error(validation)
+
             if child_message_id:
                 finish_status = (
                     "done" if attempt.state == TaskState.SUCCEEDED else "error"
@@ -987,7 +1253,7 @@ async def _run_task(
                 if attempt.state == TaskState.SUCCEEDED:
                     for chunk, updated_child_block_index in _text_block_with_next(
                         child_next_block_index,
-                        _agent_summary_text(task, attempt),
+                        _validated_agent_summary_text(task, attempt),
                         agent_id=agent_id,
                         presentation=_agent_summary_presentation(),
                     ):

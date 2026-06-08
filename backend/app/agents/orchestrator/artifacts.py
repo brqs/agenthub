@@ -24,9 +24,37 @@ ARTIFACT_PATH_PATTERN = re.compile(
     r"([A-Za-z0-9_.\-/\\]+"
     r"\.(?:tar\.gz|html|css|json|jsx|js|tsx|ts|py|md|txt|csv|yaml|yml|toml|xml|svg|png|jpg|jpeg|gif|webp|pdf|docx|pptx|ppt|zip|tar|tgz))"
 )
+NEGATIVE_ARTIFACT_CONTEXT_MARKERS = (
+    "do not create",
+    "do not write",
+    "do not generate",
+    "don't create",
+    "don't write",
+    "don't generate",
+    "not create",
+    "not write",
+    "not generate",
+    "no files",
+    "no file",
+    "without files",
+    "without file",
+    "不要创建",
+    "不要写",
+    "不要生成",
+    "不需要创建",
+    "不需要写",
+    "不需要生成",
+    "不生成",
+    "无需生成",
+    "不用生成",
+)
 
 
 def finalize_artifact_candidates(attempt: TaskAttempt, task: SubTask) -> None:
+    if task.task_type == "conversation":
+        attempt.artifact_paths = []
+        attempt.missing_artifact_paths = []
+        return
     candidates: list[str] = []
     if task.expected_output:
         candidates.extend(extract_artifact_paths_from_text(task.expected_output))
@@ -87,8 +115,15 @@ def extract_artifact_paths_from_text(text: str) -> list[str]:
     return _dedupe_strings(
         path
         for match in ARTIFACT_PATH_PATTERN.finditer(text)
-        if (path := _normalize_artifact_path(match.group(1))) is not None
+        if not _is_negative_artifact_context(text, match.start())
+        and (path := _normalize_artifact_path(match.group(1))) is not None
     )
+
+
+def _is_negative_artifact_context(text: str, match_start: int) -> bool:
+    context = text[max(0, match_start - 96) : match_start].lower()
+    clause = re.split(r"[;。；\n]|\.\s+", context)[-1]
+    return any(marker in clause for marker in NEGATIVE_ARTIFACT_CONTEXT_MARKERS)
 
 
 def _resolve_artifact_path(workspace_path: Path, artifact_path: str) -> str | None:

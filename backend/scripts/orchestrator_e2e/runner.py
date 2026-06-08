@@ -52,6 +52,8 @@ GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO = SCENARIO == "group_process_frontend_pr
 AGENT_FALLBACK_MATRIX_SCENARIO = SCENARIO == "agent_fallback_matrix"
 CONTEXT_FOLLOWUP_SCENARIO = SCENARIO == "orchestrator_context_followup_repair"
 PRESENTATION_COLLAPSE_SCENARIO = SCENARIO == "presentation_collapse_markers_smoke"
+GROUP_DIALOGUE_DEBATE_SCENARIO = SCENARIO == "group_dialogue_debate_no_artifacts"
+GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO = SCENARIO == "group_substantive_output_matrix"
 COMMAND_FULFILLMENT_SCENARIO = (
     SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
 )
@@ -436,6 +438,69 @@ PRESENTATION_COLLAPSE_PROMPT = (
     "内容包含 PRESENTATION_COLLAPSE_SENTINEL；然后由 Orchestrator 用自然语言总结。"
     "这个任务用于验证 presentation marker，请保留成员独立消息、公开执行过程和最终回答。"
 )
+GROUP_DIALOGUE_DEBATE_PROMPT = (
+    "@orchestrator 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
+    "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出，注意是"
+    "对话场景而不是书面书写。"
+)
+GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT = (
+    "@orchestrator 请进行通用子 Agent 实质输出验收，不需要生成文件。"
+    "组织两个智能体围绕“AI 助手进入中小企业日常运营”做圆桌讨论："
+    "一个成员给出支持采用的观点、理由和落地建议，另一个成员从风险、"
+    "成本和治理角度提出质疑与替代方案。请直接以群聊发言形式输出。"
+)
+
+GROUP_SUBSTANTIVE_OUTPUT_MATRIX_CASES = (
+    {
+        "name": "debate_no_artifacts",
+        "prompt": GROUP_DIALOGUE_DEBATE_PROMPT,
+    },
+    {
+        "name": "roundtable_no_artifacts",
+        "prompt": GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT,
+    },
+    {
+        "name": "roleplay_dialogue",
+        "prompt": (
+            "@orchestrator 不需要生成文件，请组织两个智能体做角色扮演对话场景："
+            "一位扮演产品经理，一位扮演安全负责人，讨论是否在客服系统接入 AI。"
+            "请直接用群聊对话形式输出，每个角色都要给出自己的判断和理由。"
+        ),
+    },
+    {
+        "name": "strategy_brainstorm",
+        "prompt": (
+            "@orchestrator 不需要生成文件，请让两个智能体进行头脑风暴："
+            "为 AgentHub 的新用户 onboarding 提出策略。每个智能体必须直接给出"
+            "具体建议、理由和风险，不要写报告。"
+        ),
+    },
+    {
+        "name": "data_analysis_no_file",
+        "prompt": (
+            "@orchestrator 不需要生成文件，请让两个智能体分析这组数据："
+            "渠道 A 转化率 12%、渠道 B 转化率 7%、渠道 C 转化率 15%，预算分别为"
+            " 30/20/10 万。请直接在群聊里给出结论、依据和下一步建议。"
+        ),
+    },
+    {
+        "name": "code_artifact_with_summary",
+        "prompt": (
+            "@orchestrator 请让两个智能体协作完成一个很小的静态前端组件："
+            "第一个智能体创建 index.html、styles.css、app.js，内容是一个可点击"
+            "切换状态的任务卡片；第二个智能体检查产物并总结变更。每个智能体都要"
+            "在自己的消息里给出阶段总结。"
+        ),
+    },
+    {
+        "name": "review_requires_gaps",
+        "prompt": (
+            "@orchestrator 请让两个智能体协作完成文档审阅：第一个智能体创建"
+            "planning.md，说明 AgentHub 新手引导方案；第二个智能体必须审阅该文档，"
+            "指出 pass/fail、gaps、风险和改进建议，并生成 review.md。"
+        ),
+    },
+)
 
 PROMPT = SETTINGS.prompt_override or (
     P1_ATTRIBUTION_PROMPT
@@ -468,6 +533,10 @@ PROMPT = SETTINGS.prompt_override or (
     if COMMAND_FULFILLMENT_FLOW_SCENARIO
     else PRESENTATION_COLLAPSE_PROMPT
     if PRESENTATION_COLLAPSE_SCENARIO
+    else GROUP_DIALOGUE_DEBATE_PROMPT
+    if GROUP_DIALOGUE_DEBATE_SCENARIO
+    else GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT
+    if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -1962,6 +2031,507 @@ def run_presentation_collapse_case(
         key: bool(checks.get(key, False)) for key in acceptance_keys
     }
     report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def run_group_dialogue_debate_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"Group Dialogue Debate {int(started_at)}",
+            "mode": "group",
+            "agent_ids": AGENT_IDS,
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+
+    sent, events, target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=PROMPT,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    parent_message_id = sent["agent_message"]["id"]
+    user_message_id = sent["user_message"]["id"]
+    messages = fetch_conversation_messages(client, headers, conv_id, report)
+    parent_message = next(
+        (item for item in messages if item.get("id") == parent_message_id),
+        target or {},
+    )
+    child_messages = child_messages_for_user(
+        messages,
+        parent_message_id=parent_message_id,
+        user_message_id=user_message_id,
+    )
+    run_detail = fetch_orchestrator_run_detail(client, headers, conv_id, report)
+    run_items = report.get("orchestrator_runs")
+    run_item = run_items[0] if isinstance(run_items, list) and run_items else {}
+    plan_source = run_item.get("plan_source") if isinstance(run_item, dict) else None
+    parent_text = visible_agent_text(message_blocks(parent_message))
+    visible_text = all_visible_message_text([parent_message, *child_messages])
+    forbidden_terms = forbidden_visible_terms(
+        f"{visible_text}\n{message_error_text(events)}"
+    )
+    missing_paths = [
+        path
+        for attempt in run_detail.get("attempts", [])
+        if isinstance(attempt, dict)
+        for path in attempt.get("missing_artifact_paths", [])
+        if isinstance(path, str)
+    ]
+    final_summary = str((run_detail.get("run") or {}).get("final_summary") or "")
+    child_statuses = [item.get("status") for item in child_messages]
+    child_agent_ids = {
+        item.get("agent_id")
+        for item in child_messages
+        if item.get("agent_id") and item.get("agent_id") != "orchestrator"
+    }
+    child_text = all_visible_message_text(child_messages)
+    child_output_contracts = substantive_child_output_report(child_messages, run_detail)
+
+    report["user_message_id"] = user_message_id
+    report["agent_message_id"] = parent_message_id
+    report["target_agent_message"] = parent_message
+    report["child_agent_messages"] = child_messages
+    report["child_output_contracts"] = child_output_contracts
+    report["stream_event_count"] = len(events)
+    report["plan_source"] = plan_source
+    report["dialogue_missing_artifact_paths"] = missing_paths
+    report["dialogue_visible_forbidden_terms"] = forbidden_terms
+
+    checks = report["checks"]
+    checks["message_done"] = parent_message.get("status") == "done"
+    checks["plan_not_artifact_legacy_template"] = plan_source != "legacy template"
+    checks["at_least_two_child_messages"] = len(child_messages) >= 2
+    checks["at_least_two_child_agents"] = len(child_agent_ids) >= 2
+    checks["child_messages_terminal"] = bool(child_messages) and all(
+        status in {"done", "error"} for status in child_statuses
+    )
+    checks["no_artifact_missing"] = "artifact_missing" not in final_summary and not missing_paths
+    checks["no_server_package_missing"] = not {
+        "server.js",
+        "package.json",
+    }.intersection(missing_paths)
+    checks["parent_final_not_failed"] = not any(
+        marker in parent_text for marker in ("没能", "未能", "失败", "未完成")
+    )
+    checks["dialogue_content_present"] = all(
+        marker in child_text for marker in ("AI", "利大于弊", "弊大于利")
+    )
+    checks["done_children_have_substantive_agent_summary"] = (
+        _done_children_have_substantive_agent_summary(child_output_contracts)
+    )
+    checks["error_children_have_readable_failure_or_fallback"] = (
+        _error_children_have_readable_failure_or_fallback(child_output_contracts)
+    )
+    checks["visible_text_no_forbidden_terms"] = not forbidden_terms
+
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "plan_not_artifact_legacy_template",
+        "at_least_two_child_messages",
+        "at_least_two_child_agents",
+        "child_messages_terminal",
+        "no_artifact_missing",
+        "no_server_package_missing",
+        "parent_final_not_failed",
+        "dialogue_content_present",
+        "done_children_have_substantive_agent_summary",
+        "error_children_have_readable_failure_or_fallback",
+        "visible_text_no_forbidden_terms",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def substantive_child_output_report(
+    child_messages: list[dict[str, Any]],
+    run_detail: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    fallback_index = _fallback_index_by_agent(run_detail or {})
+    return [_child_output_contract(item, fallback_index) for item in child_messages]
+
+
+def _child_output_contract(
+    message: dict[str, Any],
+    fallback_index: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    summaries = [
+        str(block.get("text") or "")
+        for block in message_blocks(message)
+        if block.get("type") == "text"
+        and (block.get("presentation") or {}).get("role") == "agent_summary"
+    ]
+    text = "\n".join(summaries).strip()
+    failure_reason = ""
+    if not text:
+        failure_reason = "missing agent_summary"
+    elif _looks_like_host_only(text):
+        failure_reason = "summary is host-only prompt"
+    elif _looks_like_prompt_echo(text):
+        failure_reason = "summary contains prompt echo"
+    elif _looks_generic_completion(text):
+        failure_reason = "summary is generic completion text"
+    elif len(re.sub(r"\s+", "", text)) < 60:
+        failure_reason = "summary too short"
+    fallback_data = (fallback_index or {}).get(str(message.get("agent_id") or ""), {})
+    status = str(message.get("status") or "")
+    if status != "done":
+        error_text = visible_agent_text(message_blocks(message))
+        failure_reason = ""
+        if not error_text.strip() and not fallback_data.get("fallback_agent_id"):
+            failure_reason = "error child missing readable failure or fallback evidence"
+        return {
+            "message_id": message.get("id"),
+            "agent_id": message.get("agent_id"),
+            "status": message.get("status"),
+            "output_contract_type": "error_attempt",
+            "requires_agent_summary": False,
+            "substantive_output_passed": False,
+            "terminal_output_accepted": not failure_reason,
+            "retry_count": _message_output_retry_count(message),
+            "fallback_agent_id": fallback_data.get("fallback_agent_id"),
+            "failed_source_agent_ids": fallback_data.get("failed_source_agent_ids", []),
+            "summary_chars": 0,
+            "failure_reason": failure_reason,
+            "summary_preview": error_text[:500],
+        }
+    return {
+        "message_id": message.get("id"),
+        "agent_id": message.get("agent_id"),
+        "status": message.get("status"),
+        "output_contract_type": "agent_summary",
+        "requires_agent_summary": True,
+        "substantive_output_passed": not failure_reason,
+        "terminal_output_accepted": not failure_reason,
+        "retry_count": _message_output_retry_count(message),
+        "fallback_agent_id": fallback_data.get("fallback_agent_id"),
+        "failed_source_agent_ids": fallback_data.get("failed_source_agent_ids", []),
+        "summary_chars": len(text),
+        "failure_reason": failure_reason,
+        "summary_preview": text[:500],
+    }
+
+
+def _done_children_have_substantive_agent_summary(
+    contracts: list[dict[str, Any]],
+) -> bool:
+    done_contracts = [item for item in contracts if item.get("status") == "done"]
+    return bool(done_contracts) and all(
+        item.get("substantive_output_passed") is True for item in done_contracts
+    )
+
+
+def _error_children_have_readable_failure_or_fallback(
+    contracts: list[dict[str, Any]],
+) -> bool:
+    return all(
+        item.get("terminal_output_accepted") is True
+        for item in contracts
+        if item.get("status") != "done"
+    )
+
+
+def _looks_like_host_only(text: str) -> bool:
+    if len(text) > 240:
+        return False
+    return bool(
+        re.search(
+            r"请.*登场|下面有请|有请.+发言|我来主持|作为主持|正式开始|请.*发表|该你了|轮到你了",
+            text,
+            re.I,
+        )
+    )
+
+
+def _looks_generic_completion(text: str) -> bool:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if any(
+        marker in compact
+        for marker in (
+            "产物：",
+            "验证：",
+            "文件：",
+            "index.html",
+            "styles.css",
+            "app.js",
+            "planning.md",
+            "review.md",
+        )
+    ):
+        return False
+    return bool(re.fullmatch(r"(已完成|完成|done)[:：]?.{0,80}", compact, re.I))
+
+
+def _looks_like_prompt_echo(text: str) -> bool:
+    prompt_terms = (
+        "请直接输出你的具体建议",
+        "以下是背景",
+        "请保持简洁",
+        "你正在参加",
+        "不要写完整的报告",
+        "原始任务",
+    )
+    return any(term in text for term in prompt_terms)
+
+
+def _message_output_retry_count(message: dict[str, Any]) -> int:
+    count = 0
+    for block in message_blocks(message):
+        if not isinstance(block, dict) or block.get("type") != "process":
+            continue
+        steps = block.get("steps")
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            if step.get("id") == "output-correction" or "补充实质输出" in str(
+                step.get("label") or ""
+            ):
+                count += 1
+    return count
+
+
+def _fallback_index_by_agent(run_detail: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    attempts = run_detail.get("attempts") if isinstance(run_detail, dict) else []
+    if not isinstance(attempts, list):
+        return {}
+    by_task: dict[str, list[dict[str, Any]]] = {}
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        task_id = str(attempt.get("task_id") or "")
+        agent_id = str(attempt.get("agent_id") or "")
+        if not task_id or not agent_id:
+            continue
+        by_task.setdefault(task_id, []).append(attempt)
+
+    index: dict[str, dict[str, Any]] = {}
+    for task_attempts in by_task.values():
+        ordered = sorted(
+            task_attempts,
+            key=lambda item: int(item.get("attempt_index") or 0),
+        )
+        failed_agents = [
+            str(item.get("agent_id"))
+            for item in ordered
+            if str(item.get("state") or "") != "succeeded"
+        ]
+        successful = next(
+            (
+                item
+                for item in ordered
+                if str(item.get("state") or "") == "succeeded"
+            ),
+            None,
+        )
+        if successful is None or not failed_agents:
+            continue
+        success_agent = str(successful.get("agent_id") or "")
+        if success_agent:
+            index.setdefault(success_agent, {})["failed_source_agent_ids"] = failed_agents
+        for failed_agent in failed_agents:
+            index.setdefault(failed_agent, {})["fallback_agent_id"] = success_agent
+    return index
+
+
+def run_group_substantive_output_matrix_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    cases: list[dict[str, Any]] = []
+    for index, case in enumerate(GROUP_SUBSTANTIVE_OUTPUT_MATRIX_CASES, 1):
+        name = str(case["name"])
+        try:
+            case_report = _run_substantive_output_case(
+                client,
+                headers,
+                name=name,
+                prompt=str(case["prompt"]),
+                started_at=started_at + index,
+            )
+        except Exception as exc:  # noqa: BLE001
+            case_report = {
+                "name": name,
+                "passed": False,
+                "error": repr(exc),
+                "checks": {"case_exception": False},
+            }
+        cases.append(case_report)
+        report["matrix_cases"] = cases
+        report["partial"] = True
+        write_json(REPORT_PATH, report)
+
+    report["matrix_cases"] = cases
+    report["partial"] = False
+    checks = report["checks"]
+    checks["matrix_all_cases_passed"] = bool(cases) and all(
+        item.get("passed") is True for item in cases
+    )
+    checks["matrix_each_case_has_child_messages"] = all(
+        len(item.get("child_agent_messages") or []) >= 2 for item in cases
+    )
+    checks["matrix_done_children_have_substantive_agent_summary"] = all(
+        _done_children_have_substantive_agent_summary(
+            item.get("child_output_contracts") or []
+        )
+        for item in cases
+    )
+    checks["matrix_error_children_have_readable_failure_or_fallback"] = all(
+        _error_children_have_readable_failure_or_fallback(
+            item.get("child_output_contracts") or []
+        )
+        for item in cases
+    )
+    checks["matrix_no_artifact_missing"] = all(
+        not item.get("dialogue_missing_artifact_paths") for item in cases
+    )
+    checks["matrix_no_false_document_fulfillment"] = all(
+        not item.get("false_document_fulfillment") for item in cases
+    )
+    checks["matrix_final_text_no_false_document_requirement"] = all(
+        not item.get("false_document_final_text") for item in cases
+    )
+    checks["matrix_visible_text_no_forbidden_terms"] = all(
+        not item.get("visible_forbidden_terms") for item in cases
+    )
+    acceptance_keys = (
+        "target_agents_present",
+        "matrix_all_cases_passed",
+        "matrix_each_case_has_child_messages",
+        "matrix_done_children_have_substantive_agent_summary",
+        "matrix_error_children_have_readable_failure_or_fallback",
+        "matrix_no_artifact_missing",
+        "matrix_no_false_document_fulfillment",
+        "matrix_final_text_no_false_document_requirement",
+        "matrix_visible_text_no_forbidden_terms",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def _run_substantive_output_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    *,
+    name: str,
+    prompt: str,
+    started_at: float,
+) -> dict[str, Any]:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"Substantive Output {name} {int(started_at)}",
+            "mode": "group",
+            "agent_ids": AGENT_IDS,
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    sent, events, target = send_message_and_stream(
+        client,
+        headers,
+        conv["id"],
+        content=prompt,
+        target_agent_id="orchestrator",
+        started_at=started_at,
+    )
+    parent_message_id = sent["agent_message"]["id"]
+    user_message_id = sent["user_message"]["id"]
+    case_report: dict[str, Any] = {
+        "name": name,
+        "conversation_id": conv["id"],
+        "user_message_id": user_message_id,
+        "agent_message_id": parent_message_id,
+        "stream_event_count": len(events),
+    }
+    messages = fetch_conversation_messages(client, headers, conv["id"], case_report)
+    parent_message = next(
+        (item for item in messages if item.get("id") == parent_message_id),
+        target or {},
+    )
+    child_messages = child_messages_for_user(
+        messages,
+        parent_message_id=parent_message_id,
+        user_message_id=user_message_id,
+    )
+    run_detail = fetch_orchestrator_run_detail(client, headers, conv["id"], case_report)
+    missing_paths = [
+        path
+        for attempt in run_detail.get("attempts", [])
+        if isinstance(attempt, dict)
+        for path in attempt.get("missing_artifact_paths", [])
+        if isinstance(path, str)
+    ]
+    visible_text = all_visible_message_text([parent_message, *child_messages])
+    parent_visible_text = visible_agent_text(message_blocks(parent_message))
+    forbidden_terms = forbidden_visible_terms(
+        f"{visible_text}\n{message_error_text(events)}"
+    )
+    contracts = substantive_child_output_report(child_messages, run_detail)
+    fulfillment_statuses = command_fulfillment_statuses(run_detail)
+    no_artifact_requested = "不需要生成文件" in prompt or "no file" in prompt.lower()
+    false_document_fulfillment = bool(
+        no_artifact_requested
+        and fulfillment_statuses.get("document") in {"pending", "failed", "skipped"}
+    )
+    false_document_final_text = bool(no_artifact_requested and "生成文档" in parent_visible_text)
+    case_report.update(
+        {
+            "target_agent_message": parent_message,
+            "child_agent_messages": child_messages,
+            "child_output_contracts": contracts,
+            "dialogue_missing_artifact_paths": missing_paths,
+            "visible_forbidden_terms": forbidden_terms,
+            "command_fulfillment_statuses": fulfillment_statuses,
+            "false_document_fulfillment": false_document_fulfillment,
+            "false_document_final_text": false_document_final_text,
+        }
+    )
+    child_agent_ids = {
+        item.get("agent_id")
+        for item in child_messages
+        if item.get("agent_id") and item.get("agent_id") != "orchestrator"
+    }
+    case_report["checks"] = {
+        "message_done": parent_message.get("status") == "done",
+        "at_least_two_child_messages": len(child_messages) >= 2,
+        "at_least_two_child_agents": len(child_agent_ids) >= 2,
+        "child_messages_terminal": bool(child_messages)
+        and all(item.get("status") in {"done", "error"} for item in child_messages),
+        "done_children_have_substantive_agent_summary": (
+            _done_children_have_substantive_agent_summary(contracts)
+        ),
+        "error_children_have_readable_failure_or_fallback": (
+            _error_children_have_readable_failure_or_fallback(contracts)
+        ),
+        "no_artifact_missing": not missing_paths,
+        "no_false_document_fulfillment": not false_document_fulfillment,
+        "final_text_no_false_document_requirement": not false_document_final_text,
+        "visible_text_no_forbidden_terms": not forbidden_terms,
+    }
+    case_report["passed"] = all(case_report["checks"].values())
+    return case_report
 
 
 def command_fulfillment_statuses(run_detail: dict[str, Any]) -> dict[str, str]:
@@ -3729,6 +4299,26 @@ def main() -> None:
             print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
             print(f"report={REPORT_PATH}")
             print(f"browser_report={BROWSER_REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if GROUP_DIALOGUE_DEBATE_SCENARIO:
+            run_group_dialogue_debate_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO:
+            run_group_substantive_output_matrix_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
             print(f"sse={SSE_PATH}")
             return
 
