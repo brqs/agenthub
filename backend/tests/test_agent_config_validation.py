@@ -24,7 +24,7 @@ from app.models.agent import Agent
 from app.schemas.agent import AgentConfig, AgentOut, CreateAgentRequest
 from app.seeds.seed_agents import BUILTIN_AGENTS
 from app.services.builtin_agent_config import (
-    upgrade_builtin_orchestrator_config,
+    reconcile_builtin_agents,
     upgraded_orchestrator_config,
 )
 
@@ -235,7 +235,7 @@ class TestValidConfigs:
             }
         )
 
-        changed = await upgrade_builtin_orchestrator_config(db)  # type: ignore[arg-type]
+        changed = await reconcile_builtin_agents(db)  # type: ignore[arg-type]
 
         assert changed is True
         assert sorted(db.deleted) == [
@@ -289,13 +289,31 @@ class TestValidConfigs:
         assert context["planning_weaknesses"] == ["backend"]
         assert context["preferred_task_types"] == ["review"]
         assert context["allowed_tools"] == ["read_file"]
-        assert context["system_prompt_summary"] == "你负责审查前端交互、视觉一致性和可演示性。"
+        assert "system_prompt_summary" not in context
         assert context["model_backend"] == "claude"
         assert "api_key" not in context
         assert "env" not in context
         assert "command" not in context
         assert "args" not in context
         assert "sdk_options" not in context
+
+    def test_agent_context_uses_system_prompt_summary_without_profile(self) -> None:
+        agent = Agent(
+            id="custom-reviewer",
+            user_id=None,
+            name="Custom Reviewer",
+            provider="custom",
+            avatar_url="",
+            capabilities=["review", "frontend"],
+            system_prompt="你负责审查前端交互、视觉一致性和可演示性。",
+            config={"model_backend": "claude"},
+            is_builtin=False,
+        )
+
+        context = _agent_context(agent)
+
+        assert context["system_prompt_summary"] == "你负责审查前端交互、视觉一致性和可演示性。"
+        assert context["model_backend"] == "claude"
 
     def test_valid_builtin_mcp_allowed_tool(self) -> None:
         config = {

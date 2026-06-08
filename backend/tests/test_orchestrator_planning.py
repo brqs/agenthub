@@ -90,8 +90,11 @@ def test_planner_prompt_references_agent_capability_profile_rule() -> None:
         PLANNER_SYSTEM_PROMPT
     )
     assert "planning_profile" in PLANNER_SYSTEM_PROMPT
-    assert "codex-helper as the technical lead" in PLANNER_SYSTEM_PROMPT
-    assert "claude-code and opencode-helper" in PLANNER_SYSTEM_PROMPT
+    assert "Do not infer" in PLANNER_SYSTEM_PROMPT
+    assert "provider or agent id" in PLANNER_SYSTEM_PROMPT
+    assert "alone; choose each agent" in PLANNER_SYSTEM_PROMPT
+    assert "codex-helper as the lead architect" not in PLANNER_SYSTEM_PROMPT
+    assert "codex-helper as the technical lead" not in PLANNER_SYSTEM_PROMPT
 
 
 def test_generic_template_review_task_is_independent_review() -> None:

@@ -162,7 +162,6 @@ BUILTIN_AGENTS: list[dict[str, Any]] = [
             "preferred_task_types": ["implementation", "verification", "repair"],
             "command": "opencode",
             "args": [],
-            "model": "deepseek/deepseek-chat",
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 360,
             "heartbeat_interval_seconds": 15,
