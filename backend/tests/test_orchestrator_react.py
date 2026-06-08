@@ -2,16 +2,48 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.types import ChatMessage, StreamChunk
 from tests.orchestrator_fakes import (
     FakeSubAdapter,
+    FakeWorkspaceWriterAdapter,
     SequencedGateway,
     _collect,
     _react_decision_chunks,
     _task,
     _text_chunks,
 )
+
+
+class FakeGroupMessageWriter:
+    def __init__(self) -> None:
+        self.next_id = 0
+
+    async def start_message(self, *, agent_id: str) -> StreamChunk:
+        self.next_id += 1
+        return StreamChunk(
+            event_type="message_start",
+            message_id=f"child-{self.next_id}",
+            agent_id=agent_id,
+        )
+
+    async def finish_message(
+        self,
+        message_id: str,
+        *,
+        status: str = "done",
+        error: str | None = None,
+        error_code: str | None = None,
+    ) -> StreamChunk:
+        return StreamChunk(
+            event_type="message_error" if status == "error" else "message_done",
+            message_id=message_id,
+            status=status,
+            error=error,
+            error_code=error_code,
+        )
 
 
 async def test_orchestrator_react_disabled_preserves_static_flow() -> None:
@@ -98,6 +130,7 @@ async def test_orchestrator_react_adds_fix_task_after_failure_and_finishes() -> 
         messages=[ChatMessage(role="user", content="Fix and verify an HTML file")],
         config={
             "react_enabled": True,
+            "react_disable_task_auto_fallback": True,
             "react_gateway": react_gateway,
             "tasks": [
                 _task(
@@ -127,6 +160,107 @@ async def test_orchestrator_react_adds_fix_task_after_failure_and_finishes() -> 
     assert "Fix HTML behavior" in text
     assert "thought" not in text
     assert "chain_of_thought" not in text
+
+
+async def test_orchestrator_react_task_uses_per_task_fallback(tmp_path: Path) -> None:
+    primary = FakeSubAdapter("codex-helper", _text_chunks("I only described a plan."))
+    fallback = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created planning.md"),
+        "planning.md",
+        "# Plan\n\nFallback completed the planning artifact.",
+    )
+    react_gateway = SequencedGateway(
+        [_react_decision_chunks('{"actions":[{"type":"finish","reason":"done"}]}')]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Create a planning document")],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "tasks": [
+                _task(
+                    "architecture",
+                    "codex-helper",
+                    "Architecture",
+                    "Create planning.md",
+                    expected_output="planning.md",
+                )
+            ],
+            "managed_agent_ids": ["codex-helper", "claude-code"],
+            "task_fallback_agent_ids": ["claude-code"],
+            "sub_adapters": {
+                "codex-helper": primary,
+                "claude-code": fallback,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert (tmp_path / "planning.md").is_file()
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["codex-helper", "claude-code"]
+
+
+async def test_orchestrator_react_group_message_task_fallback(tmp_path: Path) -> None:
+    primary = FakeSubAdapter(
+        "codex-helper",
+        [
+            StreamChunk(
+                event_type="error",
+                error_code="external_runtime_error",
+                error="process exited",
+            )
+        ],
+    )
+    fallback = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created planning.md"),
+        "planning.md",
+        "# Plan\n\nGroup fallback completed the planning artifact.",
+    )
+    react_gateway = SequencedGateway(
+        [_react_decision_chunks('{"actions":[{"type":"finish","reason":"done"}]}')]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="Create a planning document")],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "tasks": [
+                _task(
+                    "architecture",
+                    "codex-helper",
+                    "Architecture",
+                    "Create planning.md",
+                    expected_output="planning.md",
+                )
+            ],
+            "managed_agent_ids": ["codex-helper", "claude-code"],
+            "task_fallback_agent_ids": ["claude-code"],
+            "orchestrator_group_messages_enabled": True,
+            "orchestrator_group_message_writer": FakeGroupMessageWriter(),
+            "sub_adapters": {
+                "codex-helper": primary,
+                "claude-code": fallback,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert (tmp_path / "planning.md").is_file()
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["codex-helper", "claude-code"]
 
 
 async def test_orchestrator_react_rejects_add_task_outside_allowed_agents() -> None:

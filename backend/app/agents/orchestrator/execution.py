@@ -666,6 +666,21 @@ async def _run_task(
     fallback_agents = _task_fallback_agent_ids(config)
     max_attempts = _max_task_attempts(config)
     considered_agents: set[str] = set()
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="task_fallback_strategy",
+        task_id=task.task_id,
+        agent_id=task.agent_id,
+        payload={
+            "fallback_agents": fallback_agents,
+            "max_attempts": max_attempts,
+            "task_auto_fallback_enabled": config.get("task_auto_fallback_enabled"),
+            "react_disable_task_auto_fallback": config.get(
+                "react_disable_task_auto_fallback"
+            ),
+        },
+    )
 
     while len(task_result.attempts) < max_attempts:
         selection = _agent_for_attempt(
@@ -992,7 +1007,21 @@ async def _run_task(
         task_result.final_state = attempt.state
         if attempt.state == TaskState.SUCCEEDED:
             break
-        if not _can_retry_task(task_result, fallback_agents, max_attempts):
+        can_retry = _can_retry_task(task_result, fallback_agents, max_attempts)
+        if not can_retry:
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="task_fallback_stopped",
+                task_id=task.task_id,
+                agent_id=agent_id,
+                payload={
+                    "attempt_count": len(task_result.attempts),
+                    "final_state": task_result.final_state.value,
+                    "fallback_agents": fallback_agents,
+                    "max_attempts": max_attempts,
+                },
+            )
             break
 
     if task_result.final_state != TaskState.SUCCEEDED:

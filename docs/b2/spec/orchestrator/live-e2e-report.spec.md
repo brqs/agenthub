@@ -53,6 +53,9 @@
 - `/tmp/agenthub_command_fulfillment_report.json`
 - `/tmp/agenthub_command_fulfillment_sse.jsonl`
 - `/tmp/agenthub_command_fulfillment_browser.json`
+- `/tmp/agenthub_orchestrator_context_followup_report.json`
+- `/tmp/agenthub_orchestrator_context_followup_sse.jsonl`
+- `/tmp/agenthub_orchestrator_context_followup_browser.json`
 
 最终结论：`passed=true`。
 
@@ -77,6 +80,11 @@ instruction 覆盖 placeholder/TODO 失败指令。后端 PID `247387 -> 268246`
 preview / browser verify / deployment 输出、容器化部署按钮可发起受控请求且生产默认返回
 `not_supported`。
 
+2026-06-08 context follow-up repair loop 结论：`orchestrator_context_followup_repair`
+公网复验 `passed=true`。本轮验证 Orchestrator 对“生成了吗 / 预览地址是什么 /
+浏览器验收通过了吗 / 改了哪些文件 / 继续完成缺失的部署”这类追问走 bounded evidence answer，
+不重新创建子 Agent message，不暴露 planner invalid JSON、raw runtime 或内部 trace。
+
 ---
 
 ## 2. Case Results
@@ -96,6 +104,31 @@ preview / browser verify / deployment 输出、容器化部署按钮可发起受
 | Case 9 - True Agent Group Messages | group + Orchestrator 运行中为实际负责 Agent 创建独立 child message；SSE 输出 `message_start` / `message_done` / `message_error` 与子 `message_id`；父 Orchestrator final text 无内部 trace | passed |
 | Case 10 - Generic Agent Fallback Matrix | Codex / Claude Code / OpenCode Helper 任一首选 Agent 失败后，Orchestrator 自动切换到可用 fallback Agent；失败与成功 attempt 分别写入独立 child message | passed |
 | Case 11 - Command Fulfillment Cyberpunk Group Deploy | 显式文档/代码/Diff/多 Agent/review/preview/browser verify/deploy 要求逐项履约；Codex/OpenCode 真实失败后 fallback/repair，最终生成 `review.md` 并发布静态站点 | passed |
+| Case 12 - Context Follow-up Evidence Routing | 网站生成/预览/验收/部署后连续追问，Orchestrator 读取 run detail / workspace / preview / deployment / evaluation 证据直接回答，不重新规划或重跑子 Agent | passed |
+
+2026-06-08 Case 12 repair loop 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: orchestrator_context_followup_repair
+report: /tmp/agenthub_orchestrator_context_followup_report.json
+sse: /tmp/agenthub_orchestrator_context_followup_sse.jsonl
+browser_report: /tmp/agenthub_orchestrator_context_followup_browser.json
+conversation_id: 7488f39a-4eda-4f06-b21a-4540a35eb89a
+user_message_id: 67698ae9-84aa-47ef-8898-d47c3c9e633d
+agent_message_id: 75f4a83b-44f5-4b9d-9de1-a64e739dd055
+run_id: 230826eb-7e99-4ae2-961a-31ffc6e3a84b
+passed: true
+preview_url: http://111.229.151.159:8082/index.html
+static_release_url: http://111.229.151.159:8000/releases/Deo-L2-iNQbkHrJ7ZiktHJpfAsy02Sj6/index.html
+workspace: planning.md, index.html, styles.css, app.js, diff.md, review.md
+context_followups_all_passed: true
+backend_pid: 4110039 -> 4130667
+alembic_current: b6c7d8e9f012 (head) (mergepoint)
+health: local ok, public ok
+seed_agents: not required
+```
 
 2026-06-08 Case 11 repair loop 证据：
 

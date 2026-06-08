@@ -50,7 +50,13 @@ GENERIC_GROUP_PROCESS_SCENARIOS = {
 GENERIC_GROUP_PROCESS_SCENARIO = SCENARIO in GENERIC_GROUP_PROCESS_SCENARIOS
 GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO = SCENARIO == "group_process_frontend_preview"
 AGENT_FALLBACK_MATRIX_SCENARIO = SCENARIO == "agent_fallback_matrix"
-COMMAND_FULFILLMENT_SCENARIO = SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
+CONTEXT_FOLLOWUP_SCENARIO = SCENARIO == "orchestrator_context_followup_repair"
+COMMAND_FULFILLMENT_SCENARIO = (
+    SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
+)
+COMMAND_FULFILLMENT_FLOW_SCENARIO = (
+    COMMAND_FULFILLMENT_SCENARIO or CONTEXT_FOLLOWUP_SCENARIO
+)
 P1_SCENARIO = (
     P1_ATTRIBUTION_SCENARIO
     or P1_WORKFLOW_SCENARIO
@@ -110,6 +116,9 @@ DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH = (  # noqa: S108
 DEFAULT_COMMAND_FULFILLMENT_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_command_fulfillment_sse.jsonl"  # noqa: S108
 )
+DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_orchestrator_context_followup_sse.jsonl"  # noqa: S108
+)
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
@@ -160,6 +169,9 @@ DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH = (  # noqa: S108
 DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_command_fulfillment_report.json"  # noqa: S108
 )
+DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_orchestrator_context_followup_report.json"  # noqa: S108
+)
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
@@ -186,6 +198,9 @@ DEFAULT_GROUP_PROCESS_FRONTEND_PREVIEW_BROWSER_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_COMMAND_FULFILLMENT_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_command_fulfillment_browser.json"  # noqa: S108
+)
+DEFAULT_CONTEXT_FOLLOWUP_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_orchestrator_context_followup_browser.json"  # noqa: S108
 )
 SSE_PATH = SETTINGS.sse_path
 REPORT_PATH = SETTINGS.report_path
@@ -435,7 +450,7 @@ PROMPT = SETTINGS.prompt_override or (
     else AGENT_FALLBACK_MATRIX_PROMPT
     if AGENT_FALLBACK_MATRIX_SCENARIO
     else COMMAND_FULFILLMENT_PROMPT
-    if COMMAND_FULFILLMENT_SCENARIO
+    if COMMAND_FULFILLMENT_FLOW_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -1791,6 +1806,110 @@ def command_fulfillment_statuses(run_detail: dict[str, Any]) -> dict[str, str]:
                 statuses[item_id] = status
                 ranks[item_id] = rank
     return statuses
+
+
+CONTEXT_FOLLOWUP_PROMPTS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "generated_status",
+        "content": "主题是赛博朋克风的网站生成了吗",
+        "required_terms": ("index.html", "styles.css", "app.js"),
+    },
+    {
+        "name": "preview_url",
+        "content": "预览地址是什么",
+        "required_terms": ("http", "8082"),
+    },
+    {
+        "name": "browser_verify",
+        "content": "浏览器验收通过了吗",
+        "required_terms": ("验收",),
+    },
+    {
+        "name": "changed_files",
+        "content": "改了哪些文件",
+        "required_terms": ("index.html", "styles.css", "app.js"),
+    },
+    {
+        "name": "continue_missing_deployment",
+        "content": "继续完成缺失的部署",
+        "required_terms": ("部署",),
+    },
+)
+
+
+def run_context_followup_checks(
+    client: httpx.Client,
+    headers: dict[str, str],
+    conv_id: str,
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    followups: list[dict[str, Any]] = []
+    checks: dict[str, bool] = {}
+    for spec in CONTEXT_FOLLOWUP_PROMPTS:
+        name = str(spec["name"])
+        sent, events, target = send_message_and_stream(
+            client,
+            headers,
+            conv_id,
+            content=str(spec["content"]),
+            target_agent_id="orchestrator",
+            started_at=started_at,
+        )
+        messages = fetch_conversation_messages(client, headers, conv_id, report)
+        visible_text = visible_agent_text(message_blocks(target or {}))
+        event_error_text = message_error_text(events)
+        child_messages = child_messages_for_user(
+            messages,
+            parent_message_id=str((target or {}).get("id") or ""),
+            user_message_id=str((sent.get("user_message") or {}).get("id") or ""),
+        )
+        message_start_agents = [
+            str(event_data(event).get("agent_id"))
+            for event in events
+            if event.get("event") == "message_start"
+            and event_data(event).get("agent_id") in BUILTIN_SUB_AGENT_IDS
+        ]
+        forbidden_terms = forbidden_visible_terms(
+            "\n".join((visible_text, event_error_text))
+        )
+        required_terms = tuple(str(item) for item in spec.get("required_terms", ()))
+        required_terms_present = all(term in visible_text for term in required_terms)
+        no_internal_error = not any(
+            marker in visible_text
+            for marker in (
+                "invalid_task_plan",
+                "planner did not return valid JSON",
+                "external_runtime_error",
+            )
+        )
+        item_report = {
+            "name": name,
+            "content": spec["content"],
+            "user_message_id": (sent.get("user_message") or {}).get("id"),
+            "agent_message_id": (sent.get("agent_message") or {}).get("id"),
+            "status": (target or {}).get("status"),
+            "visible_text": visible_text,
+            "event_count": len(events),
+            "child_message_count": len(child_messages),
+            "message_start_agents": message_start_agents,
+            "forbidden_terms": forbidden_terms,
+            "required_terms_present": required_terms_present,
+            "no_internal_error": no_internal_error,
+        }
+        item_report["passed"] = bool(
+            (target or {}).get("status") == "done"
+            and not child_messages
+            and not message_start_agents
+            and not forbidden_terms
+            and required_terms_present
+            and no_internal_error
+        )
+        followups.append(item_report)
+        checks[f"context_followup_{name}_passed"] = bool(item_report["passed"])
+    report["context_followups"] = followups
+    checks["context_followups_all_passed"] = all(checks.values())
+    report["checks"].update(checks)
 
 
 def command_fulfillment_review_independent(run_detail: dict[str, Any]) -> bool:
@@ -4389,7 +4508,7 @@ def main() -> None:
                 }
             )
 
-        if COMMAND_FULFILLMENT_SCENARIO:
+        if COMMAND_FULFILLMENT_FLOW_SCENARIO:
             run_detail = (
                 report.get("orchestrator_run_detail")
                 if isinstance(report.get("orchestrator_run_detail"), dict)
@@ -4516,6 +4635,14 @@ def main() -> None:
                 and container_smoke_body.get("status")
                 in {"not_supported", "queued", "publishing", "published", "failed"}
             )
+            if CONTEXT_FOLLOWUP_SCENARIO:
+                run_context_followup_checks(
+                    client,
+                    headers,
+                    conv_id,
+                    report,
+                    started_at,
+                )
 
         message_blocks = (target or {}).get("content") or []
         text = block_text(message_blocks)
@@ -4670,7 +4797,7 @@ def main() -> None:
                 False,
             ),
         }
-        if COMMAND_FULFILLMENT_SCENARIO:
+        if COMMAND_FULFILLMENT_FLOW_SCENARIO:
             hard_checks.pop("planner_used_llm", None)
         if FULLSTACK_SCENARIO:
             hard_checks.update(
@@ -4824,6 +4951,45 @@ def main() -> None:
                     ),
                     "command_fulfillment_diff_satisfied": report["checks"].get(
                         "command_fulfillment_diff_satisfied",
+                        False,
+                    ),
+                    "command_deployment_tool_called": report["checks"].get(
+                        "command_deployment_tool_called",
+                        False,
+                    ),
+                    "command_deployment_status_block_present": report["checks"].get(
+                        "command_deployment_status_block_present",
+                        False,
+                    ),
+                    "command_static_deployment_published": report["checks"].get(
+                        "command_static_deployment_published",
+                        False,
+                    ),
+                    "command_static_site_url_200": report["checks"].get(
+                        "command_static_site_url_200",
+                        False,
+                    ),
+                    "command_final_text_no_contradictory_completion": report[
+                        "checks"
+                    ].get(
+                        "command_final_text_no_contradictory_completion",
+                        False,
+                    ),
+                    "message_error_no_forbidden_terms": report["checks"].get(
+                        "message_error_no_forbidden_terms",
+                        False,
+                    ),
+                    "container_deployment_smoke_request_created": report["checks"].get(
+                        "container_deployment_smoke_request_created",
+                        False,
+                    ),
+                }
+            )
+        elif CONTEXT_FOLLOWUP_SCENARIO:
+            hard_checks.update(
+                {
+                    "context_followups_all_passed": report["checks"].get(
+                        "context_followups_all_passed",
                         False,
                     ),
                     "command_deployment_tool_called": report["checks"].get(
