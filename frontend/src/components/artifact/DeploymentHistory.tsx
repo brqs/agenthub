@@ -1,4 +1,14 @@
-import { Check, Copy, Download, ExternalLink, History, Loader2, Square, Trash2 } from 'lucide-react';
+import {
+  Check,
+  Copy,
+  Download,
+  ExternalLink,
+  History,
+  Loader2,
+  RotateCcw,
+  Square,
+  Trash2,
+} from 'lucide-react';
 import { useState } from 'react';
 import {
   DEPLOYMENT_KIND_LABELS,
@@ -7,7 +17,7 @@ import {
   formatDateTime,
   isDeploymentInProgress,
 } from './deploymentPresentation';
-import { useDeployments, useStopDeployment } from '@/hooks/useDeployments';
+import { useDeployments, useRetryDeployment, useStopDeployment } from '@/hooks/useDeployments';
 import * as deploymentsAdapter from '@/lib/adapters/deployments';
 import type { WorkspaceDeploymentResponse } from '@/lib/types';
 import { handleExternalLink } from '@/lib/nativeShell';
@@ -15,6 +25,7 @@ import { handleExternalLink } from '@/lib/nativeShell';
 export function DeploymentHistory({ conversationId }: { conversationId: string }) {
   const deploymentsQuery = useDeployments(conversationId);
   const stopDeployment = useStopDeployment(conversationId);
+  const retryDeployment = useRetryDeployment(conversationId);
   const [copiedDeploymentId, setCopiedDeploymentId] = useState<string | null>(null);
   const [copyError, setCopyError] = useState(false);
   const deployments = deploymentsQuery.data?.items ?? [];
@@ -38,7 +49,9 @@ export function DeploymentHistory({ conversationId }: { conversationId: string }
           <History className="h-3.5 w-3.5" />
           <span>发布历史</span>
         </div>
-        {deploymentsQuery.isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />}
+        {deploymentsQuery.isFetching && (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+        )}
       </div>
 
       {deploymentsQuery.isLoading ? (
@@ -58,15 +71,22 @@ export function DeploymentHistory({ conversationId }: { conversationId: string }
               deployment={deployment}
               copied={copiedDeploymentId === deployment.id}
               stopping={stopDeployment.isPending && stopDeployment.variables === deployment.id}
+              retrying={retryDeployment.isPending && retryDeployment.variables === deployment.id}
               onCopy={() => void copyUrl(deployment)}
               onStop={() => stopDeployment.mutate(deployment.id)}
+              onRetry={() => retryDeployment.mutate(deployment.id)}
             />
           ))}
           {copyError && (
-            <p className="text-xs text-rose-600 dark:text-rose-300">复制失败，请手动复制部署地址。</p>
+            <p className="text-xs text-rose-600 dark:text-rose-300">
+              复制失败，请手动复制部署地址。
+            </p>
           )}
           {stopDeployment.isError && (
             <p className="text-xs text-rose-600 dark:text-rose-300">停止发布失败，请稍后重试。</p>
+          )}
+          {retryDeployment.isError && (
+            <p className="text-xs text-rose-600 dark:text-rose-300">重新发布失败，请稍后重试。</p>
           )}
         </div>
       ) : (
@@ -83,17 +103,22 @@ function DeploymentHistoryItem({
   deployment,
   copied,
   stopping,
+  retrying,
   onCopy,
   onStop,
+  onRetry,
 }: {
   conversationId: string;
   deployment: WorkspaceDeploymentResponse;
   copied: boolean;
   stopping: boolean;
+  retrying: boolean;
   onCopy: () => void;
   onStop: () => void;
+  onRetry: () => void;
 }) {
-  const canStop = ['publishing', 'published'].includes(deployment.status);
+  const canStop = ['queued', 'publishing', 'published'].includes(deployment.status);
+  const canRetry = ['failed', 'stopped', 'not_supported'].includes(deployment.status);
   const canDownloadSource = deployment.kind === 'source_zip' && deployment.status === 'published';
   const statusMeta = DEPLOYMENT_STATUS_META[deployment.status];
   const updatedAt = formatDateTime(deployment.updated_at);
@@ -131,7 +156,9 @@ function DeploymentHistoryItem({
             {DEPLOYMENT_KIND_LABELS[deployment.kind]}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-            <span className="font-medium text-slate-600 dark:text-slate-400">{statusMeta.label}</span>
+            <span className="font-medium text-slate-600 dark:text-slate-400">
+              {statusMeta.label}
+            </span>
             {updatedAt && (
               <>
                 <span>·</span>
@@ -150,12 +177,15 @@ function DeploymentHistoryItem({
               {deployment.error}
             </p>
           )}
-          {deployment.kind === 'container' && (deployment.runtime_status || deployment.host_port) && (
-            <p className="mt-2 truncate text-[11px] leading-5 text-slate-500">
-              {deployment.runtime_status ? `运行状态：${deployment.runtime_status}` : '容器运行中'}
-              {deployment.host_port ? ` · 端口 ${deployment.host_port}` : ''}
-            </p>
-          )}
+          {deployment.kind === 'container' &&
+            (deployment.runtime_status || deployment.host_port) && (
+              <p className="mt-2 truncate text-[11px] leading-5 text-slate-500">
+                {deployment.runtime_status
+                  ? `运行状态：${deployment.runtime_status}`
+                  : '容器运行中'}
+                {deployment.host_port ? ` · 端口 ${deployment.host_port}` : ''}
+              </p>
+            )}
           {canDownloadSource && (
             <button
               type="button"
@@ -212,7 +242,29 @@ function DeploymentHistoryItem({
               title={deployment.kind === 'source_zip' ? '删除源码包' : '停止发布'}
               aria-label={deployment.kind === 'source_zip' ? '删除源码包' : '停止发布'}
             >
-              {stopping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : deployment.kind === 'source_zip' ? <Trash2 className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
+              {stopping ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : deployment.kind === 'source_zip' ? (
+                <Trash2 className="h-3.5 w-3.5" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
+          {canRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              disabled={retrying}
+              className="rounded p-1.5 text-slate-500 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-sky-400/10 dark:hover:text-sky-200"
+              title="重新发布"
+              aria-label="重新发布"
+            >
+              {retrying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
             </button>
           )}
         </div>
@@ -224,7 +276,9 @@ function DeploymentHistoryItem({
         </p>
       )}
       {deployment.kind === 'source_zip' && deployment.status === 'published' && (
-        <p className="mt-2 text-[11px] leading-5 text-slate-500">临时源码包，请及时下载并妥善保存。</p>
+        <p className="mt-2 text-[11px] leading-5 text-slate-500">
+          临时源码包，请及时下载并妥善保存。
+        </p>
       )}
     </div>
   );

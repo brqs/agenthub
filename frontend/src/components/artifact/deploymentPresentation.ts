@@ -19,32 +19,38 @@ export const DEPLOYMENT_STATUS_META = {
   queued: {
     label: '排队中',
     icon: Clock3,
-    className: 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-200',
+    className:
+      'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-200',
   },
   publishing: {
     label: '发布中',
     icon: Loader2,
-    className: 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-200',
+    className:
+      'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-200',
   },
   published: {
     label: '已发布',
     icon: CheckCircle2,
-    className: 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-300',
+    className:
+      'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-400/25 dark:bg-emerald-400/10 dark:text-emerald-300',
   },
   failed: {
     label: '发布失败',
     icon: AlertTriangle,
-    className: 'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-400/10 dark:text-rose-300',
+    className:
+      'border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-400/25 dark:bg-rose-400/10 dark:text-rose-300',
   },
   stopped: {
     label: '已停止',
     icon: Square,
-    className: 'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
+    className:
+      'border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
   },
   not_supported: {
     label: '暂不支持',
     icon: AlertTriangle,
-    className: 'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-200',
+    className:
+      'border-sky-300 bg-sky-50 text-sky-700 dark:border-sky-400/25 dark:bg-sky-400/10 dark:text-sky-200',
   },
 } as const;
 
@@ -97,6 +103,9 @@ export function isDeploymentInProgress(status: DeploymentStatus): boolean {
 }
 
 export function buildDeploymentTimeline(deployment: DeploymentLike) {
+  const eventTimeline = deploymentEvents(deployment);
+  if (eventTimeline.length) return eventTimeline;
+
   const terminalLabel =
     deployment.status === 'failed'
       ? '失败'
@@ -138,4 +147,40 @@ export function buildDeploymentTimeline(deployment: DeploymentLike) {
       active: ['published', 'failed', 'stopped', 'not_supported'].includes(deployment.status),
     },
   ].filter((step) => step.active);
+}
+
+function deploymentEvents(deployment: DeploymentLike) {
+  const events = Array.isArray(deployment.state_events) ? deployment.state_events : [];
+  return events
+    .map((event, index) => {
+      if (!event || typeof event !== 'object') return null;
+      const payload = event as Record<string, unknown>;
+      const timestamp = typeof payload.timestamp === 'string' ? payload.timestamp : null;
+      const type = typeof payload.type === 'string' ? payload.type : 'event';
+      return {
+        key: `${type}-${index}`,
+        label: deploymentEventLabel(payload),
+        time: timestamp,
+        active: true,
+      };
+    })
+    .filter((step): step is { key: string; label: string; time: string | null; active: boolean } =>
+      Boolean(step),
+    )
+    .slice(-6);
+}
+
+function deploymentEventLabel(event: Record<string, unknown>) {
+  const type = typeof event.type === 'string' ? event.type : 'event';
+  if (type === 'status_changed') {
+    const to =
+      typeof event.to === 'string'
+        ? DEPLOYMENT_STATUS_META[event.to as DeploymentStatus]?.label
+        : null;
+    return to ? `状态更新：${to}` : '状态已更新';
+  }
+  if (type === 'worker_submitted') return 'Worker 已接收';
+  if (type === 'stop_requested') return '已请求停止';
+  if (type === 'health_checked') return '健康检查完成';
+  return type.replaceAll('_', ' ');
 }

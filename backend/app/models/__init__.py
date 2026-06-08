@@ -1,6 +1,7 @@
 """SQLAlchemy models — import here to register with Base.metadata for Alembic."""
 
 from app.models.agent import Agent
+from app.models.agent_asset import AgentAssetBinding, AgentAssetUsageEvent, AgentAssetVersion
 from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
 from app.models.memory import Memory, MemoryMount
@@ -24,6 +25,9 @@ from app.models.workspace import (
 
 __all__ = [
     "Agent",
+    "AgentAssetBinding",
+    "AgentAssetUsageEvent",
+    "AgentAssetVersion",
     "Conversation",
     "ConversationMemory",
     "Message",
