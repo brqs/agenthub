@@ -81,6 +81,115 @@ class FakeMultiFileWriterAdapter(FakeSubAdapter):
             yield chunk
 
 
+def test_legacy_template_creates_conversation_tasks_for_debate_request() -> None:
+    request = (
+        "@orchestrator 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
+        "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出，注意是"
+        "对话场景而不是书面书写。"
+    )
+
+    tasks = derive_tasks(
+        {
+            "managed_agent_ids": [
+                "orchestrator",
+                "codex-helper",
+                "claude-code",
+                "opencode-helper",
+            ]
+        },
+        [ChatMessage(role="user", content=request)],
+    )
+
+    assert [task.task_id for task in tasks] == ["dialogue-pro", "dialogue-con"]
+    assert {task.task_type for task in tasks} == {"conversation"}
+    assert all(task.expected_output == "" for task in tasks)
+    assert [task.agent_id for task in tasks] == ["claude-code", "opencode-helper"]
+    assert tasks[1].depends_on == ("dialogue-pro",)
+    assert all("Analyze request" not in task.title for task in tasks)
+
+
+def test_legacy_template_creates_generic_roundtable_tasks_without_ai_hardcode() -> None:
+    request = (
+        "@orchestrator 不需要生成文件，请组织两个智能体做圆桌讨论，主题是"
+        "中小企业是否应该接入 AI 客服。直接以群聊对话形式输出。"
+    )
+
+    tasks = derive_tasks(
+        {"managed_agent_ids": ["orchestrator", "claude-code", "opencode-helper"]},
+        [ChatMessage(role="user", content=request)],
+    )
+
+    assert len(tasks) == 2
+    assert {task.task_type for task in tasks} == {"conversation"}
+    assert all(task.expected_output == "" for task in tasks)
+    assert all("中小企业是否应该接入 AI 客服" in task.instruction for task in tasks)
+    assert all("AI 的快速发展对人类社会" not in task.instruction for task in tasks)
+    assert all("不要主持" in task.instruction for task in tasks)
+
+
+async def test_single_planner_conversation_task_rebalances_to_two_agents() -> None:
+    request = (
+        "@orchestrator 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
+        "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出。"
+    )
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "dialogue",
+                            "codex-helper",
+                            "Debate dialogue",
+                            "Create a group debate dialogue. Do not create files.",
+                            task_type="conversation",
+                        )
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    claude = FakeSubAdapter(
+        "claude-code",
+        _text_chunks(
+            "正方：我认为 AI 快速发展利大于弊，因为它能提升医疗、教育和生产效率，"
+            "让更多普通人获得智能工具支持。风险需要治理，但不能掩盖整体收益。"
+        ),
+    )
+    opencode = FakeSubAdapter(
+        "opencode-helper",
+        _text_chunks(
+            "反方：我认为 AI 快速发展弊大于利，因为就业替代、隐私泄露和治理滞后"
+            "可能先于收益集中爆发。社会需要先建立约束，再扩大应用范围。"
+        ),
+    )
+
+    chunks = await _collect(
+        OrchestratorAdapter(agent_id="orchestrator"),
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["claude-code", "opencode-helper"]
+    assert claude.received_messages
+    assert opencode.received_messages
+
+
 def test_planner_prompt_references_agent_capability_profile_rule() -> None:
     assert "capability profile" in PLANNER_SYSTEM_PROMPT
     assert "user-scope v2 capability profile" in PLANNER_SYSTEM_PROMPT
@@ -131,6 +240,33 @@ def test_command_fulfillment_extracts_diff_in_chinese_sentence() -> None:
     initialize_fulfillment(context, "请生成代码产物、Diff、审阅并部署。")
 
     assert any(item["id"] == "diff" for item in context.fulfillment_items)
+
+
+def test_command_fulfillment_does_not_treat_strategy_option_as_document() -> None:
+    context = OrchestratorRunContext()
+
+    initialize_fulfillment(
+        context,
+        "不需要生成文件，请讨论风险、成本、治理角度和替代方案，不要写报告。",
+    )
+
+    assert not any(item["id"] == "document" for item in context.fulfillment_items)
+
+
+def test_command_fulfillment_still_detects_explicit_document() -> None:
+    context = OrchestratorRunContext()
+
+    initialize_fulfillment(context, "请先生成一份设计文档，然后再实现。")
+
+    assert any(item["id"] == "document" for item in context.fulfillment_items)
+
+
+def test_command_fulfillment_explicit_markdown_overrides_no_file_hint() -> None:
+    context = OrchestratorRunContext()
+
+    initialize_fulfillment(context, "不需要其他文件，只生成 planning.md。")
+
+    assert any(item["id"] == "document" for item in context.fulfillment_items)
 
 
 async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -> None:

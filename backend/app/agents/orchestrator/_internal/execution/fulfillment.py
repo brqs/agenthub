@@ -10,7 +10,10 @@ from app.agents.orchestrator.types import OrchestratorRunContext, SubTask, TaskS
 
 FULFILLMENT_STATUS_ORDER = {"pending", "satisfied", "failed", "skipped"}
 
-DOC_RE = re.compile(r"(?i)(文档|方案|设计文档|planning\\.md|plan\\.md|document|doc)")
+DOC_RE = re.compile(
+    r"(?i)(文档|报告|设计文档|planning\.md|plan\.md|review\.md|"
+    r"document|\bdoc\b|\breport\b)"
+)
 CODE_RE = re.compile(
     r"(?i)(代码|产物|网站|站点|网页|页面|前端|html|css|javascript|js|app|website|site)"
 )
@@ -24,6 +27,11 @@ BROWSER_RE = re.compile(r"(?i)(浏览器|质量验收|移动端|按钮|交互|br
 DEPLOY_RE = re.compile(r"(?i)(部署|发布|上线|deploy(?:ed|ment)?)")
 DIFF_RE = re.compile(r"(?i)(diff|差异|变更摘要)")
 SOURCE_RE = re.compile(r"(?i)(源码|源代码|打包|下载|source|zip)")
+DOCUMENT_FILE_RE = re.compile(r"(?i)(planning\.md|plan\.md|review\.md|\.docx?\b)")
+NEGATED_DOCUMENT_RE = re.compile(
+    r"(?i)(不需要|无需|不要|不必|禁止).{0,12}(生成文件|生成文档|写文档|"
+    r"书面书写|写报告|生成报告|报告|文档|文件)"
+)
 
 
 def initialize_fulfillment(run_context: OrchestratorRunContext, user_request: str) -> None:
@@ -182,6 +190,8 @@ def _items_for_request(user_request: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for item_id, pattern, label in specs:
         if pattern.search(user_request):
+            if item_id == "document" and _document_requirement_negated(user_request):
+                continue
             items.append(
                 {
                     "id": item_id,
@@ -192,6 +202,12 @@ def _items_for_request(user_request: str) -> list[dict[str, Any]]:
                 }
             )
     return items
+
+
+def _document_requirement_negated(user_request: str) -> bool:
+    if DOCUMENT_FILE_RE.search(user_request):
+        return False
+    return bool(NEGATED_DOCUMENT_RE.search(user_request))
 
 
 def _implementation_agent_ids(tasks: Sequence[SubTask]) -> set[str]:
