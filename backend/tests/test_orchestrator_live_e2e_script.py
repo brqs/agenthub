@@ -7,6 +7,7 @@ from scripts.orchestrator_e2e.runner import (
     AGENT_FALLBACK_E2E_WRITE_RUNTIME,
     AGENT_FALLBACK_MATRIX_CASES,
     BUILTIN_SUB_AGENT_IDS,
+    _looks_generic_completion,
     command_fulfillment_statuses,
     evaluate_fallback_task_card_case,
     fallback_group_agent_ids,
@@ -23,6 +24,10 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_COMMAND_FULFILLMENT_SSE_PATH,
     DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH,
     DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH,
+    DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH,
+    DEFAULT_GROUP_DIALOGUE_DEBATE_SSE_PATH,
+    DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_REPORT_PATH,
+    DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SSE_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
     DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH,
@@ -33,10 +38,12 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
     DEFAULT_PRESENTATION_MARKERS_REPORT_PATH,
     DEFAULT_PRESENTATION_MARKERS_SSE_PATH,
+    GROUP_DIALOGUE_DEBATE_PROMPT,
     GROUP_PROCESS_DATA_ANALYSIS_PROMPT,
     GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT,
     GROUP_PROCESS_FAILURE_READABLE_PROMPT,
     GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT,
+    GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT,
     P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
     P1_AGENT_CAPABILITY_PROFILE_PROMPT,
     P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
@@ -157,6 +164,14 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
             "/tmp/agenthub_presentation_markers_report.json",
             "/tmp/agenthub_presentation_markers_sse.jsonl",
         ),
+        "group_dialogue_debate_no_artifacts": (
+            "/tmp/agenthub_group_dialogue_debate_report.json",
+            "/tmp/agenthub_group_dialogue_debate_sse.jsonl",
+        ),
+        "group_substantive_output_matrix": (
+            "/tmp/agenthub_group_substantive_output_matrix_report.json",
+            "/tmp/agenthub_group_substantive_output_matrix_sse.jsonl",
+        ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",
             "/tmp/agenthub_p1_attribution_sse.jsonl",
@@ -205,6 +220,28 @@ def test_presentation_marker_scenario_defaults_are_registered() -> None:
         "/tmp/agenthub_presentation_markers_sse.jsonl"
     )
     assert "presentation marker" in PRESENTATION_COLLAPSE_PROMPT.lower()
+
+
+def test_group_dialogue_debate_scenario_defaults_are_registered() -> None:
+    assert DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH == (
+        "/tmp/agenthub_group_dialogue_debate_report.json"
+    )
+    assert DEFAULT_GROUP_DIALOGUE_DEBATE_SSE_PATH == (
+        "/tmp/agenthub_group_dialogue_debate_sse.jsonl"
+    )
+    assert "不需要生成文件" in GROUP_DIALOGUE_DEBATE_PROMPT
+    assert "辩论" in GROUP_DIALOGUE_DEBATE_PROMPT
+
+
+def test_group_substantive_output_matrix_scenario_defaults_are_registered() -> None:
+    assert DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_REPORT_PATH == (
+        "/tmp/agenthub_group_substantive_output_matrix_report.json"
+    )
+    assert DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SSE_PATH == (
+        "/tmp/agenthub_group_substantive_output_matrix_sse.jsonl"
+    )
+    assert "实质输出" in GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT
+    assert "不需要生成文件" in GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT
 
 
 def test_load_settings_honors_artifact_path_overrides() -> None:
@@ -455,6 +492,13 @@ def test_available_agents_authoritative_false_allows_e2e_fallback_scope() -> Non
     }
 
     assert scoped_runnable_agent_ids(config) is None
+
+
+def test_substantive_output_summary_accepts_file_level_artifact_summary() -> None:
+    assert not _looks_generic_completion(
+        "已完成：Produce solution。\n产物：index.html、styles.css、app.js。\n验证：2/2 项通过。"
+    )
+    assert _looks_generic_completion("已完成：Produce solution。")
 
 
 def test_evaluate_fallback_task_card_case_accepts_actual_fallback_agent() -> None:

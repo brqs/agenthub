@@ -85,6 +85,20 @@ Orchestrator final answer text 必须标记：
 }
 ```
 
+子 Agent 原始流式文本默认属于执行过程：
+
+```json
+{
+  "presentation": {
+    "role": "execution_text",
+    "collapsible": true,
+    "group_id": "execution-main"
+  }
+}
+```
+
+执行层在子任务结束前运行实质输出合同；只有通过合同后的阶段性总结才标记为 `agent_summary`。如果第一次原始输出只是“请登场 / 已完成 / 我来主持”等无效内容，它仍可保留在折叠执行区，但不得升级为常显 summary。纠偏通过后，`agent_summary` 只展示清洗后的实质段落。
+
 执行过程 block 标记示例：
 
 ```json

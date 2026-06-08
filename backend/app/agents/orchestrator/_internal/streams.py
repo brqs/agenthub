@@ -71,6 +71,7 @@ async def remapped_sub_stream(
                     next_block_index,
                     text,
                     agent_id=agent_id,
+                    presentation=execution_text_presentation(),
                 ):
                     yield failure_chunk, next_block_index + 1, True
                 return
@@ -122,6 +123,7 @@ async def remapped_sub_stream(
             next_block_index,
             text,
             agent_id=agent_id,
+            presentation=execution_text_presentation(),
         ):
             yield failure_chunk, next_block_index + 1, True
         return

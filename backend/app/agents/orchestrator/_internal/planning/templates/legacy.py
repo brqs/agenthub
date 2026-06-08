@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -34,6 +35,46 @@ GENERIC_REVIEW_AGENT_PREFERENCE = (
     "claude-code",
     "codex-helper",
 )
+DIALOGUE_AGENT_PREFERENCE = (
+    "claude-code",
+    "opencode-helper",
+    "codex-helper",
+)
+DIALOGUE_REQUEST_MARKERS = (
+    "辩论",
+    "对话场景",
+    "角色扮演",
+    "圆桌讨论",
+    "群组内",
+    "群聊辩论",
+    "头脑风暴",
+    "观点对比",
+    "群聊讨论",
+    "讨论一下",
+    "brainstorm",
+    "debate",
+    "role-play",
+    "roleplay",
+    "roundtable",
+    "panel",
+)
+NO_ARTIFACT_DIALOGUE_MARKERS = (
+    "不需要生成文件",
+    "不生成文件",
+    "不要生成文件",
+    "无需生成文件",
+    "不用生成文件",
+    "不需要写文件",
+    "不要写文件",
+    "直接以对话",
+    "直接用对话",
+    "直接对话",
+    "对话形式输出",
+    "聊天形式输出",
+    "no file",
+    "no files",
+    "without files",
+)
 
 
 def derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
@@ -47,6 +88,9 @@ def derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list
     direct_tasks = derive_direct_agent_tasks(agent_ids, user_request)
     if direct_tasks:
         return direct_tasks
+    dialogue_tasks = _dialogue_tasks(agent_ids, user_request)
+    if dialogue_tasks:
+        return dialogue_tasks
     fullstack_tasks = derive_fullstack_delivery_tasks(agent_ids, user_request)
     if fullstack_tasks:
         return fullstack_tasks
@@ -184,6 +228,115 @@ def _generic_task_type(index: int, contract: Mapping[str, Any]) -> str:
 
 def _has_any(normalized: str, markers: tuple[str, ...]) -> bool:
     return any(marker in normalized for marker in markers)
+
+
+def _dialogue_tasks(agent_ids: list[str], user_request: str) -> list[SubTask]:
+    normalized = user_request.lower()
+    if not (
+        _has_any(normalized, DIALOGUE_REQUEST_MARKERS)
+        and _has_any(normalized, NO_ARTIFACT_DIALOGUE_MARKERS)
+    ):
+        return []
+    ordered = _dialogue_agent_order(agent_ids)
+    if not ordered:
+        return []
+
+    topic = _dialogue_topic(user_request)
+    debate = "辩论" in user_request or "debate" in normalized
+    pro_agent = ordered[0]
+    con_agent = ordered[1] if len(ordered) > 1 else ordered[0]
+    first_title = (
+        f"正方发言：{topic}利大于弊"
+        if debate
+        else f"第一位成员发言：{topic}"
+    )
+    second_title = (
+        f"反方发言：{topic}弊大于利"
+        if debate
+        else f"第二位成员发言：{topic}"
+    )
+    first_role = (
+        f"立场：{topic}利大于弊。"
+        if debate
+        else "角色：第一位讨论成员，给出建设性观点、理由和具体建议。"
+    )
+    second_role = (
+        f"立场：{topic}弊大于利。"
+        if debate
+        else "角色：第二位讨论成员，从不同角度补充、质疑或提出替代方案。"
+    )
+    tasks = [
+        SubTask(
+            task_id="dialogue-pro",
+            agent_id=pro_agent,
+            title=first_title,
+            instruction=(
+                "你正在 AgentHub 群聊中参与一场公开对话。请直接以分配给你的身份发言，"
+                "不要主持、不要邀请别人登场、不要复述任务、不要只说已完成。"
+                "\n不要生成文件、不要写报告、不要要求平台工具。"
+                f"\n\n主题：{topic}"
+                f"\n{first_role}"
+                "\n输出要求：中文、对话口吻、像群聊现场发言；用 3-5 段短发言给出"
+                "观点、理由、例子，并回应潜在反驳或补充角度。"
+                f"\n\n原始用户请求：\n{user_request}"
+            ),
+            priority=0,
+            expected_output="",
+            task_type="conversation",
+        )
+    ]
+    if con_agent != pro_agent:
+        tasks.append(
+            SubTask(
+                task_id="dialogue-con",
+                agent_id=con_agent,
+                title=second_title,
+                instruction=(
+                    "你正在 AgentHub 群聊中参与一场公开对话。请直接以分配给你的身份发言，"
+                    "不要主持、不要邀请别人登场、不要复述任务、不要只说已完成。"
+                    "\n不要生成文件、不要写报告、不要要求平台工具。"
+                    f"\n\n主题：{topic}"
+                    f"\n{second_role}"
+                    "\n输出要求：中文、对话口吻、像群聊现场发言；用 3-5 段短发言给出"
+                    "观点、理由、例子，并明确回应或补充上一位成员的观点。"
+                    f"\n\n原始用户请求：\n{user_request}"
+                ),
+                depends_on=("dialogue-pro",),
+                priority=1,
+                expected_output="",
+                task_type="conversation",
+            )
+        )
+    return tasks
+
+
+def _dialogue_agent_order(agent_ids: list[str]) -> list[str]:
+    remaining = list(dict.fromkeys(agent_ids))
+    ordered: list[str] = []
+    for preference in DIALOGUE_AGENT_PREFERENCE:
+        if preference not in remaining:
+            continue
+        ordered.append(preference)
+        remaining.remove(preference)
+    ordered.extend(remaining)
+    return ordered
+
+
+def _dialogue_topic(user_request: str) -> str:
+    patterns = (
+        r"论题是(.+?)(?:[？?。.!！]|$)",
+        r"主题是(.+?)(?:[？?。.!！]|$)",
+        r"围绕(.+?)(?:开展|进行|讨论|辩论|[？?。.!！]|$)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, user_request)
+        if match:
+            topic = match.group(1).strip(" ：:，,。.!！?？")
+            if topic:
+                return topic[:80]
+    cleaned = re.sub(r"@[\w-]+", "", user_request).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return (cleaned[:80] or "本次讨论主题")
 
 
 def _generic_fallback_agent_order(agent_ids: list[str]) -> list[str]:
