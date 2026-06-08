@@ -140,6 +140,15 @@ from app.agents.orchestrator._internal.memory import (
 from app.agents.orchestrator._internal.memory import (
     record_task_started as _memory_record_task_started,
 )
+from app.agents.orchestrator._internal.presentation_markers import (
+    agent_summary_presentation as _agent_summary_presentation,
+)
+from app.agents.orchestrator._internal.presentation_markers import (
+    execution_text_presentation as _execution_text_presentation,
+)
+from app.agents.orchestrator._internal.presentation_markers import (
+    final_answer_presentation as _final_answer_presentation,
+)
 from app.agents.orchestrator._internal.streams import (
     remapped_sub_stream as _remapped_sub_stream,
 )
@@ -215,13 +224,16 @@ def _text_block(
     text: str,
     *,
     agent_id: str = "orchestrator",
+    presentation: Mapping[str, Any] | None = None,
 ) -> tuple[StreamChunk, StreamChunk, StreamChunk]:
+    metadata = {"presentation": dict(presentation)} if presentation else None
     return (
         StreamChunk(
             event_type="block_start",
             block_index=block_index,
             block_type="text",
             agent_id=agent_id,
+            metadata=metadata,
         ),
         StreamChunk(
             event_type="delta",
@@ -242,11 +254,17 @@ def _text_block_with_next(
     text: str,
     *,
     agent_id: str = "orchestrator",
+    presentation: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[StreamChunk, int], ...]:
     next_block_index = block_index + 1
     return tuple(
         (chunk, next_block_index)
-        for chunk in _text_block(block_index, text, agent_id=agent_id)
+        for chunk in _text_block(
+            block_index,
+            text,
+            agent_id=agent_id,
+            presentation=presentation,
+        )
     )
 
 
@@ -256,6 +274,7 @@ def _task_card_block(
 ) -> tuple[tuple[StreamChunk, int], ...]:
     metadata = {
         "title": "Orchestrator 调度计划",
+        "presentation": _execution_text_presentation(),
         "tasks": [
             {
                 "id": task.task_id,
@@ -299,6 +318,39 @@ def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> st
         "可以重试这条消息；如果持续失败，请先检查该 Agent 的运行配置、"
         "认证状态和 workspace 产物是否已生成。\n"
     )
+
+
+def _agent_summary_text(task: SubTask, attempt: TaskAttempt) -> str:
+    lines = [f"已完成：{task.title}。"]
+    artifacts = _dedupe_short(attempt.artifact_paths)
+    if artifacts:
+        lines.append("产物：" + "、".join(artifacts[:6]) + "。")
+    changes = attempt.file_changes or {}
+    changed_files = _dedupe_short(
+        [
+            *changes.get("created", []),
+            *changes.get("modified", []),
+        ]
+    )
+    if changed_files:
+        lines.append("文件：" + "、".join(changed_files[:6]) + "。")
+    if attempt.evaluation_results:
+        passed = sum(1 for item in attempt.evaluation_results if getattr(item, "passed", False))
+        total = len(attempt.evaluation_results)
+        lines.append(f"验证：{passed}/{total} 项通过。")
+    return "\n".join(lines) + "\n"
+
+
+def _dedupe_short(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        clean = value.strip()
+        if not clean or clean in seen:
+            continue
+        seen.add(clean)
+        output.append(clean)
+    return output
 
 
 def _visible_failure_reason(reason: str) -> str:
@@ -646,6 +698,7 @@ async def _run_static_tasks(
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
         presented_summary,
+        presentation=_final_answer_presentation(),
     ):
         yield chunk, updated_block_index
 
@@ -783,6 +836,7 @@ async def _run_task(
                     child_next_block_index,
                     _failure_text(task, str(exc), agent_id),
                     agent_id=agent_id,
+                    presentation=_agent_summary_presentation(),
                 ):
                     child_next_block_index = updated_child_block_index
                     yield _child_message_chunk(
@@ -804,6 +858,7 @@ async def _run_task(
                     next_block_index,
                     _failure_text(task, str(exc), agent_id),
                     agent_id=agent_id,
+                    presentation=_agent_summary_presentation(),
                 ):
                     next_block_index = updated_block_index
                     yield chunk, updated_block_index
@@ -929,6 +984,19 @@ async def _run_task(
                     reason=attempt.error,
                 ):
                     yield process_chunk, next_block_index
+                if attempt.state == TaskState.SUCCEEDED:
+                    for chunk, updated_child_block_index in _text_block_with_next(
+                        child_next_block_index,
+                        _agent_summary_text(task, attempt),
+                        agent_id=agent_id,
+                        presentation=_agent_summary_presentation(),
+                    ):
+                        child_next_block_index = updated_child_block_index
+                        yield _child_message_chunk(
+                            chunk,
+                            message_id=child_message_id,
+                            agent_id=agent_id,
+                        ), next_block_index
                 finish_chunk = await _finish_group_message(
                     config,
                     child_message_id,
@@ -1389,6 +1457,7 @@ async def _run_parallel_tasks(
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
         presented_summary,
+        presentation=_final_answer_presentation(),
     ):
         yield chunk, updated_block_index
 

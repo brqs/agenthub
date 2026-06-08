@@ -7,6 +7,9 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any
 
+from app.agents.orchestrator._internal.presentation_markers import (
+    artifact_evidence_presentation,
+)
 from app.agents.orchestrator._internal.quality.preview import (
     json_payload,
     optional_str,
@@ -298,7 +301,10 @@ async def _call_deployment_tool(
             event_type="block_start",
             block_index=next_block_index,
             block_type="deployment_status",
-            metadata=status_card,
+            metadata={
+                **status_card,
+                "presentation": artifact_evidence_presentation(),
+            },
         ), next_block_index + 1
         yield StreamChunk(
             event_type="block_end",

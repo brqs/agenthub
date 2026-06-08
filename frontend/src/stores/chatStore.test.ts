@@ -220,6 +220,66 @@ describe('chatStore', () => {
     });
   });
 
+  it('preserves presentation metadata from streamed blocks and tool calls', () => {
+    const messageId = addStreamingMessage();
+    const store = useChatStore.getState();
+    store.applyStreamEvent(messageId, {
+      event: 'block_start',
+      data: {
+        block_index: 0,
+        block_type: 'text',
+        metadata: {
+          presentation: {
+            role: 'final_answer',
+            collapsible: false,
+            boundary: 'answer_start',
+            closes_group_id: 'execution-main',
+          },
+        },
+      },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'delta',
+      data: { block_index: 0, text_delta: 'done' },
+    });
+    store.applyStreamEvent(messageId, {
+      event: 'tool_call',
+      data: {
+        call_id: 'call-read',
+        tool_name: 'Read',
+        tool_arguments: {},
+        metadata: {
+          presentation: {
+            role: 'tool_trace',
+            collapsible: true,
+            group_id: 'execution-main',
+          },
+        },
+      },
+    });
+
+    const content = useChatStore.getState().messagesByConversation['conv-demo-flow'][0].content;
+
+    expect(content[0]).toMatchObject({
+      type: 'text',
+      presentation: {
+        role: 'final_answer',
+        collapsible: false,
+        boundary: 'answer_start',
+        closes_group_id: 'execution-main',
+      },
+    });
+    expect(content[1]).toMatchObject({
+      type: 'tool_call',
+      call_id: 'call-read',
+      presentation: {
+        role: 'tool_trace',
+        collapsible: true,
+        group_id: 'execution-main',
+      },
+    });
+  });
+
   it('marks streaming messages interrupted without converting them to errors', () => {
     const messageId = addStreamingMessage();
     const store = useChatStore.getState();
@@ -900,7 +960,7 @@ describe('chatStore', () => {
     ]);
 
     expect(useChatStore.getState().messagesByConversation['conv-active'][0].content).toEqual([
-      { type: 'text', agent_id: null, text: 'local stream text' },
+      { type: 'text', agent_id: null, presentation: null, text: 'local stream text' },
     ]);
   });
 
@@ -940,7 +1000,13 @@ describe('chatStore', () => {
         .messagesByConversation['conv-active-missing'].map((message) => message.id),
     ).toEqual(['00000000-0000-4000-8000-000000000124', messageId]);
     expect(useChatStore.getState().messagesByConversation['conv-active-missing'][1].content).toEqual([
-      { type: 'code', agent_id: null, language: 'html', code: '<!doctype html>' },
+      {
+        type: 'code',
+        agent_id: null,
+        presentation: null,
+        language: 'html',
+        code: '<!doctype html>',
+      },
     ]);
   });
 

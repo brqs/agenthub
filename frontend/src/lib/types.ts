@@ -54,13 +54,33 @@ export type WorkspaceDeploymentResponse = Schemas['WorkspaceDeploymentResponse']
 export type WorkspaceDeploymentListResponse = Schemas['WorkspaceDeploymentListResponse'];
 
 // ─── Content blocks ───
-export type TextBlock = Schemas['TextBlock'];
-export type CodeBlock = Schemas['CodeBlock'];
-export type DiffBlock = Schemas['DiffBlock'];
-export type WebPreviewBlock = Schemas['WebPreviewBlock'];
+export interface PresentationMetadata {
+  role:
+    | 'execution_process'
+    | 'tool_trace'
+    | 'execution_text'
+    | 'artifact_evidence'
+    | 'agent_summary'
+    | 'final_answer';
+  boundary?: 'execution_start' | 'answer_start';
+  group_id?: string;
+  closes_group_id?: string;
+  collapsible: boolean;
+  label?: string;
+}
+
+type WithPresentation<T> = T & {
+  presentation?: PresentationMetadata | null;
+};
+
+export type TextBlock = WithPresentation<Schemas['TextBlock']>;
+export type CodeBlock = WithPresentation<Schemas['CodeBlock']>;
+export type DiffBlock = WithPresentation<Schemas['DiffBlock']>;
+export type WebPreviewBlock = WithPresentation<Schemas['WebPreviewBlock']>;
 export interface FileBlock {
   type: 'file';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   path?: string | null;
   artifact_kind?: 'document' | 'ppt' | 'image' | 'archive' | 'code' | 'workflow' | 'other';
   filename: string;
@@ -74,6 +94,7 @@ export interface FileBlock {
 export interface DeploymentStatusBlock {
   type: 'deployment_status';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   deployment_id: string;
   kind: 'static_site' | 'source_zip' | 'container';
   status: Schemas['DeploymentStatusBlock']['status'];
@@ -104,6 +125,7 @@ export interface DeploymentStatusBlock {
 export interface ToolCallBlock {
   type: 'tool_call';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   call_id: string;
   tool_name: string;
   arguments: Record<string, unknown>;
@@ -134,6 +156,7 @@ export interface ProcessStep {
 export interface ProcessBlock {
   type: 'process';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   title: string;
   status: 'running' | 'done' | 'partial' | 'error' | 'interrupted';
   default_collapsed: boolean;
@@ -153,6 +176,7 @@ export interface ClarificationQuestion {
 export interface ClarificationBlock {
   type: 'clarification';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   mode:
     | 'auto'
     | 'requirement_alignment'
@@ -206,6 +230,7 @@ export interface UploadOut {
 export interface AttachmentBlock {
   type: 'attachment';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   upload_id: string;
   filename: string;
   content_type: string;
@@ -222,6 +247,7 @@ export interface AttachmentBlock {
 export interface TurnControlBlock {
   type: 'turn_control';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   kind: 'guidance' | 'side_chat' | 'queue_action' | 'stop_and_run';
   status:
     | 'received'
@@ -241,6 +267,7 @@ export interface TurnControlBlock {
 export interface WorkflowBlock {
   type: 'workflow';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   last_run_id?: string | null;
   name?: string | null;
   path?: string | null;
@@ -259,6 +286,7 @@ export interface WorkflowBlock {
 export interface TaskCardBlock {
   type: 'task_card';
   agent_id?: string | null;
+  presentation?: PresentationMetadata | null;
   title: string;
   tasks: Array<{
     id: string;
@@ -587,6 +615,7 @@ export type StreamEvent =
         call_id: string;
         tool_name: string;
         tool_arguments: Record<string, unknown>;
+        metadata?: Record<string, unknown>;
         agent_id?: string;
         message_id?: string;
       };

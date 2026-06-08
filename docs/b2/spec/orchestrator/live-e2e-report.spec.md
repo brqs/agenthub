@@ -56,6 +56,8 @@
 - `/tmp/agenthub_orchestrator_context_followup_report.json`
 - `/tmp/agenthub_orchestrator_context_followup_sse.jsonl`
 - `/tmp/agenthub_orchestrator_context_followup_browser.json`
+- `/tmp/agenthub_presentation_markers_report.json`
+- `/tmp/agenthub_presentation_markers_sse.jsonl`
 
 最终结论：`passed=true`。
 
@@ -85,6 +87,14 @@ preview / browser verify / deployment 输出、容器化部署按钮可发起受
 浏览器验收通过了吗 / 改了哪些文件 / 继续完成缺失的部署”这类追问走 bounded evidence answer，
 不重新创建子 Agent message，不暴露 planner invalid JSON、raw runtime 或内部 trace。
 
+2026-06-08 presentation collapse markers smoke 结论：`presentation_collapse_markers_smoke`
+公网 API/SSE 复验 `passed=true`。本轮验证 SSE 与 persisted ContentBlock 均包含
+`presentation.role`，包含 `execution_start` / `answer_start` 边界，至少一个 child message
+包含 `agent_summary`，父 Orchestrator final text 包含 `final_answer`，可折叠执行过程存在，且
+可见文本无 `ReAct step`、`Observation:`、`Action:`、`call_`、raw stderr 或 workspace 绝对路径。
+远端前端静态资源不在当前后端主机上，本轮未执行远端前端发布；前端消费逻辑由本地 Vitest
+与 `tsc --noEmit` 覆盖。
+
 ---
 
 ## 2. Case Results
@@ -105,6 +115,36 @@ preview / browser verify / deployment 输出、容器化部署按钮可发起受
 | Case 10 - Generic Agent Fallback Matrix | Codex / Claude Code / OpenCode Helper 任一首选 Agent 失败后，Orchestrator 自动切换到可用 fallback Agent；失败与成功 attempt 分别写入独立 child message | passed |
 | Case 11 - Command Fulfillment Cyberpunk Group Deploy | 显式文档/代码/Diff/多 Agent/review/preview/browser verify/deploy 要求逐项履约；Codex/OpenCode 真实失败后 fallback/repair，最终生成 `review.md` 并发布静态站点 | passed |
 | Case 12 - Context Follow-up Evidence Routing | 网站生成/预览/验收/部署后连续追问，Orchestrator 读取 run detail / workspace / preview / deployment / evaluation 证据直接回答，不重新规划或重跑子 Agent | passed |
+| Case 13 - Presentation Collapse Markers | ContentBlock presentation metadata 标记执行过程、工具 trace、产物证据、成员阶段总结和 Orchestrator 最终回答；API/SSE live 验证标记与清洗规则 | passed |
+
+2026-06-08 Case 13 presentation collapse markers smoke 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: presentation_collapse_markers_smoke
+report: /tmp/agenthub_presentation_markers_report.json
+sse: /tmp/agenthub_presentation_markers_sse.jsonl
+conversation_id: 35d4a022-684f-4a0d-8650-58f56ad9be89
+user_message_id: 78122f29-63da-4236-9fbf-4eaec1c0e75e
+agent_message_id: 0412fec9-09fe-442f-8afe-d08d9353c3d9
+run_id: a75b19fd-2e76-4303-99ab-2e3a722c3af9
+passed: true
+presentation_roles: agent_summary, artifact_evidence, execution_process, execution_text, final_answer, tool_trace
+presentation_boundaries: answer_start, execution_start
+persisted_presentation_count: 15
+sse_presentation_count: 17
+child_agent_summary_count: 1
+parent_final_answer_count: 1
+collapsible_block_count: 13
+child_message_count: 3
+visible_text_no_forbidden_terms: true
+backend_pid: 92312 -> 99712 -> 105909
+alembic_current: c5d6e7f809ab (head)
+health: local ok, public ok
+seed_agents: not required
+frontend_remote_deploy: not performed
+```
 
 2026-06-08 Case 12 repair loop 证据：
 

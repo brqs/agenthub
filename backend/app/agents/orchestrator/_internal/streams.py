@@ -6,6 +6,12 @@ from collections.abc import AsyncIterator, Callable, Iterable
 from pathlib import Path
 
 from app.agents.base import BaseAgentAdapter
+from app.agents.orchestrator._internal.presentation_markers import (
+    execution_text_presentation,
+    sanitize_presentation_trace_chunk,
+    tool_trace_presentation,
+    with_presentation,
+)
 from app.agents.orchestrator.types import SubTask, TaskAttempt, TaskState
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
@@ -70,8 +76,13 @@ async def remapped_sub_stream(
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
                 accumulate_tool_event(attempt, chunk)
-                remapped = remap_tool_call_id(chunk, call_id_prefix)
-                yield attach_agent_id(remapped, agent_id), next_block_index, False
+                remapped = sanitize_presentation_trace_chunk(
+                    remap_tool_call_id(chunk, call_id_prefix)
+                )
+                yield attach_agent_id(
+                    with_presentation(remapped, tool_trace_presentation()),
+                    agent_id,
+                ), next_block_index, False
                 continue
             if chunk.event_type == "heartbeat":
                 yield attach_agent_id(chunk, agent_id), next_block_index, False
@@ -88,9 +99,14 @@ async def remapped_sub_stream(
             )
             if remapped.event_type == "block_start":
                 open_block_index = remapped.block_index
+                if remapped.block_type == "text":
+                    remapped = with_presentation(remapped, execution_text_presentation())
             elif remapped.event_type == "block_end":
                 open_block_index = None
-            yield attach_agent_id(remapped, agent_id), next_block_index, False
+            yield attach_agent_id(
+                sanitize_presentation_trace_chunk(remapped),
+                agent_id,
+            ), next_block_index, False
     except Exception as exc:
         if open_block_index is not None:
             yield StreamChunk(

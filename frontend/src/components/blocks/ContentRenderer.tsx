@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, ListChecks } from 'lucide-react';
 import { ClarificationCard } from './ClarificationCard';
 import { AttachmentBlock } from './AttachmentBlock';
 import { CodeBlock } from './CodeBlock';
@@ -16,7 +18,11 @@ import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { buildRichArtifactViewModel } from '@/components/artifact/richArtifactModel';
 import type { WorkspaceArtifact } from '@/lib/adapters/workspaces';
 import type { DemoContentBlock } from '@/lib/mockData';
-import type { Agent, FileBlock as FileContentBlock } from '@/lib/types';
+import type {
+  Agent,
+  FileBlock as FileContentBlock,
+  PresentationMetadata,
+} from '@/lib/types';
 
 export function ContentRenderer({
   blocks,
@@ -39,16 +45,13 @@ export function ContentRenderer({
       {shouldGroup
         ? groups.map((group) => {
             if (!group.agentId) {
-              return group.blocks.map(({ block, index }) =>
-                renderBlock(
-                  block,
-                  index,
-                  blocks.length,
-                  agents,
-                  streaming,
-                  conversationId,
-                  artifactManifestByPath,
-                ),
+              return renderPresentationItems(
+                group.blocks,
+                blocks.length,
+                agents,
+                streaming,
+                conversationId,
+                artifactManifestByPath,
               );
             }
 
@@ -63,33 +66,175 @@ export function ContentRenderer({
                   <span className="truncate">{agent?.name ?? group.agentId}</span>
                 </div>
                 <div className="mobile-text-safe space-y-2">
-                  {group.blocks.map(({ block, index }) =>
-                    renderBlock(
-                      block,
-                      index,
-                      blocks.length,
-                      agents,
-                      streaming,
-                      conversationId,
-                      artifactManifestByPath,
-                    ),
+                  {renderPresentationItems(
+                    group.blocks,
+                    blocks.length,
+                    agents,
+                    streaming,
+                    conversationId,
+                    artifactManifestByPath,
                   )}
                 </div>
               </section>
             );
           })
-        : blocks.map((block, index) =>
+        : renderPresentationItems(
+            blocks.map((block, index) => ({ block, index })),
+            blocks.length,
+            agents,
+            streaming,
+            conversationId,
+            artifactManifestByPath,
+          )}
+    </div>
+  );
+}
+
+type IndexedBlock = { block: DemoContentBlock; index: number };
+
+type PresentationItem =
+  | {
+      type: 'execution_group';
+      groupId: string;
+      label: string;
+      blocks: IndexedBlock[];
+    }
+  | { type: 'block'; block: DemoContentBlock; index: number };
+
+function renderPresentationItems(
+  indexedBlocks: IndexedBlock[],
+  blockCount: number,
+  agents: Agent[],
+  streaming: boolean,
+  conversationId?: string,
+  artifactManifestByPath?: Map<string, WorkspaceArtifact>,
+) {
+  return groupPresentationItems(indexedBlocks).map((item) => {
+    if (item.type === 'block') {
+      return renderBlock(
+        item.block,
+        item.index,
+        blockCount,
+        agents,
+        streaming,
+        conversationId,
+        artifactManifestByPath,
+      );
+    }
+    return (
+      <ExecutionGroup
+        key={`execution-${item.groupId}-${item.blocks[0]?.index ?? 0}`}
+        item={item}
+        blockCount={blockCount}
+        agents={agents}
+        streaming={streaming}
+        conversationId={conversationId}
+        artifactManifestByPath={artifactManifestByPath}
+      />
+    );
+  });
+}
+
+function groupPresentationItems(indexedBlocks: IndexedBlock[]): PresentationItem[] {
+  const items: PresentationItem[] = [];
+  let currentGroup: Extract<PresentationItem, { type: 'execution_group' }> | null = null;
+
+  const flushGroup = () => {
+    if (currentGroup) {
+      items.push(currentGroup);
+      currentGroup = null;
+    }
+  };
+
+  for (const item of indexedBlocks) {
+    const presentation = blockPresentation(item.block);
+    if (isCollapsibleExecutionBlock(item.block)) {
+      const groupId = presentation?.group_id || 'execution-main';
+      const label = presentation?.label || executionGroupLabel(item.block);
+      if (!currentGroup || currentGroup.groupId !== groupId) {
+        flushGroup();
+        currentGroup = {
+          type: 'execution_group',
+          groupId,
+          label,
+          blocks: [],
+        };
+      }
+      currentGroup.blocks.push(item);
+      continue;
+    }
+    flushGroup();
+    items.push({ type: 'block', block: item.block, index: item.index });
+  }
+
+  flushGroup();
+  return items;
+}
+
+function ExecutionGroup({
+  item,
+  blockCount,
+  agents,
+  streaming,
+  conversationId,
+  artifactManifestByPath,
+}: {
+  item: Extract<PresentationItem, { type: 'execution_group' }>;
+  blockCount: number;
+  agents: Agent[];
+  streaming: boolean;
+  conversationId?: string;
+  artifactManifestByPath?: Map<string, WorkspaceArtifact>;
+}) {
+  const [userChanged, setUserChanged] = useState(false);
+  const [collapsed, setCollapsed] = useState(!streaming);
+  const visibleStatus = streaming ? '进行中' : '已折叠';
+  const blockLabel = useMemo(() => executionGroupSummary(item), [item]);
+
+  useEffect(() => {
+    if (!userChanged) {
+      setCollapsed(!streaming);
+    }
+  }, [streaming, userChanged]);
+
+  return (
+    <section className="rounded-md border border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-900/40">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 transition hover:bg-white/70 dark:text-slate-200 dark:hover:bg-slate-800/70"
+        onClick={() => {
+          setUserChanged(true);
+          setCollapsed((value) => !value);
+        }}
+      >
+        {collapsed ? (
+          <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
+        ) : (
+          <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+        )}
+        <ListChecks className="h-4 w-4 shrink-0 text-brand" />
+        <span className="min-w-0 flex-1 truncate font-medium">{blockLabel}</span>
+        <span className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+          {item.blocks.length} 项
+        </span>
+        <span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{visibleStatus}</span>
+      </button>
+      {!collapsed && (
+        <div className="mobile-text-safe space-y-2 border-t border-slate-200 p-3 dark:border-slate-700">
+          {item.blocks.map(({ block, index }) =>
             renderBlock(
               block,
               index,
-              blocks.length,
+              blockCount,
               agents,
               streaming,
               conversationId,
               artifactManifestByPath,
             ),
           )}
-    </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -219,6 +364,42 @@ function renderBlock(
       type={unknownBlock.type ?? 'unknown'}
     />
   );
+}
+
+function blockPresentation(block: DemoContentBlock): PresentationMetadata | null {
+  const presentation = (block as { presentation?: unknown }).presentation;
+  if (!presentation || typeof presentation !== 'object') return null;
+  const value = presentation as PresentationMetadata;
+  return typeof value.role === 'string' ? value : null;
+}
+
+function isCollapsibleExecutionBlock(block: DemoContentBlock): boolean {
+  const presentation = blockPresentation(block);
+  if (presentation) {
+    return presentation.collapsible === true;
+  }
+  return block.type === 'process' || block.type === 'tool_call' || block.type === 'agent_switch';
+}
+
+function executionGroupLabel(block: DemoContentBlock): string {
+  if (block.type === 'process') return block.title || '执行过程';
+  if (block.type === 'tool_call') return '工具调用';
+  if (block.type === 'agent_switch') return 'Agent 切换';
+  if (block.type === 'task_card') return block.title || '调度计划';
+  if (block.type === 'deployment_status') return '部署证据';
+  if (block.type === 'web_preview') return '预览证据';
+  if (block.type === 'file') return '产物证据';
+  return '执行过程';
+}
+
+function executionGroupSummary(
+  item: Extract<PresentationItem, { type: 'execution_group' }>,
+): string {
+  const firstProcess = item.blocks.find(({ block }) => block.type === 'process')?.block;
+  if (firstProcess?.type === 'process' && firstProcess.summary) {
+    return firstProcess.summary;
+  }
+  return item.label;
 }
 
 function groupBlocksByAgent(blocks: DemoContentBlock[]) {

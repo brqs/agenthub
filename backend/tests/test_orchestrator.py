@@ -345,6 +345,11 @@ async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -
     assert len(task_cards) == 1
     assert task_cards[0].metadata == {
         "title": "Orchestrator 调度计划",
+        "presentation": {
+            "role": "execution_text",
+            "collapsible": True,
+            "group_id": "execution-main",
+        },
         "tasks": [
             {
                 "id": "task-a",

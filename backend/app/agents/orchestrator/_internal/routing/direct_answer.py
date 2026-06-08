@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator._internal.presentation_markers import (
+    final_answer_presentation,
+    sanitize_presentation_trace_chunk,
+    tool_trace_presentation,
+    with_presentation,
+)
 from app.agents.orchestrator._internal.routing.evidence import (
     ORCHESTRATOR_EVIDENCE_HEADER,
     evidence_answer_text,
@@ -202,8 +208,13 @@ async def run_direct_answer(
                 yield attach_agent_id(chunk, "orchestrator"), next_block_index, True
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
-                remapped = remap_tool_call_id(chunk, "direct-answer")
-                yield attach_agent_id(remapped, "orchestrator"), next_block_index, False
+                remapped = sanitize_presentation_trace_chunk(
+                    remap_tool_call_id(chunk, "direct-answer")
+                )
+                yield attach_agent_id(
+                    with_presentation(remapped, tool_trace_presentation()),
+                    "orchestrator",
+                ), next_block_index, False
                 continue
             if chunk.event_type == "heartbeat":
                 yield attach_agent_id(chunk, "orchestrator"), next_block_index, False
@@ -217,9 +228,14 @@ async def run_direct_answer(
             )
             if remapped.event_type == "block_start":
                 open_block_index = remapped.block_index
+                if remapped.block_type == "text":
+                    remapped = with_presentation(remapped, final_answer_presentation())
             elif remapped.event_type == "block_end":
                 open_block_index = None
-            yield attach_agent_id(remapped, "orchestrator"), next_block_index, False
+            yield attach_agent_id(
+                sanitize_presentation_trace_chunk(remapped),
+                "orchestrator",
+            ), next_block_index, False
     except Exception as exc:
         if open_block_index is not None:
             yield StreamChunk(
@@ -435,6 +451,7 @@ def _text_block(block_index: int, text: str) -> tuple[StreamChunk, StreamChunk, 
             block_index=block_index,
             block_type="text",
             agent_id="orchestrator",
+            metadata={"presentation": final_answer_presentation()},
         ),
         StreamChunk(
             event_type="delta",
