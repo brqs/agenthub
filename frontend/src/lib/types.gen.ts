@@ -550,7 +550,8 @@ export interface paths {
         delete: operations["delete_agent_knowledge_api_v1_agents__agent_id__knowledge__upload_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Agent Knowledge */
+        patch: operations["update_agent_knowledge_api_v1_agents__agent_id__knowledge__upload_id__patch"];
         trace?: never;
     };
     "/api/v1/agents/{agent_id}/skills": {
@@ -584,7 +585,8 @@ export interface paths {
         delete: operations["delete_agent_skill_api_v1_agents__agent_id__skills__skill_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /** Update Agent Skill */
+        patch: operations["update_agent_skill_api_v1_agents__agent_id__skills__skill_id__patch"];
         trace?: never;
     };
     "/api/v1/uploads": {
@@ -2254,6 +2256,13 @@ export interface components {
              */
             requirement_alignment: "off" | "strict";
         };
+        /** UpdateAgentKnowledgeRequest */
+        UpdateAgentKnowledgeRequest: {
+            /** Label */
+            label?: string | null;
+            /** Usage */
+            usage?: ("reference" | "policy" | "template" | "example") | null;
+        };
         /** UpdateAgentRequest */
         UpdateAgentRequest: {
             /** Name */
@@ -2268,6 +2277,13 @@ export interface components {
             config?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** UpdateAgentSkillRequest */
+        UpdateAgentSkillRequest: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
         };
         /** UpdateContextCompressionConfigRequest */
         UpdateContextCompressionConfigRequest: {
@@ -4259,6 +4275,42 @@ export interface operations {
             };
         };
     };
+    update_agent_knowledge_api_v1_agents__agent_id__knowledge__upload_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentKnowledgeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentKnowledgeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_agent_skill_api_v1_agents__agent_id__skills_post: {
         parameters: {
             query?: never;
@@ -4312,6 +4364,42 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_agent_skill_api_v1_agents__agent_id__skills__skill_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                skill_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAgentSkillRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentSkillOut"];
+                };
             };
             /** @description Validation Error */
             422: {

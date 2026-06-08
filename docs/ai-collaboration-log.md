@@ -2192,3 +2192,54 @@ podman_leftover_containers: none
 
 ### 经验
 前端生成类型已经包含更完整的 UploadPurpose，但后端 schema 曾滞后；跨端上传类功能需要先核对 `shared/openapi.yaml`、Pydantic schema 和前端手写别名是否一致。
+
+## 2026-06-08 — Codex 完成自定义 Agent 资产 P0 Runtime 注入
+
+### 任务
+继续完成自定义 Agent 上传知识/Skill 的 P0：让 B2 runtime 实际消费用户上传资产，而不是只在 `Agent.config` 中保存引用。
+
+### 关键 Prompt
+> 继续完成p0
+
+### AI 输出摘要
+在 `agent_asset_service` 增加安全资产上下文 helper，只读取当前 Agent owner 拥有、ready、safety passed 的 Markdown/text 上传，并按字符上限截断。`agents.registry.get_adapter()` 在实例化 adapter 前将上下文追加到 system prompt 的 `<agent_uploaded_assets>` 段，覆盖普通 Agent 和 Orchestrator 子 Agent 派发路径。
+
+### 人工调整
+没有改 `BaseAgentAdapter` 签名，避免破坏 B1/B2 关键契约；采用 registry 注入确保 builtin/custom/external adapters 都可复用。
+
+### 经验
+Runtime 注入类能力应放在 adapter 创建或上下文构建边界，而不是让具体 adapter 读数据库；这样既符合 Adapter 不访问 DB 的规则，也能让 Orchestrator 子 Agent 自动受益。
+
+## 2026-06-08 — Codex 推进自定义 Agent 资产 P1 校验与交互
+
+### 任务
+在 P0 runtime 注入基础上继续完成 P1：加强 Skill Markdown 元数据校验，并让前端上传时可补充 knowledge usage、skill name 和 description。
+
+### 关键 Prompt
+> 已经开启了继续p0和p1
+
+### AI 输出摘要
+后端导入 skill 前会读取 Markdown 预览，要求最终能得到 `name` 和 `description`，否则返回 `INVALID_SKILL_METADATA`。前端 Agent 详情页增加知识用途选择，以及 Skill 名称/描述输入，方便没有 frontmatter 的 Markdown 也能被导入。补充 registry 安全注入测试，确认 blocked 或跨 owner upload 不进入 runtime prompt。
+
+### 人工调整
+Postgres API E2E 仍受本机 Docker Hub 镜像拉取超时影响，未能启动 compose postgres；当前已通过 ruff、mypy、registry 单测、upload service 单测、前端 tsc/eslint/AgentsPage 测试。
+
+### 经验
+P1 的格式校验要避免直接把格式负担丢给用户；前端表单字段可以作为 Markdown frontmatter 的补充来源，在保持后端严格的同时降低使用阻力。
+
+## 2026-06-08 — Codex 完善自定义 Agent 资产 P1 元数据管理
+
+### 任务
+继续 P1：让用户上传到自定义 Agent 的 knowledge / skill 绑定可下载、可编辑元数据，并把删除语义明确为解除绑定。
+
+### 关键 Prompt
+> 继续p1
+
+### AI 输出摘要
+后端新增 knowledge label/usage 与 skill name/description 的 PATCH API，并同步 `shared/openapi.yaml` 与前端生成类型。前端 Agent 详情页为每个绑定增加下载、编辑、解除绑定操作，编辑成功后刷新 Agent store 和列表缓存。Spec 补充了 PATCH 契约、下载入口和 UI 验收标准。
+
+### 人工调整
+当前实现仍沿用 `Agent.config.knowledge` / `Agent.config.skills` 作为存储边界，避免在赶进度阶段引入 migration。API 集成测试受本机 Postgres 未启动影响无法执行；新增服务逻辑已通过 ruff、mypy、registry/upload service 单测，前端通过 tsc、eslint 和 AgentsPage 测试。
+
+### 经验
+删除上传资产绑定时文案必须写成“解除绑定”，否则用户会误以为原始上传文件也被删除。P1 交互先用轻量 prompt 完成闭环，后续 P2 可以替换为更完整的 modal 表单。

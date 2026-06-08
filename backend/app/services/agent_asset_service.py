@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core.config import settings
 from app.models.agent import Agent
 from app.models.upload import Upload
 from app.schemas.agent import AgentKnowledgeOut, AgentKnowledgeUsage, AgentSkillOut
@@ -18,6 +19,8 @@ from app.services.upload_service import upload_service
 
 MARKDOWN_EXTENSIONS = {".md", ".markdown", ".txt"}
 SKILL_EXTENSIONS = {".md", ".markdown"}
+DEFAULT_ASSET_CONTEXT_MAX_CHARS = 12000
+ASSET_ITEM_MAX_CHARS = 3000
 
 
 class AgentAssetService:
@@ -73,6 +76,32 @@ class AgentAssetService:
         await db.flush()
         return agent
 
+    async def update_knowledge(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: UUID,
+        agent_id: str,
+        upload_id: UUID,
+        label: str | None,
+        usage: AgentKnowledgeUsage | None,
+    ) -> tuple[Agent, AgentKnowledgeOut]:
+        agent = await self._owned_custom_agent(db, user_id=user_id, agent_id=agent_id)
+        config = _config_copy(agent)
+        entries = _list_config_items(config, "knowledge")
+        index = _find_config_item_index(entries, "upload_id", str(upload_id))
+        if index is None:
+            raise_asset_not_found("AGENT_KNOWLEDGE_NOT_FOUND")
+        if label is not None:
+            entries[index]["label"] = _short_text(label) or entries[index].get("label")
+        if usage is not None:
+            entries[index]["usage"] = usage
+        config["knowledge"] = entries
+        agent.config = config
+        flag_modified(agent, "config")
+        await db.flush()
+        return agent, AgentKnowledgeOut.model_validate(entries[index])
+
     async def create_skill(
         self,
         db: AsyncSession,
@@ -85,6 +114,9 @@ class AgentAssetService:
     ) -> tuple[Agent, AgentSkillOut]:
         agent = await self._owned_custom_agent(db, user_id=user_id, agent_id=agent_id)
         self._assert_extension(file.filename, SKILL_EXTENSIONS, "UNSUPPORTED_SKILL_FILE")
+        skill_preview_text = await _read_upload_file_text_preview(file)
+        _validate_skill_fields(skill_preview_text, name=name, description=description)
+        await file.seek(0)
         upload = await upload_service.create_upload(
             db,
             user_id=user_id,
@@ -122,6 +154,34 @@ class AgentAssetService:
         flag_modified(agent, "config")
         await db.flush()
         return agent
+
+    async def update_skill(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: UUID,
+        agent_id: str,
+        skill_id: str,
+        name: str | None,
+        description: str | None,
+    ) -> tuple[Agent, AgentSkillOut]:
+        agent = await self._owned_custom_agent(db, user_id=user_id, agent_id=agent_id)
+        config = _config_copy(agent)
+        entries = _list_config_items(config, "skills")
+        index = _find_config_item_index(entries, "skill_id", skill_id)
+        if index is None:
+            raise_asset_not_found("AGENT_SKILL_NOT_FOUND")
+        if name is not None:
+            entries[index]["name"] = _short_text(name) or entries[index].get("name")
+        if description is not None:
+            entries[index]["description"] = _short_text(description, max_len=240) or entries[
+                index
+            ].get("description")
+        config["skills"] = entries
+        agent.config = config
+        flag_modified(agent, "config")
+        await db.flush()
+        return agent, AgentSkillOut.model_validate(entries[index])
 
     async def _owned_custom_agent(
         self,
@@ -228,6 +288,24 @@ def _list_config_items(config: dict[str, Any], key: str) -> list[dict[str, Any]]
     return [item for item in value if isinstance(item, dict)]
 
 
+def _find_config_item_index(
+    entries: list[dict[str, Any]],
+    key: str,
+    value: str,
+) -> int | None:
+    for index, entry in enumerate(entries):
+        if str(entry.get(key)) == value:
+            return index
+    return None
+
+
+def raise_asset_not_found(code: str) -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail={"error": {"code": code, "message": "Agent asset binding not found"}},
+    )
+
+
 def _short_text(value: str | None, *, max_len: int = 160) -> str | None:
     if not isinstance(value, str):
         return None
@@ -247,10 +325,55 @@ def _parse_skill_metadata(text: str) -> dict[str, Any]:
             continue
         key, raw_value = raw_line.split(":", 1)
         key = key.strip()
-        value = _short_text(raw_value.strip().strip("\"'"))
+        value = _parse_metadata_value(raw_value)
         if key and value:
             metadata[key] = value
     return metadata
+
+
+async def _read_upload_file_text_preview(file: UploadFile) -> str:
+    raw = await file.read(settings.upload_preview_max_bytes + 1)
+    return raw.decode("utf-8", errors="replace")
+
+
+def _validate_skill_fields(
+    text: str,
+    *,
+    name: str | None,
+    description: str | None,
+) -> None:
+    metadata = _parse_skill_metadata(text)
+    normalized_name = _short_text(name) or metadata.get("name") or _first_heading(text)
+    normalized_description = (
+        _short_text(description) or metadata.get("description") or _first_body_line(text)
+    )
+    missing: list[str] = []
+    if not normalized_name:
+        missing.append("name")
+    if not normalized_description:
+        missing.append("description")
+    if not missing:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={
+            "error": {
+                "code": "INVALID_SKILL_METADATA",
+                "message": "Skill Markdown must provide name and description",
+                "details": {"missing_fields": missing},
+            }
+        },
+    )
+
+
+def _parse_metadata_value(raw_value: str) -> Any:
+    stripped = raw_value.strip().strip("\"'")
+    if not stripped:
+        return None
+    if stripped.startswith("[") and stripped.endswith("]"):
+        items = [_short_text(item.strip().strip("\"'")) for item in stripped[1:-1].split(",")]
+        return [item for item in items if item]
+    return _short_text(stripped)
 
 
 def _first_heading(text: str) -> str | None:
@@ -278,3 +401,120 @@ def _first_body_line(text: str) -> str | None:
 
 
 agent_asset_service = AgentAssetService()
+
+
+async def build_agent_asset_context(
+    db: AsyncSession,
+    agent: Agent,
+    *,
+    max_chars: int = DEFAULT_ASSET_CONTEXT_MAX_CHARS,
+) -> str:
+    """Build bounded prompt context from user-approved custom Agent assets."""
+    if not agent.user_id:
+        return ""
+    config = _config_copy(agent)
+    sections: list[str] = []
+    knowledge = await _knowledge_context(db, agent, _list_config_items(config, "knowledge"))
+    if knowledge:
+        sections.append("## Agent Knowledge\n" + "\n\n".join(knowledge))
+    skills = await _skill_context(db, agent, _list_config_items(config, "skills"))
+    if skills:
+        sections.append("## Agent Skills\n" + "\n\n".join(skills))
+    if not sections:
+        return ""
+    context = (
+        "The user explicitly attached the following custom Agent assets. "
+        "Use them when relevant and do not assume unavailable files contain more than shown.\n\n"
+        + "\n\n".join(sections)
+    )
+    return context[:max_chars]
+
+
+def append_agent_asset_context(system_prompt: str | None, asset_context: str) -> str | None:
+    if not asset_context:
+        return system_prompt
+    base = (system_prompt or "").strip()
+    section = f"<agent_uploaded_assets>\n{asset_context}\n</agent_uploaded_assets>"
+    return f"{base}\n\n{section}" if base else section
+
+
+async def _knowledge_context(
+    db: AsyncSession,
+    agent: Agent,
+    entries: list[dict[str, Any]],
+) -> list[str]:
+    lines: list[str] = []
+    for entry in entries:
+        upload = await _safe_asset_upload(db, agent, entry.get("upload_id"))
+        if upload is None:
+            continue
+        label = _short_text(str(entry.get("label") or upload.filename)) or upload.filename
+        usage = _short_text(str(entry.get("usage") or "reference")) or "reference"
+        content = _read_upload_text(upload)
+        if not content:
+            continue
+        lines.append(f"### {label}\n- file: {upload.filename}\n- usage: {usage}\n\n{content}")
+    return lines
+
+
+async def _skill_context(
+    db: AsyncSession,
+    agent: Agent,
+    entries: list[dict[str, Any]],
+) -> list[str]:
+    lines: list[str] = []
+    for entry in entries:
+        upload = await _safe_asset_upload(db, agent, entry.get("upload_id"))
+        if upload is None:
+            continue
+        name = _short_text(str(entry.get("name") or Path(upload.filename).stem)) or upload.filename
+        description = _short_text(str(entry.get("description") or "Uploaded Agent skill."))
+        content = _read_upload_text(upload)
+        if not content:
+            continue
+        lines.append(
+            f"### {name}\n"
+            f"- file: {upload.filename}\n"
+            f"- description: {description or 'Uploaded Agent skill.'}\n\n"
+            f"{content}"
+        )
+    return lines
+
+
+async def _safe_asset_upload(
+    db: AsyncSession,
+    agent: Agent,
+    upload_id: object,
+) -> Upload | None:
+    if not isinstance(upload_id, str):
+        return None
+    try:
+        parsed = UUID(upload_id)
+    except ValueError:
+        return None
+    upload = await db.get(Upload, parsed)
+    if upload is None:
+        return None
+    if upload.owner_user_id != agent.user_id:
+        return None
+    if upload.status != "ready" or upload.safety_status != "passed":
+        return None
+    suffix = Path(upload.filename).suffix.lower()
+    content_type = upload.detected_content_type or upload.content_type
+    if suffix not in MARKDOWN_EXTENSIONS and not content_type.startswith("text/"):
+        return None
+    return upload
+
+
+def _read_upload_text(upload: Upload) -> str:
+    path = Path(upload.storage_key)
+    if not path.is_file():
+        return ""
+    max_bytes = max(settings.upload_preview_max_bytes, ASSET_ITEM_MAX_CHARS * 4)
+    raw = path.read_bytes()[: max_bytes + 1]
+    text = raw[:max_bytes].decode("utf-8", errors="replace")
+    if len(text) > ASSET_ITEM_MAX_CHARS:
+        return text[:ASSET_ITEM_MAX_CHARS] + "\n...[truncated]"
+    if len(raw) > max_bytes:
+        return text + "\n...[truncated]"
+    return text

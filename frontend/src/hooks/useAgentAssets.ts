@@ -37,6 +37,20 @@ export function useAgentAssets() {
     onSuccess: async (_asset, input) => syncAgent(input.agentId),
   });
 
+  const updateKnowledge = useMutation({
+    mutationFn: (input: {
+      agentId: string;
+      uploadId: string;
+      label?: string;
+      usage?: AgentKnowledgeUsage;
+    }) =>
+      agentsAdapter.updateAgentKnowledge(input.agentId, input.uploadId, {
+        label: input.label,
+        usage: input.usage,
+      }),
+    onSuccess: async (_asset, input) => syncAgent(input.agentId),
+  });
+
   const uploadSkill = useMutation({
     mutationFn: (input: { agentId: string; file: File; name?: string; description?: string }) =>
       agentsAdapter.uploadAgentSkill(input),
@@ -49,15 +63,33 @@ export function useAgentAssets() {
     onSuccess: async (_asset, input) => syncAgent(input.agentId),
   });
 
+  const updateSkill = useMutation({
+    mutationFn: (input: {
+      agentId: string;
+      skillId: string;
+      name?: string;
+      description?: string;
+    }) =>
+      agentsAdapter.updateAgentSkill(input.agentId, input.skillId, {
+        name: input.name,
+        description: input.description,
+      }),
+    onSuccess: async (_asset, input) => syncAgent(input.agentId),
+  });
+
   return {
     uploadKnowledge,
     deleteKnowledge,
+    updateKnowledge,
     uploadSkill,
     deleteSkill,
+    updateSkill,
     isPending:
       uploadKnowledge.isPending ||
       deleteKnowledge.isPending ||
+      updateKnowledge.isPending ||
       uploadSkill.isPending ||
-      deleteSkill.isPending,
+      deleteSkill.isPending ||
+      updateSkill.isPending,
   };
 }

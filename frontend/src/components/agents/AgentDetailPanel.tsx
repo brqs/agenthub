@@ -2,11 +2,13 @@ import {
   Bot,
   CheckCircle2,
   Code2,
+  Download,
   Edit3,
   FileText,
   Loader2,
   MessageSquarePlus,
   ShieldCheck,
+  SquarePen,
   Trash2,
   UploadCloud,
   Wrench,
@@ -16,8 +18,16 @@ import { useRef, useState } from 'react';
 import { AgentAvatar } from './AgentAvatar';
 import { useAgentAssets } from '@/hooks/useAgentAssets';
 import { extractApiError } from '@/lib/api';
-import type { Agent, AgentKnowledgeRef, AgentSkillRef } from '@/lib/types';
+import { uploadDownloadUrl } from '@/lib/adapters/uploads';
+import type { Agent, AgentKnowledgeRef, AgentKnowledgeUsage, AgentSkillRef } from '@/lib/types';
 import { cn } from '@/lib/utils';
+
+const KNOWLEDGE_USAGE_OPTIONS: Array<{ value: AgentKnowledgeUsage; label: string }> = [
+  { value: 'reference', label: '参考资料' },
+  { value: 'policy', label: '规则/约束' },
+  { value: 'template', label: '输出模板' },
+  { value: 'example', label: '示例' },
+];
 
 export function AgentDetailPanel({
   agent,
@@ -37,6 +47,9 @@ export function AgentDetailPanel({
   const knowledgeInputRef = useRef<HTMLInputElement | null>(null);
   const skillInputRef = useRef<HTMLInputElement | null>(null);
   const [assetError, setAssetError] = useState('');
+  const [knowledgeUsage, setKnowledgeUsage] = useState<AgentKnowledgeUsage>('reference');
+  const [skillName, setSkillName] = useState('');
+  const [skillDescription, setSkillDescription] = useState('');
   const agentAssets = useAgentAssets();
   const panelClassName = cn(
     'h-full shrink-0 overflow-y-auto bg-slate-900 p-5 scrollbar-thin',
@@ -65,7 +78,7 @@ export function AgentDetailPanel({
         agentId: agent.id,
         file,
         label: file.name,
-        usage: 'reference',
+        usage: knowledgeUsage,
       });
     } catch (error) {
       setAssetError(extractApiError(error));
@@ -78,7 +91,14 @@ export function AgentDetailPanel({
     if (!agent || !file) return;
     setAssetError('');
     try {
-      await agentAssets.uploadSkill.mutateAsync({ agentId: agent.id, file });
+      await agentAssets.uploadSkill.mutateAsync({
+        agentId: agent.id,
+        file,
+        name: skillName.trim() || undefined,
+        description: skillDescription.trim() || undefined,
+      });
+      setSkillName('');
+      setSkillDescription('');
     } catch (error) {
       setAssetError(extractApiError(error));
     } finally {
@@ -88,6 +108,7 @@ export function AgentDetailPanel({
 
   async function deleteKnowledge(uploadId: string) {
     if (!agent) return;
+    if (!window.confirm('仅从该 Agent 解除绑定，原始上传文件仍会保留。继续？')) return;
     setAssetError('');
     try {
       await agentAssets.deleteKnowledge.mutateAsync({ agentId: agent.id, uploadId });
@@ -98,9 +119,53 @@ export function AgentDetailPanel({
 
   async function deleteSkill(skillId: string) {
     if (!agent) return;
+    if (!window.confirm('仅从该 Agent 解除绑定，原始上传文件仍会保留。继续？')) return;
     setAssetError('');
     try {
       await agentAssets.deleteSkill.mutateAsync({ agentId: agent.id, skillId });
+    } catch (error) {
+      setAssetError(extractApiError(error));
+    }
+  }
+
+  async function editKnowledge(item: AgentKnowledgeRef) {
+    if (!agent) return;
+    const label = window.prompt('知识文件显示名称', item.label);
+    if (label === null) return;
+    const usage = window.prompt('知识用途：reference / policy / template / example', item.usage);
+    if (usage === null) return;
+    const normalizedUsage = normalizeKnowledgeUsage(usage);
+    if (!normalizedUsage) {
+      setAssetError('知识用途只能是 reference / policy / template / example');
+      return;
+    }
+    setAssetError('');
+    try {
+      await agentAssets.updateKnowledge.mutateAsync({
+        agentId: agent.id,
+        uploadId: item.upload_id,
+        label: label.trim() || item.label,
+        usage: normalizedUsage,
+      });
+    } catch (error) {
+      setAssetError(extractApiError(error));
+    }
+  }
+
+  async function editSkill(item: AgentSkillRef) {
+    if (!agent) return;
+    const name = window.prompt('Skill 名称', item.name);
+    if (name === null) return;
+    const description = window.prompt('Skill 描述', item.description);
+    if (description === null) return;
+    setAssetError('');
+    try {
+      await agentAssets.updateSkill.mutateAsync({
+        agentId: agent.id,
+        skillId: item.skill_id,
+        name: name.trim() || item.name,
+        description: description.trim() || item.description,
+      });
     } catch (error) {
       setAssetError(extractApiError(error));
     }
@@ -218,6 +283,22 @@ export function AgentDetailPanel({
           className="hidden"
           onChange={(event) => void handleKnowledgeFile(event.currentTarget.files?.[0])}
         />
+        {canManageAssets && (
+          <label className="mb-3 block">
+            <span className="text-xs font-medium text-slate-500">知识用途</span>
+            <select
+              value={knowledgeUsage}
+              onChange={(event) => setKnowledgeUsage(event.target.value as AgentKnowledgeUsage)}
+              className="mt-2 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-brand"
+            >
+              {KNOWLEDGE_USAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <AssetList
           emptyText={
             canManageAssets ? '上传 Markdown 后会作为该 Agent 的显式知识。' : '暂无知识文件。'
@@ -226,10 +307,14 @@ export function AgentDetailPanel({
             id: item.upload_id,
             title: item.label || item.filename,
             meta: `${item.usage} · ${item.filename} · ${formatBytes(item.size_bytes)}`,
+            downloadUploadId: item.upload_id,
+            raw: item,
           }))}
           canDelete={canManageAssets}
+          canEdit={canManageAssets}
           isPending={agentAssets.isPending}
           onDelete={deleteKnowledge}
+          onEdit={(item) => void editKnowledge(item.raw as AgentKnowledgeRef)}
         />
       </section>
 
@@ -249,16 +334,46 @@ export function AgentDetailPanel({
           className="hidden"
           onChange={(event) => void handleSkillFile(event.currentTarget.files?.[0])}
         />
+        {canManageAssets && (
+          <div className="mb-3 space-y-3">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Skill 名称</span>
+              <input
+                value={skillName}
+                onChange={(event) => setSkillName(event.target.value)}
+                placeholder="留空时从 frontmatter 或标题解析"
+                className="mt-2 w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-brand"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Skill 描述</span>
+              <textarea
+                value={skillDescription}
+                onChange={(event) => setSkillDescription(event.target.value)}
+                rows={2}
+                placeholder="说明这个 skill 什么时候应该被使用"
+                className="mt-2 w-full resize-none rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm leading-5 text-slate-200 outline-none placeholder:text-slate-600 focus:border-brand"
+              />
+            </label>
+            <p className="text-xs leading-5 text-slate-500">
+              若 Markdown 没有 name/description frontmatter，请在这里补充，否则后端会拒绝导入。
+            </p>
+          </div>
+        )}
         <AssetList
           emptyText={canManageAssets ? '上传 SKILL.md 或 Markdown skill 定义。' : '暂无 Skills。'}
           items={skills.map((item) => ({
             id: item.skill_id,
             title: item.name,
             meta: `${item.description} · ${item.filename} · ${formatBytes(item.size_bytes)}`,
+            downloadUploadId: item.upload_id,
+            raw: item,
           }))}
           canDelete={canManageAssets}
+          canEdit={canManageAssets}
           isPending={agentAssets.isPending}
           onDelete={deleteSkill}
+          onEdit={(item) => void editSkill(item.raw as AgentSkillRef)}
         />
       </section>
 
@@ -341,14 +456,24 @@ function AssetList({
   items,
   emptyText,
   canDelete,
+  canEdit,
   isPending,
   onDelete,
+  onEdit,
 }: {
-  items: Array<{ id: string; title: string; meta: string }>;
+  items: Array<{
+    id: string;
+    title: string;
+    meta: string;
+    downloadUploadId?: string;
+    raw?: unknown;
+  }>;
   emptyText: string;
   canDelete: boolean;
+  canEdit: boolean;
   isPending: boolean;
   onDelete: (id: string) => void | Promise<void>;
+  onEdit?: (item: { id: string; title: string; meta: string; raw?: unknown }) => void;
 }) {
   if (!items.length) {
     return <p className="text-sm leading-6 text-slate-500">{emptyText}</p>;
@@ -364,17 +489,39 @@ function AssetList({
             <div className="truncate text-sm font-medium text-slate-100">{item.title}</div>
             <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{item.meta}</div>
           </div>
-          {canDelete && (
-            <button
-              type="button"
-              disabled={isPending}
-              onClick={() => void onDelete(item.id)}
-              className="shrink-0 rounded-md p-1.5 text-slate-500 hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label={`删除 ${item.title}`}
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
+          <div className="flex shrink-0 items-center gap-1">
+            {item.downloadUploadId && (
+              <a
+                href={uploadDownloadUrl(item.downloadUploadId)}
+                className="rounded-md p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                aria-label={`下载 ${item.title}`}
+              >
+                <Download className="h-4 w-4" />
+              </a>
+            )}
+            {canEdit && onEdit && (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => onEdit(item)}
+                className="rounded-md p-1.5 text-slate-500 hover:bg-slate-800 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={`编辑 ${item.title}`}
+              >
+                <SquarePen className="h-4 w-4" />
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => void onDelete(item.id)}
+                className="shrink-0 rounded-md p-1.5 text-slate-500 hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={`从 Agent 解除绑定 ${item.title}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
       ))}
     </div>
@@ -392,4 +539,17 @@ function formatBytes(size: number) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function normalizeKnowledgeUsage(value: string): AgentKnowledgeUsage | null {
+  const normalized = value.trim();
+  if (
+    normalized === 'reference' ||
+    normalized === 'policy' ||
+    normalized === 'template' ||
+    normalized === 'example'
+  ) {
+    return normalized;
+  }
+  return null;
 }

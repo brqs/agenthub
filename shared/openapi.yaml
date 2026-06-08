@@ -1302,6 +1302,46 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agents/{agent_id}/knowledge/{upload_id}:
+    patch:
+      tags:
+      - Agents
+      summary: Update Agent Knowledge
+      operationId: update_agent_knowledge_api_v1_agents__agent_id__knowledge__upload_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      - name: upload_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Upload Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentKnowledgeRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentKnowledgeOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
       - Agents
@@ -1367,6 +1407,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/agents/{agent_id}/skills/{skill_id}:
+    patch:
+      tags:
+      - Agents
+      summary: Update Agent Skill
+      operationId: update_agent_skill_api_v1_agents__agent_id__skills__skill_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Agent Id
+      - name: skill_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Skill Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentSkillRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSkillOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     delete:
       tags:
       - Agents
@@ -4840,6 +4919,27 @@ components:
           default: 'off'
       type: object
       title: TurnOptions
+    UpdateAgentKnowledgeRequest:
+      properties:
+        label:
+          anyOf:
+          - type: string
+            maxLength: 160
+            minLength: 1
+          - type: 'null'
+          title: Label
+        usage:
+          anyOf:
+          - type: string
+            enum:
+            - reference
+            - policy
+            - template
+            - example
+          - type: 'null'
+          title: Usage
+      type: object
+      title: UpdateAgentKnowledgeRequest
     UpdateAgentRequest:
       properties:
         name:
@@ -4876,6 +4976,24 @@ components:
           title: Config
       type: object
       title: UpdateAgentRequest
+    UpdateAgentSkillRequest:
+      properties:
+        name:
+          anyOf:
+          - type: string
+            maxLength: 160
+            minLength: 1
+          - type: 'null'
+          title: Name
+        description:
+          anyOf:
+          - type: string
+            maxLength: 240
+            minLength: 1
+          - type: 'null'
+          title: Description
+      type: object
+      title: UpdateAgentSkillRequest
     UpdateContextCompressionConfigRequest:
       properties:
         mode:

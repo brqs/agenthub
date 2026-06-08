@@ -114,6 +114,15 @@ async def test_upload_markdown_knowledge_updates_agent_config(client: AsyncClien
     knowledge = refreshed.json()["config"]["knowledge"]
     assert knowledge[0]["upload_id"] == body["upload_id"]
 
+    patch = await client.patch(
+        f"/api/v1/agents/{agent['id']}/knowledge/{body['upload_id']}",
+        headers=headers,
+        json={"label": "更新后的规则", "usage": "template"},
+    )
+    assert patch.status_code == 200, patch.text
+    assert patch.json()["label"] == "更新后的规则"
+    assert patch.json()["usage"] == "template"
+
 
 async def test_builtin_agent_rejects_knowledge_upload(client: AsyncClient) -> None:
     headers = await _register(client)
@@ -151,6 +160,15 @@ async def test_upload_and_delete_skill_binding(client: AsyncClient) -> None:
     assert body["name"] == "Reviewer"
     assert body["description"] == "Review uploaded drafts."
 
+    patch = await client.patch(
+        f"/api/v1/agents/{agent['id']}/skills/{body['skill_id']}",
+        headers=headers,
+        json={"name": "Draft Reviewer", "description": "Review draft Markdown files."},
+    )
+    assert patch.status_code == 200, patch.text
+    assert patch.json()["name"] == "Draft Reviewer"
+    assert patch.json()["description"] == "Review draft Markdown files."
+
     delete = await client.delete(
         f"/api/v1/agents/{agent['id']}/skills/{body['skill_id']}",
         headers=headers,
@@ -160,6 +178,20 @@ async def test_upload_and_delete_skill_binding(client: AsyncClient) -> None:
     refreshed = await client.get(f"/api/v1/agents/{agent['id']}", headers=headers)
     assert refreshed.status_code == 200
     assert refreshed.json()["config"]["skills"] == []
+
+
+async def test_upload_skill_requires_name_and_description(client: AsyncClient) -> None:
+    headers = await _register(client)
+    agent = await _create_custom_agent(client, headers)
+
+    response = await client.post(
+        f"/api/v1/agents/{agent['id']}/skills",
+        headers=headers,
+        files={"file": ("skill.md", b"plain text without metadata", "text/markdown")},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"]["code"] == "INVALID_SKILL_METADATA"
 
 
 async def test_delete_custom_agent_removes_conversation_references(client: AsyncClient) -> None:
