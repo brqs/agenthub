@@ -11,6 +11,16 @@ from typing import Any
 from app.agents.types import StreamChunk
 
 TOOL_PREVIEW_MAX_CHARS = 2048
+PRESENTATION_ROLES = {
+    "execution_process",
+    "tool_trace",
+    "execution_text",
+    "artifact_evidence",
+    "agent_summary",
+    "final_answer",
+}
+PRESENTATION_BOUNDARIES = {"execution_start", "answer_start"}
+WORKSPACE_ABSOLUTE_PATH_RE = re.compile(r"/workspaces/[A-Za-z0-9_.-]+")
 
 
 class StreamContentAccumulator:
@@ -98,6 +108,7 @@ class StreamContentAccumulator:
     def feed(self, chunk: StreamChunk) -> StreamChunk | None:
         if chunk.event_type == "block_start":
             self.current = {"type": chunk.block_type or "text"}
+            _apply_presentation(self.current, chunk.metadata)
             agent_id = _chunk_agent_id(chunk)
             if agent_id:
                 self.current["agent_id"] = agent_id
@@ -201,6 +212,7 @@ class StreamContentAccumulator:
                 if agent_id:
                     block["agent_id"] = agent_id
                 block.update(_process_block_from_metadata(meta))
+                _apply_presentation(block, meta)
                 self.blocks.append(block)
                 if chunk.block_index is not None:
                     self.process_blocks[chunk.block_index] = block
@@ -215,21 +227,23 @@ class StreamContentAccumulator:
             if self.current.get("type") == "process":
                 return None
             if chunk.text_delta:
+                text_delta = _sanitize_visible_trace_text(chunk.text_delta)
                 if self.current.get("type") == "diff":
-                    self.current["diff"] = self.current.get("diff", "") + chunk.text_delta
+                    self.current["diff"] = self.current.get("diff", "") + text_delta
                 elif self.current.get("type") == "workflow":
                     self.current["raw_definition"] = (
-                        self.current.get("raw_definition", "") + chunk.text_delta
+                        self.current.get("raw_definition", "") + text_delta
                     )
                 else:
-                    self.current["text"] = self.current.get("text", "") + chunk.text_delta
+                    self.current["text"] = self.current.get("text", "") + text_delta
             if chunk.code_delta:
+                code_delta = _sanitize_visible_trace_text(chunk.code_delta)
                 if self.current.get("type") == "workflow":
                     self.current["raw_definition"] = (
-                        self.current.get("raw_definition", "") + chunk.code_delta
+                        self.current.get("raw_definition", "") + code_delta
                     )
                 else:
-                    self.current["code"] = self.current.get("code", "") + chunk.code_delta
+                    self.current["code"] = self.current.get("code", "") + code_delta
         elif chunk.event_type == "delta":
             process_index = chunk.block_index if chunk.block_index is not None else -1
             _apply_process_delta(self.process_blocks.get(process_index), chunk.metadata)
@@ -259,6 +273,7 @@ class StreamContentAccumulator:
             "arguments": _preview_jsonish(chunk.tool_arguments or {}),
             "status": "pending",
         }
+        _apply_presentation(block, chunk.metadata)
         agent_id = _chunk_agent_id(chunk)
         if agent_id:
             block["agent_id"] = agent_id
@@ -414,9 +429,14 @@ def _preview_text(
     *,
     already_truncated: bool = False,
 ) -> tuple[str, bool]:
+    value = _sanitize_visible_trace_text(value)
     if len(value) <= TOOL_PREVIEW_MAX_CHARS:
         return value, already_truncated
     return value[:TOOL_PREVIEW_MAX_CHARS], True
+
+
+def _sanitize_visible_trace_text(value: str) -> str:
+    return WORKSPACE_ABSOLUTE_PATH_RE.sub("workspace", value)
 
 
 def _chunk_agent_id(chunk: StreamChunk) -> str | None:
@@ -426,6 +446,43 @@ def _chunk_agent_id(chunk: StreamChunk) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
+
+
+def _apply_presentation(
+    block: dict[str, Any],
+    metadata: Mapping[str, Any] | None,
+) -> None:
+    presentation = _presentation_from_metadata(metadata)
+    if presentation is not None:
+        block["presentation"] = presentation
+
+
+def _presentation_from_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(metadata, Mapping):
+        return None
+    raw = metadata.get("presentation")
+    if not isinstance(raw, Mapping):
+        return None
+    role = raw.get("role")
+    if role not in PRESENTATION_ROLES:
+        return None
+    payload: dict[str, Any] = {
+        "role": str(role),
+        "collapsible": bool(raw.get("collapsible", False)),
+    }
+    group_id = raw.get("group_id")
+    if isinstance(group_id, str) and group_id:
+        payload["group_id"] = group_id
+    boundary = raw.get("boundary")
+    if boundary in PRESENTATION_BOUNDARIES:
+        payload["boundary"] = str(boundary)
+    closes_group_id = raw.get("closes_group_id")
+    if isinstance(closes_group_id, str) and closes_group_id:
+        payload["closes_group_id"] = closes_group_id
+    label = raw.get("label")
+    if isinstance(label, str) and label:
+        payload["label"] = label[:120]
+    return payload
 
 
 def _preview_jsonish(value: Any) -> Any:

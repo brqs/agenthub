@@ -8,7 +8,13 @@ import {
   type TaskCardBlock,
   type TaskStatus,
 } from '@/lib/mockData';
-import type { Conversation, Message, StreamEvent, TurnControlBlock } from '@/lib/types';
+import type {
+  Conversation,
+  Message,
+  PresentationMetadata,
+  StreamEvent,
+  TurnControlBlock,
+} from '@/lib/types';
 
 type SortableMessage = Pick<
   Message,
@@ -60,6 +66,60 @@ interface ChatState {
   replaceMessageLocal: (oldMessageId: string, message: Message) => void;
   removeMessageLocal: (messageId: string) => void;
   clearChat: () => void;
+}
+
+const PRESENTATION_ROLES = new Set<PresentationMetadata['role']>([
+  'execution_process',
+  'tool_trace',
+  'execution_text',
+  'artifact_evidence',
+  'agent_summary',
+  'final_answer',
+]);
+const PRESENTATION_BOUNDARIES = new Set<NonNullable<PresentationMetadata['boundary']>>([
+  'execution_start',
+  'answer_start',
+]);
+
+function presentationFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): PresentationMetadata | null {
+  const raw = metadata?.presentation;
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  const role = value.role;
+  if (typeof role !== 'string' || !PRESENTATION_ROLES.has(role as PresentationMetadata['role'])) {
+    return null;
+  }
+  const presentation: PresentationMetadata = {
+    role: role as PresentationMetadata['role'],
+    collapsible: Boolean(value.collapsible),
+  };
+  if (
+    typeof value.boundary === 'string' &&
+    PRESENTATION_BOUNDARIES.has(value.boundary as NonNullable<PresentationMetadata['boundary']>)
+  ) {
+    presentation.boundary = value.boundary as NonNullable<PresentationMetadata['boundary']>;
+  }
+  if (typeof value.group_id === 'string' && value.group_id) {
+    presentation.group_id = value.group_id;
+  }
+  if (typeof value.closes_group_id === 'string' && value.closes_group_id) {
+    presentation.closes_group_id = value.closes_group_id;
+  }
+  if (typeof value.label === 'string' && value.label) {
+    presentation.label = value.label;
+  }
+  return presentation;
+}
+
+function defaultExecutionPresentation(label = '执行过程'): PresentationMetadata {
+  return {
+    role: 'execution_process',
+    collapsible: true,
+    group_id: 'execution-main',
+    label,
+  };
 }
 
 function roleRank(role: SortableMessage['role']): number {
@@ -150,6 +210,7 @@ function createTaskCard(metadata: Record<string, unknown> | undefined): TaskCard
   const value = isTaskCardMetadata(metadata) ? metadata : fallback;
   return {
     type: 'task_card',
+    presentation: presentationFromMetadata(metadata),
     title: value.title,
     tasks: value.tasks.map((task) => ({
       id: String(task.id),
@@ -183,6 +244,7 @@ function createProcessBlock(
   return {
     type: 'process',
     agent_id: (metadata?.agent_id as string | undefined) ?? agentId ?? 'orchestrator',
+    presentation: presentationFromMetadata(metadata),
     title: typeof metadata?.title === 'string' ? metadata.title : '执行过程',
     status: processStatus(metadata?.status),
     default_collapsed:
@@ -200,6 +262,7 @@ function createClarificationBlock(
   return {
     type: 'clarification',
     agent_id: (metadata?.agent_id as string | undefined) ?? agentId ?? 'orchestrator',
+    presentation: presentationFromMetadata(metadata),
     mode: clarificationMode(metadata?.mode),
     title: typeof metadata?.title === 'string' ? metadata.title : '需求澄清',
     status: clarificationStatus(metadata?.status),
@@ -424,6 +487,7 @@ function applyToolCall(
     {
       type: 'tool_call',
       agent_id: event.data.agent_id ?? null,
+      presentation: presentationFromMetadata(event.data.metadata),
       call_id: event.data.call_id,
       tool_name: event.data.tool_name,
       arguments: event.data.tool_arguments,
@@ -468,6 +532,7 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
       next[event.data.block_index] = {
         type: 'code',
         agent_id: event.data.agent_id ?? null,
+        presentation: presentationFromMetadata(event.data.metadata),
         language: (event.data.metadata?.language as string) || 'text',
         code: '',
       };
@@ -475,6 +540,7 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
       next[event.data.block_index] = {
         type: 'workflow',
         agent_id: event.data.agent_id ?? null,
+        presentation: presentationFromMetadata(event.data.metadata),
         last_run_id: (event.data.metadata?.last_run_id as string) || null,
         name: (event.data.metadata?.name as string) || null,
         path: (event.data.metadata?.path as string) || undefined,
@@ -509,6 +575,7 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
       next[event.data.block_index] = {
         type: 'file',
         agent_id: event.data.agent_id ?? null,
+        presentation: presentationFromMetadata(event.data.metadata),
         path: (event.data.metadata?.path as string) || null,
         artifact_kind:
           (event.data.metadata?.artifact_kind as
@@ -527,10 +594,45 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
         preview_truncated: (event.data.metadata?.preview_truncated as boolean) || false,
         metadata: (event.data.metadata?.metadata as Record<string, unknown>) || {},
       };
+    } else if (event.data.block_type === 'web_preview') {
+      next[event.data.block_index] = {
+        type: 'web_preview',
+        agent_id: event.data.agent_id ?? null,
+        presentation: presentationFromMetadata(event.data.metadata),
+        url: (event.data.metadata?.url as string) || '',
+        title: (event.data.metadata?.title as string) || undefined,
+        description: (event.data.metadata?.description as string) || undefined,
+      };
+    } else if (event.data.block_type === 'deployment_status') {
+      next[event.data.block_index] = {
+        type: 'deployment_status',
+        agent_id: event.data.agent_id ?? null,
+        presentation: presentationFromMetadata(event.data.metadata),
+        deployment_id: (event.data.metadata?.deployment_id as string) || '',
+        kind:
+          event.data.metadata?.kind === 'source_zip' || event.data.metadata?.kind === 'container'
+            ? event.data.metadata.kind
+            : 'static_site',
+        status:
+          event.data.metadata?.status === 'published' ||
+          event.data.metadata?.status === 'failed' ||
+          event.data.metadata?.status === 'publishing' ||
+          event.data.metadata?.status === 'queued' ||
+          event.data.metadata?.status === 'stopped' ||
+          event.data.metadata?.status === 'not_supported'
+            ? event.data.metadata.status
+            : 'failed',
+        title: (event.data.metadata?.title as string) || null,
+        url: (event.data.metadata?.url as string) || null,
+        download_url: (event.data.metadata?.download_url as string) || null,
+        error: (event.data.metadata?.error as string) || null,
+        logs_preview: (event.data.metadata?.logs_preview as string) || null,
+      };
     } else {
       next[event.data.block_index] = {
         type: 'text',
         agent_id: event.data.agent_id ?? null,
+        presentation: presentationFromMetadata(event.data.metadata),
         text: '',
       };
     }
@@ -541,6 +643,7 @@ function applyDelta(blocks: DemoContentBlock[], event: StreamEvent): DemoContent
     const next = updateTaskStatuses(blocks, event);
     next.push({
       type: 'agent_switch',
+      presentation: defaultExecutionPresentation('Agent 切换'),
       from_agent: event.data.from_agent,
       to_agent: event.data.to_agent,
       task: event.data.task ?? `${event.data.to_agent} 接手任务`,

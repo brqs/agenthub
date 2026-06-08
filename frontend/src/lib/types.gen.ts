@@ -1376,6 +1376,7 @@ export interface components {
             type: "attachment";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /**
              * Upload Id
              * Format: uuid
@@ -1484,6 +1485,7 @@ export interface components {
             type: "clarification";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /**
              * Mode
              * @enum {string}
@@ -1536,6 +1538,7 @@ export interface components {
             type: "code";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Language */
             language: string;
             /** Code */
@@ -1712,6 +1715,7 @@ export interface components {
             type: "deployment_status";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Deployment Id */
             deployment_id: string;
             /**
@@ -1766,6 +1770,7 @@ export interface components {
             type: "diff";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Filename */
             filename: string;
             /** Before */
@@ -1782,6 +1787,7 @@ export interface components {
             type: "file";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Path */
             path?: string | null;
             /**
@@ -2179,6 +2185,24 @@ export interface components {
              */
             updated_at: string;
         };
+        /** PresentationMetadata */
+        PresentationMetadata: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "execution_process" | "tool_trace" | "execution_text" | "artifact_evidence" | "agent_summary" | "final_answer";
+            /** Collapsible */
+            collapsible: boolean;
+            /** Group Id */
+            group_id?: string | null;
+            /** Boundary */
+            boundary?: ("execution_start" | "answer_start") | null;
+            /** Closes Group Id */
+            closes_group_id?: string | null;
+            /** Label */
+            label?: string | null;
+        };
         /** ProcessBlock */
         ProcessBlock: {
             /**
@@ -2188,6 +2212,7 @@ export interface components {
             type: "process";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Title */
             title: string;
             /**
@@ -2309,6 +2334,7 @@ export interface components {
             type: "task_card";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Title */
             title: string;
             /** Tasks */
@@ -2343,6 +2369,7 @@ export interface components {
             type: "text";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Text */
             text: string;
         };
@@ -2355,6 +2382,7 @@ export interface components {
             type: "tool_call";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Call Id */
             call_id: string;
             /** Tool Name */
@@ -2384,6 +2412,7 @@ export interface components {
             type: "turn_control";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /**
              * Kind
              * @enum {string}
@@ -2666,6 +2695,7 @@ export interface components {
             type: "web_preview";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Url */
             url: string;
             /** Title */
@@ -2684,6 +2714,7 @@ export interface components {
             type: "workflow";
             /** Agent Id */
             agent_id?: string | null;
+            presentation?: components["schemas"]["PresentationMetadata"] | null;
             /** Last Run Id */
             last_run_id?: string | null;
             /** Name */

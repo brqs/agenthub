@@ -31,6 +31,8 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH,
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH,
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
+    DEFAULT_PRESENTATION_MARKERS_REPORT_PATH,
+    DEFAULT_PRESENTATION_MARKERS_SSE_PATH,
     GROUP_PROCESS_DATA_ANALYSIS_PROMPT,
     GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT,
     GROUP_PROCESS_FAILURE_READABLE_PROMPT,
@@ -40,6 +42,7 @@ from scripts.orchestrator_live_e2e import (
     P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
     P1_RICH_ARTIFACTS_PROMPT,
     P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT,
+    PRESENTATION_COLLAPSE_PROMPT,
     SERVER_COMMAND_RE,
     evaluate_p1_agent_capability_profile,
     evaluate_p1_evaluation_repair,
@@ -150,6 +153,10 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
             "/tmp/agenthub_orchestrator_context_followup_report.json",
             "/tmp/agenthub_orchestrator_context_followup_sse.jsonl",
         ),
+        "presentation_collapse_markers_smoke": (
+            "/tmp/agenthub_presentation_markers_report.json",
+            "/tmp/agenthub_presentation_markers_sse.jsonl",
+        ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",
             "/tmp/agenthub_p1_attribution_sse.jsonl",
@@ -188,6 +195,16 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         name: (defaults.report_path, defaults.sse_path)
         for name, defaults in SCENARIO_DEFAULTS.items()
     } == expected
+
+
+def test_presentation_marker_scenario_defaults_are_registered() -> None:
+    assert DEFAULT_PRESENTATION_MARKERS_REPORT_PATH == (
+        "/tmp/agenthub_presentation_markers_report.json"
+    )
+    assert DEFAULT_PRESENTATION_MARKERS_SSE_PATH == (
+        "/tmp/agenthub_presentation_markers_sse.jsonl"
+    )
+    assert "presentation marker" in PRESENTATION_COLLAPSE_PROMPT.lower()
 
 
 def test_load_settings_honors_artifact_path_overrides() -> None:

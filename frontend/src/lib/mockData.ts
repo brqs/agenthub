@@ -1,10 +1,11 @@
-import type { Agent, ContentBlock, Conversation, Message } from '@/lib/types';
+import type { Agent, ContentBlock, Conversation, Message, PresentationMetadata } from '@/lib/types';
 
 export type TaskStatus = 'pending' | 'running' | 'done' | 'error' | 'interrupted';
 export type { ClarificationBlock, ProcessBlock } from '@/lib/types';
 
 export interface TaskCardBlock {
   type: 'task_card';
+  presentation?: PresentationMetadata | null;
   title: string;
   tasks: Array<{
     id: string;
@@ -19,6 +20,7 @@ export interface TaskCardBlock {
 
 export interface AgentSwitchBlock {
   type: 'agent_switch';
+  presentation?: PresentationMetadata | null;
   from_agent: string;
   to_agent: string;
   task: string;

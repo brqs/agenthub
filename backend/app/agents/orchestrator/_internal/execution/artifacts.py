@@ -12,6 +12,9 @@ from uuid import UUID
 from app.agents.orchestrator._internal.memory import (
     record_event as _memory_record_event,
 )
+from app.agents.orchestrator._internal.presentation_markers import (
+    artifact_evidence_presentation,
+)
 from app.agents.orchestrator.evaluation import (
     evaluation_results_payload as _evaluation_results_payload,
 )
@@ -69,6 +72,7 @@ async def artifact_file_blocks(
             "mime_type": metadata.mime_type,
             "artifact_kind": metadata.artifact_kind,
             "metadata": metadata.metadata,
+            "presentation": artifact_evidence_presentation(),
         }
         if metadata.preview_text is not None:
             payload["preview_text"] = metadata.preview_text
@@ -137,6 +141,7 @@ def workflow_artifact_chunks(
                 "validation_status": "unknown",
                 "runtime_status": "not_supported",
                 "dry_run_status": "not_supported",
+                "presentation": artifact_evidence_presentation(),
             },
             agent_id=agent_id,
         ),

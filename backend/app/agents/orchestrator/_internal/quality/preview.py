@@ -8,6 +8,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
+from app.agents.orchestrator._internal.presentation_markers import (
+    sanitize_presentation_trace_value,
+    tool_trace_presentation,
+)
 from app.agents.orchestrator.tools import OrchestratorToolResult, available_agent_ids
 from app.agents.types import StreamChunk
 from app.core.config import settings
@@ -123,7 +127,8 @@ def tool_call(call_id: str, name: str, arguments: dict[str, Any]) -> StreamChunk
         agent_id="orchestrator",
         call_id=call_id,
         tool_name=name,
-        tool_arguments=arguments,
+        tool_arguments=sanitize_presentation_trace_value(arguments),
+        metadata={"presentation": tool_trace_presentation()},
     )
 
 
@@ -136,7 +141,7 @@ def tool_result(call_id: str, result: OrchestratorToolResult) -> StreamChunk:
         agent_id="orchestrator",
         call_id=call_id,
         tool_status="ok" if result.status == "ok" else "error",
-        tool_output=result.output,
+        tool_output=sanitize_presentation_trace_value(result.output),
         tool_output_truncated=result.output_truncated,
         metadata=metadata or None,
     )

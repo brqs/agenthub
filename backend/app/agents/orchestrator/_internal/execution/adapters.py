@@ -13,6 +13,13 @@ from app.agents.orchestrator._internal.execution.group_messages import (
     group_messages_enabled,
     start_group_message,
 )
+from app.agents.orchestrator._internal.presentation_markers import (
+    agent_summary_presentation,
+    execution_text_presentation,
+    sanitize_presentation_trace_chunk,
+    tool_trace_presentation,
+    with_presentation,
+)
 from app.agents.orchestrator._internal.streams import (
     attach_agent_id,
     remap_block_index,
@@ -94,6 +101,7 @@ async def run_fallback(
             next_block_index,
             _fallback_failure_text(fallback_agent_id),
             agent_id=fallback_agent_id,
+            presentation=agent_summary_presentation(),
         ):
             yield chunk, updated_block_index
         return
@@ -101,6 +109,7 @@ async def run_fallback(
     for chunk, updated_block_index in _text_block_with_next(
         next_block_index,
         f"Task plan unavailable; falling back to @{fallback_agent_id}.\n",
+        presentation=execution_text_presentation(),
     ):
         yield chunk, updated_block_index
     next_block_index += 1
@@ -158,6 +167,7 @@ async def run_fallback(
                     failure_block_index,
                     failure_text,
                     agent_id=fallback_agent_id,
+                    presentation=agent_summary_presentation(),
                 ):
                     if child_message_id:
                         yield child_message_chunk(
@@ -179,8 +189,13 @@ async def run_fallback(
                         yield error_chunk, next_block_index
                 return
             if chunk.event_type in {"tool_call", "tool_result"}:
-                remapped = remap_tool_call_id(chunk, "fallback")
-                output = attach_agent_id(remapped, fallback_agent_id)
+                remapped = sanitize_presentation_trace_chunk(
+                    remap_tool_call_id(chunk, "fallback")
+                )
+                output = with_presentation(
+                    attach_agent_id(remapped, fallback_agent_id),
+                    tool_trace_presentation(),
+                )
                 if child_message_id:
                     yield child_message_chunk(
                         output,
@@ -218,6 +233,9 @@ async def run_fallback(
             elif remapped.event_type == "block_end":
                 open_block_index = None
             output = attach_agent_id(remapped, fallback_agent_id)
+            if output.event_type == "block_start" and output.block_type == "text":
+                output = with_presentation(output, execution_text_presentation())
+            output = sanitize_presentation_trace_chunk(output)
             if child_message_id:
                 yield child_message_chunk(
                     output,
@@ -247,6 +265,7 @@ async def run_fallback(
             failure_block_index,
             _fallback_failure_text(fallback_agent_id),
             agent_id=fallback_agent_id,
+            presentation=agent_summary_presentation(),
         ):
             if child_message_id:
                 child_next_block_index = updated_block_index
@@ -310,13 +329,16 @@ def _text_block(
     text: str,
     *,
     agent_id: str = "orchestrator",
+    presentation: Mapping[str, Any] | None = None,
 ) -> tuple[StreamChunk, StreamChunk, StreamChunk]:
+    metadata = {"presentation": dict(presentation)} if presentation else None
     return (
         StreamChunk(
             event_type="block_start",
             block_index=block_index,
             block_type="text",
             agent_id=agent_id,
+            metadata=metadata,
         ),
         StreamChunk(
             event_type="delta",
@@ -337,11 +359,17 @@ def _text_block_with_next(
     text: str,
     *,
     agent_id: str = "orchestrator",
+    presentation: Mapping[str, Any] | None = None,
 ) -> tuple[tuple[StreamChunk, int], ...]:
     next_block_index = block_index + 1
     return tuple(
         (chunk, next_block_index)
-        for chunk in _text_block(block_index, text, agent_id=agent_id)
+        for chunk in _text_block(
+            block_index,
+            text,
+            agent_id=agent_id,
+            presentation=presentation,
+        )
     )
 
 
