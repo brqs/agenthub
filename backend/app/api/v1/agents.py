@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import func, or_, select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.agents.config_validation import (
     AgentConfigValidationError,
@@ -14,14 +17,19 @@ from app.agents.config_validation import (
 )
 from app.core.deps import DbSession, get_current_user
 from app.models.agent import Agent
+from app.models.conversation import Conversation
 from app.models.user import User
 from app.schemas.agent import (
+    AgentKnowledgeOut,
+    AgentKnowledgeUsage,
     AgentList,
     AgentOut,
     AgentProvider,
+    AgentSkillOut,
     CreateAgentRequest,
     UpdateAgentRequest,
 )
+from app.services.agent_asset_service import agent_asset_service
 
 router = APIRouter()
 
@@ -57,9 +65,11 @@ async def list_agents(
         stmt = stmt.where(Agent.provider != "mock")
 
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-    stmt = stmt.order_by(Agent.is_builtin.desc(), Agent.created_at.asc(), Agent.id.asc()).offset(
-        (page - 1) * page_size
-    ).limit(page_size)
+    stmt = (
+        stmt.order_by(Agent.is_builtin.desc(), Agent.created_at.asc(), Agent.id.asc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     items = (await db.execute(stmt)).scalars().all()
 
     return AgentList(
@@ -179,6 +189,78 @@ async def update_agent(
     return AgentOut.model_validate(agent)
 
 
+@router.post("/{agent_id}/knowledge", response_model=AgentKnowledgeOut, status_code=201)
+async def create_agent_knowledge(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    file: Annotated[UploadFile, File()],
+    label: Annotated[str | None, Form()] = None,
+    usage: Annotated[AgentKnowledgeUsage, Form()] = "reference",
+) -> AgentKnowledgeOut:
+    _agent, item = await agent_asset_service.create_knowledge(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        file=file,
+        label=label,
+        usage=usage,
+    )
+    return item
+
+
+@router.delete("/{agent_id}/knowledge/{upload_id}", status_code=204)
+async def delete_agent_knowledge(
+    agent_id: str,
+    upload_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    await agent_asset_service.delete_knowledge(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        upload_id=upload_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{agent_id}/skills", response_model=AgentSkillOut, status_code=201)
+async def create_agent_skill(
+    agent_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    file: Annotated[UploadFile, File()],
+    name: Annotated[str | None, Form()] = None,
+    description: Annotated[str | None, Form()] = None,
+) -> AgentSkillOut:
+    _agent, item = await agent_asset_service.create_skill(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        file=file,
+        name=name,
+        description=description,
+    )
+    return item
+
+
+@router.delete("/{agent_id}/skills/{skill_id}", status_code=204)
+async def delete_agent_skill(
+    agent_id: str,
+    skill_id: str,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> Response:
+    await agent_asset_service.delete_skill(
+        db,
+        user_id=user.id,
+        agent_id=agent_id,
+        skill_id=skill_id,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(
     agent_id: str,
@@ -203,4 +285,13 @@ async def delete_agent(
         )
     if agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
+    conversations = (
+        await db.execute(select(Conversation).where(Conversation.user_id == user.id))
+    ).scalars()
+    for conversation in conversations:
+        agent_ids = [item for item in conversation.agent_ids if isinstance(item, str)]
+        if agent_id not in agent_ids:
+            continue
+        conversation.agent_ids = [item for item in agent_ids if item != agent_id]
+        flag_modified(conversation, "agent_ids")
     await db.delete(agent)

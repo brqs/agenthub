@@ -284,7 +284,7 @@ export type ContentBlock =
   | ClarificationBlock
   | AttachmentBlock
   | TurnControlBlock
-    | ToolCallBlock;
+  | ToolCallBlock;
 
 // ─── Messages ───
 export type RequirementAlignmentMode = 'off' | 'strict';
@@ -361,13 +361,7 @@ export type InterruptMessageResponse = Override<
 >;
 
 export type MessageRole = Message['role'];
-export type MessageStatus =
-  | 'pending'
-  | 'streaming'
-  | 'done'
-  | 'error'
-  | 'interrupted'
-  | 'queued';
+export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error' | 'interrupted' | 'queued';
 
 // ─── Agents ───
 export type Agent = Override<
@@ -383,6 +377,31 @@ export type AgentList = Override<Schemas['AgentList'], { items: Agent[] }>;
 export type CreateAgentRequest = Schemas['CreateAgentRequest'];
 export type CreatableAgentProvider = CreateAgentRequest['provider'];
 export type UpdateAgentRequest = Schemas['UpdateAgentRequest'];
+export type AgentKnowledgeUsage = 'reference' | 'policy' | 'template' | 'example';
+
+export interface AgentKnowledgeRef {
+  upload_id: string;
+  filename: string;
+  label: string;
+  usage: AgentKnowledgeUsage;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
+}
+
+export interface AgentSkillRef {
+  skill_id: string;
+  upload_id: string;
+  name: string;
+  description: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  sha256: string;
+  created_at: string;
+  metadata?: Record<string, unknown>;
+}
 
 // ─── SSE events (hand-written; not in OpenAPI) ───
 export interface QueuedNextPayload {

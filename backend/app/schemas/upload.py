@@ -8,7 +8,15 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-UploadPurpose = Literal["message_attachment", "workspace_file"]
+UploadPurpose = Literal[
+    "message_attachment",
+    "workspace_file",
+    "workspace_import",
+    "agent_knowledge",
+    "agent_icon",
+    "skill_package",
+    "mcp_config",
+]
 UploadStatus = Literal["ready", "processing", "failed", "deleted"]
 UploadSafetyStatus = Literal["pending", "passed", "blocked", "manual_review_required"]
 UploadPreviewKind = Literal["image", "archive", "document", "text", "code", "unknown"]
