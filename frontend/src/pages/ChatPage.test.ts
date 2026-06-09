@@ -1,4 +1,4 @@
-import { resolveConversation } from './chatPageUtils';
+import { resolveConversation, resolveMessageConversationId } from './chatPageUtils';
 import type { Conversation } from '@/lib/types';
 
 const remoteConversation: Conversation = {
@@ -42,5 +42,19 @@ describe('resolveConversation', () => {
 
   it('falls back to the first visible conversation when opening the chat root', () => {
     expect(resolveConversation([remoteConversation], undefined, '')).toEqual(remoteConversation);
+  });
+});
+
+describe('resolveMessageConversationId', () => {
+  it('uses the deep link id instead of a previously selected conversation id', () => {
+    expect(resolveMessageConversationId(remoteConversation.id, mockConversation.id)).toBe(
+      remoteConversation.id,
+    );
+  });
+
+  it('uses the resolved conversation id when opening the chat root', () => {
+    expect(resolveMessageConversationId(undefined, remoteConversation.id)).toBe(
+      remoteConversation.id,
+    );
   });
 });
