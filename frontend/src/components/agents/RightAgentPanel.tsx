@@ -143,7 +143,7 @@ export function RightAgentPanel({
   return (
     <aside
       className={cn(
-        'relative h-full shrink-0 flex-col border-l border-slate-800 bg-slate-900',
+        'relative h-full shrink-0 flex-col border-l border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900',
         presentation === 'desktop' ? 'hidden xl:flex' : 'flex w-full',
       )}
       style={presentation === 'desktop' ? { width } : undefined}
@@ -153,11 +153,13 @@ export function RightAgentPanel({
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <PanelRight className="h-4 w-4 shrink-0 text-slate-500" />
-            <h2 className="truncate text-sm font-semibold text-white">工作台</h2>
+            <h2 className="truncate text-sm font-semibold text-slate-950 dark:text-white">
+              工作台
+            </h2>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span
-              className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-xs text-slate-500"
+              className="rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/70 dark:text-slate-500"
               title={conversation.title}
             >
               {conversation.mode === 'group' ? 'Group' : 'Single'}
@@ -165,7 +167,7 @@ export function RightAgentPanel({
             <button
               type="button"
               onClick={onCollapse}
-              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-800 bg-slate-950 text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-brand"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-brand dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
               title="收起工作台"
               aria-label="收起工作台"
             >
@@ -174,7 +176,7 @@ export function RightAgentPanel({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-1 rounded-md border border-slate-800 bg-slate-950/70 p-1">
+        <div className="mt-3 grid grid-cols-3 gap-1 rounded-md border border-slate-300 bg-slate-50 p-1 dark:border-slate-800 dark:bg-slate-950/70">
           {(Object.keys(TAB_META) as RightPanelTab[]).map((tab) => {
             const Icon = TAB_META[tab].icon;
             return (
@@ -185,8 +187,8 @@ export function RightAgentPanel({
                 className={cn(
                   'flex min-w-0 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs font-medium transition',
                   activeTab === tab
-                    ? 'bg-brand/20 text-brand-light shadow-sm shadow-black/20'
-                    : 'text-slate-500 hover:bg-slate-800 hover:text-slate-200',
+                    ? 'bg-brand/10 text-brand shadow-sm shadow-brand/10 dark:bg-brand/20 dark:text-brand-light dark:shadow-black/20'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-950 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200',
                 )}
               >
                 <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -303,18 +305,20 @@ function AgentsPanel({
           return (
             <div
               key={agent.id}
-              className="rounded-md border border-slate-800 bg-slate-950/60 p-3 transition hover:border-slate-700 hover:bg-slate-950/80"
+              className="rounded-md border border-slate-300 bg-slate-50 p-3 transition hover:border-slate-400 hover:bg-white dark:border-slate-800 dark:bg-slate-950/60 dark:hover:border-slate-700 dark:hover:bg-slate-950/80"
             >
               <div className="flex items-center gap-3">
                 <AgentAvatar agent={agent} />
                 <div className="min-w-0 flex-1">
                   <div
-                    className="truncate text-sm font-medium text-white"
+                    className="truncate text-sm font-medium text-slate-950 dark:text-white"
                     title={`${agent.name} · ${agent.provider}`}
                   >
                     {agent.name}
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-slate-600">{agent.provider}</div>
+                  <div className="mt-0.5 truncate text-xs text-slate-600 dark:text-slate-600">
+                    {agent.provider}
+                  </div>
                 </div>
                 <span className={cn('rounded-md border px-2 py-1 text-xs', STATUS_CLASS[status])}>
                   {STATUS_LABEL[status]}
@@ -685,9 +689,9 @@ function ArtifactManifestPanel({
 
 function ArtifactStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-900/60 px-2 py-2">
-      <div className="text-sm font-semibold text-white">{value}</div>
-      <div className="text-[11px] text-slate-500">{label}</div>
+    <div className="rounded-md border border-slate-300 bg-white px-2 py-2 dark:border-slate-800 dark:bg-slate-900/60">
+      <div className="text-sm font-semibold text-slate-950 dark:text-white">{value}</div>
+      <div className="text-[11px] text-slate-600 dark:text-slate-500">{label}</div>
     </div>
   );
 }

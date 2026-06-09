@@ -41,7 +41,7 @@ export function AgentsPage() {
     agents.find((agent) => agent.id === selectedAgentId) ?? filteredAgents[0] ?? null;
 
   return (
-    <div className="flex h-full overflow-hidden bg-slate-950">
+    <div className="flex h-full overflow-hidden bg-slate-100 dark:bg-slate-950">
       <div className="min-w-0 flex-1 overflow-y-auto p-4 scrollbar-thin sm:p-8">
         <div className="mx-auto max-w-6xl">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -50,8 +50,8 @@ export function AgentsPage() {
                 <Sparkles className="h-3.5 w-3.5" />
                 AgentHub Registry
               </div>
-              <h1 className="mt-2 text-2xl font-bold text-white">Agent 管理</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+              <h1 className="mt-2 text-2xl font-bold text-slate-950 dark:text-white">Agent 管理</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-500">
                 管理远端后端中的内置 Agent 与自建 Agent。
               </p>
             </div>
@@ -66,34 +66,42 @@ export function AgentsPage() {
           </div>
 
           <div className="mt-8 grid gap-3 md:grid-cols-3">
-            <div className="rounded-md border border-slate-800 bg-slate-900 p-4">
-              <div className="text-2xl font-semibold text-white">{agents.length}</div>
-              <div className="mt-1 text-xs text-slate-500">可用 Agent</div>
+            <div className="rounded-md border border-slate-300 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+              <div className="text-2xl font-semibold text-slate-950 dark:text-white">
+                {agents.length}
+              </div>
+              <div className="mt-1 text-xs text-slate-600 dark:text-slate-500">可用 Agent</div>
             </div>
-            <div className="rounded-md border border-slate-800 bg-slate-900 p-4">
-              <div className="text-2xl font-semibold text-white">{builtin.length}</div>
-              <div className="mt-1 text-xs text-slate-500">内置 Agent</div>
+            <div className="rounded-md border border-slate-300 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+              <div className="text-2xl font-semibold text-slate-950 dark:text-white">
+                {builtin.length}
+              </div>
+              <div className="mt-1 text-xs text-slate-600 dark:text-slate-500">内置 Agent</div>
             </div>
-            <div className="rounded-md border border-slate-800 bg-slate-900 p-4">
-              <div className="text-2xl font-semibold text-white">{custom.length}</div>
-              <div className="mt-1 text-xs text-slate-500">我的 Agent</div>
+            <div className="rounded-md border border-slate-300 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+              <div className="text-2xl font-semibold text-slate-950 dark:text-white">
+                {custom.length}
+              </div>
+              <div className="mt-1 text-xs text-slate-600 dark:text-slate-500">我的 Agent</div>
             </div>
           </div>
 
-          <label className="mt-8 flex max-w-md items-center gap-2 rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-400 focus-within:border-brand">
+          <label className="mt-8 flex max-w-md items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-500 focus-within:border-brand dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
             <Search className="h-4 w-4" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="搜索 Agent、Provider 或能力"
-              className="min-w-0 flex-1 bg-transparent text-slate-100 outline-none placeholder:text-slate-600"
+              className="min-w-0 flex-1 bg-transparent text-slate-950 outline-none placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-600"
             />
           </label>
 
           {filteredAgents.length === 0 ? (
-            <div className="mt-10 rounded-md border border-dashed border-slate-800 bg-slate-900/60 p-10 text-center">
-              <div className="text-sm font-medium text-slate-300">没有找到匹配的 Agent</div>
-              <p className="mt-2 text-sm text-slate-500">
+            <div className="mt-10 rounded-md border border-dashed border-slate-300 bg-white/70 p-10 text-center dark:border-slate-800 dark:bg-slate-900/60">
+              <div className="text-sm font-medium text-slate-800 dark:text-slate-300">
+                没有找到匹配的 Agent
+              </div>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-500">
                 换个关键词，或者创建一个新的自建 Agent。
               </p>
             </div>
@@ -186,8 +194,10 @@ function AgentSection({
   return (
     <section>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
-        <span className="text-xs text-slate-600">{agents.length}</span>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-500">
+          {title}
+        </h2>
+        <span className="text-xs text-slate-600 dark:text-slate-500">{agents.length}</span>
       </div>
       {agents.length ? (
         <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
@@ -204,7 +214,7 @@ function AgentSection({
           ))}
         </div>
       ) : (
-        <div className="rounded-md border border-dashed border-slate-800 bg-slate-900/50 p-6 text-sm text-slate-500">
+        <div className="rounded-md border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-500">
           {emptyText}
         </div>
       )}

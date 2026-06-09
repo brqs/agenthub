@@ -87,7 +87,11 @@ const FALLBACK_TEMPLATES: AgentTemplate[] = [
     builder_profile: {
       role: '一个专注于可用性和完成度的前端设计 Agent。',
       purpose: '在 Workspace 中创建和优化静态前端产物。',
-      goals: ['按需求产出清晰的 HTML/CSS/JS 文件', '保证桌面端和移动端都能正常使用', '在关键设计取舍处简短说明原因'],
+      goals: [
+        '按需求产出清晰的 HTML/CSS/JS 文件',
+        '保证桌面端和移动端都能正常使用',
+        '在关键设计取舍处简短说明原因',
+      ],
       tone: '直接、协作、关注设计质量',
       do_not_do: ['未经确认不要部署'],
       clarification_policy: 'balanced',
@@ -351,10 +355,14 @@ export function AgentCreateDialog({
   const [mcpError, setMcpError] = useState('');
 
   const step = STEP_IDS[stepIndex] ?? 'basics';
-  const selectedTemplate = templateId ? templates.find((template) => template.id === templateId) : null;
+  const selectedTemplate = templateId
+    ? templates.find((template) => template.id === templateId)
+    : null;
   const providerItems = providerQuery.data?.items ?? DEFAULT_MODEL_PROVIDERS;
   const accountItems = modelAccounts.accounts.data?.items ?? [];
-  const selectedModelAccount = accountItems.find((account) => account.id === selectedModelAccountId);
+  const selectedModelAccount = accountItems.find(
+    (account) => account.id === selectedModelAccountId,
+  );
   const normalizedProfile = useMemo(
     () => ({
       ...profile,
@@ -425,8 +433,7 @@ export function AgentCreateDialog({
     const definition = providerItems.find((item) => item.provider === accountProvider);
     const nextModel = accountModel.trim() || definition?.default_model || 'custom';
     const nextName =
-      accountDisplayName.trim() ||
-      `${definition?.company_name ?? accountProvider} ${nextModel}`;
+      accountDisplayName.trim() || `${definition?.company_name ?? accountProvider} ${nextModel}`;
     if (!accountApiKey.trim()) {
       setAccountError('请输入 API Key。');
       return;
@@ -481,20 +488,22 @@ export function AgentCreateDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 sm:px-4 sm:py-6 backdrop-blur-sm">
       <form
         onSubmit={submit}
-        className="flex h-[100dvh] w-full max-w-5xl flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40 sm:max-h-[calc(100dvh-3rem)] sm:rounded-md"
+        className="flex h-[100dvh] w-full max-w-5xl flex-col overflow-hidden border border-slate-300 bg-white shadow-2xl shadow-black/20 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40 sm:max-h-[calc(100dvh-3rem)] sm:rounded-md"
       >
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand-light">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand dark:text-brand-light">
               <Sparkles className="h-3.5 w-3.5" />
               自定义 Agent 构建器
             </div>
-            <h2 className="mt-1 text-base font-semibold text-white">创建自定义 Agent</h2>
+            <h2 className="mt-1 text-base font-semibold text-slate-950 dark:text-white">
+              创建自定义 Agent
+            </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
             aria-label="关闭"
           >
             <X className="h-4 w-4" />
@@ -502,7 +511,7 @@ export function AgentCreateDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden md:grid md:grid-cols-[13rem_minmax(0,1fr)_18rem]">
-          <nav className="border-b border-slate-800 p-4 md:border-b-0 md:border-r">
+          <nav className="border-b border-slate-200 p-4 dark:border-slate-800 md:border-b-0 md:border-r">
             <div className="grid grid-cols-4 gap-2 md:block md:space-y-2">
               {STEP_IDS.map((item, index) => (
                 <button
@@ -513,7 +522,7 @@ export function AgentCreateDialog({
                     'flex items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-medium md:w-full md:justify-start',
                     index === stepIndex
                       ? 'bg-brand text-white'
-                      : 'bg-slate-950 text-slate-400 hover:bg-slate-800 hover:text-white',
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-950 dark:bg-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white',
                   )}
                 >
                   <span>{index + 1}</span>
@@ -531,12 +540,14 @@ export function AgentCreateDialog({
                 <Field label="能力标签" value={capabilities} onChange={setCapabilities} />
                 <div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold text-white">快捷模板（可选）</h3>
+                    <h3 className="text-sm font-semibold text-slate-950 dark:text-white">
+                      快捷模板（可选）
+                    </h3>
                     {templateId && (
                       <button
                         type="button"
                         onClick={clearTemplate}
-                        className="rounded-md border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white"
+                        className="rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                       >
                         不使用模板
                       </button>
@@ -552,11 +563,13 @@ export function AgentCreateDialog({
                           'rounded-md border p-4 text-left transition',
                           template.id === selectedTemplate?.id
                             ? 'border-brand bg-brand/10'
-                            : 'border-slate-800 bg-slate-950 hover:border-slate-700',
+                            : 'border-slate-300 bg-white hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:hover:border-slate-700',
                         )}
                       >
-                        <div className="text-sm font-medium text-white">{template.name}</div>
-                        <div className="mt-1 text-xs leading-5 text-slate-500">
+                        <div className="text-sm font-medium text-slate-950 dark:text-white">
+                          {template.name}
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-500">
                           {template.description}
                         </div>
                       </button>
@@ -591,7 +604,9 @@ export function AgentCreateDialog({
                   rows={4}
                 />
                 <div>
-                  <span className="text-xs font-medium text-slate-400">澄清策略</span>
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                    澄清策略
+                  </span>
                   <div className="mt-2 grid gap-2 md:grid-cols-3">
                     {Object.entries(POLICY_LABELS).map(([policy, label]) => {
                       const value = policy as AgentBuilderProfile['clarification_policy'];
@@ -609,12 +624,12 @@ export function AgentCreateDialog({
                           className={cn(
                             'rounded-md border p-3 text-left transition',
                             selected
-                              ? 'border-brand/80 bg-brand/10 text-white'
-                              : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700',
+                              ? 'border-brand/80 bg-brand/10 text-brand dark:text-white'
+                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700',
                           )}
                         >
                           <div className="text-sm font-medium">{label}</div>
-                          <div className="mt-1 text-xs leading-5 text-slate-500">
+                          <div className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-500">
                             {POLICY_DESCRIPTIONS[value]}
                           </div>
                         </button>
@@ -676,11 +691,13 @@ export function AgentCreateDialog({
                   }
                 />
                 <label className="block">
-                  <span className="text-xs font-medium text-slate-400">记忆</span>
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                    记忆
+                  </span>
                   <select
                     value={memoryPolicy}
                     onChange={(event) => setMemoryPolicy(event.target.value as AgentMemoryPolicy)}
-                    className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                    className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="none">不记忆</option>
                     <option value="conversation">仅当前会话</option>
@@ -732,22 +749,18 @@ export function AgentCreateDialog({
                   onCreateAccount={() => void createBackpackAccount()}
                   onDeleteAccount={(accountId) => void deleteBackpackAccount(accountId)}
                 />
-                <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
-                  <div className="flex items-center gap-2 text-sm font-medium text-white">
+                <div className="rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+                  <div className="flex items-center gap-2 text-sm font-medium text-slate-950 dark:text-white">
                     <ShieldCheck className="h-4 w-4 text-emerald-400" />
                     创建前检查
                   </div>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                  <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-500">
                     下面是这个 Agent 创建后的实际使用方式，确认无误后即可创建。
                   </p>
                   <dl className="mt-4 space-y-3 text-sm">
                     <SummaryRow
                       label="模型"
-                      value={modelSummary(
-                        modelSource,
-                        selectedModelAccount,
-                        model,
-                      )}
+                      value={modelSummary(modelSource, selectedModelAccount, model)}
                     />
                     <SummaryRow label="能做什么" value={toolSummary(permissions)} />
                     <SummaryRow label="记忆范围" value={formatMemoryPolicy(memoryPolicy)} />
@@ -763,13 +776,17 @@ export function AgentCreateDialog({
                   高级配置
                 </button>
                 {advancedOpen && (
-                  <div className="space-y-4 rounded-md border border-slate-800 bg-slate-950 p-4">
+                  <div className="space-y-4 rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
                     <label className="block">
-                      <span className="text-xs font-medium text-slate-400">运行时</span>
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        运行时
+                      </span>
                       <select
                         value={provider}
-                        onChange={(event) => setProvider(event.target.value as CreatableAgentProvider)}
-                        className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                        onChange={(event) =>
+                          setProvider(event.target.value as CreatableAgentProvider)
+                        }
+                        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                       >
                         {Object.entries(PROVIDER_LABELS).map(([value, label]) => (
                           <option key={value} value={value}>
@@ -780,14 +797,16 @@ export function AgentCreateDialog({
                     </label>
                     <Field label="模型后端" value={model} onChange={setModel} />
                     <label className="block">
-                      <span className="text-xs font-medium text-slate-400">最大迭代次数</span>
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                        最大迭代次数
+                      </span>
                       <input
                         type="number"
                         min={1}
                         max={50}
                         value={maxIterations}
                         onChange={(event) => setMaxIterations(Number(event.target.value))}
-                        className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                       />
                     </label>
                     <TextArea
@@ -797,41 +816,50 @@ export function AgentCreateDialog({
                       rows={5}
                       monospace
                     />
-                    {mcpError && <div className="text-xs text-rose-300">{mcpError}</div>}
+                    {mcpError && (
+                      <div className="text-xs text-rose-700 dark:text-rose-300">{mcpError}</div>
+                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
 
-          <aside className="hidden min-h-0 border-l border-slate-800 p-4 md:block">
-            <div className="rounded-md border border-slate-800 bg-slate-950 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-white">
-                <Bot className="h-4 w-4 text-brand-light" />
+          <aside className="hidden min-h-0 border-l border-slate-200 p-4 dark:border-slate-800 md:block">
+            <div className="rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-950 dark:text-white">
+                <Bot className="h-4 w-4 text-brand dark:text-brand-light" />
                 预览
               </div>
-              <div className="mt-4 text-sm font-semibold text-white">{name || '新 Agent'}</div>
-              <div className="mt-1 text-xs leading-5 text-slate-500">{description}</div>
+              <div className="mt-4 text-sm font-semibold text-slate-950 dark:text-white">
+                {name || '新 Agent'}
+              </div>
+              <div className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-500">
+                {description}
+              </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 {textToList(capabilities).map((capability) => (
-                  <span key={capability} className="rounded bg-slate-800 px-2 py-1 text-xs text-slate-300">
+                  <span
+                    key={capability}
+                    className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                  >
                     {capability}
                   </span>
                 ))}
               </div>
-              <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-slate-800 bg-slate-900 p-3 text-xs leading-5 text-slate-400">
+              <pre className="mt-4 max-h-80 overflow-auto whitespace-pre-wrap rounded-md border border-slate-300 bg-white p-3 text-xs leading-5 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
                 {previewPrompt}
               </pre>
             </div>
           </aside>
         </div>
 
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-800 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4 dark:border-slate-800">
           <button
             type="button"
             onClick={() => setStepIndex((index) => Math.max(0, index - 1))}
             disabled={stepIndex === 0}
-            className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <ChevronLeft className="h-4 w-4" />
             上一步
@@ -906,13 +934,14 @@ function ModelBackpackSection({
   onCreateAccount: () => void;
   onDeleteAccount: (accountId: string) => void;
 }) {
-  const selectedProvider = providers.find((item) => item.provider === accountProvider) ?? providers[0];
+  const selectedProvider =
+    providers.find((item) => item.provider === accountProvider) ?? providers[0];
   const modelOptions = selectedProvider?.models ?? ['custom'];
   const providerNameById = new Map(providers.map((item) => [item.provider, item.company_name]));
   return (
-    <section className="rounded-md border border-slate-800 bg-slate-950 p-4">
-      <div className="text-sm font-medium text-white">大模型设置</div>
-      <p className="mt-1 text-xs leading-5 text-slate-500">
+    <section className="rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+      <div className="text-sm font-medium text-slate-950 dark:text-white">大模型设置</div>
+      <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-500">
         默认使用 AgentHub 免费 DeepSeek。也可以把自己的 API Key 保存到模型背包，再绑定给这个 Agent。
       </p>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -922,12 +951,14 @@ function ModelBackpackSection({
           className={cn(
             'rounded-md border p-3 text-left text-sm transition',
             modelSource === 'agenthub_default'
-              ? 'border-brand bg-brand/10 text-white'
-              : 'border-slate-800 text-slate-300 hover:border-slate-700',
+              ? 'border-brand bg-brand/10 text-brand dark:text-white'
+              : 'border-slate-300 text-slate-700 hover:border-slate-400 dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700',
           )}
         >
           <div className="font-medium">AgentHub 免费 DeepSeek</div>
-          <div className="mt-1 text-xs text-slate-500">无需填写 API Key，适合作为默认配置。</div>
+          <div className="mt-1 text-xs text-slate-600 dark:text-slate-500">
+            无需填写 API Key，适合作为默认配置。
+          </div>
         </button>
         <button
           type="button"
@@ -935,22 +966,28 @@ function ModelBackpackSection({
           className={cn(
             'rounded-md border p-3 text-left text-sm transition',
             modelSource === 'user_account'
-              ? 'border-brand bg-brand/10 text-white'
-              : 'border-slate-800 text-slate-300 hover:border-slate-700',
+              ? 'border-brand bg-brand/10 text-brand dark:text-white'
+              : 'border-slate-300 text-slate-700 hover:border-slate-400 dark:border-slate-800 dark:text-slate-300 dark:hover:border-slate-700',
           )}
         >
           <div className="font-medium">使用我的 API</div>
-          <div className="mt-1 text-xs text-slate-500">选择公司、保存密钥、指定模型。</div>
+          <div className="mt-1 text-xs text-slate-600 dark:text-slate-500">
+            选择公司、保存密钥、指定模型。
+          </div>
         </button>
       </div>
 
       {modelSource === 'user_account' && (
-        <div className="mt-4 space-y-4 rounded-md border border-slate-800 bg-slate-900/60 p-3">
+        <div className="mt-4 space-y-4 rounded-md border border-slate-300 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/60">
           {accounts.length ? (
             <div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-medium text-slate-400">已保存账号</span>
-                <span className="text-[11px] text-slate-500">点击账号即可绑定给当前 Agent</span>
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                  已保存账号
+                </span>
+                <span className="text-[11px] text-slate-600 dark:text-slate-500">
+                  点击账号即可绑定给当前 Agent
+                </span>
               </div>
               <div className="mt-2 grid gap-2">
                 {accounts.map((account) => {
@@ -960,10 +997,10 @@ function ModelBackpackSection({
                     <div
                       key={account.id}
                       className={cn(
-                        'flex items-center gap-3 rounded-md border bg-slate-950 px-3 py-3 text-left transition',
+                        'flex items-center gap-3 rounded-md border bg-white px-3 py-3 text-left transition dark:bg-slate-950',
                         selected
                           ? 'border-brand/80 shadow-sm shadow-brand/10'
-                          : 'border-slate-800 hover:border-slate-700',
+                          : 'border-slate-300 hover:border-slate-400 dark:border-slate-800 dark:hover:border-slate-700',
                       )}
                     >
                       <button
@@ -972,11 +1009,11 @@ function ModelBackpackSection({
                         className="min-w-0 flex-1 text-left"
                       >
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-sm font-medium text-slate-100">
+                          <span className="truncate text-sm font-medium text-slate-950 dark:text-slate-100">
                             {account.display_name}
                           </span>
                           {selected && (
-                            <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[11px] font-medium text-brand-light">
+                            <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[11px] font-medium text-brand dark:text-brand-light">
                               当前使用
                             </span>
                           )}
@@ -984,25 +1021,25 @@ function ModelBackpackSection({
                             className={cn(
                               'rounded-full px-2 py-0.5 text-[11px]',
                               account.status === 'ready'
-                                ? 'bg-emerald-500/10 text-emerald-300'
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                                 : account.status === 'unavailable'
-                                  ? 'bg-rose-500/10 text-rose-300'
-                                  : 'bg-slate-800 text-slate-400',
+                                  ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
                             )}
                           >
                             {formatModelAccountStatus(account.status)}
                           </span>
                         </div>
-                        <div className="mt-1 truncate text-xs text-slate-500">
-                          {providerNameById.get(account.provider) ?? account.provider} · {account.model} ·{' '}
-                          {account.api_key_preview}
+                        <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-500">
+                          {providerNameById.get(account.provider) ?? account.provider} ·{' '}
+                          {account.model} · {account.api_key_preview}
                         </div>
                       </button>
                       <button
                         type="button"
                         disabled={deleting}
                         onClick={() => onDeleteAccount(account.id)}
-                        className="rounded-md border border-slate-800 p-2 text-slate-400 transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-md border border-slate-300 p-2 text-slate-500 transition hover:border-rose-500/50 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
                         title="删除模型账号"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1013,14 +1050,16 @@ function ModelBackpackSection({
               </div>
             </div>
           ) : (
-            <div className="rounded-md border border-dashed border-slate-700 px-3 py-2 text-xs text-slate-500">
+            <div className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-500">
               还没有保存过模型账号，可以在下面新增一个。
             </div>
           )}
 
           <div className="space-y-3">
             <div>
-              <span className="text-xs font-medium text-slate-400">模型公司</span>
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                模型公司
+              </span>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {providers.map((item) => {
                   const selected = item.provider === accountProvider;
@@ -1032,8 +1071,8 @@ function ModelBackpackSection({
                       className={cn(
                         'rounded-md border px-3 py-2 text-left text-sm transition',
                         selected
-                          ? 'border-brand/80 bg-brand/10 text-white'
-                          : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-700',
+                          ? 'border-brand/80 bg-brand/10 text-brand dark:text-white'
+                          : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:border-slate-700',
                       )}
                     >
                       {item.company_name}
@@ -1043,8 +1082,10 @@ function ModelBackpackSection({
               </div>
             </div>
             <div>
-              <span className="text-xs font-medium text-slate-400">调用模型</span>
-              <div className="mt-2 max-h-36 overflow-y-auto rounded-md border border-slate-800 bg-slate-950 p-2">
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                调用模型
+              </span>
+              <div className="mt-2 max-h-36 overflow-y-auto rounded-md border border-slate-300 bg-white p-2 dark:border-slate-800 dark:bg-slate-950">
                 <div className="flex flex-wrap gap-2">
                   {modelOptions.map((item) => {
                     const selected = item === accountModel;
@@ -1056,8 +1097,8 @@ function ModelBackpackSection({
                         className={cn(
                           'rounded-md border px-2.5 py-1.5 text-xs transition',
                           selected
-                            ? 'border-brand/80 bg-brand/10 text-brand-light'
-                            : 'border-slate-800 bg-slate-900 text-slate-400 hover:border-slate-700 hover:text-slate-200',
+                            ? 'border-brand/80 bg-brand/10 text-brand dark:text-brand-light'
+                            : 'border-slate-300 bg-slate-50 text-slate-600 hover:border-slate-400 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:text-slate-200',
                         )}
                       >
                         {item}
@@ -1072,7 +1113,7 @@ function ModelBackpackSection({
                   value={accountModel}
                   onChange={(event) => onAccountModelChange(event.target.value)}
                   placeholder="也可以手动输入模型名"
-                  className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-brand"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
                 />
               </label>
             </div>
@@ -1081,18 +1122,22 @@ function ModelBackpackSection({
           {selectedProvider?.requires_base_url && (
             <Field label="Base URL" value={accountBaseUrl} onChange={onAccountBaseUrlChange} />
           )}
-          <Field label="账号名称（可选）" value={accountDisplayName} onChange={onAccountDisplayNameChange} />
+          <Field
+            label="账号名称（可选）"
+            value={accountDisplayName}
+            onChange={onAccountDisplayNameChange}
+          />
           <label className="block">
-            <span className="text-xs font-medium text-slate-400">API Key</span>
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">API Key</span>
             <input
               type="password"
               value={accountApiKey}
               onChange={(event) => onAccountApiKeyChange(event.target.value)}
-              className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+              className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
           </label>
           {error && (
-            <div className="rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+            <div className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
               {error}
             </div>
           )}
@@ -1127,11 +1172,11 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
       />
     </label>
   );
@@ -1152,13 +1197,13 @@ function TextArea({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{label}</span>
       <textarea
         value={value}
         rows={rows}
         onChange={(event) => onChange(event.target.value)}
         className={cn(
-          'mt-2 w-full resize-none rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none focus:border-brand',
+          'mt-2 w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100',
           monospace && 'font-mono text-xs',
         )}
       />
@@ -1176,8 +1221,8 @@ function PermissionToggle({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-4 rounded-md border border-slate-800 bg-slate-950 p-4">
-      <span className="text-sm font-medium text-slate-200">{title}</span>
+    <label className="flex items-center justify-between gap-4 rounded-md border border-slate-300 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+      <span className="text-sm font-medium text-slate-800 dark:text-slate-200">{title}</span>
       <input
         type="checkbox"
         checked={checked}
@@ -1191,8 +1236,8 @@ function PermissionToggle({
 function SummaryRow({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="mt-1 text-slate-200">{value}</dd>
+      <dt className="text-xs text-slate-600 dark:text-slate-500">{label}</dt>
+      <dd className="mt-1 text-slate-800 dark:text-slate-200">{value}</dd>
     </div>
   );
 }

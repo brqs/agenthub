@@ -251,7 +251,7 @@ export function FileBlock({
           <button
             type="button"
             onClick={() => setPreviewOpen(true)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-800 hover:text-white"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
             title="预览文件"
           >
             <Eye className="h-4 w-4" />
@@ -262,7 +262,7 @@ export function FileBlock({
           onClick={(event) => handleExternalLink(event, url)}
           target="_blank"
           rel="noreferrer"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-800 hover:text-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
           title="打开外链"
         >
           <ExternalLink className="h-4 w-4" />
@@ -271,20 +271,20 @@ export function FileBlock({
 
       {previewOpen && canPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-          <div className="flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <div className="flex max-h-[82vh] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-slate-300 bg-white shadow-2xl shadow-black/20 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
               <div className="mobile-text-safe">
-                <div className="mobile-text-safe text-sm font-semibold text-white sm:truncate">
+                <div className="mobile-text-safe text-sm font-semibold text-slate-950 dark:text-white sm:truncate">
                   {filename}
                 </div>
-                <div className="mobile-text-safe mt-1 text-xs text-slate-500">
+                <div className="mobile-text-safe mt-1 text-xs text-slate-600 dark:text-slate-500">
                   {mimeType} · {formatBytes(size)}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewOpen(false)}
-                className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
+                className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
                 title="关闭预览"
               >
                 <X className="h-4 w-4" />
