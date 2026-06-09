@@ -18,11 +18,7 @@ import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { buildRichArtifactViewModel } from '@/components/artifact/richArtifactModel';
 import type { WorkspaceArtifact } from '@/lib/adapters/workspaces';
 import type { DemoContentBlock } from '@/lib/mockData';
-import type {
-  Agent,
-  FileBlock as FileContentBlock,
-  PresentationMetadata,
-} from '@/lib/types';
+import type { Agent, FileBlock as FileContentBlock, PresentationMetadata } from '@/lib/types';
 
 export function ContentRenderer({
   blocks,
@@ -296,16 +292,16 @@ function renderBlock(
     const toAgent = agents.find((agent) => agent.id === block.to_agent);
     return (
       <div key={`${block.type}-${index}`} className="agent-switch-enter py-2">
-        <div className="flex items-center gap-3 text-xs text-slate-500">
-          <span className="h-px flex-1 bg-slate-800" />
-          <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-3 py-1 text-slate-300">
+        <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-500">
+          <span className="h-px flex-1 bg-slate-300 dark:bg-slate-800" />
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border border-brand/30 bg-brand/10 px-3 py-1 text-slate-700 dark:text-slate-300">
             <span className="truncate">{fromAgent?.name ?? block.from_agent}</span>
-            <span className="text-brand-light">→</span>
+            <span className="text-brand dark:text-brand-light">→</span>
             <span className="truncate">{toAgent?.name ?? block.to_agent}</span>
           </span>
-          <span className="h-px flex-1 bg-slate-800" />
+          <span className="h-px flex-1 bg-slate-300 dark:bg-slate-800" />
         </div>
-        <div className="mx-auto mt-2 max-w-xl text-center text-xs leading-5 text-slate-500">
+        <div className="mx-auto mt-2 max-w-xl text-center text-xs leading-5 text-slate-600 dark:text-slate-500">
           {block.task}
         </div>
       </div>

@@ -50,15 +50,15 @@ export function WebPreviewBlock({
 
   return (
     <>
-      <div className="my-3 overflow-hidden rounded-md border border-slate-700 bg-slate-950 transition hover:border-brand hover:bg-slate-900">
-        <div className="border-b border-slate-800 bg-slate-900/70 px-4 py-3">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+      <div className="my-3 overflow-hidden rounded-md border border-slate-300 bg-white transition hover:border-brand hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:hover:bg-slate-900">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900/70">
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-500">
             <Globe2 className="h-3.5 w-3.5" />
             <span className="truncate">{getHostname(url)}</span>
             <button
               type="button"
               onClick={openPreview}
-              className="ml-auto rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-white"
+              className="ml-auto rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
               title="预览网页"
             >
               <Maximize2 className="h-3.5 w-3.5" />
@@ -69,7 +69,7 @@ export function WebPreviewBlock({
                 onClick={(event) => handleExternalLink(event, url)}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-white"
+                className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
                 title="打开外链"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -78,21 +78,29 @@ export function WebPreviewBlock({
           </div>
         </div>
         <button type="button" onClick={openPreview} className="block w-full px-4 py-3 text-left">
-          <div className="line-clamp-2 text-sm font-medium text-slate-100">{displayTitle}</div>
+          <div className="line-clamp-2 text-sm font-medium text-slate-950 dark:text-slate-100">
+            {displayTitle}
+          </div>
           {displayDescription && (
-            <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-500">{displayDescription}</p>
+            <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600 dark:text-slate-500">
+              {displayDescription}
+            </p>
           )}
-          <div className="mt-3 truncate text-xs text-brand-light">{url}</div>
+          <div className="mt-3 truncate text-xs text-brand dark:text-brand-light">{url}</div>
         </button>
       </div>
 
       {previewOpen && (
         <div className="fixed inset-0 z-50 flex h-[100dvh] items-center justify-center bg-slate-950/80 backdrop-blur-sm sm:px-4 sm:py-6">
-          <div className="flex h-full w-full flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40 sm:max-h-[86vh] sm:max-w-[min(1280px,calc(100vw-2rem))] sm:rounded-md">
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <div className="flex h-full w-full flex-col overflow-hidden border border-slate-300 bg-white shadow-2xl shadow-black/20 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40 sm:max-h-[86vh] sm:max-w-[min(1280px,calc(100vw-2rem))] sm:rounded-md">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-white">{displayTitle}</div>
-                <div className="mt-1 truncate text-xs text-slate-500">{url}</div>
+                <div className="truncate text-sm font-semibold text-slate-950 dark:text-white">
+                  {displayTitle}
+                </div>
+                <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-500">
+                  {url}
+                </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 {previewAllowed && (
@@ -101,7 +109,7 @@ export function WebPreviewBlock({
                     onClick={(event) => handleExternalLink(event, url)}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
+                    className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
                     title="新窗口打开"
                   >
                     <ExternalLink className="h-4 w-4" />
@@ -110,7 +118,7 @@ export function WebPreviewBlock({
                 <button
                   type="button"
                   onClick={() => setPreviewOpen(false)}
-                  className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
+                  className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
                   title="关闭预览"
                 >
                   <X className="h-4 w-4" />

@@ -43,11 +43,15 @@ function TreeNode({
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-slate-400 transition hover:bg-slate-800/70 hover:text-slate-200"
+          className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-slate-200"
           style={{ paddingLeft: `${8 + depth * 12}px` }}
         >
-          {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-          <Folder className="h-3.5 w-3.5 shrink-0 text-brand-light" />
+          {open ? (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+          )}
+          <Folder className="h-3.5 w-3.5 shrink-0 text-brand dark:text-brand-light" />
           <span className="truncate">{node.name}</span>
         </button>
         {open && (
@@ -76,15 +80,17 @@ function TreeNode({
       className={cn(
         'flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition',
         selectedPath === node.path
-          ? 'bg-brand/15 text-brand-light'
-          : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200',
+          ? 'bg-brand/10 text-brand dark:bg-brand/15 dark:text-brand-light'
+          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-slate-200',
       )}
       style={{ paddingLeft: `${28 + depth * 12}px` }}
       title={`${node.path} · ${formatSize(node.size)}`}
     >
       <FileCode2 className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{node.name}</span>
-      <span className="shrink-0 text-[11px] text-slate-600">{formatSize(node.size)}</span>
+      <span className="shrink-0 text-[11px] text-slate-500 dark:text-slate-600">
+        {formatSize(node.size)}
+      </span>
     </button>
   );
 }
@@ -102,10 +108,20 @@ export function WorkspaceFileTree({
     <>
       <div className="hidden space-y-0.5 md:block">
         {nodes.map((node) => (
-          <TreeNode key={node.path} node={node} selectedPath={selectedPath} onSelectFile={onSelectFile} depth={0} />
+          <TreeNode
+            key={node.path}
+            node={node}
+            selectedPath={selectedPath}
+            onSelectFile={onSelectFile}
+            depth={0}
+          />
         ))}
       </div>
-      <MobileWorkspaceBrowser nodes={nodes} selectedPath={selectedPath} onSelectFile={onSelectFile} />
+      <MobileWorkspaceBrowser
+        nodes={nodes}
+        selectedPath={selectedPath}
+        onSelectFile={onSelectFile}
+      />
     </>
   );
 }
@@ -129,12 +145,12 @@ function MobileWorkspaceBrowser({
 
   return (
     <div className="space-y-1 md:hidden" data-testid="mobile-workspace-browser">
-      <div className="mb-2 flex min-w-0 items-center gap-2 px-1 text-xs text-slate-500">
+      <div className="mb-2 flex min-w-0 items-center gap-2 px-1 text-xs text-slate-600 dark:text-slate-500">
         {directory && (
           <button
             type="button"
             onClick={() => setDirectoryPath(getParentDirectoryPath(nodes, directory.path))}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
             aria-label="返回上级目录"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
@@ -154,25 +170,27 @@ function MobileWorkspaceBrowser({
             className={cn(
               'flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2.5 text-left text-xs transition',
               selectedPath === node.path
-                ? 'bg-brand/15 text-brand-light'
-                : 'text-slate-400 hover:bg-slate-800/70 hover:text-slate-200',
+                ? 'bg-brand/10 text-brand dark:bg-brand/15 dark:text-brand-light'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-slate-200',
             )}
             title={`${node.path} · ${formatSize(node.size)}`}
           >
             <FileCode2 className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
-            <span className="shrink-0 text-[11px] text-slate-600">{formatSize(node.size)}</span>
+            <span className="shrink-0 text-[11px] text-slate-500 dark:text-slate-600">
+              {formatSize(node.size)}
+            </span>
           </button>
         ) : (
           <button
             key={node.path}
             type="button"
             onClick={() => setDirectoryPath(node.path)}
-            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2.5 text-left text-xs text-slate-400 transition hover:bg-slate-800/70 hover:text-slate-200"
+            className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2.5 text-left text-xs text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800/70 dark:hover:text-slate-200"
           >
-            <Folder className="h-4 w-4 shrink-0 text-brand-light" />
+            <Folder className="h-4 w-4 shrink-0 text-brand dark:text-brand-light" />
             <span className="min-w-0 flex-1 truncate">{node.name}</span>
-            <ChevronRight className="h-4 w-4 shrink-0 text-slate-600" />
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-600" />
           </button>
         ),
       )}
