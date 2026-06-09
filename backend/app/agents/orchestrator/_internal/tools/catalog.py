@@ -26,6 +26,10 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                     "instruction": {"type": "string"},
                     "expected_output": {"type": "string"},
                     "include_history": {"type": "boolean"},
+                    "task_type": {
+                        "type": "string",
+                        "enum": ["implementation", "review", "repair", "conversation"],
+                    },
                 },
                 "required": ["agent_id", "title", "instruction"],
             },

@@ -15,6 +15,13 @@ const message: DemoMessage = {
 };
 
 describe('MessageList', () => {
+  it('shows a recovery state instead of the empty chat state while a stream is active', () => {
+    render(<MessageList messages={[]} hasActiveStream />);
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在恢复当前回复...');
+    expect(screen.queryByText('开始一段新协作')).not.toBeInTheDocument();
+  });
+
   it('shows a load older messages control when more history exists', () => {
     const onLoadMore = vi.fn();
 

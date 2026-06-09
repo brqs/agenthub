@@ -58,6 +58,10 @@
 - `/tmp/agenthub_orchestrator_context_followup_browser.json`
 - `/tmp/agenthub_presentation_markers_report.json`
 - `/tmp/agenthub_presentation_markers_sse.jsonl`
+- `/tmp/agenthub_group_dialogue_debate_report.json`
+- `/tmp/agenthub_group_dialogue_debate_sse.jsonl`
+- `/tmp/agenthub_group_substantive_output_matrix_report.json`
+- `/tmp/agenthub_group_substantive_output_matrix_sse.jsonl`
 
 最终结论：`passed=true`。
 
@@ -95,6 +99,18 @@ preview / browser verify / deployment 输出、容器化部署按钮可发起受
 远端前端静态资源不在当前后端主机上，本轮未执行远端前端发布；前端消费逻辑由本地 Vitest
 与 `tsc --noEmit` 覆盖。
 
+2026-06-08 pure dialogue group chat repair 结论：`group_dialogue_debate_no_artifacts`
+公网 API/SSE 复验 `passed=true`。本轮验证“群组内两个智能体开展辩论、不需要生成文件、
+直接以对话形式输出”不会再落入 artifact legacy template，不会因负向约束中的
+`server.js/package.json` 误报 `artifact_missing`，且两个非 Orchestrator child messages 均为
+`done`。
+
+2026-06-08 sub-agent substantive output matrix 结论：`group_substantive_output_matrix`
+公网 API/SSE 复验 `passed=true`。本轮验证每个负责子 Agent 必须有通过 contract 的
+常显 `agent_summary`；纯主持、空泛完成语、无实质分析不会被标为完成；无文件对话/分析任务不触发
+`artifact_missing`；代码/文档/review 任务仍以产物和 review gaps 作为完成证据。真实 runtime
+尾部超时但已产出合格文本时，Orchestrator 保留审计证据并将 child message 正确完成。
+
 ---
 
 ## 2. Case Results
@@ -116,6 +132,72 @@ preview / browser verify / deployment 输出、容器化部署按钮可发起受
 | Case 11 - Command Fulfillment Cyberpunk Group Deploy | 显式文档/代码/Diff/多 Agent/review/preview/browser verify/deploy 要求逐项履约；Codex/OpenCode 真实失败后 fallback/repair，最终生成 `review.md` 并发布静态站点 | passed |
 | Case 12 - Context Follow-up Evidence Routing | 网站生成/预览/验收/部署后连续追问，Orchestrator 读取 run detail / workspace / preview / deployment / evaluation 证据直接回答，不重新规划或重跑子 Agent | passed |
 | Case 13 - Presentation Collapse Markers | ContentBlock presentation metadata 标记执行过程、工具 trace、产物证据、成员阶段总结和 Orchestrator 最终回答；API/SSE live 验证标记与清洗规则 | passed |
+| Case 14 - Pure Dialogue Group Debate | “不需要生成文件”的群聊辩论任务生成 conversation tasks，至少两个 child Agent 独立发言，跳过 artifact missing 检查，父 Orchestrator 正常主持总结 | passed |
+| Case 15 - Sub-Agent Substantive Output Matrix | 对话、圆桌、角色扮演、策略头脑风暴、数据分析、代码产物、review/gaps 均要求每个 child message 有实质 `agent_summary` 或可读失败/fallback 证据 | passed |
+
+2026-06-08 Case 15 sub-agent substantive output matrix 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: group_substantive_output_matrix
+report: /tmp/agenthub_group_substantive_output_matrix_report.json
+sse: /tmp/agenthub_group_substantive_output_matrix_sse.jsonl
+passed: true
+acceptance:
+  target_agents_present: true
+  matrix_all_cases_passed: true
+  matrix_each_case_has_child_messages: true
+  matrix_done_children_have_substantive_agent_summary: true
+  matrix_error_children_have_readable_failure_or_fallback: true
+  matrix_no_artifact_missing: true
+  matrix_no_false_document_fulfillment: true
+  matrix_final_text_no_false_document_requirement: true
+  matrix_visible_text_no_forbidden_terms: true
+cases:
+  debate_no_artifacts: passed, conversation f8a725cc-4763-4b9e-be9a-37041c999689
+  roundtable_no_artifacts: passed, conversation 069c16d6-b01b-4ab5-9127-53e7e5daf194
+  roleplay_dialogue: passed, conversation 158e54af-dbe3-4a10-9dd6-f8e61c13cb0f
+  strategy_brainstorm: passed, conversation 7dd9980a-300d-471f-b92f-6cde7974b990
+  data_analysis_no_file: passed, conversation 43939745-95c2-49ea-bd8b-4d6bb2901136
+  code_artifact_with_summary: passed, conversation e1db10e6-cde7-4d20-a038-c8863bbaa4c6
+  review_requires_gaps: passed, conversation 2dc56c72-af0f-4eb0-a258-537e8e5d3c07
+backend_pid: 271584 -> 292704
+alembic_current: c5d6e7f809ab (head)
+health: local ok, public ok
+seed_agents: not required
+```
+
+2026-06-08 Case 14 pure dialogue group debate 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: group_dialogue_debate_no_artifacts
+report: /tmp/agenthub_group_dialogue_debate_report.json
+sse: /tmp/agenthub_group_dialogue_debate_sse.jsonl
+conversation_id: a918dc3f-42f0-4e64-8e71-bc6e3f9ed4b4
+user_message_id: 1574dd6d-522e-4584-bcb0-b73219d74475
+agent_message_id: cc401cc0-41de-4af2-b7d2-a6a2c8884081
+plan_source: dialogue template
+child_messages: codex-helper done, claude-code done
+passed: true
+target_agents_present: true
+message_done: true
+plan_not_artifact_legacy_template: true
+at_least_two_child_messages: true
+at_least_two_child_agents: true
+child_messages_done: true
+no_artifact_missing: true
+no_server_package_missing: true
+parent_final_not_failed: true
+dialogue_content_present: true
+visible_text_no_forbidden_terms: true
+backend_pid: 105909 -> 171391
+alembic_current: c5d6e7f809ab (head)
+health: local ok, public ok
+seed_agents: not required
+```
 
 2026-06-08 Case 13 presentation collapse markers smoke 证据：
 

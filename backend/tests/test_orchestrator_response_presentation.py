@@ -191,12 +191,26 @@ async def test_polish_success_uses_model_output() -> None:
 async def test_polish_forbidden_or_empty_output_falls_back() -> None:
     tasks, states, context = _context()
     forbidden = FakePolishGateway("Observation: Tool read result ok call_abc")
+    missing_member_output = FakePolishGateway(
+        "两位成员已发言，但发言具体内容未保留，可以重新发起辩论查看。"
+    )
     empty = FakePolishGateway("")
 
     forbidden_text = await presented_response_text(
         {
             "orchestrator_response_polish_enabled": True,
             "orchestrator_response_polish_gateway": forbidden,
+        },
+        [ChatMessage(role="user", content="Create a report")],
+        tasks,
+        states,
+        context,
+        "Execution summary\n- succeeded: @agent-a - Write report\n",
+    )
+    missing_member_text = await presented_response_text(
+        {
+            "orchestrator_response_polish_enabled": True,
+            "orchestrator_response_polish_gateway": missing_member_output,
         },
         [ChatMessage(role="user", content="Create a report")],
         tasks,
@@ -219,6 +233,9 @@ async def test_polish_forbidden_or_empty_output_falls_back() -> None:
     assert "Observation:" not in forbidden_text
     assert "call_" not in forbidden_text
     assert "Write report" in forbidden_text
+    assert "未保留" not in missing_member_text
+    assert "重新发起辩论" not in missing_member_text
+    assert missing_member_text == forbidden_text
     assert empty_text == forbidden_text
 
 

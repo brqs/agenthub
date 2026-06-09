@@ -312,6 +312,32 @@ def test_artifact_candidates_use_expected_output_as_required_contract() -> None:
     assert attempt.artifact_paths == ["review.md"]
 
 
+def test_artifact_candidates_ignore_negative_file_constraints() -> None:
+    paths = extract_artifact_paths_from_text(
+        "Do not create server.js, package.json server scripts. Create index.html."
+    )
+
+    assert paths == ["index.html"]
+
+
+def test_conversation_task_does_not_require_artifacts() -> None:
+    attempt = TaskAttempt(attempt_index=1, agent_id="agent-a")
+    task = SubTask(
+        task_id="dialogue-pro",
+        agent_id="agent-a",
+        title="正方发言",
+        instruction=(
+            "组织两个智能体辩论，不需要生成文件，直接以对话形式输出。"
+            "Do not create server.js or package.json."
+        ),
+        task_type="conversation",
+    )
+
+    finalize_artifact_candidates(attempt, task)
+
+    assert attempt.artifact_paths == []
+
+
 async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -> None:
     adapter_a = FakeSubAdapter("agent-a", _text_chunks("backend done"))
     adapter_b = FakeSubAdapter("agent-b", _text_chunks("frontend done"))

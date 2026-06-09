@@ -21,19 +21,28 @@ type SortableMessage = Pick<
   'id' | 'role' | 'reply_to_id' | 'created_at' | 'status' | 'queue_position'
 >;
 
+type MessageSnapshotValue = Partial<Omit<Message, 'content'>> & {
+  content?: Message['content'] | DemoContentBlock[];
+};
+
+type StreamStartMessage = Pick<Message, 'id' | 'conversation_id' | 'agent_id'> &
+  MessageSnapshotValue;
+
+interface ActiveStreamState {
+  messageId: string;
+  conversationId: string;
+  agentId: string | null;
+  startedAt: string;
+  interrupting?: boolean;
+  replyToId?: string | null;
+  agentMessageSnapshot?: DemoMessage;
+  parentUserMessageSnapshot?: DemoMessage;
+}
+
 interface ChatState {
   conversations: DemoConversation[];
   messagesByConversation: Record<string, DemoMessage[]>;
-  activeStreams: Record<
-    string,
-    {
-      messageId: string;
-      conversationId: string;
-      agentId: string | null;
-      startedAt: string;
-      interrupting?: boolean;
-    }
-  >;
+  activeStreams: Record<string, ActiveStreamState>;
   selectedConversationId: string;
   search: string;
   highlightedMessageId: string | null;
@@ -44,7 +53,7 @@ interface ChatState {
   toggleConversationPin: (conversationId: string) => void;
   toggleConversationArchive: (conversationId: string) => void;
   applyStreamEvent: (messageId: string, event: StreamEvent) => void;
-  startActiveStream: (message: Pick<Message, 'id' | 'conversation_id' | 'agent_id'>) => void;
+  startActiveStream: (message: StreamStartMessage) => void;
   setActiveStreamInterrupting: (messageId: string, interrupting: boolean) => void;
   finishActiveStream: (messageId: string) => void;
   resetMessageForRetry: (messageId: string) => void;
@@ -938,6 +947,97 @@ function upsertMessages(current: DemoMessage[], messages: DemoMessage[]): DemoMe
   return sortMessagesForDisplay([...byId.values()]);
 }
 
+function messageSnapshotFromValue(value: MessageSnapshotValue): DemoMessage | null {
+  if (
+    typeof value.id !== 'string' ||
+    typeof value.conversation_id !== 'string' ||
+    value.role !== 'agent' ||
+    !Array.isArray(value.content)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    conversation_id: value.conversation_id,
+    role: value.role,
+    agent_id: value.agent_id ?? null,
+    reply_to_id: value.reply_to_id ?? null,
+    status:
+      value.status === 'pending' ||
+      value.status === 'streaming' ||
+      value.status === 'done' ||
+      value.status === 'error' ||
+      value.status === 'queued' ||
+      value.status === 'interrupted'
+        ? value.status
+        : 'streaming',
+    is_pinned: Boolean(value.is_pinned),
+    created_at: value.created_at ?? new Date().toISOString(),
+    content: value.content as DemoContentBlock[],
+    turn_options: value.turn_options,
+  };
+}
+
+function findParentUserMessage(
+  messages: DemoMessage[],
+  agentMessage: Pick<DemoMessage, 'reply_to_id'>,
+): DemoMessage | undefined {
+  if (!agentMessage.reply_to_id) return undefined;
+  const parent = messages.find((message) => message.id === agentMessage.reply_to_id);
+  return parent?.role === 'user' ? parent : undefined;
+}
+
+function activeStreamSnapshot(
+  stream: ActiveStreamState,
+  messages: DemoMessage[],
+  fallbackAgentMessage?: DemoMessage | null,
+): ActiveStreamState {
+  const agentMessage =
+    fallbackAgentMessage ??
+    messages.find((message) => message.id === stream.messageId && message.role === 'agent') ??
+    stream.agentMessageSnapshot;
+  const parentUserMessage = agentMessage
+    ? findParentUserMessage(messages, agentMessage) ?? stream.parentUserMessageSnapshot
+    : stream.parentUserMessageSnapshot;
+  return {
+    ...stream,
+    agentId: agentMessage?.agent_id ?? stream.agentId,
+    replyToId: agentMessage?.reply_to_id ?? stream.replyToId ?? null,
+    agentMessageSnapshot: agentMessage ?? stream.agentMessageSnapshot,
+    parentUserMessageSnapshot: parentUserMessage,
+  };
+}
+
+function updateActiveStreamSnapshot(
+  activeStreams: ChatState['activeStreams'],
+  message: DemoMessage | null | undefined,
+  messages: DemoMessage[],
+): ChatState['activeStreams'] {
+  if (!message || message.role !== 'agent') return activeStreams;
+  const stream = activeStreams[message.id];
+  if (!stream || stream.conversationId !== message.conversation_id) return activeStreams;
+  return {
+    ...activeStreams,
+    [message.id]: activeStreamSnapshot(stream, messages, message),
+  };
+}
+
+function recoveredAgentMessage(stream: ActiveStreamState): DemoMessage {
+  return (
+    stream.agentMessageSnapshot ?? {
+      id: stream.messageId,
+      conversation_id: stream.conversationId,
+      role: 'agent',
+      agent_id: stream.agentId,
+      reply_to_id: stream.replyToId ?? null,
+      status: 'streaming',
+      is_pinned: false,
+      created_at: stream.startedAt,
+      content: [],
+    }
+  );
+}
+
 function ensureStreamTargetMessage(
   messagesByConversation: Record<string, DemoMessage[]>,
   conversationId: string,
@@ -1080,6 +1180,11 @@ export const useChatStore = create<ChatState>((set) => ({
         const touchedMessage = nextMessagesByConversation[conversationId].find(
           (message) => message.id === targetMessageId,
         );
+        const nextActiveStreams = updateActiveStreamSnapshot(
+          state.activeStreams,
+          touchedMessage,
+          nextMessagesByConversation[conversationId] ?? [],
+        );
         return {
           messagesByConversation: nextMessagesByConversation,
           conversations: updateConversationPreview(
@@ -1087,6 +1192,7 @@ export const useChatStore = create<ChatState>((set) => ({
             conversationId,
             touchedMessage,
           ),
+          activeStreams: nextActiveStreams,
         };
       }
 
@@ -1156,23 +1262,39 @@ export const useChatStore = create<ChatState>((set) => ({
       return {
         messagesByConversation: nextMessagesByConversation,
         conversations: nextConversations,
-        activeStreams: nextActiveStreams,
+        activeStreams: updateActiveStreamSnapshot(
+          nextActiveStreams,
+          touchedMessage,
+          touchedConversationId ? (nextMessagesByConversation[touchedConversationId] ?? []) : [],
+        ),
       };
     });
   },
   startActiveStream: (message) => {
-    set((state) => ({
-      activeStreams: {
-        ...state.activeStreams,
-        [message.id]: {
-          messageId: message.id,
-          conversationId: message.conversation_id,
-          agentId: message.agent_id ?? null,
-          startedAt: new Date().toISOString(),
-          interrupting: false,
+    set((state) => {
+      const currentMessages = state.messagesByConversation[message.conversation_id] ?? [];
+      const existingMessage = currentMessages.find((item) => item.id === message.id);
+      const snapshot = existingMessage ?? messageSnapshotFromValue(message);
+      const parentUserMessage = snapshot
+        ? findParentUserMessage(currentMessages, snapshot)
+        : undefined;
+      return {
+        activeStreams: {
+          ...state.activeStreams,
+          [message.id]: {
+            messageId: message.id,
+            conversationId: message.conversation_id,
+            agentId: message.agent_id ?? null,
+            startedAt: state.activeStreams[message.id]?.startedAt ?? new Date().toISOString(),
+            interrupting: state.activeStreams[message.id]?.interrupting ?? false,
+            replyToId: snapshot?.reply_to_id ?? state.activeStreams[message.id]?.replyToId ?? null,
+            agentMessageSnapshot: snapshot ?? state.activeStreams[message.id]?.agentMessageSnapshot,
+            parentUserMessageSnapshot:
+              parentUserMessage ?? state.activeStreams[message.id]?.parentUserMessageSnapshot,
+          },
         },
-      },
-    }));
+      };
+    });
   },
   setActiveStreamInterrupting: (messageId, interrupting) => {
     set((state) => {
@@ -1395,7 +1517,7 @@ function mergeHydratedMessages(
   for (const message of current) {
     const activeStream = activeStreams[message.id];
     if (activeStream?.conversationId !== conversationId) continue;
-    if (message.status !== 'streaming') continue;
+    if (message.status !== 'pending' && message.status !== 'streaming') continue;
 
     protectedLocalMessageIds.add(message.id);
     if (message.reply_to_id && currentById.has(message.reply_to_id)) {
@@ -1404,11 +1526,11 @@ function mergeHydratedMessages(
   }
 
   for (const message of incoming) {
-    const currentMessage = currentById.get(message.id);
     const activeStream = activeStreams[message.id];
+    const currentMessage = currentById.get(message.id) ?? activeStream?.agentMessageSnapshot;
     if (
       activeStream?.conversationId === conversationId &&
-      currentMessage?.status === 'streaming'
+      (currentMessage?.status === 'pending' || currentMessage?.status === 'streaming')
     ) {
       mergedById.set(message.id, currentMessage);
       continue;
@@ -1437,6 +1559,17 @@ function mergeHydratedMessages(
     mergedById.set(message.id, message);
   }
 
+  for (const stream of Object.values(activeStreams)) {
+    if (stream.conversationId !== conversationId) continue;
+    const agentMessage = recoveredAgentMessage(stream);
+    if (stream.parentUserMessageSnapshot && !mergedById.has(stream.parentUserMessageSnapshot.id)) {
+      mergedById.set(stream.parentUserMessageSnapshot.id, stream.parentUserMessageSnapshot);
+    }
+    if (!mergedById.has(agentMessage.id)) {
+      mergedById.set(agentMessage.id, agentMessage);
+    }
+  }
+
   for (const message of current) {
     if (!protectedLocalMessageIds.has(message.id)) continue;
     if (mergedById.has(message.id)) continue;
@@ -1451,6 +1584,7 @@ function mergeHydratedActiveStreams(
   messages: DemoMessage[],
 ): ChatState['activeStreams'] {
   const next = { ...current };
+  const messagesById = new Map(messages.map((message) => [message.id, message]));
   for (const message of messages) {
     if (message.role !== 'agent') continue;
     if (
@@ -1465,12 +1599,23 @@ function mergeHydratedActiveStreams(
       (message.status === 'pending' || message.status === 'streaming') &&
       message.agent_id
     ) {
-      next[message.id] = next[message.id] ?? {
+      const currentStream = next[message.id] ?? {
         messageId: message.id,
         conversationId: message.conversation_id,
         agentId: message.agent_id,
         startedAt: new Date().toISOString(),
         interrupting: false,
+      };
+      const parent = message.reply_to_id ? messagesById.get(message.reply_to_id) : undefined;
+      next[message.id] = {
+        ...currentStream,
+        agentId: message.agent_id,
+        replyToId: message.reply_to_id ?? currentStream.replyToId ?? null,
+        agentMessageSnapshot: message,
+        parentUserMessageSnapshot:
+          parent?.role === 'user'
+            ? parent
+            : currentStream.parentUserMessageSnapshot,
       };
     }
   }

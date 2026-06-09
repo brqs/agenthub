@@ -86,6 +86,7 @@ export function ChatPage() {
         .filter((stream) => stream.conversationId === conversation.id)
         .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0]
     : undefined;
+  const hasActiveStreamForConversation = Boolean(currentActiveStream);
   const interruptingMessageIds = Object.fromEntries(
     Object.entries(activeStreams)
       .filter(([, stream]) => stream.interrupting)
@@ -170,6 +171,7 @@ export function ChatPage() {
             <StreamingStatusBar messages={messages} agents={agents} />
             <MessageList
               messages={messages}
+              hasActiveStream={hasActiveStreamForConversation}
               agents={agents}
               highlightedMessageId={highlightedMessageId}
               isLoading={messagesLoading}

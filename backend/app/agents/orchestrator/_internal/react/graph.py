@@ -87,6 +87,7 @@ def _react_update_task(
             "priority": task.priority,
             "expected_output": task.expected_output,
             "include_history": task.include_history,
+            "task_type": task.task_type,
         }
         for key in (
             "agent_id",
@@ -96,6 +97,7 @@ def _react_update_task(
             "priority",
             "expected_output",
             "include_history",
+            "task_type",
         ):
             if key in patch:
                 raw[key] = patch[key]

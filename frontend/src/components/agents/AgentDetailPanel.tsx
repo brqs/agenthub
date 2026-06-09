@@ -1,5 +1,6 @@
 import {
   Bot,
+  Brain,
   CheckCircle2,
   Code2,
   Download,
@@ -9,6 +10,7 @@ import {
   Layers3,
   Loader2,
   MessageSquarePlus,
+  PlayCircle,
   ShieldCheck,
   SquarePen,
   Trash2,
@@ -19,15 +21,20 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { AgentAvatar } from './AgentAvatar';
 import { useAgentAssets } from '@/hooks/useAgentAssets';
+import { useAgentMcpHealthCheck, useAgentTestRun } from '@/hooks/useAgentRuntimeChecks';
 import { extractApiError } from '@/lib/api';
 import { uploadDownloadUrl } from '@/lib/adapters/uploads';
 import type {
   Agent,
   AgentAssetUsageEventRef,
   AgentAssetVersionRef,
+  AgentBuilderProfile,
   AgentKnowledgeRef,
   AgentKnowledgeUsage,
+  AgentModelProfile,
+  AgentPermissions,
   AgentSkillRef,
+  ContentBlock,
 } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -72,6 +79,9 @@ export function AgentDetailPanel({
   const [skillDescription, setSkillDescription] = useState('');
   const [editingAsset, setEditingAsset] = useState<EditingAsset | null>(null);
   const [assetEditError, setAssetEditError] = useState('');
+  const [testPrompt, setTestPrompt] = useState('Say hello and describe how you can help.');
+  const mcpHealth = useAgentMcpHealthCheck();
+  const testRun = useAgentTestRun();
   const agentAssets = useAgentAssets(agent?.id);
   const panelClassName = cn(
     'h-full shrink-0 overflow-y-auto bg-white p-5 scrollbar-thin dark:bg-slate-900',
@@ -83,6 +93,7 @@ export function AgentDetailPanel({
   useEffect(() => {
     setEditingAsset(null);
     setAssetEditError('');
+    setTestPrompt('Say hello and describe how you can help.');
   }, [agent?.id]);
 
   if (!agent) {
@@ -193,6 +204,27 @@ export function AgentDetailPanel({
     }
   }
 
+  async function checkMcpHealth() {
+    if (!agent) return;
+    try {
+      await mcpHealth.mutateAsync(agent.id);
+    } catch {
+      // Mutation state renders the failure; keep the panel open.
+    }
+  }
+
+  async function runAgentTest() {
+    if (!agent || !testPrompt.trim()) return;
+    try {
+      await testRun.mutateAsync({ agentId: agent.id, prompt: testPrompt.trim() });
+    } catch {
+      // Mutation state renders the failure; keep the panel open.
+    }
+  }
+
+  const builderProfile = readBuilderProfile(agent.config);
+  const permissions = readPermissions(agent.config);
+
   return (
     <aside className={panelClassName}>
       {presentation === 'mobile' && (
@@ -224,7 +256,7 @@ export function AgentDetailPanel({
         <div className="mt-4 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
           {agent.is_builtin ? (
             <>
-              <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+              <ShieldCheck className="h-4 w-4 text-emerald-400" />
               内置 Agent
             </>
           ) : (
@@ -240,7 +272,7 @@ export function AgentDetailPanel({
             <button
               type="button"
               onClick={() => onEdit?.(agent)}
-              className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
             >
               <Edit3 className="h-4 w-4" />
               编辑
@@ -278,12 +310,20 @@ export function AgentDetailPanel({
         </div>
       </section>
 
+      <AgentConfigOverview profile={builderProfile} permissions={permissions} />
+
       <section className="mt-6 rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
         <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-950 dark:text-white">
           <Code2 className="h-4 w-4 text-brand dark:text-brand-light" />
           运行配置
         </div>
         <dl className="space-y-3 text-sm">
+          <div>
+            <dt className="text-xs text-slate-600 dark:text-slate-500">模型账号</dt>
+            <dd className="mt-1 text-slate-800 dark:text-slate-200">
+              {modelProfileSummary(readModelProfile(agent.config))}
+            </dd>
+          </div>
           <div>
             <dt className="text-xs text-slate-600 dark:text-slate-500">Model</dt>
             <dd className="mt-1 text-slate-800 dark:text-slate-200">
@@ -436,17 +476,117 @@ export function AgentDetailPanel({
       />
 
       <section className="mt-6 rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-slate-950 dark:text-white">
+            <Wrench className="h-4 w-4 text-brand dark:text-brand-light" />
+            MCP health
+          </div>
+          <button
+            type="button"
+            onClick={() => void checkMcpHealth()}
+            disabled={mcpHealth.isPending}
+            className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+          >
+            {mcpHealth.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            Check
+          </button>
+        </div>
+        {mcpHealth.data ? (
+          <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+            <div>Status: {mcpHealth.data.status}</div>
+            {mcpHealth.data.servers.length ? (
+              mcpHealth.data.servers.map((server) => (
+                <div
+                  key={server.name}
+                  className="rounded-md border border-slate-300 p-2 dark:border-slate-800"
+                >
+                  <div className="text-slate-800 dark:text-slate-200">
+                    {server.name} · {server.status}
+                  </div>
+                  {server.error ? (
+                    <div className="mt-1 text-xs text-rose-700 dark:text-rose-300">
+                      {server.error}
+                    </div>
+                  ) : null}
+                  {server.tools.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {server.tools.map((tool) => (
+                        <span
+                          key={tool.name}
+                          className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        >
+                          {tool.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-slate-600 dark:text-slate-500">
+                No MCP servers configured.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-sm text-slate-600 dark:text-slate-500">
+            Run a check to verify configured MCP tools.
+          </div>
+        )}
+      </section>
+
+      <section className="mt-6 rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
         <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-950 dark:text-white">
-          <MessageSquarePlus className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+          <PlayCircle className="h-4 w-4 text-emerald-400" />
+          Test run
+        </div>
+        <textarea
+          value={testPrompt}
+          onChange={(event) => setTestPrompt(event.target.value)}
+          rows={3}
+          className="w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-5 text-slate-950 outline-none focus:border-brand dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+        />
+        <button
+          type="button"
+          onClick={() => void runAgentTest()}
+          disabled={testRun.isPending || !testPrompt.trim()}
+          className="mt-3 inline-flex items-center gap-2 rounded-md bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {testRun.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <PlayCircle className="h-4 w-4" />
+          )}
+          Run test
+        </button>
+        {testRun.data ? (
+          <div className="mt-3 rounded-md border border-slate-300 bg-white p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+            <div
+              className={
+                testRun.data.status === 'error'
+                  ? 'text-rose-700 dark:text-rose-300'
+                  : 'text-emerald-700 dark:text-emerald-300'
+              }
+            >
+              {testRun.data.status}
+            </div>
+            <TestRunContent blocks={testRun.data.content} />
+          </div>
+        ) : null}
+      </section>
+
+      <section className="mt-6 rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-950 dark:text-white">
+          <MessageSquarePlus className="h-4 w-4 text-emerald-400" />
           接入状态
         </div>
         <div className="space-y-2 text-sm text-slate-700 dark:text-slate-400">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
             远端 Agent 注册表已连接
           </div>
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
             可加入新建会话
           </div>
         </div>
@@ -469,6 +609,50 @@ export function AgentDetailPanel({
       />
     </aside>
   );
+}
+
+function AgentConfigOverview({
+  profile,
+  permissions,
+}: {
+  profile: AgentBuilderProfile | null;
+  permissions: AgentPermissions | null;
+}) {
+  if (!profile && !permissions) return null;
+  return (
+    <section className="mt-6 rounded-md border border-slate-300 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/60">
+      <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-950 dark:text-white">
+        <Brain className="h-4 w-4 text-brand dark:text-brand-light" />
+        Builder profile
+      </div>
+      <dl className="space-y-3 text-sm">
+        {profile?.purpose ? <OverviewRow label="Purpose" value={profile.purpose} /> : null}
+        {profile?.tone ? <OverviewRow label="Tone" value={profile.tone} /> : null}
+        {profile?.clarification_policy ? (
+          <OverviewRow label="Clarification" value={profile.clarification_policy} />
+        ) : null}
+        {permissions ? <OverviewRow label="Tools" value={permissionSummary(permissions)} /> : null}
+      </dl>
+    </section>
+  );
+}
+
+function OverviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-slate-600 dark:text-slate-500">{label}</dt>
+      <dd className="mt-1 text-slate-800 dark:text-slate-200">{value}</dd>
+    </div>
+  );
+}
+
+function TestRunContent({ blocks }: { blocks: ContentBlock[] }) {
+  const text = blocks
+    .map((block) => (block.type === 'text' ? block.text : `[${block.type}]`))
+    .filter(Boolean)
+    .join('\n\n');
+  if (!text) return null;
+  return <div className="mt-2 whitespace-pre-wrap text-slate-700 dark:text-slate-300">{text}</div>;
 }
 
 function AssetLifecycleSection({
@@ -606,7 +790,7 @@ function AssetSectionHeader({
           type="button"
           disabled={isPending}
           onClick={onAction}
-          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
         >
           {isPending ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -654,7 +838,7 @@ function AssetList({
           className="flex items-start justify-between gap-3 rounded-md border border-slate-300 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/70"
         >
           <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+            <div className="truncate text-sm font-medium text-slate-950 dark:text-slate-100">
               {item.title}
             </div>
             <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 dark:text-slate-500">
@@ -894,6 +1078,89 @@ function AssetEditDialog({
       </form>
     </div>
   );
+}
+
+function readBuilderProfile(config: Record<string, unknown>): AgentBuilderProfile | null {
+  const value = config.builder_profile;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return {
+    role: optionalString(record.role),
+    purpose: optionalString(record.purpose),
+    goals: stringList(record.goals),
+    tone: optionalString(record.tone),
+    do_not_do: stringList(record.do_not_do),
+    clarification_policy:
+      record.clarification_policy === 'ask_first' ||
+      record.clarification_policy === 'decide_with_defaults'
+        ? record.clarification_policy
+        : 'balanced',
+    output_style: optionalString(record.output_style),
+    starters: stringList(record.starters),
+  };
+}
+
+function readPermissions(config: Record<string, unknown>): AgentPermissions | null {
+  const value = config.permissions;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return {
+    workspace_read: record.workspace_read === true,
+    workspace_write: record.workspace_write === true,
+    run_commands:
+      record.run_commands === 'ask' || record.run_commands === 'auto_low_risk'
+        ? record.run_commands
+        : 'never',
+    network:
+      record.network === 'ask' || record.network === 'allowlisted' ? record.network : 'never',
+    deploy: record.deploy === 'ask' ? 'ask' : 'never',
+    external_accounts: record.external_accounts === 'ask' ? 'ask' : 'never',
+  };
+}
+
+function readModelProfile(config: Record<string, unknown>): AgentModelProfile | null {
+  const value = config.model_profile;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return {
+    source: record.source === 'user_account' ? 'user_account' : 'agenthub_default',
+    account_id: optionalString(record.account_id),
+    provider:
+      record.provider === 'deepseek' ||
+      record.provider === 'openai' ||
+      record.provider === 'anthropic' ||
+      record.provider === 'openai_compatible'
+        ? record.provider
+        : null,
+    model: optionalString(record.model),
+  };
+}
+
+function modelProfileSummary(profile: AgentModelProfile | null): string {
+  if (!profile || profile.source === 'agenthub_default') {
+    return 'AgentHub 免费 DeepSeek';
+  }
+  return `${profile.provider ?? '自带 API'} · ${profile.model ?? '默认模型'}`;
+}
+
+function permissionSummary(permissions: AgentPermissions): string {
+  const values: string[] = [];
+  if (permissions.workspace_read || permissions.workspace_write) values.push('read files');
+  if (permissions.workspace_write) values.push('write files');
+  if (permissions.run_commands !== 'never') values.push('run commands');
+  if (permissions.network !== 'never') values.push('network');
+  if (permissions.deploy !== 'never') values.push('deploy on request');
+  return values.length ? values.join(', ') : 'no tools';
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    : [];
 }
 
 function readConfigItems<T>(config: Record<string, unknown>, key: string): T[] {

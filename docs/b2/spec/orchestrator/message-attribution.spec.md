@@ -83,6 +83,8 @@ SSE lifecycle：
 - 父 Orchestrator message 继续承载 task card、process、orchestration 证据与最终用户可见总结。
 - 已知不可运行 Agent 在 attempt 前被过滤时，不创建对应 child message；Orchestrator process / memory 记录“检测到不可用并改派”。
 - 子 message 失败时，`message_error.error` 和空 error child fallback text 必须是清洗后的用户可读原因，不暴露本地认证路径、Errno、stderr、stack trace 或 call id。
+- 子 message `status="done"` 不再只代表 runtime stream 正常结束；它还必须代表该 Agent 的输出通过任务类型匹配的实质输出合同。只有 process/tool trace 或空泛完成语不能使 child message 进入 done。
+- 子 Agent 第一次输出不合格时，Orchestrator 可在同一 child message 内追加 `output-correction` process step 并重试一次；仍不合格时该 child message 以清洗后的 `message_error` 结束，后续 fallback Agent 会创建独立 child message。
 
 关闭 `orchestrator_group_messages_enabled=false` 时，Orchestrator 回到旧模式：所有子 Agent block 仍在父 Orchestrator message 中以 `agent_id` 标记。
 

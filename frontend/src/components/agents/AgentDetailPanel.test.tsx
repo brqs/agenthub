@@ -18,7 +18,10 @@ const agent: Agent = {
 describe('AgentDetailPanel', () => {
   it('renders and closes its mobile presentation', () => {
     const onClose = vi.fn();
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
     render(
       <QueryClientProvider client={queryClient}>
         <AgentDetailPanel agent={agent} presentation="mobile" onClose={onClose} />
