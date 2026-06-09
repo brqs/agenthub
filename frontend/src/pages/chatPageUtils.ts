@@ -10,3 +10,10 @@ export function resolveConversation(
   if (activeConversation || routeConversationId) return activeConversation;
   return conversations[0];
 }
+
+export function resolveMessageConversationId(
+  routeConversationId: string | undefined,
+  resolvedConversationId: string | undefined,
+): string | undefined {
+  return routeConversationId ?? resolvedConversationId;
+}

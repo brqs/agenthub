@@ -53,6 +53,15 @@ export function MessageList({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const restoreScrollHeightRef = useRef<number | null>(null);
   const nearBottomRef = useRef(true);
+  const userRequestedHistoryScrollRef = useRef(false);
+
+  const activeConversationId = messages[0]?.conversation_id ?? null;
+
+  useLayoutEffect(() => {
+    userRequestedHistoryScrollRef.current = false;
+    restoreScrollHeightRef.current = null;
+    nearBottomRef.current = true;
+  }, [activeConversationId]);
 
   useLayoutEffect(() => {
     const scrollEl = scrollRef.current;
@@ -75,9 +84,20 @@ export function MessageList({
     if (!scrollEl) return;
     nearBottomRef.current =
       scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 120;
-    if (scrollEl.scrollTop > 80 || !hasMore || isLoadingMore) return;
+    if (
+      !userRequestedHistoryScrollRef.current ||
+      scrollEl.scrollTop > 80 ||
+      !hasMore ||
+      isLoadingMore
+    ) {
+      return;
+    }
     restoreScrollHeightRef.current = scrollEl.scrollHeight;
     onLoadMore?.();
+  }
+
+  function markUserRequestedHistoryScroll() {
+    userRequestedHistoryScrollRef.current = true;
   }
 
   if (isLoading) {
@@ -151,6 +171,9 @@ export function MessageList({
     <div
       ref={scrollRef}
       onScroll={handleScroll}
+      onPointerDown={markUserRequestedHistoryScroll}
+      onTouchMove={markUserRequestedHistoryScroll}
+      onWheel={markUserRequestedHistoryScroll}
       className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-2 py-4 scrollbar-thin sm:px-6 sm:py-5 [@media(max-height:800px)]:py-4"
     >
       <div className="mobile-text-safe mx-auto flex max-w-5xl flex-col gap-4">
