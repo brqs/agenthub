@@ -19,6 +19,20 @@ from app.agents.config_fields import (
 QA_MODEL_BACKENDS = SUPPORTED_UPSTREAM_PROVIDERS
 BUILTIN_NATIVE_TOOL_NAMES = {"read_file", "write_file", "bash"}
 MCP_TOOL_NAME_RE = re.compile(r"^mcp_([^_][A-Za-z0-9_-]*)__(.+)$")
+MEMORY_POLICIES = {"none", "conversation", "project", "user"}
+CLARIFICATION_POLICIES = {"ask_first", "balanced", "decide_with_defaults"}
+RUN_COMMAND_POLICIES = {"never", "ask", "auto_low_risk"}
+NETWORK_POLICIES = {"never", "ask", "allowlisted"}
+ASK_POLICIES = {"never", "ask"}
+FORBIDDEN_SECRET_CONFIG_KEYS = {
+    "api_key",
+    "apikey",
+    "secret",
+    "access_token",
+    "authorization",
+}
+MODEL_PROFILE_SOURCES = {"agenthub_default", "user_account"}
+MODEL_PROFILE_PROVIDERS = {"deepseek", "openai", "anthropic", "openai_compatible"}
 
 
 class AgentConfigValidationError(ValueError):
@@ -164,6 +178,164 @@ def _validate_mcp_servers(config: dict[str, Any]) -> None:
             code="INVALID_AGENT_CONFIG",
             message="'mcp_servers' must be a list of objects",
             details={"field": "mcp_servers", "value": value},
+        )
+
+
+def _validate_builder_profile(config: dict[str, Any]) -> None:
+    value = config.get("builder_profile")
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'builder_profile' must be an object",
+            details={"field": "builder_profile", "value": value},
+        )
+    for key in ("role", "purpose", "tone", "output_style"):
+        raw = value.get(key)
+        if raw is not None and not isinstance(raw, str):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=f"'builder_profile.{key}' must be a string",
+                details={"field": f"builder_profile.{key}", "value": raw},
+            )
+    for key in ("goals", "do_not_do", "starters"):
+        raw = value.get(key)
+        if raw is not None and (
+            not isinstance(raw, list) or not all(isinstance(item, str) for item in raw)
+        ):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=f"'builder_profile.{key}' must be a list of strings",
+                details={"field": f"builder_profile.{key}", "value": raw},
+            )
+    clarification_policy = value.get("clarification_policy")
+    if clarification_policy is not None and clarification_policy not in CLARIFICATION_POLICIES:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'builder_profile.clarification_policy' is not supported",
+            details={
+                "field": "builder_profile.clarification_policy",
+                "value": clarification_policy,
+            },
+        )
+
+
+def _validate_permissions(config: dict[str, Any]) -> None:
+    value = config.get("permissions")
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'permissions' must be an object",
+            details={"field": "permissions", "value": value},
+        )
+    for key in ("workspace_read", "workspace_write"):
+        raw = value.get(key)
+        if raw is not None and not isinstance(raw, bool):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=f"'permissions.{key}' must be a boolean",
+                details={"field": f"permissions.{key}", "value": raw},
+            )
+    _validate_permission_choice(value, "run_commands", RUN_COMMAND_POLICIES)
+    _validate_permission_choice(value, "network", NETWORK_POLICIES)
+    _validate_permission_choice(value, "deploy", ASK_POLICIES)
+    _validate_permission_choice(value, "external_accounts", ASK_POLICIES)
+
+
+def _validate_permission_choice(
+    permissions: dict[str, Any],
+    key: str,
+    allowed: set[str],
+) -> None:
+    raw = permissions.get(key)
+    if raw is None:
+        return
+    if not isinstance(raw, str) or raw not in allowed:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=f"'permissions.{key}' is not supported",
+            details={"field": f"permissions.{key}", "value": raw},
+        )
+
+
+def _validate_memory_policy(config: dict[str, Any]) -> None:
+    value = config.get("memory_policy")
+    if value is None:
+        return
+    if not isinstance(value, str) or value not in MEMORY_POLICIES:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'memory_policy' is not supported",
+            details={"field": "memory_policy", "value": value},
+        )
+
+
+def _validate_no_inline_secrets(value: Any, path: str = "config") -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            key_text = str(key)
+            if key_text.lower() in FORBIDDEN_SECRET_CONFIG_KEYS:
+                raise AgentConfigValidationError(
+                    code="INVALID_AGENT_CONFIG",
+                    message="Agent config cannot contain inline API keys or secrets",
+                    details={"field": f"{path}.{key_text}"},
+                )
+            _validate_no_inline_secrets(child, f"{path}.{key_text}")
+        return
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            _validate_no_inline_secrets(child, f"{path}[{index}]")
+
+
+def _validate_model_profile(config: dict[str, Any]) -> None:
+    value = config.get("model_profile")
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'model_profile' must be an object",
+            details={"field": "model_profile", "value": value},
+        )
+    source = value.get("source", "agenthub_default")
+    if not isinstance(source, str) or source not in MODEL_PROFILE_SOURCES:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'model_profile.source' is not supported",
+            details={"field": "model_profile.source", "value": source},
+        )
+    account_id = value.get("account_id")
+    if source == "user_account":
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message="'model_profile.account_id' is required for user model accounts",
+                details={"field": "model_profile.account_id", "value": account_id},
+            )
+    elif account_id is not None:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'model_profile.account_id' is only allowed for user model accounts",
+            details={"field": "model_profile.account_id", "value": account_id},
+        )
+    provider = value.get("provider")
+    if provider is not None and (
+        not isinstance(provider, str) or provider not in MODEL_PROFILE_PROVIDERS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'model_profile.provider' is not supported",
+            details={"field": "model_profile.provider", "value": provider},
+        )
+    model = value.get("model")
+    if model is not None and (not isinstance(model, str) or not model.strip()):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'model_profile.model' must be a non-empty string",
+            details={"field": "model_profile.model", "value": model},
         )
 
 
@@ -355,6 +527,10 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_string_list(config, "orchestrator_test_command_allowlist")
     _validate_mcp_servers(config)
     _validate_allowed_tools(config)
+    _validate_builder_profile(config)
+    _validate_permissions(config)
+    _validate_memory_policy(config)
+    _validate_model_profile(config)
 
 
 def validate_agent_config(
@@ -376,6 +552,7 @@ def validate_agent_config(
 
     _ = system_prompt
     normalized = dict(config)
+    _validate_no_inline_secrets(normalized)
 
     provider = provider.lower()
 

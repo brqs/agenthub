@@ -11,7 +11,8 @@ export function useDeployments(conversationId: string | null | undefined) {
     queryKey: ['workspace-deployments', conversationId],
     queryFn: () => deploymentsAdapter.listDeployments(conversationId as string),
     enabled: Boolean(conversationId),
-    retry: false,
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(500 * (attemptIndex + 1), 2_000),
     refetchInterval: (query) =>
       query.state.data?.items.some((item) => hasRunningDeployment(item.status)) ? 2_000 : false,
   });

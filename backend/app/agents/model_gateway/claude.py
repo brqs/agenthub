@@ -52,9 +52,21 @@ class ClaudeBackend:
     def _create_client(self) -> Any:
         """Build an async Anthropic client from settings."""
         current_settings = self._settings()
-        kwargs: dict[str, Any] = {"api_key": current_settings.anthropic_api_key}
-        if current_settings.anthropic_base_url:
-            kwargs["base_url"] = current_settings.anthropic_base_url
+        runtime_key = self.default_config.get("_runtime_api_key")
+        api_key = (
+            runtime_key
+            if isinstance(runtime_key, str) and runtime_key
+            else current_settings.anthropic_api_key
+        )
+        kwargs: dict[str, Any] = {"api_key": api_key}
+        runtime_base_url = self.default_config.get("_runtime_base_url")
+        base_url = (
+            runtime_base_url
+            if isinstance(runtime_base_url, str) and runtime_base_url
+            else current_settings.anthropic_base_url
+        )
+        if base_url:
+            kwargs["base_url"] = base_url
         return self._anthropic_module().AsyncAnthropic(**kwargs)
 
     def _provider_error_classes(self) -> ProviderErrorClasses:
@@ -172,7 +184,23 @@ class ClaudeBackend:
 
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
 
-        if not self._settings().anthropic_api_key:
+        runtime_account_error = merged.get("_runtime_model_account_error")
+        if isinstance(runtime_account_error, str) and runtime_account_error.strip():
+            yield self._error_chunk(
+                error_code="missing_api_key",
+                error=f"Model account is unavailable: {runtime_account_error.strip()}",
+                attempts=0,
+                retryable=False,
+            )
+            return
+
+        runtime_key = self.default_config.get("_runtime_api_key")
+        configured_key = (
+            runtime_key
+            if isinstance(runtime_key, str) and runtime_key
+            else self._settings().anthropic_api_key
+        )
+        if not configured_key:
             yield self._error_chunk(
                 error_code="missing_api_key",
                 error="Anthropic API key is not configured",

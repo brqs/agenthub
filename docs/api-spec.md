@@ -1261,6 +1261,67 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 
 ---
 
+### 6.6 GET `/api/v1/agents/templates` - Custom Agent builder templates
+
+Returns safe no-code templates for the Agent Builder. Templates are UI starting
+points only; the final Agent is still created through `POST /api/v1/agents`.
+
+```ts
+type AgentTemplateList = {
+  items: Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    capabilities: string[];
+    builder_profile: AgentBuilderProfile;
+    permissions: AgentPermissions;
+    memory_policy: "none" | "conversation" | "project" | "user";
+    model_backend: "claude" | "deepseek" | "openai";
+  }>;
+};
+```
+
+### 6.7 POST `/api/v1/agents/{id}/mcp/health-check`
+
+Runs a lightweight health check for stdio MCP servers configured on a visible
+Agent. This endpoint does not mutate the Agent and does not grant tools; it only
+reports whether configured MCP servers can be started and which tools they list.
+
+```ts
+type AgentMCPHealth = {
+  status: "ready" | "unavailable";
+  servers: Array<{
+    name: string;
+    status: "ready" | "unavailable";
+    tools: Array<{ name: string; description?: string | null }>;
+    error?: string | null;
+  }>;
+};
+```
+
+### 6.8 POST `/api/v1/agents/{id}/test-run`
+
+Runs a visible Agent against one test prompt in a temporary workspace. It is for
+Agent Builder validation before adding the Agent to a real conversation. It
+returns normal message content blocks and does not create a conversation
+message.
+
+```json
+{ "prompt": "Review this draft intro." }
+```
+
+```ts
+type AgentTestRunOut = {
+  status: "done" | "error";
+  content: ContentBlock[];
+  error?: string | null;
+  error_code?: string | null;
+};
+```
+
+---
+
 ## 7. 数据模型（Schemas）
 
 ### 7.1 User
@@ -1400,14 +1461,40 @@ interface Agent {
 
 interface AgentConfig {
   model_backend?: "claude" | "deepseek" | "openai";
+  answer_model_backend?: "claude" | "deepseek" | "openai";
+  planner_model_backend?: "claude" | "deepseek" | "openai";
   max_iterations?: number;
   mcp_servers?: object[];
+  allowed_tools?: string[];
+  builder_profile?: AgentBuilderProfile | null;
+  permissions?: AgentPermissions | null;
+  memory_policy?: "none" | "conversation" | "project" | "user";
   runtime?: "sdk" | "cli";
   sandbox_mode?: "read-only" | "workspace-write" | "danger-full-access";
   command?: string | string[];
   args?: string[];
   timeout_seconds?: number;
   [key: string]: any;
+}
+
+interface AgentBuilderProfile {
+  role?: string | null;
+  purpose?: string | null;
+  goals: string[];
+  tone?: string | null;
+  do_not_do: string[];
+  clarification_policy: "ask_first" | "balanced" | "decide_with_defaults";
+  output_style?: string | null;
+  starters: string[];
+}
+
+interface AgentPermissions {
+  workspace_read: boolean;
+  workspace_write: boolean;
+  run_commands: "never" | "ask" | "auto_low_risk";
+  network: "never" | "ask" | "allowlisted";
+  deploy: "never" | "ask";
+  external_accounts: "never" | "ask";
 }
 ```
 

@@ -1036,3 +1036,117 @@ frontend_remote_deploy: not performed
 本轮没有新增 ContentBlock 类型、SSE event 或 DB migration。远端前端静态资源不在当前后端
 主机，本轮只完成本地前端消费测试和公网 API/SSE E2E；如需验收真实远端折叠 UI，需要在
 前端部署链路同步静态资源后另跑 UI smoke。
+
+## 15. 2026-06-08 Orchestrator Pure Dialogue Group Chat Repair
+
+本轮修复“不需要生成文件的群聊辩论 / 角色对话”被误判为 artifact/build 任务的问题：
+
+- 新增 `task_type="conversation"` 规划语义，覆盖 `辩论`、`对话场景`、`群组内`、`角色扮演`、`圆桌讨论` 等纯对话 intent。
+- 纯对话任务在 planner / legacy fallback 中生成两个或多个独立子 Agent 发言任务，不生成 `Analyze request / Produce solution` artifact 模板。
+- Conversation task 不做 workspace artifact missing 检查，子 Agent 文本作为 `agent_summary` 常显。
+- `finalize_artifact_candidates()` 和文件名提取跳过负向约束句，避免把 `Do not create server.js/package.json` 或 `不要生成文件` 中的文件名反向识别为 required artifact。
+- 保留代码产物任务的 artifact 校验；显式要求 `planning.md`、`review.md`、`diff.md` 或 `index.html/styles.css/app.js` 时仍按 artifact 任务处理。
+
+本地门禁：
+
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_orchestrator_live_e2e_script.py -q
+# 220 passed
+
+uv run python -m ruff check app/agents/orchestrator app/api/v1 app/schemas tests scripts
+# passed
+
+uv run python -m mypy app/agents/orchestrator app/api/v1 app/schemas
+# passed
+
+git diff --check
+# passed
+```
+
+公网 API/SSE repair loop：
+
+```text
+backend_pid: 105909 -> 171391
+seed_agents: not required
+alembic_current: c5d6e7f809ab (head)
+local_health: {"status":"ok"} 200
+public_health: {"status":"ok"} 200
+
+scenario: group_dialogue_debate_no_artifacts
+base_url: http://111.229.151.159:8000
+conversation_id: a918dc3f-42f0-4e64-8e71-bc6e3f9ed4b4
+user_message_id: 1574dd6d-522e-4584-bcb0-b73219d74475
+agent_message_id: cc401cc0-41de-4af2-b7d2-a6a2c8884081
+plan_source: dialogue template
+child_messages: codex-helper done, claude-code done
+report: /tmp/agenthub_group_dialogue_debate_report.json
+sse: /tmp/agenthub_group_dialogue_debate_sse.jsonl
+passed: true
+no_artifact_missing: true
+no_server_package_missing: true
+visible_text_no_forbidden_terms: true
+```
+
+## 16. 2026-06-08 Orchestrator Sub-Agent Substantive Output Contract
+
+本轮修复“child message 已 done，但负责 Agent 没有真正完成发言/分析/实现/审阅”的通用问题：
+
+- 新增内部 output contract，按 conversation、analysis/data、artifact/code/document、review、platform 任务类型判定实质输出。
+- 子 Agent 原始文本先归入 `execution_text` 折叠过程；任务结束前通过 contract 后再输出常显 `agent_summary`。
+- 纯主持、邀请别人登场、转述任务或空泛“已完成”不会升级为 `agent_summary`。
+- 第一次不合格时，同一 child message 追加 `output-correction` process step 并重试一次；仍不合格时标记 `output_incomplete` 并进入通用 fallback。
+- E2E 脚本新增 `group_substantive_output_matrix`，覆盖 debate、roundtable、roleplay、strategy brainstorm、data analysis、code artifact 和 review/gaps 场景。
+
+本地门禁：
+
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator.py \
+  tests/test_orchestrator_planning.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_live_e2e_script.py \
+  tests/test_orchestrator_output_contracts.py -q
+# 235 passed
+
+uv run python -m ruff check app/agents/orchestrator app/api/v1 app/schemas tests scripts
+# passed
+
+uv run python -m mypy app/agents/orchestrator app/api/v1 app/schemas
+# passed
+
+git diff --check
+# passed
+```
+
+公网 repair loop：
+
+```text
+scenario: group_substantive_output_matrix
+report: /tmp/agenthub_group_substantive_output_matrix_report.json
+sse: /tmp/agenthub_group_substantive_output_matrix_sse.jsonl
+passed: true
+backend_pid: 271584 -> 292704
+alembic_current: c5d6e7f809ab (head)
+local_health: {"status":"ok"} 200
+public_health: {"status":"ok"} 200
+seed_agents: not required
+cases:
+  debate_no_artifacts: passed
+  roundtable_no_artifacts: passed
+  roleplay_dialogue: passed
+  strategy_brainstorm: passed
+  data_analysis_no_file: passed
+  code_artifact_with_summary: passed
+  review_requires_gaps: passed
+acceptance:
+  matrix_done_children_have_substantive_agent_summary: true
+  matrix_error_children_have_readable_failure_or_fallback: true
+  matrix_no_artifact_missing: true
+  matrix_visible_text_no_forbidden_terms: true
+```

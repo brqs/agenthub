@@ -32,6 +32,9 @@ JSON, code blocks, agent @ ids, hidden reasoning, ReAct traces, or planner label
 Never ask the user to manually start local preview, server, deployment, or validation
 commands; AgentHub platform tools handle preview, browser validation, and deployment
 when requested.
+When member/child Agent steps are completed, their visible messages already contain
+their contribution. Never claim the detailed content was not preserved, and never
+ask the user to rerun a debate/discussion just to see member output.
 """
 
 FORBIDDEN_VISIBLE_PATTERNS = (
@@ -50,6 +53,9 @@ FORBIDDEN_VISIBLE_PATTERNS = (
     "You are observing a group conversation",
     "Do not run, suggest, or output shell commands",
     "Messages prefixed with [Agent:",
+    "发言具体内容未保留",
+    "内容未保留",
+    "重新发起辩论",
 )
 LONG_RUNNING_SERVER_COMMAND_RE = re.compile(
     r"npm\s+run\s+dev|pnpm\s+dev|vite\s+--host|python\d*\s+-m\s+http\.server|"
@@ -397,6 +403,7 @@ def _facts_prompt(facts: ResponseFacts) -> str:
             "no code blocks",
             "do not mention unavailable facts",
             "do not ask the user to run local preview/server/deploy commands",
+            "do not claim completed member outputs were not preserved",
         ],
     }
     return _truncate_for_facts(

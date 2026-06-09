@@ -6,6 +6,13 @@ import { useAgentStore } from '@/stores/agentStore';
 
 vi.mock('@/lib/adapters/agents', () => ({
   listAgents: vi.fn().mockResolvedValue([]),
+  listAgentTemplates: vi.fn().mockResolvedValue({ items: [] }),
+  listModelProviders: vi.fn().mockResolvedValue({ items: [] }),
+  listModelAccounts: vi.fn().mockResolvedValue({ items: [] }),
+  createModelAccount: vi.fn(),
+  updateModelAccount: vi.fn(),
+  deleteModelAccount: vi.fn(),
+  verifyModelAccount: vi.fn(),
   createAgent: vi.fn().mockImplementation(async (input) => ({
     id: 'planner-agent',
     ...input,
@@ -52,9 +59,12 @@ describe('AgentsPage', () => {
     renderAgentsPage();
 
     fireEvent.click(screen.getByRole('button', { name: '创建 Agent' }));
-    fireEvent.change(screen.getByDisplayValue('Frontend Reviewer'), {
+    fireEvent.change(screen.getByLabelText('名称'), {
       target: { value: 'Planner Agent' },
     });
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(() => expect(screen.getAllByText('Planner Agent')).toHaveLength(2));

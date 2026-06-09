@@ -73,6 +73,32 @@ class FakeSubAdapter(BaseAgentAdapter):
             yield chunk
 
 
+class SequencedSubAdapter(BaseAgentAdapter):
+    provider = "fake"
+
+    def __init__(self, agent_id: str, chunk_sequences: list[list[StreamChunk]]) -> None:
+        super().__init__(agent_id=agent_id)
+        self._chunk_sequences = chunk_sequences
+        self.received_messages: list[list[ChatMessage]] = []
+        self.received_configs: list[dict[str, Any] | None] = []
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        self.received_messages.append(messages)
+        self.received_configs.append(config)
+        index = len(self.received_messages) - 1
+        chunks = self._chunk_sequences[index] if index < len(self._chunk_sequences) else []
+        for chunk in chunks:
+            yield chunk
+
+
 class FakePartialThenExceptionAdapter(BaseAgentAdapter):
     """Yields some chunks then raises an exception mid-stream."""
 
@@ -255,6 +281,7 @@ def _task(
     depends_on: list[str] | None = None,
     expected_output: str | None = None,
     include_history: bool = True,
+    task_type: str | None = None,
 ) -> dict[str, Any]:
     task = {
         "task_id": task_id,
@@ -267,6 +294,8 @@ def _task(
     }
     if expected_output is not None:
         task["expected_output"] = expected_output
+    if task_type is not None:
+        task["task_type"] = task_type
     return task
 
 
