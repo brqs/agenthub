@@ -12,7 +12,10 @@ const AGENT_MENTION_HASH_PREFIX = '#agent-mention-';
 const FLATTENED_MARKDOWN_MARKER_PATTERN =
   / (?:#{1,6}\s|\*\*[^*\n]{1,48}\*\*(?=\s+-)|[-*]\s+(?:`|\uE000|\*\*|[\u4e00-\u9fa5A-Za-z0-9])|\d+\.\s+(?:\*\*|[\u4e00-\u9fa5A-Za-z]))/;
 
-function withProtectedInlineCode(text: string, transform: (protectedText: string) => string): string {
+function withProtectedInlineCode(
+  text: string,
+  transform: (protectedText: string) => string,
+): string {
   const placeholders: string[] = [];
   const protectedText = text.replace(INLINE_CODE_PATTERN, (match) => {
     const index = placeholders.push(match) - 1;
@@ -163,16 +166,16 @@ function renderMathHtml(value: string, displayMode: boolean): string {
  */
 const components: Components = {
   h1: ({ node: _node, ...props }) => (
-    <h1 className="mt-4 mb-2 text-lg font-semibold text-white" {...props} />
+    <h1 className="mt-4 mb-2 text-lg font-semibold text-slate-950 dark:text-white" {...props} />
   ),
   h2: ({ node: _node, ...props }) => (
-    <h2 className="mt-4 mb-2 text-base font-semibold text-white" {...props} />
+    <h2 className="mt-4 mb-2 text-base font-semibold text-slate-950 dark:text-white" {...props} />
   ),
   h3: ({ node: _node, ...props }) => (
-    <h3 className="mt-3 mb-2 text-sm font-semibold text-white" {...props} />
+    <h3 className="mt-3 mb-2 text-sm font-semibold text-slate-950 dark:text-white" {...props} />
   ),
   h4: ({ node: _node, ...props }) => (
-    <h4 className="mt-3 mb-2 text-sm font-semibold text-white" {...props} />
+    <h4 className="mt-3 mb-2 text-sm font-semibold text-slate-950 dark:text-white" {...props} />
   ),
   p: ({ node: _node, ...props }) => <p className="mobile-text-safe my-2 leading-7" {...props} />,
   ul: ({ node: _node, ...props }) => (
@@ -183,11 +186,11 @@ const components: Components = {
   ),
   li: ({ node: _node, ...props }) => <li className="mobile-text-safe leading-7" {...props} />,
   hr: ({ node: _node, ...props }) => (
-    <hr className="my-3 border-slate-700" {...props} />
+    <hr className="my-3 border-slate-300 dark:border-slate-700" {...props} />
   ),
   blockquote: ({ node: _node, ...props }) => (
     <blockquote
-        className="mobile-text-safe my-3 border-l-2 border-brand/50 pl-3 text-slate-400"
+      className="mobile-text-safe my-3 border-l-2 border-brand/50 pl-3 text-slate-600 dark:text-slate-400"
       {...props}
     />
   ),
@@ -284,7 +287,7 @@ const components: Components = {
     );
   },
   strong: ({ node: _node, ...props }) => (
-    <strong className="font-semibold text-white" {...props} />
+    <strong className="font-semibold text-slate-950 dark:text-white" {...props} />
   ),
 };
 
@@ -304,7 +307,9 @@ export function TextBlock({
   );
 
   return (
-  <div className={`agent-markdown chat-markdown-safe text-slate-100${streaming ? ' streaming-cursor' : ''}`}>
+    <div
+      className={`agent-markdown chat-markdown-safe text-slate-100${streaming ? ' streaming-cursor' : ''}`}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
         components={components}

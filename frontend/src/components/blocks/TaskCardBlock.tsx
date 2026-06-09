@@ -13,10 +13,10 @@ const STATUS_ICON: Record<TaskStatus, React.ComponentType<{ className?: string }
 
 const STATUS_CLASS: Record<TaskStatus, string> = {
   pending: 'text-slate-500',
-  running: 'animate-spin text-amber-400',
-  done: 'text-emerald-400',
-  error: 'text-red-400',
-  interrupted: 'text-slate-400',
+  running: 'animate-spin text-amber-600 dark:text-amber-400',
+  done: 'text-emerald-600 dark:text-emerald-400',
+  error: 'text-red-600 dark:text-red-400',
+  interrupted: 'text-slate-500 dark:text-slate-400',
 };
 
 export function TaskCardBlock({
@@ -45,10 +45,10 @@ export function TaskCardBlock({
     <div className="my-3 min-w-0 rounded-md border border-brand/30 bg-brand/10 p-4 shadow-[0_0_0_1px_rgba(99,102,241,0.08)]">
       <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-white">{block.title}</div>
-          <div className="mt-1 truncate text-xs text-slate-400">{stage}</div>
+          <div className="text-sm font-semibold text-slate-950 dark:text-white">{block.title}</div>
+          <div className="mt-1 truncate text-xs text-slate-600 dark:text-slate-400">{stage}</div>
         </div>
-        <span className="shrink-0 rounded bg-slate-950/70 px-2 py-1 text-xs text-slate-300">
+        <span className="shrink-0 rounded bg-white px-2 py-1 text-xs text-slate-700 ring-1 ring-slate-200 dark:bg-slate-950/70 dark:text-slate-300 dark:ring-0">
           {doneCount}/{block.tasks.length}
         </span>
       </div>
@@ -59,21 +59,24 @@ export function TaskCardBlock({
           const plannedAgentId = task.planned_agent_id;
           const agent = agents.find((item) => item.id === agentId);
           const plannedAgent = agents.find((item) => item.id === plannedAgentId);
-          const reassigned = plannedAgentId !== undefined && plannedAgentId !== null && plannedAgentId !== agentId;
+          const reassigned =
+            plannedAgentId !== undefined && plannedAgentId !== null && plannedAgentId !== agentId;
           return (
             <div
               key={task.id}
               className={cn(
-                'task-row-enter flex min-w-0 items-center gap-3 rounded bg-slate-950/70 px-3 py-2 transition-colors',
-                task.status === 'running' && 'task-running bg-amber-400/10',
+                'task-row-enter flex min-w-0 items-center gap-3 rounded bg-white px-3 py-2 transition-colors ring-1 ring-slate-200 dark:bg-slate-950/70 dark:ring-0',
+                task.status === 'running' && 'task-running bg-amber-50 dark:bg-amber-400/10',
                 task.status === 'done' && 'task-done',
-                task.status === 'interrupted' && 'bg-slate-400/10',
+                task.status === 'interrupted' && 'bg-slate-100 dark:bg-slate-400/10',
               )}
             >
               <Icon className={`h-4 w-4 ${STATUS_CLASS[task.status]}`} />
-              <span className="text-xs text-slate-500">{index + 1}</span>
-              <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{task.title}</span>
-              <span className="max-w-44 truncate rounded bg-slate-800 px-2 py-1 text-xs text-slate-400">
+              <span className="text-xs text-slate-500 dark:text-slate-500">{index + 1}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-200">
+                {task.title}
+              </span>
+              <span className="max-w-44 truncate rounded bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                 @{agent?.name ?? agentId}
                 {reassigned ? ` <- @${plannedAgent?.name ?? plannedAgentId}` : ''}
               </span>
