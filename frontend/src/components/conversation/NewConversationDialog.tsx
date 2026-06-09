@@ -70,16 +70,18 @@ export function NewConversationDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 sm:px-4 sm:py-6 backdrop-blur-sm">
-      <section className="flex h-[100dvh] w-full max-w-2xl flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:rounded-lg">
-        <header className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+      <section className="flex h-[100dvh] w-full max-w-2xl flex-col overflow-hidden border border-slate-300 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 sm:max-h-[calc(100dvh-3rem)] sm:rounded-lg">
+        <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
-            <h2 className="text-base font-semibold text-white">新建会话</h2>
-            <p className="text-xs text-slate-500">选择单聊或群聊，并指定参与 Agent。</p>
+            <h2 className="text-base font-semibold text-slate-950 dark:text-white">新建会话</h2>
+            <p className="text-xs text-slate-600 dark:text-slate-500">
+              选择单聊或群聊，并指定参与 Agent。
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white"
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
             aria-label="关闭"
           >
             <X className="h-4 w-4" />
@@ -94,14 +96,14 @@ export function NewConversationDialog({
               className={cn(
                 'flex items-center gap-3 rounded-md border px-4 py-3 text-left',
                 mode === 'single'
-                  ? 'border-brand bg-brand/10 text-white'
-                  : 'border-slate-800 text-slate-400 hover:border-slate-700',
+                  ? 'border-brand bg-brand/10 text-brand dark:text-white'
+                  : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800/40',
               )}
             >
               <Hash className="h-4 w-4" />
               <div>
                 <div className="text-sm font-medium">单聊</div>
-                <div className="text-xs text-slate-500">与一个 Agent 对话</div>
+                <div className="text-xs text-slate-600 dark:text-slate-500">与一个 Agent 对话</div>
               </div>
             </button>
             <button
@@ -110,32 +112,34 @@ export function NewConversationDialog({
               className={cn(
                 'flex items-center gap-3 rounded-md border px-4 py-3 text-left',
                 mode === 'group'
-                  ? 'border-brand bg-brand/10 text-white'
-                  : 'border-slate-800 text-slate-400 hover:border-slate-700',
+                  ? 'border-brand bg-brand/10 text-brand dark:text-white'
+                  : 'border-slate-300 text-slate-700 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800/40',
               )}
             >
               <Users className="h-4 w-4" />
               <div>
                 <div className="text-sm font-medium">群聊</div>
-                <div className="text-xs text-slate-500">由 Orchestrator 协调</div>
+                <div className="text-xs text-slate-600 dark:text-slate-500">
+                  由 Orchestrator 协调
+                </div>
               </div>
             </button>
           </div>
 
           <label className="block">
-            <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-500">
+            <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-500">
               会话标题
             </span>
             <input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder={mode === 'single' ? '例如：React Todo 组件' : '例如：Todo App 协作'}
-              className="w-full rounded-md border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-600 focus:border-brand"
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-brand dark:border-slate-800 dark:bg-slate-950 dark:text-white dark:placeholder:text-slate-600"
             />
           </label>
 
           <div>
-            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+            <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600 dark:text-slate-500">
               选择 Agent
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -150,13 +154,15 @@ export function NewConversationDialog({
                       'flex items-center gap-3 rounded-md border p-3 text-left transition',
                       selected
                         ? 'border-brand bg-brand/10'
-                        : 'border-slate-800 hover:border-slate-700',
+                        : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50 dark:border-slate-800 dark:hover:border-slate-700 dark:hover:bg-slate-800/40',
                     )}
                   >
                     <AgentAvatar agent={agent} />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-white">{agent.name}</div>
-                      <div className="truncate text-xs text-slate-500">
+                      <div className="truncate text-sm font-medium text-slate-950 dark:text-white">
+                        {agent.name}
+                      </div>
+                      <div className="truncate text-xs text-slate-600 dark:text-slate-500">
                         {agent.capabilities.join(' / ')}
                       </div>
                     </div>
@@ -168,11 +174,11 @@ export function NewConversationDialog({
           </div>
         </div>
 
-        <footer className="flex shrink-0 justify-end gap-3 border-t border-slate-800 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4">
+        <footer className="flex shrink-0 justify-end gap-3 border-t border-slate-200 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4 dark:border-slate-800">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-white"
+            className="rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             取消
           </button>

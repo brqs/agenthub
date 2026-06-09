@@ -4,17 +4,21 @@ import { markdownQaMessages } from '@/lib/mockData';
 
 export function MarkdownTestPage() {
   return (
-    <div className="flex h-full flex-col bg-slate-950 text-slate-100">
-      <header className="flex min-h-[76px] items-center justify-between border-b border-slate-800 px-7">
+    <div className="flex h-full flex-col bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-slate-100">
+      <header className="flex min-h-[76px] items-center justify-between border-b border-slate-200 px-7 dark:border-slate-800">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand-light">
             <ScrollText className="h-3.5 w-3.5" />
             Markdown QA Chat
           </div>
-          <h1 className="mt-2 truncate text-xl font-semibold text-white">Markdown / Formula 对话渲染测试</h1>
-          <p className="mt-1 text-sm text-slate-500">模拟真实聊天消息流，覆盖 Markdown、GFM、KaTeX 和长内容。</p>
+          <h1 className="mt-2 truncate text-xl font-semibold text-slate-950 dark:text-white">
+            Markdown / Formula 对话渲染测试
+          </h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-500">
+            模拟真实聊天消息流，覆盖 Markdown、GFM、KaTeX 和长内容。
+          </p>
         </div>
-        <div className="rounded-md border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-slate-400">
+        <div className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
           {markdownQaMessages.length} messages
         </div>
       </header>

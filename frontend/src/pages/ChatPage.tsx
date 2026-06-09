@@ -50,7 +50,9 @@ export function ChatPage() {
   const conversationSidebarCollapsed = useUiStore((state) => state.conversationSidebarCollapsed);
   const rightPanelOpen = useUiStore((state) => state.rightPanelOpen);
   const rightPanelWidth = useUiStore((state) => state.rightPanelWidth);
-  const setConversationSidebarCollapsed = useUiStore((state) => state.setConversationSidebarCollapsed);
+  const setConversationSidebarCollapsed = useUiStore(
+    (state) => state.setConversationSidebarCollapsed,
+  );
   const setRightPanelOpen = useUiStore((state) => state.setRightPanelOpen);
   const setRightPanelWidth = useUiStore((state) => state.setRightPanelWidth);
   const mobileSheet = useUiStore((state) => state.mobileSheet);
@@ -265,12 +267,7 @@ export function ChatPage() {
                   : undefined
               }
               onSend={async (text, attachmentIds, requirementAlignment) => {
-                await sendMessage(
-                  conversation.id,
-                  text,
-                  attachmentIds ?? [],
-                  requirementAlignment,
-                );
+                await sendMessage(conversation.id, text, attachmentIds ?? [], requirementAlignment);
               }}
             />
           </>
@@ -346,8 +343,8 @@ export function ChatPage() {
 
 function LoadingChatPlaceholder() {
   return (
-    <div className="flex flex-1 items-center justify-center bg-slate-950 p-8">
-      <div className="rounded-md border border-slate-800 bg-slate-900 px-5 py-4 text-sm text-slate-400">
+    <div className="flex flex-1 items-center justify-center bg-slate-100 p-8 dark:bg-slate-950">
+      <div className="rounded-md border border-slate-300 bg-white px-5 py-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
         正在恢复会话
       </div>
     </div>
@@ -356,13 +353,13 @@ function LoadingChatPlaceholder() {
 
 function EmptyChatPlaceholder({ onNew }: { onNew: () => void }) {
   return (
-    <div className="flex flex-1 items-center justify-center bg-slate-950 p-8">
-      <div className="max-w-md rounded-lg border border-slate-800 bg-slate-900 p-8 text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand/15 text-brand-light">
+    <div className="flex flex-1 items-center justify-center bg-slate-100 p-8 dark:bg-slate-950">
+      <div className="max-w-md rounded-lg border border-slate-300 bg-white p-8 text-center dark:border-slate-800 dark:bg-slate-900">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-brand/10 text-brand dark:bg-brand/15 dark:text-brand-light">
           <MessageSquarePlus className="h-6 w-6" />
         </div>
-        <h2 className="text-base font-semibold text-white">还没有会话</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">
+        <h2 className="text-base font-semibold text-slate-950 dark:text-white">还没有会话</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-500">
           创建一个会话，挑选一个或多个 Agent，开始你的第一次协作。
         </p>
         <button

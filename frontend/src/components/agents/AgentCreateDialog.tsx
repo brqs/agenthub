@@ -78,7 +78,10 @@ export function AgentCreateDialog({
       provider,
       model,
       command: command.trim() || undefined,
-      args: args.split(/\s+/).map((item) => item.trim()).filter(Boolean),
+      args: args
+        .split(/\s+/)
+        .map((item) => item.trim())
+        .filter(Boolean),
       sdkOptions: normalizedSdkOptions,
       maxIterations,
       timeoutSeconds,
@@ -91,31 +94,43 @@ export function AgentCreateDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 sm:px-4 sm:py-6 backdrop-blur-sm">
       <form
         onSubmit={submit}
-        className="flex h-[100dvh] w-full max-w-xl flex-col overflow-hidden border border-slate-700 bg-slate-900 shadow-2xl shadow-black/40 sm:max-h-[calc(100dvh-3rem)] sm:rounded-md"
+        className="flex h-[100dvh] w-full max-w-xl flex-col overflow-hidden border border-slate-300 bg-white shadow-2xl shadow-black/20 dark:border-slate-700 dark:bg-slate-900 dark:shadow-black/40 sm:max-h-[calc(100dvh-3rem)] sm:rounded-md"
       >
-        <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-800">
           <div>
-            <h2 className="text-base font-semibold text-white">创建 Agent</h2>
-            <p className="mt-1 text-xs text-slate-500">填写名称、Provider、模型和提示词。</p>
+            <h2 className="text-base font-semibold text-slate-950 dark:text-white">创建 Agent</h2>
+            <p className="mt-1 text-xs text-slate-600 dark:text-slate-500">
+              填写名称、Provider、模型和提示词。
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md p-2 text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="关闭">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+            aria-label="关闭"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5 scrollbar-thin">
           <label className="block">
-            <span className="text-xs font-medium text-slate-400">名称</span>
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">名称</span>
             <input
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+              className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
           </label>
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="block">
-              <span id="agent-provider-label" className="text-xs font-medium text-slate-400">Provider</span>
+              <span
+                id="agent-provider-label"
+                className="text-xs font-medium text-slate-600 dark:text-slate-400"
+              >
+                Provider
+              </span>
               <select
                 aria-labelledby="agent-provider-label"
                 value={provider}
@@ -125,7 +140,7 @@ export function AgentCreateDialog({
                   setModel(DEFAULT_MODELS[nextProvider]);
                   if (nextProvider === 'opencode') setCommand(DEFAULT_MODELS.opencode);
                 }}
-                className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               >
                 {Object.entries(PROVIDER_LABELS).map(([value, label]) => (
                   <option key={value} value={value}>
@@ -136,22 +151,24 @@ export function AgentCreateDialog({
             </label>
             {provider === 'opencode' ? (
               <label className="block">
-                <span className="text-xs font-medium text-slate-400">Command</span>
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Command
+                </span>
                 <input
                   value={command}
                   onChange={(event) => setCommand(event.target.value)}
-                  className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                  className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 />
               </label>
             ) : (
               <label className="block">
-                <span className="text-xs font-medium text-slate-400">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
                   {provider === 'builtin' ? 'Model Backend' : '模型'}
                 </span>
                 <input
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
-                  className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                  className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 />
               </label>
             )}
@@ -159,85 +176,102 @@ export function AgentCreateDialog({
 
           {provider === 'builtin' && (
             <label className="block">
-              <span className="text-xs font-medium text-slate-400">Max Iterations</span>
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Max Iterations
+              </span>
               <input
                 type="number"
                 min={1}
                 max={50}
                 value={maxIterations}
                 onChange={(event) => setMaxIterations(Number(event.target.value))}
-                className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </label>
           )}
 
           {provider === 'opencode' && (
             <label className="block">
-              <span className="text-xs font-medium text-slate-400">Args</span>
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">Args</span>
               <input
                 value={args}
                 onChange={(event) => setArgs(event.target.value)}
                 placeholder="用空格分隔，例如 run --json"
-                className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none placeholder:text-slate-500 focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-600"
               />
             </label>
           )}
 
           {provider === 'claude_code' && (
             <label className="block">
-              <span className="text-xs font-medium text-slate-400">SDK Options JSON</span>
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                SDK Options JSON
+              </span>
               <textarea
                 aria-label="SDK Options JSON"
                 value={sdkOptions}
                 onChange={(event) => setSdkOptions(event.target.value)}
                 rows={4}
-                className="mt-2 w-full resize-none rounded-md border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs leading-5 text-slate-100 outline-none focus:border-brand"
+                className="mt-2 w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs leading-5 text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
               {sdkOptionsError && (
-                <span className="mt-1 block text-xs text-rose-300">{sdkOptionsError}</span>
+                <span className="mt-1 block text-xs text-rose-600 dark:text-rose-300">
+                  {sdkOptionsError}
+                </span>
               )}
             </label>
           )}
 
           {provider !== 'builtin' && (
             <label className="block">
-              <span className="text-xs font-medium text-slate-400">Timeout Seconds</span>
+              <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                Timeout Seconds
+              </span>
               <input
                 type="number"
                 min={10}
                 max={600}
                 value={timeoutSeconds}
                 onChange={(event) => setTimeoutSeconds(Number(event.target.value))}
-                className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+                className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </label>
           )}
 
           <label className="block">
-            <span className="text-xs font-medium text-slate-400">能力标签</span>
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">能力标签</span>
             <input
               value={capabilities}
               onChange={(event) => setCapabilities(event.target.value)}
-              className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-brand"
+              className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
           </label>
 
           <label className="block">
-            <span className="text-xs font-medium text-slate-400">System Prompt</span>
+            <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+              System Prompt
+            </span>
             <textarea
               value={systemPrompt}
               onChange={(event) => setSystemPrompt(event.target.value)}
               rows={4}
-              className="mt-2 w-full resize-none rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm leading-6 text-slate-100 outline-none focus:border-brand"
+              className="mt-2 w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-950 outline-none focus:border-brand dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             />
           </label>
         </div>
 
-        <div className="flex shrink-0 justify-end gap-3 border-t border-slate-800 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4">
-          <button type="button" onClick={onClose} className="rounded-md px-4 py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-white">
+        <div className="flex shrink-0 justify-end gap-3 border-t border-slate-200 px-5 pb-[max(env(safe-area-inset-bottom),1rem)] pt-4 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+          >
             取消
           </button>
-          <button type="submit" className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover">
+          <button
+            type="submit"
+            className="rounded-md bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover"
+          >
             创建
           </button>
         </div>
