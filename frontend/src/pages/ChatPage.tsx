@@ -23,7 +23,7 @@ import { useTurnControlActions } from '@/hooks/useTurnControlActions';
 import { useUpdateConversation } from '@/hooks/useUpdateConversation';
 import { useUpdateMessage } from '@/hooks/useUpdateMessage';
 import type { Agent } from '@/lib/types';
-import { resolveConversation } from '@/pages/chatPageUtils';
+import { resolveConversation, resolveMessageConversationId } from '@/pages/chatPageUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -70,13 +70,14 @@ export function ChatPage() {
     conversationId,
     selectedConversationId,
   );
+  const messageConversationId = resolveMessageConversationId(conversationId, conversation?.id);
   const {
     data: messages,
     isLoading: messagesLoading,
     isLoadingMore: messagesLoadingMore,
     hasMore: messagesHasMore,
     fetchPreviousPage: fetchPreviousMessages,
-  } = useMessages(conversation?.id);
+  } = useMessages(messageConversationId);
   const updateConversation = useUpdateConversation();
   const updateMessage = useUpdateMessage();
   const regenerateMessage = useRegenerateMessage();

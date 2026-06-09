@@ -32,6 +32,26 @@ describe('MessageList', () => {
     expect(onLoadMore).toHaveBeenCalledOnce();
   });
 
+  it('does not auto-load older messages before the user scrolls history', () => {
+    const onLoadMore = vi.fn();
+    const { container } = render(
+      <MessageList messages={[message]} hasMore onLoadMore={onLoadMore} />,
+    );
+    const scrollArea = container.firstElementChild as HTMLElement;
+    Object.defineProperties(scrollArea, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 900 },
+      scrollTop: { configurable: true, value: 0, writable: true },
+    });
+
+    fireEvent.scroll(scrollArea);
+    expect(onLoadMore).not.toHaveBeenCalled();
+
+    fireEvent.wheel(scrollArea);
+    fireEvent.scroll(scrollArea);
+    expect(onLoadMore).toHaveBeenCalledOnce();
+  });
+
   it('sends queue reorder and merge actions with the current queue order', async () => {
     const onReorderQueuedMessages = vi.fn();
     const onMergeQueuedMessages = vi.fn();
