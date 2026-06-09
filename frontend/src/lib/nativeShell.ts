@@ -5,14 +5,28 @@ import { useUiStore } from '@/stores/uiStore';
 
 let initialized = false;
 
-export function initializeNativeShell(): void {
-  if (!Capacitor.isNativePlatform() || initialized) return;
+export type ShellPlatform = 'web' | 'capacitor' | 'tauri';
+
+export function getShellPlatform(): ShellPlatform {
+  if (Capacitor.isNativePlatform()) return 'capacitor';
+  if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) return 'tauri';
+  return 'web';
+}
+
+export function initializeShell(): void {
+  if (initialized) return;
+  const platform = getShellPlatform();
+  if (platform === 'web') return;
   initialized = true;
   document.documentElement.classList.add('is-native-shell');
+  document.documentElement.dataset.shellPlatform = platform;
+  if (platform === 'tauri') return;
   void App.addListener('backButton', ({ canGoBack }) => {
     void handleNativeBackButton(canGoBack);
   });
 }
+
+export const initializeNativeShell = initializeShell;
 
 export async function handleNativeBackButton(canGoBack: boolean): Promise<void> {
   if (closeTransientUi()) return;
@@ -24,8 +38,14 @@ export async function handleNativeBackButton(canGoBack: boolean): Promise<void> 
 }
 
 export async function openExternalUrl(url: string): Promise<void> {
-  if (Capacitor.isNativePlatform()) {
+  const platform = getShellPlatform();
+  if (platform === 'capacitor') {
     await Browser.open({ url });
+    return;
+  }
+  if (platform === 'tauri') {
+    const { openUrl } = await import('@tauri-apps/plugin-opener');
+    await openUrl(url);
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');
@@ -35,7 +55,7 @@ export function handleExternalLink(
   event: React.MouseEvent<HTMLAnchorElement>,
   url: string | null | undefined,
 ): void {
-  if (!url || !Capacitor.isNativePlatform()) return;
+  if (!url || getShellPlatform() === 'web') return;
   event.preventDefault();
   void openExternalUrl(url);
 }

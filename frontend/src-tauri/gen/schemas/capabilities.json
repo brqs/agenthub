@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default AgentHub desktop permissions.","local":true,"windows":["main"],"permissions":["core:default","opener:allow-open-url"]}}
