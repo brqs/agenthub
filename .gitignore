@@ -70,6 +70,7 @@ dist/
 frontend/vite.config.js
 frontend/vite.config.d.ts
 frontend/pnpm-workspace.yaml
+frontend/src-tauri/target/
 
 # Logs
 npm-debug.log*

@@ -10,6 +10,10 @@ import { Capacitor } from '@capacitor/core';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 const allowInsecureNativeApi =
   (import.meta.env.VITE_ALLOW_INSECURE_NATIVE_API as string | undefined) === 'true';
+const allowInsecureDesktopApi =
+  (import.meta.env.VITE_ALLOW_INSECURE_DESKTOP_API as string | undefined) === 'true';
+
+const isTauriDesktop = typeof window !== 'undefined' && Boolean(window.__TAURI_INTERNALS__);
 
 if (
   Capacitor.isNativePlatform() &&
@@ -18,6 +22,16 @@ if (
 ) {
   throw new Error(
     'Capacitor runtime requires VITE_API_BASE_URL=https://... unless VITE_ALLOW_INSECURE_NATIVE_API=true is set for a temporary HTTP backend.',
+  );
+}
+
+if (
+  isTauriDesktop &&
+  !apiBaseUrl.startsWith('https://') &&
+  !(allowInsecureDesktopApi && apiBaseUrl.startsWith('http://'))
+) {
+  throw new Error(
+    'Tauri desktop runtime requires VITE_API_BASE_URL=https://... unless VITE_ALLOW_INSECURE_DESKTOP_API=true is set for a temporary HTTP backend.',
   );
 }
 

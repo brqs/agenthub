@@ -36,6 +36,22 @@ pnpm lint
 pnpm tsc --noEmit
 ```
 
+## macOS 桌面壳（Tauri）
+
+桌面端复用同一份 React/Vite 产物，Tauri 只负责窗口、bundle 和系统外链打开。
+
+```bash
+# 开发模式：需要本机安装 Rust 工具链
+VITE_API_BASE_URL=http://127.0.0.1:8000 \
+VITE_ALLOW_INSECURE_DESKTOP_API=true \
+pnpm tauri:dev
+
+# 打包模式：生产必须使用 HTTPS 后端
+VITE_API_BASE_URL=https://api.example.com pnpm tauri:build
+```
+
+如果本机没有 `rustc` / `cargo`，请先安装 Rust 后再运行 `tauri:dev` 或 `tauri:build`。详细方案见 [../docs/frontend/spec/frontend-macos-tauri-shell.spec.md](../docs/frontend/spec/frontend-macos-tauri-shell.spec.md)。
+
 ## 目录约定
 
 ```
@@ -64,6 +80,6 @@ src/
 
 ## 跨平台预留
 
-- **Tauri 桌面**：`pnpm tauri init`，包装 `dist/`
+- **Tauri 桌面**：`src-tauri/` 包装 `dist/`
 - **Capacitor 移动**：`pnpm capacitor init`，包装 `dist/`
 - **PWA**：用 `vite-plugin-pwa`
