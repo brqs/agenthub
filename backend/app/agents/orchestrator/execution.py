@@ -43,6 +43,15 @@ from app.agents.orchestrator._internal.execution.attempts import (
 from app.agents.orchestrator._internal.execution.attempts import (
     task_messages as _task_messages,
 )
+from app.agents.orchestrator._internal.execution.dialogue import (
+    compute_debate_judgement as _compute_debate_judgement,
+)
+from app.agents.orchestrator._internal.execution.dialogue import (
+    dialogue_requires_sequential as _dialogue_requires_sequential,
+)
+from app.agents.orchestrator._internal.execution.dialogue import (
+    maybe_next_dialogue_turn as _maybe_next_dialogue_turn,
+)
 from app.agents.orchestrator._internal.execution.evaluation import (
     run_attempt_evaluation as _run_attempt_evaluation,
 )
@@ -635,7 +644,7 @@ async def _run_static_tasks(
     tool_specs: list[ToolSpec] | None,
     run_context: OrchestratorRunContext | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
-    if _parallel_enabled(config):
+    if _parallel_enabled(config) and not _dialogue_requires_sequential(tasks):
         async for chunk, updated_block_index in _run_parallel_tasks(
             config,
             tasks,
@@ -731,11 +740,50 @@ async def _run_static_tasks(
             repaired_review_task_ids.add(task.task_id)
             task_sequence.insert(task_index + 1, repair_task)
             task_states[repair_task.task_id] = TaskState.PENDING
+        dialogue_task = _maybe_next_dialogue_turn(
+            messages=messages,
+            task_sequence=task_sequence,
+            task_index=task_index,
+            completed_task=task,
+            completed_result=task_result,
+            run_context=run_context,
+        )
+        if dialogue_task is not None:
+            task_sequence.insert(task_index + 1, dialogue_task)
+            task_states[dialogue_task.task_id] = TaskState.PENDING
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="dialogue_turn_appended",
+                task_id=dialogue_task.task_id,
+                agent_id=dialogue_task.agent_id,
+                payload={
+                    "previous_task_id": task.task_id,
+                    "turn_number": sum(
+                        1 for item in task_sequence if item.task_type == "dialogue_turn"
+                    ),
+                    "reason": "dynamic_turn_taking",
+                },
+            )
         await _refresh_and_record_workspace_conflicts(config, run_context)
         task_index += 1
 
     refresh_workspace_conflicts(run_context)
     _mark_task_fulfillment(run_context, task_sequence, task_states)
+    judgement = _compute_debate_judgement(
+        messages=messages,
+        tasks=task_sequence,
+        run_context=run_context,
+    )
+    if judgement is not None:
+        run_context.debate_judgement = judgement
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="debate_judgement",
+            agent_id="orchestrator",
+            payload=judgement,
+        )
     await _memory_record_event(
         config,
         run_context,

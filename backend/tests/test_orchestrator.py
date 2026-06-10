@@ -42,6 +42,7 @@ from tests.orchestrator_fakes import (
     FakeSubAdapter,
     FakeWorkspaceVerifierAdapter,
     FakeWorkspaceWriterAdapter,
+    SequencedSubAdapter,
     _assert_blocks_balanced,
     _collect,
     _task,
@@ -4319,6 +4320,163 @@ async def test_orchestrator_static_tasks_emit_process_before_final_text() -> Non
     assert process_deltas[-1]["status"] == "done"
     forbidden = ("ReAct step", "Observation:", "Action:", "Tools:", "result ok", "call_")
     assert not any(term in str([process_payload, *process_deltas]) for term in forbidden)
+
+
+async def test_orchestrator_dynamic_debate_continues_after_handoff() -> None:
+    request = (
+        "组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会利大于弊还是弊大于利？"
+        "不需要生成文件直接以对话的形式输出，注意是对话场景而不是书面书写。"
+        "由Claude code先开始，一人一句开始辩论不要直接输出全部对话，"
+        "要针对另一个AI的输出展开辩论，结束发言后使用@其他agent让他回复进行辩论 @claude-code"
+    )
+    claude = SequencedSubAdapter(
+        "claude-code",
+        [
+            _text_chunks(
+                "正方观点：我认为 AI 快速发展利大于弊。医疗上 AlphaFold 和辅助诊断"
+                "能缩短研发与诊断周期，教育上也能降低知识门槛。风险需要监管，"
+                "但不能否定整体收益。@opencode-helper 请回应。"
+            ),
+            _text_chunks(
+                "针对上一轮反方提到的就业和隐私风险，我承认治理必须跟上，"
+                "但这说明我们需要规则而不是放慢所有技术进步。AI 已经能提高"
+                "公共服务和科研效率，收益覆盖面可以通过开放工具和监管扩大。"
+                "@opencode-helper 你继续反驳。"
+            ),
+        ],
+    )
+    opencode = SequencedSubAdapter(
+        "opencode-helper",
+        [
+            _text_chunks(
+                "针对正方提到的医疗和教育收益，我的反方立场是 AI 快速发展弊大于利。"
+                "就业替代、隐私滥用和信息信任危机会先于治理成熟出现，收益还可能"
+                "集中在少数平台。@claude-code 你继续。"
+            ),
+            _text_chunks(
+                "针对上一轮正方关于规则可控的说法，我的反方观点仍是弊大于利，"
+                "问题在速度：监管、审计和责任"
+                "体系通常滞后于部署规模。若错误诊断、深度伪造和自动化裁员同时"
+                "扩散，普通人承担的代价会超过局部效率收益。"
+            ),
+        ],
+    )
+
+    chunks = await _collect(
+        OrchestratorAdapter(agent_id="orchestrator"),
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "planner_fallback_to_template": True,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "tasks": [
+                _task(
+                    "dialogue-turn-1",
+                    "claude-code",
+                    "第 1 轮发言：正方：AI 快速发展利大于弊",
+                    (
+                        "你正在 AgentHub 群聊中参加 Orchestrator 托管的多 Agent 接力对话。"
+                        "主题：AI 快速发展对人类社会利大于弊还是弊大于利。"
+                        "你的角色/立场：正方，主张 AI 快速发展利大于弊。"
+                    ),
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+                _task(
+                    "dialogue-turn-2",
+                    "opencode-helper",
+                    "第 2 轮发言：反方：AI 快速发展弊大于利",
+                    (
+                        "你正在 AgentHub 群聊中参加 Orchestrator 托管的多 Agent 接力对话。"
+                        "主题：AI 快速发展对人类社会利大于弊还是弊大于利。"
+                        "你的角色/立场：反方，主张 AI 快速发展弊大于利。"
+                        "本轮必须明确回应上一轮。"
+                    ),
+                    depends_on=["dialogue-turn-1"],
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+            ],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert len(claude.received_messages) >= 2
+    assert len(opencode.received_messages) >= 2
+    final_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "辩论评判" in final_text
+    assert "正方" in final_text or "反方" in final_text or "势均力敌" in final_text
+
+
+async def test_orchestrator_dynamic_debate_respects_explicit_one_exchange() -> None:
+    request = (
+        "@orchestrator 组织两个智能体辩论，论题是AI的快速发展利大于弊还是弊大于利，"
+        "只要双方各说一句，不需要生成文件。"
+    )
+    claude = SequencedSubAdapter(
+        "claude-code",
+        [
+            _text_chunks(
+                "正方观点：我认为 AI 快速发展利大于弊，因为它能提升医疗和教育效率，"
+                "也能让普通人获得更强工具。风险需要监管，但收益更广，尤其在"
+                "公共服务、科研辅助和小企业降本方面，能让更多人直接受益。"
+            ),
+        ],
+    )
+    opencode = SequencedSubAdapter(
+        "opencode-helper",
+        [
+            _text_chunks(
+                "针对正方提到的效率收益，我认为弊大于利，因为就业替代、隐私滥用"
+                "和信息信任危机会更早爆发，治理滞后会放大社会代价。尤其当模型"
+                "被快速接入招聘、信贷、医疗和舆论平台时，错误会被规模化扩散，"
+                "普通用户很难追责。"
+            ),
+        ],
+    )
+
+    chunks = await _collect(
+        OrchestratorAdapter(agent_id="orchestrator"),
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "planner_fallback_to_template": True,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "tasks": [
+                _task(
+                    "dialogue-turn-1",
+                    "claude-code",
+                    "第 1 轮发言：正方：AI 快速发展利大于弊",
+                    "你的角色/立场：正方，主张 AI 快速发展利大于弊。",
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+                _task(
+                    "dialogue-turn-2",
+                    "opencode-helper",
+                    "第 2 轮发言：反方：AI 快速发展弊大于利",
+                    "你的角色/立场：反方，主张 AI 快速发展弊大于利。本轮必须明确回应上一轮。",
+                    depends_on=["dialogue-turn-1"],
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+            ],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert len(claude.received_messages) == 1
+    assert len(opencode.received_messages) == 1
+    final_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "辩论评判" in final_text
 
 
 async def test_orchestrator_process_block_can_be_disabled() -> None:

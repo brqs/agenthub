@@ -1,7 +1,7 @@
 # Orchestrator Agent Turn-Taking Spec
 
-> 状态：Implemented locally; public E2E pending user command
-> 最后更新：2026-06-09
+> 状态：Implemented + public E2E passed
+> 最后更新：2026-06-10
 > 范围：由 Orchestrator 托管的多 Agent 轮流发言、接力讨论、辩论、评审和 panel 协作。
 
 ## 1. 目标
@@ -29,12 +29,17 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 内部计划结构，至少包含：
 
 - `topic`：用户要求讨论或评审的主题。
-- `participants`：参与 Agent id 列表，必须来自当前 conversation 可用 Agent。
+- `participants`：参与 Agent id 列表，必须来自当前 conversation 的非 Orchestrator
+  group members。执行阶段会再判断 runtime 可用性；不能因为某个 runtime 当前处于 cooldown
+  就从计划和审计语义中删除用户明确要求的参与者。
 - `roles`：每个参与者的角色、立场或职责。
-- `turn_order`：轮次顺序，每个元素包含 agent、role、turn index 和本轮目标。
-- `max_turns`：最大轮次，默认 2 个参与者各 1 轮；用户要求“展开辩论 / 继续反驳 / 多轮”时可扩展到每人 2 轮，总上限 8 轮。
+- `turn_order`：初始最小轮次顺序，每个元素包含 agent、role、turn index 和本轮目标。
+- `max_turns`：最大轮次，默认最多 8 轮；用户显式要求 `N 轮` 时按 `N * participant_count`
+  计算并受 8 轮保护；用户明确“只要双方各说一句 / 只要一轮”时限制为每个参与者
+  1 轮。
 - `handoff_policy`：`planned_order`。子 Agent 的 `@mention` 可作为证据记录，但不覆盖计划。
-- `done_condition`：所有计划轮次完成，或可用 Agent 全部失败且无 fallback。
+- `done_condition`：双方/多方已完成最小有效发言、没有新的明确回应空间、达到用户要求或
+  max turns，或可用 Agent 全部失败且无 fallback。
 
 ### dialogue_turn
 
@@ -48,7 +53,7 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 
 ## 3. 触发条件
 
-命中以下任一意图并且当前 group 至少有两个可用非 Orchestrator Agent 时，进入 turn-taking：
+命中以下任一意图并且当前 group 至少有两个非 Orchestrator Agent 时，进入 turn-taking：
 
 - `轮流`、`一人一句`、`接力`、`展开辩论`、`回应对方`、`反驳对方`。
 - `辩论`、`圆桌讨论`、`角色扮演`、`观点对比`、`群聊讨论`。
@@ -69,6 +74,19 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 - 每轮的 raw stream text 标记为 `execution_text`，验收通过后追加常显 `agent_summary`。
 - Orchestrator 在下一轮 prompt 中只提供 bounded context：原始请求、当前 Agent 角色、本轮目标、前几轮发言的必要片段或摘要。
 - Orchestrator final answer 只做主持总结，不吞并或重写所有成员发言。
+- 辩论 / 反驳 / 接力类任务采用动态 session：初始只需要最小轮次；每轮完成后
+  Orchestrator 根据本轮 `agent_summary`、handoff hint、用户要求、已完成攻防轮次和
+  max turns 判断是否追加下一轮 `dialogue_turn`。
+- `一人一句` 只约束单轮输出简短，不自动表示总轮数固定；只有“只要双方各说一句 /
+  只要一轮”等明确短答约束才固定为双方各一轮。
+- 明确辩论任务结束时，Orchestrator 生成 deterministic `debate_judgement` run event，
+  并在 final answer 中给出“更有说服力的一方”或“势均力敌”。评分只基于公开发言，
+  维度包括回应针对性、证据具体性、风险覆盖、逻辑一致性和是否直接回应对方。
+- 对明确接力任务，planner / legacy dialogue fallback 应保留完整参与者名单；runtime cooldown
+  或 preflight unavailable 只影响该轮执行选择，不改变 DialoguePlan 里“谁本应发言”的事实。
+- 如果某个计划参与者在执行前已知不可用，Orchestrator 需要为该参与者创建清洗后的独立
+  `message_error` child message，说明该轮未完成并记录 fallback，而不是静默跳过。普通非对话
+  task 仍可只在 process / memory 记录 preflight skip，不创建失败 child message。
 
 ## 5. 输出合同
 
@@ -87,7 +105,8 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 - 不新增 SSE event type。
 - 不改变直接 Agent 私聊行为。
 - 不改变普通 artifact/code/deploy 任务的 artifact / tool / fulfillment 校验。
-- 公网 E2E 需要用户明确命令后执行；本轮只完成本地实现与本地验收。
+- 公网 E2E 已完成 `manual_two_agent_turn_taking` 与 `agent_turn_taking_matrix` 验证；报告见
+  [live-e2e-report.spec.md](live-e2e-report.spec.md)。
 
 ## 7. 2026-06-09 本地实现记录
 
@@ -95,4 +114,71 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 - 对 turn-taking 请求，legacy fallback 会生成 `dialogue-turn-*` 任务；后续轮次通过 `depends_on` 接收上一轮摘要。
 - group send/queue 入口支持“目标指向第一个 Agent，但文本要求多 Agent 接力”时改派给 Orchestrator 托管；普通单 Agent 私聊不受影响。
 - `dialogue_turn` 输出合同要求本轮只写自己观点；后一轮必须回应、补充或反驳上一轮；代写多 Agent 剧本会触发 `output_incomplete`。
-- E2E 脚本已注册 `agent_turn_taking_dialogue_repair` 与 `agent_turn_taking_matrix`，但公网 E2E 未执行。
+- E2E 脚本已注册 `agent_turn_taking_dialogue_repair` 与 `agent_turn_taking_matrix`。
+
+## 8. 2026-06-10 Dynamic Debate Update
+
+本轮将辩论 / 反驳 / 接力类 `dialogue_turn` 从固定初始轮次升级为动态 session：
+
+- 初始 plan 仍可只包含双方最小轮次，避免 planner 一次性展开完整剧本。
+- 执行层在每轮 child message `done` 后判断是否追加下一轮；同一 Agent 多轮发言仍创建
+  独立 child message。
+- 默认辩论至少保证双方各一次，并在需要时继续到一轮攻防；`@agent-id 你继续` 是继续
+  信号，但最终是否继续由 Orchestrator 判断。
+- 默认 max turns 为 8；显式短答请求可提前停止。
+- 辩论类 final answer 需要包含 `debate_judgement` 的主持评判；非辩论 roundtable /
+  brainstorm / data panel 不输出胜负判断。
+
+本轮本地验证已通过：
+
+```text
+pytest:
+  tests/test_orchestrator_planning.py
+  tests/test_orchestrator_output_contracts.py
+  tests/test_orchestrator_response_presentation.py
+  tests/test_orchestrator_live_e2e_script.py
+  tests/test_orchestrator.py::test_orchestrator_dynamic_debate_continues_after_handoff
+  tests/test_orchestrator.py::test_orchestrator_dynamic_debate_respects_explicit_one_exchange
+  result: 108 passed
+
+ruff: passed
+mypy app/agents/orchestrator: passed
+git diff --check: passed
+```
+
+## 9. 2026-06-10 Public E2E Evidence
+
+本轮完成 OpenCode / Codex 默认模型清理后，按真实账号路径执行公网 turn-taking repair loop：
+
+```text
+manual_two_agent_turn_taking:
+  report: /tmp/agenthub_manual_two_agent_turn_taking_report.json
+  sse: /tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl
+  passed: true
+  acceptance:
+    claude-code message_start -> message_done
+    opencode-helper message_start -> message_done
+    opencode-helper has visible agent_summary
+    no artifact_missing / call_ / raw stderr / workspace absolute path
+    fallback Agent cannot substitute for OpenCode in this strict case
+
+agent_turn_taking_matrix:
+  report: /tmp/agenthub_agent_turn_taking_matrix_report.json
+  sse: /tmp/agenthub_agent_turn_taking_matrix_sse.jsonl
+  passed: true
+  cases:
+    debate_no_artifacts
+    roundtable_no_artifacts
+    roleplay_dialogue
+    strategy_brainstorm
+    data_analysis_no_file
+    code_artifact_with_summary
+    review_requires_gaps
+```
+
+验证结论：
+
+- 子 Agent 输出中的 `@agent-id` 仍只是 handoff hint；下一轮由 Orchestrator 调度。
+- 明确 two-agent 接力场景中，OpenCode 必须自己完成 OpenCode child message，不能由 fallback
+  代替通过。
+- 所有完成的 child message 必须有通过 output contract 的常显 `agent_summary`。

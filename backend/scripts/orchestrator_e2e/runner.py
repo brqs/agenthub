@@ -2246,6 +2246,11 @@ def run_manual_two_agent_turn_taking_case(
         message.get("status") == "done"
         for message in by_agent.get("claude-code", [])
     )
+    claude_done_count = sum(
+        1
+        for message in by_agent.get("claude-code", [])
+        if message.get("status") == "done"
+    )
     opencode_done = any(
         message.get("status") == "done"
         for message in by_agent.get("opencode-helper", [])
@@ -2262,6 +2267,11 @@ def run_manual_two_agent_turn_taking_case(
         ("claude-code", "message_done"),
         ("opencode-helper", "message_start"),
         ("opencode-helper", "message_done"),
+        ("claude-code", "message_start"),
+        ("claude-code", "message_done"),
+    )
+    final_has_debate_judgement = any(
+        marker in visible_text for marker in ("辩论评判", "更有说服力", "势均力敌")
     )
     missing_paths = _unresolved_missing_artifact_paths(run_detail)
 
@@ -2288,9 +2298,11 @@ def run_manual_two_agent_turn_taking_case(
         "opencode-helper",
     }
     checks["claude_child_done"] = claude_done
+    checks["claude_continued_after_opencode"] = claude_done_count >= 2
     checks["opencode_child_done"] = opencode_done
     checks["opencode_agent_summary_substantive"] = opencode_contract_passed
     checks["required_message_lifecycle_order"] = saw_required_order
+    checks["final_answer_has_debate_judgement"] = final_has_debate_judgement
     checks["no_fallback_substitute_for_opencode"] = opencode_done
     checks["no_artifact_missing"] = not missing_paths
     checks["visible_text_no_forbidden_terms"] = not forbidden_terms
@@ -2300,9 +2312,11 @@ def run_manual_two_agent_turn_taking_case(
         "message_done",
         "two_agent_group_created",
         "claude_child_done",
+        "claude_continued_after_opencode",
         "opencode_child_done",
         "opencode_agent_summary_substantive",
         "required_message_lifecycle_order",
+        "final_answer_has_debate_judgement",
         "no_fallback_substitute_for_opencode",
         "no_artifact_missing",
         "visible_text_no_forbidden_terms",
