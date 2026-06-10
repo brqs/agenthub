@@ -103,4 +103,34 @@ describe('DesktopBackendProfilesPanel', () => {
       expect(checkBackend).toHaveBeenCalledWith('http://localhost:8000');
     });
   });
+
+  it('shows the latest connection error for the matching backend profile', () => {
+    useDesktopEnvironmentMock.mockReturnValue({
+      backendProfiles: [
+        {
+          id: 'public-http',
+          name: '小易',
+          url: 'http://111.229.151.159:8000',
+          mode: 'remote',
+          lastHealth: 'unreachable',
+        },
+      ],
+      activeBackendProfileId: 'default',
+      health: {
+        url: 'http://111.229.151.159:8000',
+        reachable: false,
+        status: 'unreachable',
+        error: '连接 AgentHub 后端超时，请检查服务器地址和网络。',
+      },
+      checkBackend: vi.fn(),
+      saveBackendProfile: vi.fn(),
+      activateBackendProfile: vi.fn(),
+      deleteBackendProfile: vi.fn(),
+    } as unknown as DesktopEnvironmentState);
+
+    render(<DesktopBackendProfilesPanel />);
+
+    expect(screen.getByText('连接 AgentHub 后端超时，请检查服务器地址和网络。')).toBeInTheDocument();
+    expect(screen.queryByText('暂时无法连接')).not.toBeInTheDocument();
+  });
 });
