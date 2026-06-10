@@ -104,6 +104,63 @@ def test_dialogue_turn_contract_requires_own_turn_and_response() -> None:
     assert "针对上一轮" in passed.summary_text
 
 
+def test_dialogue_turn_accepts_clear_negative_stance_without_fixed_phrase() -> None:
+    task = SubTask(
+        task_id="turn-2",
+        agent_id="opencode-helper",
+        title="第 2 轮发言：反方",
+        instruction=(
+            "本轮必须明确回应上一轮，不要代写其他 Agent 的完整发言。"
+            "你的角色/立场：反方，主张 AI 快速发展弊大于利。"
+        ),
+        depends_on=("turn-1",),
+        task_type="dialogue_turn",
+    )
+
+    validation = validate_task_output(
+        task,
+        _attempt(
+            "针对 Claude-code 提到的医疗和教育收益，我承认这些例子有价值，"
+            "但必须看到更大的社会风险。快速自动化会造成就业断层，"
+            "深度伪造和信息操纵会削弱公共信任，隐私滥用与安全失控也会"
+            "先于监管成熟出现。如果治理滞后，普通人承担的代价会超过少数"
+            "平台获得的效率收益。"
+        ),
+    )
+
+    assert validation.passed
+    assert "就业断层" in validation.summary_text
+
+
+def test_dialogue_turn_accepts_substantive_reply_with_agent_mention() -> None:
+    task = SubTask(
+        task_id="turn-2",
+        agent_id="opencode-helper",
+        title="第 2 轮发言：反方",
+        instruction=(
+            "本轮必须明确回应上一轮，不要代写其他 Agent 的完整发言。"
+            "你的角色/立场：反方，主张 AI 快速发展弊大于利。"
+        ),
+        depends_on=("turn-1",),
+        task_type="dialogue_turn",
+    )
+
+    validation = validate_task_output(
+        task,
+        _attempt(
+            "@claude-code 你拿医疗说事我承认有亮点，但镜头得拉全。"
+            "AI 诊断在真实医院里会遇到数据偏移、偏见和可解释性问题，"
+            "如果错误决策被规模化部署，伤害也会被放大。你说技术普惠，"
+            "现实中算力和数据集中在少数平台，普通人更可能承担失业、"
+            "隐私和安全风险。因此我反驳上一轮：快速发展如果缺少治理，"
+            "社会代价会超过局部效率收益。"
+        ),
+    )
+
+    assert validation.passed
+    assert "@claude-code" in validation.summary_text
+
+
 def test_analysis_contract_requires_substantive_text() -> None:
     task = _task(
         title="Analyze onboarding strategy",

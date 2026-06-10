@@ -82,6 +82,50 @@ RESPONSE_MARKERS = (
     "agree",
     "disagree",
 )
+POSITIVE_DEBATE_MARKERS = (
+    "利大于弊",
+    "正方",
+    "收益",
+    "价值",
+    "提升",
+    "提高",
+    "效率",
+    "生产力",
+    "医疗",
+    "教育",
+    "创新",
+    "研发",
+    "普惠",
+    "降低成本",
+    "解决",
+    "帮助",
+    "辅助",
+    "进步",
+    "文明",
+)
+NEGATIVE_DEBATE_MARKERS = (
+    "弊大于利",
+    "反方",
+    "风险",
+    "危害",
+    "伤害",
+    "失业",
+    "就业",
+    "替代",
+    "滥用",
+    "隐私",
+    "安全",
+    "失控",
+    "偏见",
+    "不公平",
+    "信息茧房",
+    "深度伪造",
+    "治理滞后",
+    "监管滞后",
+    "冲击",
+    "代价",
+    "副作用",
+)
 OTHER_SPEAKER_PATTERNS = (
     r"\n\s*(?:正方|反方|主持人|旁白|Claude(?: Code)?|OpenCode(?: Helper)?|Codex(?: Helper)?)[：:]",
     r"\n\s*@[\w-]+\s*[：:]",
@@ -351,23 +395,40 @@ def _conversation_role_satisfied(task: SubTask, text: str) -> bool:
     title = task.title
     instruction = task.instruction
     if "反方" in title or re.search(r"(以|作为)?反方(身份|观点|发言)?", instruction):
-        return "弊大于利" in text or "反方" in text
+        return _negative_debate_stance_satisfied(text)
     if "正方" in title or re.search(r"(以|作为)?正方(身份|观点|发言)?", instruction):
-        return "利大于弊" in text or "正方" in text
+        return _positive_debate_stance_satisfied(text)
     if "弊大于利" in title:
-        return "弊大于利" in text or "反方" in text
+        return _negative_debate_stance_satisfied(text)
     if "利大于弊" in title:
-        return "利大于弊" in text or "正方" in text
+        return _positive_debate_stance_satisfied(text)
     haystack = f"{title} {instruction}"
     has_positive_topic = "利大于弊" in haystack
     has_negative_topic = "弊大于利" in haystack
     if has_positive_topic and not has_negative_topic:
-        return "利大于弊" in text or "正方" in text
+        return _positive_debate_stance_satisfied(text)
     if has_negative_topic and not has_positive_topic:
-        return "弊大于利" in text or "反方" in text
+        return _negative_debate_stance_satisfied(text)
     if "角色扮演" in haystack:
         return "我" in text or "角色" in text or _has_topic_overlap(task, text)
     return True
+
+
+def _positive_debate_stance_satisfied(text: str) -> bool:
+    if "利大于弊" in text or "正方" in text:
+        return True
+    return _stance_marker_score(text, POSITIVE_DEBATE_MARKERS) >= 3
+
+
+def _negative_debate_stance_satisfied(text: str) -> bool:
+    if "弊大于利" in text or "反方" in text:
+        return True
+    return _stance_marker_score(text, NEGATIVE_DEBATE_MARKERS) >= 3
+
+
+def _stance_marker_score(text: str, markers: tuple[str, ...]) -> int:
+    compact = re.sub(r"\s+", "", text.lower())
+    return sum(1 for marker in markers if marker.lower() in compact)
 
 
 def _has_topic_overlap(task: SubTask, text: str) -> bool:
@@ -402,9 +463,6 @@ def _looks_like_assignment_echo(
         "直接在群聊",
         "直接回复结论",
         "原始用户请求",
-        "@orchestrator",
-        "@claude-code",
-        "@opencode-helper",
     )
     contribution_markers = (
         "结论",

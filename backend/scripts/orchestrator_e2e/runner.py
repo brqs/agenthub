@@ -56,6 +56,7 @@ GROUP_DIALOGUE_DEBATE_SCENARIO = SCENARIO == "group_dialogue_debate_no_artifacts
 GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO = SCENARIO == "group_substantive_output_matrix"
 AGENT_TURN_TAKING_DIALOGUE_SCENARIO = SCENARIO == "agent_turn_taking_dialogue_repair"
 AGENT_TURN_TAKING_MATRIX_SCENARIO = SCENARIO == "agent_turn_taking_matrix"
+MANUAL_TWO_AGENT_TURN_TAKING_SCENARIO = SCENARIO == "manual_two_agent_turn_taking"
 COMMAND_FULFILLMENT_SCENARIO = (
     SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
 )
@@ -450,6 +451,12 @@ AGENT_TURN_TAKING_DIALOGUE_PROMPT = (
     "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出，注意是对话场景。"
     "由 Claude Code 先开始，一人一句回应对方，结束发言后可以 @另一个agent。"
 )
+MANUAL_TWO_AGENT_TURN_TAKING_PROMPT = (
+    "组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会利大于弊还是弊大于利？"
+    "不需要生成文件直接以对话的形式输出，注意是对话场景而不是书面书写。"
+    "由Claude code先开始，一人一句开始辩论不要直接输出全部对话，"
+    "要针对另一个AI的输出展开辩论，结束发言后使用@其他agent让他回复进行辩论 @claude-code"
+)
 GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT = (
     "@orchestrator 请进行通用子 Agent 实质输出验收，不需要生成文件。"
     "组织两个智能体围绕“AI 助手进入中小企业日常运营”做圆桌讨论："
@@ -544,6 +551,8 @@ PROMPT = SETTINGS.prompt_override or (
     if GROUP_DIALOGUE_DEBATE_SCENARIO
     else AGENT_TURN_TAKING_DIALOGUE_PROMPT
     if AGENT_TURN_TAKING_DIALOGUE_SCENARIO
+    else MANUAL_TWO_AGENT_TURN_TAKING_PROMPT
+    if MANUAL_TWO_AGENT_TURN_TAKING_SCENARIO
     else GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT
     if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO or AGENT_TURN_TAKING_MATRIX_SCENARIO
     else FULLSTACK_PROMPT
@@ -2092,13 +2101,7 @@ def run_group_dialogue_debate_case(
     forbidden_terms = forbidden_visible_terms(
         f"{visible_text}\n{message_error_text(events)}"
     )
-    missing_paths = [
-        path
-        for attempt in run_detail.get("attempts", [])
-        if isinstance(attempt, dict)
-        for path in attempt.get("missing_artifact_paths", [])
-        if isinstance(path, str)
-    ]
+    missing_paths = _unresolved_missing_artifact_paths(run_detail)
     final_summary = str((run_detail.get("run") or {}).get("final_summary") or "")
     child_statuses = [item.get("status") for item in child_messages]
     child_agent_ids = {
@@ -2167,6 +2170,188 @@ def run_group_dialogue_debate_case(
     report["acceptance"]["passed"] = all(report["acceptance"].values())
 
 
+def run_manual_two_agent_turn_taking_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"Manual Two Agent Turn Taking {int(started_at)}",
+            "mode": "group",
+            "agent_ids": ["claude-code", "opencode-helper"],
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+
+    sent, events, target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=MANUAL_TWO_AGENT_TURN_TAKING_PROMPT,
+        target_agent_id="claude-code",
+        started_at=started_at,
+    )
+    parent_message_id = sent["agent_message"]["id"]
+    user_message_id = sent["user_message"]["id"]
+    messages = fetch_conversation_messages(client, headers, conv_id, report)
+    parent_message = next(
+        (item for item in messages if item.get("id") == parent_message_id),
+        target or {},
+    )
+    child_messages = child_messages_for_user(
+        messages,
+        parent_message_id=parent_message_id,
+        user_message_id=user_message_id,
+    )
+    run_detail = fetch_orchestrator_run_detail(client, headers, conv_id, report)
+    contracts = substantive_child_output_report(child_messages, run_detail)
+    visible_text = all_visible_message_text([parent_message, *child_messages])
+    forbidden_terms = forbidden_visible_terms(
+        f"{visible_text}\n{message_error_text(events)}"
+    )
+    message_start_order = [
+        {
+            "agent_id": event_data(event).get("agent_id"),
+            "message_id": event_data(event).get("message_id"),
+            "status": event_data(event).get("status"),
+        }
+        for event in events
+        if event.get("event") == "message_start"
+    ]
+    terminal_order = [
+        {
+            "event": event.get("event"),
+            "agent_id": event_data(event).get("agent_id"),
+            "message_id": event_data(event).get("message_id"),
+            "status": event_data(event).get("status"),
+        }
+        for event in events
+        if event.get("event") in {"message_start", "message_done", "message_error"}
+    ]
+    by_agent: dict[str, list[dict[str, Any]]] = {}
+    for message in child_messages:
+        agent_id = str(message.get("agent_id") or "")
+        if agent_id:
+            by_agent.setdefault(agent_id, []).append(message)
+
+    claude_done = any(
+        message.get("status") == "done"
+        for message in by_agent.get("claude-code", [])
+    )
+    opencode_done = any(
+        message.get("status") == "done"
+        for message in by_agent.get("opencode-helper", [])
+    )
+    opencode_contract_passed = any(
+        item.get("agent_id") == "opencode-helper"
+        and item.get("status") == "done"
+        and item.get("substantive_output_passed") is True
+        for item in contracts
+    )
+    saw_required_order = _message_lifecycle_order_seen(
+        terminal_order,
+        ("claude-code", "message_start"),
+        ("claude-code", "message_done"),
+        ("opencode-helper", "message_start"),
+        ("opencode-helper", "message_done"),
+    )
+    missing_paths = _unresolved_missing_artifact_paths(run_detail)
+
+    report.update(
+        {
+            "prompt": MANUAL_TWO_AGENT_TURN_TAKING_PROMPT,
+            "user_message_id": user_message_id,
+            "agent_message_id": parent_message_id,
+            "target_agent_message": parent_message,
+            "child_agent_messages": child_messages,
+            "child_output_contracts": contracts,
+            "stream_event_count": len(events),
+            "message_start_order": message_start_order,
+            "message_lifecycle_order": terminal_order,
+            "dialogue_missing_artifact_paths": missing_paths,
+            "dialogue_visible_forbidden_terms": forbidden_terms,
+        }
+    )
+
+    checks = report["checks"]
+    checks["message_done"] = parent_message.get("status") == "done"
+    checks["two_agent_group_created"] = set(conv.get("agent_ids") or []) >= {
+        "claude-code",
+        "opencode-helper",
+    }
+    checks["claude_child_done"] = claude_done
+    checks["opencode_child_done"] = opencode_done
+    checks["opencode_agent_summary_substantive"] = opencode_contract_passed
+    checks["required_message_lifecycle_order"] = saw_required_order
+    checks["no_fallback_substitute_for_opencode"] = opencode_done
+    checks["no_artifact_missing"] = not missing_paths
+    checks["visible_text_no_forbidden_terms"] = not forbidden_terms
+
+    acceptance_keys = (
+        "target_agents_present",
+        "message_done",
+        "two_agent_group_created",
+        "claude_child_done",
+        "opencode_child_done",
+        "opencode_agent_summary_substantive",
+        "required_message_lifecycle_order",
+        "no_fallback_substitute_for_opencode",
+        "no_artifact_missing",
+        "visible_text_no_forbidden_terms",
+    )
+    report["acceptance"] = {
+        key: bool(checks.get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def _message_lifecycle_order_seen(
+    events: list[dict[str, Any]],
+    *expected: tuple[str, str],
+) -> bool:
+    cursor = 0
+    for event in events:
+        if cursor >= len(expected):
+            break
+        expected_agent, expected_event = expected[cursor]
+        if event.get("event") == expected_event and event.get("agent_id") == expected_agent:
+            cursor += 1
+    return cursor == len(expected)
+
+
+def _unresolved_missing_artifact_paths(run_detail: dict[str, Any]) -> list[str]:
+    """Return missing artifacts that were not recovered by a later same-task attempt."""
+
+    raw_attempts = run_detail.get("attempts") if isinstance(run_detail, dict) else []
+    attempts = [item for item in raw_attempts if isinstance(item, dict)]
+    unresolved: list[str] = []
+    for index, attempt in enumerate(attempts):
+        missing = [
+            str(path)
+            for path in attempt.get("missing_artifact_paths", [])
+            if isinstance(path, str) and path
+        ]
+        if not missing:
+            continue
+        recovered: set[str] = set()
+        for later in attempts[index + 1 :]:
+            recovered.update(
+                str(path)
+                for path in later.get("artifact_paths", [])
+                if isinstance(path, str) and path
+            )
+        unresolved.extend(path for path in missing if path not in recovered)
+    return list(dict.fromkeys(unresolved))
+
+
 def substantive_child_output_report(
     child_messages: list[dict[str, Any]],
     run_detail: dict[str, Any] | None = None,
@@ -2195,7 +2380,7 @@ def _child_output_contract(
         failure_reason = "summary contains prompt echo"
     elif _looks_generic_completion(text):
         failure_reason = "summary is generic completion text"
-    elif len(re.sub(r"\s+", "", text)) < 60:
+    elif len(re.sub(r"\s+", "", text)) < 60 and not _looks_like_artifact_summary(text):
         failure_reason = "summary too short"
     fallback_data = (fallback_index or {}).get(str(message.get("agent_id") or ""), {})
     status = str(message.get("status") or "")
@@ -2243,6 +2428,20 @@ def _done_children_have_substantive_agent_summary(
     return bool(done_contracts) and all(
         item.get("substantive_output_passed") is True for item in done_contracts
     )
+
+
+def _looks_like_artifact_summary(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    has_completion = any(marker in compact for marker in ("已完成", "完成", "验证"))
+    has_artifact_label = any(marker in compact for marker in ("产物", "文件", "审阅产物"))
+    has_file = bool(
+        re.search(
+            r"[\w./-]+\.(?:html|css|js|ts|tsx|jsx|md|json|yaml|yml|py|txt|csv|zip)",
+            text,
+            re.I,
+        )
+    )
+    return has_completion and has_artifact_label and has_file
 
 
 def _error_children_have_readable_failure_or_fallback(
@@ -2485,13 +2684,7 @@ def _run_substantive_output_case(
         user_message_id=user_message_id,
     )
     run_detail = fetch_orchestrator_run_detail(client, headers, conv["id"], case_report)
-    missing_paths = [
-        path
-        for attempt in run_detail.get("attempts", [])
-        if isinstance(attempt, dict)
-        for path in attempt.get("missing_artifact_paths", [])
-        if isinstance(path, str)
-    ]
+    missing_paths = _unresolved_missing_artifact_paths(run_detail)
     visible_text = all_visible_message_text([parent_message, *child_messages])
     parent_visible_text = visible_agent_text(message_blocks(parent_message))
     forbidden_terms = forbidden_visible_terms(
@@ -4308,6 +4501,16 @@ def main() -> None:
             print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
             print(f"report={REPORT_PATH}")
             print(f"browser_report={BROWSER_REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if MANUAL_TWO_AGENT_TURN_TAKING_SCENARIO:
+            run_manual_two_agent_turn_taking_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
             print(f"sse={SSE_PATH}")
             return
         if GROUP_DIALOGUE_DEBATE_SCENARIO or AGENT_TURN_TAKING_DIALOGUE_SCENARIO:
