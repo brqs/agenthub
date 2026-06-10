@@ -1720,6 +1720,173 @@ async def test_orchestrator_group_dialogue_tasks_finish_without_artifacts(
     assert "artifact_missing" not in str(parent.content)
 
 
+async def test_turn_taking_direct_agent_target_routes_to_orchestrator(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    orchestrator_id = await _ensure_builtin_agent("orchestrator", name="Orchestrator")
+    first_id = await _ensure_builtin_agent(f"turn-agent-a-{uuid4().hex}", name="Turn A")
+    second_id = await _ensure_builtin_agent(f"turn-agent-b-{uuid4().hex}", name="Turn B")
+    conversation = await _create_conversation(
+        client,
+        headers,
+        [first_id, second_id],
+        mode="group",
+    )
+
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=first_id,
+        content_text=(
+            "组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
+            "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出。"
+            "由第一个智能体先开始，一人一句回应对方，结束后 @其他agent。"
+        ),
+    )
+
+    assert messages["agent_message"]["agent_id"] == orchestrator_id
+
+
+async def test_orchestrator_dialogue_turns_auto_schedule_next_agent(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, headers = await _register(client)
+    orchestrator_id = await _ensure_builtin_agent("orchestrator", name="Orchestrator")
+    first_id = await _ensure_builtin_agent(f"turn-agent-a-{uuid4().hex}", name="Turn A")
+    second_id = await _ensure_builtin_agent(f"turn-agent-b-{uuid4().hex}", name="Turn B")
+    conversation = await _create_conversation(
+        client,
+        headers,
+        [first_id, second_id],
+        mode="group",
+    )
+    messages = await _send_message(
+        client,
+        headers,
+        conversation["id"],
+        target_agent_id=first_id,
+        content_text=(
+            "组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
+            "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出。"
+            "由第一个智能体先开始，一人一句回应对方，结束后 @其他agent。"
+        ),
+    )
+    agent_message_id = messages["agent_message"]["id"]
+
+    class TurnAdapter(BaseAgentAdapter):
+        provider = "fake"
+
+        def __init__(self, agent_id: str) -> None:
+            super().__init__(agent_id=agent_id)
+            self.received_messages: list[list[Any]] = []
+
+        async def stream(
+            self,
+            messages: list[Any],
+            *,
+            system_prompt: str | None = None,
+            config: dict[str, Any] | None = None,
+            workspace_path: Path | None = None,
+            tool_specs: list[Any] | None = None,
+        ) -> AsyncIterator[StreamChunk]:
+            self.received_messages.append(messages)
+            text = (
+                "正方观点：我认为 AI 快速发展利大于弊，因为它能提升医疗、"
+                "教育和科研效率，也能让普通人获得更强的生产工具。风险需要治理，"
+                "但不应因此否定整体收益。请另一位智能体回应。"
+                if self.agent_id == first_id
+                else (
+                    "针对上一轮提到的效率收益，我同意 AI 有局部价值，但我的反方"
+                    "立场是快速发展弊大于利。就业替代、隐私滥用和信息信任危机"
+                    "可能先于治理成熟，社会需要先建立约束再扩大应用。"
+                )
+            )
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            yield StreamChunk(
+                event_type="block_start",
+                block_index=0,
+                block_type="text",
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(
+                event_type="delta",
+                block_index=0,
+                text_delta=text,
+                agent_id=self.agent_id,
+            )
+            yield StreamChunk(event_type="block_end", block_index=0, agent_id=self.agent_id)
+            yield StreamChunk(event_type="done", agent_id=self.agent_id, total_blocks=1)
+
+    claude_adapter = TurnAdapter(first_id)
+    opencode_adapter = TurnAdapter(second_id)
+    orchestrator = OrchestratorAdapter(
+        agent_id=orchestrator_id,
+        default_config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "sub_adapters": {
+                first_id: claude_adapter,
+                second_id: opencode_adapter,
+            },
+        },
+    )
+
+    async def mock_get_adapter(agent_id: str, db: Any) -> OrchestratorAdapter:
+        assert agent_id == orchestrator_id
+        return orchestrator
+
+    monkeypatch.setattr("app.api.v1.stream.get_adapter", mock_get_adapter)
+
+    async with client.stream(
+        "GET",
+        f"/api/v1/messages/{agent_message_id}/stream",
+        headers=headers,
+    ) as response:
+        sse_text = (await response.aread()).decode()
+
+    async with SessionFactory() as db:
+        stored_messages = (
+            (
+                await db.execute(
+                    select(Message)
+                    .where(Message.conversation_id == UUID(conversation["id"]))
+                    .order_by(Message.created_at.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert response.status_code == 200
+    assert messages["agent_message"]["agent_id"] == orchestrator_id
+    assert sse_text.count("event: message_start") == 2
+    assert "artifact_missing" not in sse_text
+    assert claude_adapter.received_messages
+    assert opencode_adapter.received_messages
+    opencode_context = "\n".join(
+        getattr(message, "content", "") for message in opencode_adapter.received_messages[0]
+    )
+    assert "Previous sub-agent results" in opencode_context
+    child_messages = [
+        message
+        for message in stored_messages
+        if message.role == "agent" and message.agent_id in {first_id, second_id}
+    ]
+    assert [message.agent_id for message in child_messages] == [first_id, second_id]
+    assert {message.status for message in child_messages} == {"done"}
+    assert all(
+        any(
+            isinstance(block, dict)
+            and block.get("presentation", {}).get("role") == "agent_summary"
+            for block in message.content
+        )
+        for message in child_messages
+    )
+
+
 async def test_orchestrator_salvages_substantive_conversation_output_before_runtime_error(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,

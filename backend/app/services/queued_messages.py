@@ -14,6 +14,8 @@ from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.message_queue import MessageQueueEntry
 
+ORCHESTRATOR_AGENT_ID = "orchestrator"
+
 
 @dataclass(frozen=True)
 class QueuedDispatch:
@@ -270,7 +272,10 @@ async def dispatch_next_queued_message(
             continue
 
         user_message.status = "done"
-        if entry.target_agent_id not in conversation.agent_ids:
+        if (
+            entry.target_agent_id not in conversation.agent_ids
+            and entry.target_agent_id != ORCHESTRATOR_AGENT_ID
+        ):
             agent_message = _queued_target_missing_message(
                 conversation_id=conversation_id,
                 user_message_id=user_message.id,

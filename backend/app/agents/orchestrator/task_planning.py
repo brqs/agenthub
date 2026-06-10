@@ -36,6 +36,9 @@ from app.agents.orchestrator._internal.planning.templates import (
 from app.agents.orchestrator._internal.planning.templates import (
     workspace_conflict_tasks_from_request as _workspace_conflict_tasks_from_request,
 )
+from app.agents.orchestrator._internal.planning.turn_taking import (
+    turn_taking_requested,
+)
 from app.agents.orchestrator.availability import scoped_runnable_agent_ids
 from app.agents.orchestrator.planner import llm_planning_enabled, plan_task_payload
 from app.agents.orchestrator.types import SubTask
@@ -166,8 +169,14 @@ async def resolve_tasks(
                 "no_runnable_agent: no executable agent is available in current conversation"
             )
         direct_tasks = _direct_tasks_from_request(config, messages)
-        if direct_tasks:
+        if direct_tasks and not turn_taking_requested(user_request):
             return direct_tasks
+        if turn_taking_requested(user_request):
+            tasks = _derive_tasks(config, messages)
+            if tasks and all(
+                task.task_type in {"conversation", "dialogue_turn"} for task in tasks
+            ):
+                return _preserve_explicit_requirements(tasks, user_request)
         conflict_tasks = _workspace_conflict_tasks_from_request(config, messages)
         if conflict_tasks:
             return conflict_tasks
@@ -329,13 +338,20 @@ def balance_requested_multi_agent_plan(
 ) -> list[SubTask]:
     allowed_agent_ids = allowed_agent_ids or _allowed_agent_ids_from_config(config)
     ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
-    if (
-        len(tasks) == 1
-        and _explicit_multi_agent_distribution_requested(user_request)
-        and tasks[0].task_type == "conversation"
-        and len(ordered_agents) >= 2
-    ):
-        return _split_single_conversation_task(tasks[0], ordered_agents)
+    if len(tasks) == 1 and _explicit_multi_agent_distribution_requested(user_request):
+        if tasks[0].task_type in {"conversation", "dialogue_turn"} and len(
+            ordered_agents
+        ) >= 2:
+            if turn_taking_requested(user_request):
+                return _split_single_dialogue_turn_task(tasks[0], ordered_agents)
+            return _split_single_conversation_task(tasks[0], ordered_agents)
+        split_tasks = _split_single_parallel_implementation_task(
+            tasks,
+            0,
+            ordered_agents,
+        )
+        if split_tasks is not tasks:
+            return _avoid_self_review_tasks(split_tasks, ordered_agents)
     if len(tasks) < 2:
         return tasks
     if not _explicit_multi_agent_distribution_requested(user_request):
@@ -408,6 +424,47 @@ def _split_single_conversation_task(
             task_type="conversation",
         ),
     ]
+
+
+def _split_single_dialogue_turn_task(
+    task: SubTask,
+    ordered_agents: list[str],
+) -> list[SubTask]:
+    first_agent, second_agent = ordered_agents[:2]
+    first = replace(
+        task,
+        agent_id=first_agent,
+        title=f"{task.title} - turn 1",
+        instruction=(
+            f"{task.instruction}\n\n"
+            "Dialogue turn split: this is turn 1. Speak only for yourself. "
+            "Directly state your own role, position, reasoning, and one concrete "
+            "example. Do not host, invite another participant, restate the "
+            "assignment, or script another Agent's full reply. Do not create "
+            "files or workspace artifacts."
+        ),
+        expected_output="",
+        task_type="dialogue_turn",
+    )
+    second = replace(
+        task,
+        task_id=_unique_task_id([task], f"{task.task_id}-turn-2"),
+        agent_id=second_agent,
+        title=f"{task.title} - turn 2",
+        instruction=(
+            f"{task.instruction}\n\n"
+            "Dialogue turn split: this is turn 2. Respond to the previous turn "
+            "with your own position, reasoning, and one concrete example. Do not "
+            "host, invite another participant, restate the assignment, or script "
+            "another Agent's full reply. Do not create files or workspace "
+            "artifacts."
+        ),
+        depends_on=(task.task_id,),
+        priority=task.priority + 1,
+        expected_output="",
+        task_type="dialogue_turn",
+    )
+    return [first, second]
 
 
 def _is_parallel_implementation_task(task: SubTask) -> bool:

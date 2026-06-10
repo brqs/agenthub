@@ -64,6 +64,12 @@ DEFAULT_GROUP_DIALOGUE_DEBATE_SSE_PATH = (  # noqa: S108
 DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_group_substantive_output_matrix_sse.jsonl"  # noqa: S108
 )
+DEFAULT_AGENT_TURN_TAKING_DIALOGUE_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_turn_taking_dialogue_sse.jsonl"  # noqa: S108
+)
+DEFAULT_AGENT_TURN_TAKING_MATRIX_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl"  # noqa: S108
+)
 
 DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
 DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
@@ -117,6 +123,12 @@ DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_substantive_output_matrix_report.json"  # noqa: S108
+)
+DEFAULT_AGENT_TURN_TAKING_DIALOGUE_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_turn_taking_dialogue_report.json"  # noqa: S108
+)
+DEFAULT_AGENT_TURN_TAKING_MATRIX_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_agent_turn_taking_matrix_report.json"  # noqa: S108
 )
 
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
@@ -220,6 +232,14 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
     "group_substantive_output_matrix": ScenarioDefaults(
         DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_REPORT_PATH,
         DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SSE_PATH,
+    ),
+    "agent_turn_taking_dialogue_repair": ScenarioDefaults(
+        DEFAULT_AGENT_TURN_TAKING_DIALOGUE_REPORT_PATH,
+        DEFAULT_AGENT_TURN_TAKING_DIALOGUE_SSE_PATH,
+    ),
+    "agent_turn_taking_matrix": ScenarioDefaults(
+        DEFAULT_AGENT_TURN_TAKING_MATRIX_REPORT_PATH,
+        DEFAULT_AGENT_TURN_TAKING_MATRIX_SSE_PATH,
     ),
     "p1_attribution": ScenarioDefaults(
         DEFAULT_P1_ATTRIBUTION_REPORT_PATH,

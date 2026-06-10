@@ -51,7 +51,7 @@ NEGATIVE_ARTIFACT_CONTEXT_MARKERS = (
 
 
 def finalize_artifact_candidates(attempt: TaskAttempt, task: SubTask) -> None:
-    if task.task_type == "conversation":
+    if task.task_type in {"conversation", "dialogue_turn"}:
         attempt.artifact_paths = []
         attempt.missing_artifact_paths = []
         return
