@@ -2,7 +2,7 @@
 
 > Owner: B2
 > Related: [B1 ContentBlock Attribution](../../../b1/spec/message-content-block-attribution.spec.md), [F Orchestrated Rendering](../../../frontend/spec/orchestrated-message-rendering.spec.md)
-> Last updated: 2026-06-07
+> Last updated: 2026-06-10
 
 ## 1. 目标
 
@@ -81,12 +81,20 @@ SSE lifecycle：
 - 子 message `agent_id` 为实际负责 Agent。
 - 每个子 message 使用独立 `StreamContentAccumulator`；block index 是该子 message 的局部 index。
 - 父 Orchestrator message 继续承载 task card、process、orchestration 证据与最终用户可见总结。
-- 已知不可运行 Agent 在 attempt 前被过滤时，不创建对应 child message；Orchestrator process / memory 记录“检测到不可用并改派”。
+- 已知不可运行 Agent 在 attempt 前被过滤时，普通非对话 task 不创建对应 child message；
+  Orchestrator process / memory 记录“检测到不可用并改派”。
+- 对 Orchestrator 托管的 `conversation` / `dialogue_turn`，如果用户或 DialoguePlan 明确要求某
+  个成员发言，而该 Agent 在执行前已知不可用，应创建该 Agent 的独立 error child message，
+  使用清洗后的用户可读原因说明本轮未完成，再由 fallback Agent 创建新的 child message 接手。
+  这避免对话场景里“成员被静默跳过”，同时不泄露 raw runtime / auth / path 细节。
 - 子 message 失败时，`message_error.error` 和空 error child fallback text 必须是清洗后的用户可读原因，不暴露本地认证路径、Errno、stderr、stack trace 或 call id。
 - 子 message `status="done"` 不再只代表 runtime stream 正常结束；它还必须代表该 Agent 的输出通过任务类型匹配的实质输出合同。只有 process/tool trace 或空泛完成语不能使 child message 进入 done。
 - 子 Agent 第一次输出不合格时，Orchestrator 可在同一 child message 内追加 `output-correction` process step 并重试一次；仍不合格时该 child message 以清洗后的 `message_error` 结束，后续 fallback Agent 会创建独立 child message。
 - 对 Orchestrator 托管的 `dialogue_turn`，同一 Agent 多轮发言也必须生成多条独立 child messages；不能把同一 Agent 的多轮内容追加进上一轮消息。
 - `dialogue_turn` child message `done` 代表该轮发言通过实质输出合同；子 Agent 输出里的 `@agent-id` 只作为 handoff hint，不改变消息归属。
+- 在严格 two-agent turn-taking 验收中，指定成员必须由自己的 child message 完成；例如
+  `claude-code -> opencode-helper` 接力场景，OpenCode 的 `done` 与 `agent_summary` 不能由
+  Claude/Codex fallback 替代。
 
 Agent-to-Agent 接力对话的完整契约见 [agent-turn-taking.spec.md](agent-turn-taking.spec.md)。
 
