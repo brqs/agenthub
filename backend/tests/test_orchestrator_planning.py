@@ -344,7 +344,7 @@ def test_command_fulfillment_explicit_markdown_overrides_no_file_hint() -> None:
     assert any(item["id"] == "document" for item in context.fulfillment_items)
 
 
-async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -> None:
+async def test_orchestrator_planner_receives_whitelisted_memory_signals() -> None:
     opencode = FakeSubAdapter("opencode-helper", _text_chunks("created document"))
     planner = FakePlannerGateway(
         [
@@ -403,7 +403,8 @@ async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -
     assert "@opencode-helper: success_rate=1.0; score=2.1" in planner_message
     assert "@opencode-helper: success_count=1; failure_count=0" in planner_message
     assert "language_style_hints: chinese=2" in planner_message
-    assert "private historical details" not in planner_message
+    assert "Previous Orchestrator structured memory" in planner_message
+    assert "private historical details" in planner_message
 
 
 def test_artifact_design_requests_are_task_intent_not_direct_answer() -> None:
@@ -496,6 +497,83 @@ def test_context_action_request_evidence_pack_is_planner_whitelisted() -> None:
     assert ORCHESTRATOR_EVIDENCE_HEADER in planner_content
     assert "latest_run_status: done" in planner_content
     assert "planning.md" in planner_content
+
+
+def test_planner_prompt_uses_dedicated_recent_conversation_context() -> None:
+    user_request = "按刚才方案开始做"
+    planner_messages = _planner_messages(
+        {
+            "planner_context_messages": [
+                ChatMessage(role="user", content="网站必须包含移动端适配和 Diff 产物"),
+                ChatMessage(
+                    role="assistant",
+                    content="[Agent: claude-code]\n我会实现 HTML/CSS/JS。",
+                ),
+                ChatMessage(role="user", content=user_request),
+            ],
+            "available_agents": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "provider": "claude_code",
+                    "capabilities": ["coding", "files"],
+                    "planning_profile": "并行实现主力",
+                    "planning_strengths": ["implementation", "parallel_execution"],
+                    "preferred_task_types": ["implementation"],
+                }
+            ],
+        },
+        [ChatMessage(role="user", content=user_request)],
+        user_request,
+        ["claude-code"],
+    )
+
+    planner_content = planner_messages[0].content
+    assert "Recent conversation context:" in planner_content
+    assert "网站必须包含移动端适配和 Diff 产物" in planner_content
+    assert "[Agent: claude-code]" in planner_content
+    assert "planning_profile=并行实现主力" in planner_content
+    assert "strengths=implementation, parallel_execution" in planner_content
+
+
+def test_planner_prompt_trims_old_context_but_keeps_priority_sections() -> None:
+    user_request = "最终按移动端验收要求生成网站"
+    old_turns = [
+        ChatMessage(role="user", content=f"very-old-turn-{index} " + ("x" * 1200))
+        for index in range(20)
+    ]
+    planner_messages = _planner_messages(
+        {
+            "planner_context_max_tokens": 700,
+            "planner_context_messages": [
+                ChatMessage(
+                    role="system",
+                    content="MemoryHub mounted context:\n- durable constraint: keep mobile QA",
+                ),
+                *old_turns,
+                ChatMessage(role="user", content=user_request),
+            ],
+            "available_agents": [
+                {
+                    "id": "opencode-helper",
+                    "name": "OpenCode Helper",
+                    "provider": "opencode",
+                    "capabilities": ["coding", "cli"],
+                    "planning_profile": "第二实现者或验证修复者",
+                }
+            ],
+        },
+        [ChatMessage(role="user", content=user_request)],
+        user_request,
+        ["opencode-helper"],
+    )
+
+    planner_content = planner_messages[0].content
+    assert user_request in planner_content
+    assert "planning_profile=第二实现者或验证修复者" in planner_content
+    assert "durable constraint: keep mobile QA" in planner_content
+    assert "very-old-turn-0" not in planner_content
+    assert "older planner conversation context omitted" in planner_content
 
 
 async def test_orchestrator_planner_cannot_select_agent_outside_available_agents() -> None:

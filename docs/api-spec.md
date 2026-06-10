@@ -1191,6 +1191,7 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 | `config.context_max_tokens` | 通用 agent 会话上下文 token 预算，1 - 200000，默认 64000 |
 | `config.orchestrator_context_max_tokens` | Orchestrator 主流程上下文 token 预算，1 - 200000，默认 64000 |
 | `config.orchestrator_subagent_context_max_tokens` | Orchestrator 分发给子 Agent 的上下文 token 预算，1 - 200000，默认 64000 |
+| `config.planner_context_max_tokens` | Orchestrator Planner 单次 LLM 输入上下文 token 预算，1 - 1000000，默认 128000 |
 | `config.max_iterations` | 仅 `builtin` 使用，1 - 50 |
 | `config.orchestrator_tool_max_tokens` | Orchestrator tool loop 输出 token 预算，1 - 32000，默认 8192 |
 | `config.mcp_servers` | 仅 `builtin` 使用，MCP server 配置数组 |
@@ -1467,6 +1468,7 @@ interface AgentConfig {
   model_backend?: "claude" | "deepseek" | "openai";
   answer_model_backend?: "claude" | "deepseek" | "openai";
   planner_model_backend?: "claude" | "deepseek" | "openai";
+  planner_context_max_tokens?: number;
   max_iterations?: number;
   mcp_servers?: object[];
   allowed_tools?: string[];
@@ -1478,6 +1480,17 @@ interface AgentConfig {
   command?: string | string[];
   args?: string[];
   timeout_seconds?: number;
+  qa_short_circuit_enabled?: boolean;
+  qa_model_backend?: "claude" | "deepseek" | "openai";
+  qa_model?: string | null;
+  qa_classifier_model?: string | null;
+  qa_max_tokens?: number;
+  qa_classifier_max_tokens?: number;
+  qa_temperature?: number;
+  qa_request_timeout_seconds?: number;
+  qa_stream_idle_timeout_seconds?: number;
+  qa_stream_max_runtime_seconds?: number;
+  qa_stream_heartbeat_seconds?: number;
   [key: string]: any;
 }
 

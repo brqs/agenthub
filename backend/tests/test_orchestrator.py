@@ -1294,6 +1294,59 @@ async def test_orchestrator_does_not_require_database() -> None:
     assert adapter_a.received_config["runtime_context"]["orchestrator_task_id"] == "task-a"
 
 
+async def test_orchestrator_dialogue_task_extends_direct_chat_budget() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("dialogue answer"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="组织两位 Agent 接力辩论")],
+        config={
+            "tasks": [
+                _task(
+                    "dialogue-turn-1",
+                    "agent-a",
+                    "First turn",
+                    "只代表自己完成本轮发言。",
+                    task_type="dialogue_turn",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a},
+            "qa_stream_idle_timeout_seconds": 10,
+            "qa_stream_max_runtime_seconds": 45,
+            "qa_stream_heartbeat_seconds": 5,
+        },
+    )
+
+    assert adapter_a.received_config is not None
+    assert adapter_a.received_config["qa_stream_idle_timeout_seconds"] == 45.0
+    assert adapter_a.received_config["qa_stream_max_runtime_seconds"] == 120.0
+    assert adapter_a.received_config["qa_stream_heartbeat_seconds"] == 10.0
+
+
+async def test_orchestrator_regular_task_does_not_override_direct_chat_budget() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("regular answer"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    await _collect(
+        orchestrator,
+        config={
+            "tasks": [
+                _task("task-a", "agent-a", "Regular task", "Create the artifact.")
+            ],
+            "sub_adapters": {"agent-a": adapter_a},
+            "qa_stream_idle_timeout_seconds": 10,
+            "qa_stream_max_runtime_seconds": 45,
+            "qa_stream_heartbeat_seconds": 5,
+        },
+    )
+
+    assert adapter_a.received_config is not None
+    assert adapter_a.received_config["qa_stream_idle_timeout_seconds"] == 10
+    assert adapter_a.received_config["qa_stream_max_runtime_seconds"] == 45
+    assert adapter_a.received_config["qa_stream_heartbeat_seconds"] == 5
+
+
 async def test_orchestrator_passes_group_memory_to_sub_agent() -> None:
     adapter_a = FakeSubAdapter("agent-a", _text_chunks("used group memory"))
     messages = [
