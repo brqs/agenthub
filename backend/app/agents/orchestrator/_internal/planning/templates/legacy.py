@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.agents.orchestrator._internal.planning.routing import (
+    agent_id_list,
     derive_direct_agent_tasks,
     explicit_agent_mentions,
     latest_user_request,
@@ -55,6 +56,10 @@ DIALOGUE_REQUEST_MARKERS = (
     "观点对比",
     "群聊讨论",
     "讨论一下",
+    "分析这组数据",
+    "分析数据",
+    "数据分析",
+    "协作分析",
     "brainstorm",
     "debate",
     "role-play",
@@ -82,13 +87,12 @@ NO_ARTIFACT_DIALOGUE_MARKERS = (
 
 
 def derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list[SubTask]:
-    agent_ids = available_orchestrator_agent_ids(config)
+    user_request = latest_user_request(messages)
+    agent_ids = _template_agent_ids(config, user_request)
     if not agent_ids:
         raise ValueError(
             "missing_task_plan: config.tasks or config.managed_agent_ids is required"
         )
-
-    user_request = latest_user_request(messages)
     direct_tasks = derive_direct_agent_tasks(agent_ids, user_request)
     if direct_tasks and not turn_taking_requested(user_request):
         return direct_tasks
@@ -140,6 +144,27 @@ def derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list
             )
         )
     return tasks
+
+
+def _template_agent_ids(config: Mapping[str, Any], user_request: str) -> list[str]:
+    if _dialogue_template_requested(user_request):
+        group_ids = agent_id_list(
+            config.get("managed_agent_ids", config.get("default_sub_agents"))
+        )
+        if group_ids:
+            return group_ids
+    return available_orchestrator_agent_ids(config)
+
+
+def _dialogue_template_requested(user_request: str) -> bool:
+    normalized = user_request.lower()
+    return bool(
+        turn_taking_requested(user_request)
+        or (
+            _has_any(normalized, DIALOGUE_REQUEST_MARKERS)
+            and _has_any(normalized, NO_ARTIFACT_DIALOGUE_MARKERS)
+        )
+    )
 
 
 def _generic_contract(user_request: str) -> dict[str, Any]:
