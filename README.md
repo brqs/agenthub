@@ -16,11 +16,9 @@ AgentHub turns AI collaboration into a chat-native workspace. Users can talk to 
 
 ## Demo
 
-<video src="demo.mp4" controls width="100%">
-  Your browser does not support embedded video. Download the demo instead: https://github.com/brqs/agenthub/blob/main/demo.mp4
-</video>
+[![Watch the AgentHub demo](release-assets/demo-cover.png)](demo.mp4)
 
-If the embedded player is unavailable in your Markdown viewer, open [demo.mp4](demo.mp4) directly.
+Watch or download the full demo: [demo.mp4](demo.mp4).
 
 ## What It Does
 
