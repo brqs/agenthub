@@ -18,6 +18,15 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
     }
   }
 
+  async function testActiveProfile(url: string, profileId: string) {
+    setBusyId(profileId);
+    try {
+      await desktop.checkBackend(url);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function saveProfile() {
     setBusyId('new');
     try {
@@ -62,6 +71,12 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
       <div className="mt-3 space-y-2">
         {desktop.backendProfiles.map((profile) => {
           const active = profile.id === desktop.activeBackendProfileId;
+          const profileHealthError =
+            desktop.health &&
+            sameBackendUrl(desktop.health.url, profile.url) &&
+            desktop.health.status !== 'ready'
+              ? desktop.health.error
+              : null;
           return (
             <div
               key={profile.id}
@@ -91,9 +106,14 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
                     HTTP 明文连接，仅建议内网或临时测试使用
                   </p>
                 )}
-                {profile.lastHealth === 'unreachable' && (
+                {profile.lastHealth === 'unreachable' && !profileHealthError && (
                   <p className="mt-0.5 text-[11px] text-rose-600 dark:text-rose-300">
                     暂时无法连接
+                  </p>
+                )}
+                {profileHealthError && (
+                  <p className="mt-0.5 text-[11px] leading-4 text-rose-600 dark:text-rose-300">
+                    {profileHealthError}
                   </p>
                 )}
                 {profile.lastHealth === 'incompatible' && (
@@ -102,7 +122,17 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
                   </p>
                 )}
               </div>
-              {!active && (
+              {active ? (
+                <button
+                  type="button"
+                  onClick={() => testActiveProfile(profile.url, profile.id)}
+                  disabled={busyId !== null}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-300 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-500/50 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  {busyId === profile.id ? '测试中' : '测试'}
+                </button>
+              ) : (
                 <>
                   <button
                     type="button"
@@ -181,4 +211,8 @@ function isPlainHttpRemote(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function sameBackendUrl(a: string, b: string): boolean {
+  return a.trim().replace(/\/+$/, '') === b.trim().replace(/\/+$/, '');
 }
