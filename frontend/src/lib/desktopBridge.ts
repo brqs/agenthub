@@ -296,15 +296,6 @@ export async function checkDesktopBackendHealth(
   let normalized: string;
   try {
     normalized = normalizeBackendUrl(url);
-    const parsed = new URL(normalized);
-    if (!isLocalBackendUrl(normalized) && parsed.protocol !== 'https:') {
-      return {
-        url: normalized,
-        reachable: false,
-        status: 'unreachable',
-        error: '公网后端必须使用 HTTPS。',
-      };
-    }
   } catch (error) {
     return {
       url,

@@ -86,6 +86,11 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
                 <p className="truncate text-xs text-slate-500" title={profile.url}>
                   {profile.url}
                 </p>
+                {isPlainHttpRemote(profile.url) && (
+                  <p className="mt-0.5 text-[11px] text-amber-600 dark:text-amber-300">
+                    HTTP 明文连接，仅建议内网或临时测试使用
+                  </p>
+                )}
                 {profile.lastHealth === 'unreachable' && (
                   <p className="mt-0.5 text-[11px] text-rose-600 dark:text-rose-300">
                     暂时无法连接
@@ -136,9 +141,14 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
           <input
             value={url}
             onChange={(event) => setUrl(event.target.value)}
-            placeholder="https://agenthub.example.com"
+            placeholder="http://111.229.151.159:8000 或 https://agenthub.example.com"
             className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 dark:border-slate-700 dark:bg-slate-950"
           />
+          {isPlainHttpRemote(url) && (
+            <p className="text-xs leading-5 text-amber-600 dark:text-amber-300">
+              当前地址使用 HTTP 明文连接，登录态和请求内容不会被传输层加密。建议仅用于内网、测试机或临时部署。
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -160,4 +170,15 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
       )}
     </section>
   );
+}
+
+function isPlainHttpRemote(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:') return false;
+    const host = url.hostname.toLowerCase();
+    return host !== 'localhost' && host !== '127.0.0.1' && host !== '::1';
+  } catch {
+    return false;
+  }
 }
