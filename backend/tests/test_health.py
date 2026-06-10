@@ -44,6 +44,7 @@ async def test_server_info_exposes_public_capabilities() -> None:
 
 def test_default_cors_allows_tauri_origin() -> None:
     assert "http://tauri.localhost" in settings.cors_origin_list
+    assert "https://tauri.localhost" in settings.cors_origin_list
 
 
 def test_desktop_cors_is_appended_when_cors_origins_are_overridden() -> None:
@@ -52,6 +53,7 @@ def test_desktop_cors_is_appended_when_cors_origins_are_overridden() -> None:
     assert local_settings.cors_origin_list == [
         "http://localhost:5173",
         "http://tauri.localhost",
+        "https://tauri.localhost",
     ]
 
 
