@@ -888,6 +888,32 @@ Auto clarification remains the intended behavior for broad artifact/build reques
 - A clearly different artifact/build request during pending clarification should route to topic confirmation, so the user can continue the current clarification, switch to the new request, or use it as reference.
 - Identical clarification cards in separate conversations are deterministic template behavior, not evidence of cross-conversation message or SSE stream leakage. Each response must still have its own conversation/message/run identity.
 
+## 2026-06-10 Handoff Addendum: Custom Agent Server Wrapper Refactor
+
+The previous custom Agent direction has been replaced. Current custom Agents are **server Agent wrappers**, not from-scratch builtin Agents.
+
+- User-created Agents must choose a server base Agent: `claude-code`, `codex-helper`, or `opencode-helper`.
+- `POST /api/v1/agents` now accepts creatable providers only for those wrapper paths: `claude_code | codex | opencode`.
+- Wrapper config requires:
+  - `custom_agent_mode="server_agent_wrapper"`
+  - `base_agent_id`
+  - `wrapper_profile`
+- Wrapper profile carries the transfer fields used by Orchestrator: role, purpose, planning profile, strengths, weaknesses, preferred task types, capabilities, output style, and boundaries.
+- Backend copies runtime defaults from the base Agent and rejects user-supplied runtime fields such as command, args, sandbox mode, model profile, API key, secret, token, auth, and MCP config.
+- Registry resolves wrappers to the base adapter while keeping the custom Agent id/name for attribution and asset injection.
+- Skills remain supported and are injected via the existing `agent_asset_service`.
+- Knowledge upload endpoints may remain for compatibility, but the active create/detail UI is Skills-only.
+- Model backpack APIs are removed from routing; `user_model_accounts` is cleared by migration and no longer has frontend entry points.
+- Migration `e2f3a4b5c6d7_reset_custom_agents_for_wrappers` intentionally deletes old `is_builtin=false` custom Agents, related asset bindings/versions/usage events, removes their ids from conversations, and clears model accounts.
+- Orchestrator group-scoped dispatch is unchanged: a wrapper Agent can only be called after it is added to the current conversation.
+
+Current source of truth:
+
+```text
+docs/spec/custom-agent-assets.spec.md
+docs/spec/custom-agent-model-backpack.spec.md  # deprecated notice
+```
+
 ## 2026-06-07 Handoff Addendum: Queued Next Turn Phase 1
 
 Running-time submit is now implemented as a persisted same-conversation queue.
@@ -953,6 +979,15 @@ AgentHub now has a local Supermemory-style MemoryHub layer.
 - Mounted context is headed `MemoryHub mounted context:` and is recorded in `memory_mounts` when an `agent_message_id` exists.
 - Terminal agent messages may extract deterministic memory candidates/active memories. The first implementation is conservative: it focuses on explicit user preferences, constraints, decisions, and stable facts; it filters credential-like content and marks temporary facts with expiry.
 - Orchestrator run/task/attempt/event records remain authoritative execution facts. MemoryHub must not override group-scoped dispatch, runtime availability, queue/interrupt state, retry state, or workspace audit data.
+
+## 2026-06-10 Handoff Addendum: Follow-up Continuity And Memory Scope
+
+- Orchestrator now resolves terse modifications against the latest successful, modifiable output in the same conversation. It does not search another conversation for “刚刚那个”.
+- Planner access remains bounded through `Previous output follow-up context:` (12,000 characters maximum); full structured run memory is still not a planner input.
+- The conversation Memory UI uses `GET /api/v1/conversations/{conversation_id}/memory-hub`, which returns scoped active/candidate memory separately from user active/candidate memory.
+- Memory mounts now expose `recall_state = not_attempted | no_match | mounted` plus latest Agent message metadata. This is an audit of context actually injected into a reply.
+- Rules extraction only reads the parent user message. Explicit durable preferences/constraints can become active; ordinary requests and stable facts remain excluded or candidate-only.
+- Migration `f3a4b5c6d7e8` archives deterministic `rules-v1` pollution with cleanup metadata. It does not hard-delete memories or modify manual memories.
 - Frontend right panel has a new `Memory` tab for active memories, candidate memories, and recent dynamic mounts. Users can confirm candidates, edit memory content, or forget memories.
 
 Validation run for this slice:
@@ -968,3 +1003,41 @@ Validation run for this slice:
 - `DATABASE_URL=postgresql+asyncpg://agenthub:agenthub_dev_pw@localhost:5432/agenthub_test uv run pytest tests/test_conversation_api.py tests/test_context_builder.py -q`
 - `pnpm exec tsc -b`
 - `pnpm exec vitest run src/components/chat/MessageInput.test.tsx src/components/chat/MessageBubble.test.tsx`
+
+## 2026-06-09 Handoff Addendum: Windows Desktop P2 Managed Local Stack
+
+Windows Desktop P2 now manages an existing local AgentHub Docker stack through a narrow Tauri Rust bridge.
+
+- The desktop bridge discovers and validates an AgentHub project root, but existing `agenthub-backend` Compose labels are authoritative. A conflicting or missing original project directory is an error because silently switching Compose projects can make historical conversations appear lost behind new volumes.
+- The bridge only assembles fixed Docker argv for backend/postgres/redis. There is no arbitrary shell command, arbitrary service name, environment dump, runtime invocation, `down -v`, prune, volume removal, or database reset command.
+- Normal start uses existing images, then runs Alembic migration, built-in Agent reconciliation, and `/health` readiness. Rebuild requires a second user confirmation.
+- Start/stop/restart are serialized by an operation mutex and emit progress events through a Tauri Channel.
+- Remote backend mode hides local Docker controls. Local auto-start is opt-in and defaults to false.
+- Logs and diagnostics are sanitized. Diagnostics do not read `.env`, auth state, message content, uploads, or Workspace file contents.
+- B1 lifespan logs structured startup stages for built-in Agent config reconciliation, Workspace cleanup, application ready, and shutdown.
+- B2 runtime selection remains backend-owned. The desktop app never invokes Claude Code, Codex, OpenCode, or MCP directly.
+
+## 2026-06-09 Handoff Addendum: Windows Desktop P3 Native Utilities
+
+Windows Desktop P3 adds a small set of user-initiated native utilities without widening the runtime boundary.
+
+- F uses the Windows system picker for uploads and system Save As for source archives; the existing B1 upload/download APIs remain the only data transport.
+- Workspace opening is conversation-scoped. React passes only a conversation UUID, and Rust resolves the authoritative P2 project binding, verifies the workspace manifest and rejects path/reparse escapes before opening Explorer.
+- Diagnostics export returns an opaque one-time token. The save command cannot accept an arbitrary source path.
+- External links are opened through a validated command limited to `http`, `https`, and `mailto`.
+- Desktop notifications are opt-in and contain only generic terminal state. They consume persisted top-level message terminal events, not B2 runtime subprocess output.
+- B1 and OpenAPI remain unchanged. B2 continues to own Claude/Codex/OpenCode/MCP availability and execution.
+- P4 must handle notification-center cold start activation, protocol registration, signing, and the complete installer/update lifecycle.
+
+## 2026-06-10 Handoff Addendum: Windows Desktop P4 Installer And Updater
+
+Windows Desktop P4 defines the distributable/update story for the Tauri client.
+
+- First install uses an NSIS setup exe. MSI remains an auxiliary enterprise/test artifact.
+- Future updates use Tauri updater against GitHub Releases. Update artifacts must be signed; the updater private key belongs only in CI secrets.
+- The desktop client updates itself only. It must not automatically upgrade Docker Desktop, rebuild backend images, reset databases, delete volumes, or migrate user project directories.
+- `agenthub://chat/{conversationId}` and `agenthub://notification/{notificationId}?conversationId={conversationId}` are the only supported deep links. Both require UUIDs and only navigate the UI.
+- `single-instance` owns duplicate launches and forwards deep links to the existing main window.
+- Crash/panic diagnostics are app-data local, tail-limited, and sanitized. They must not include `.env`, model API keys, auth state, prompts, messages, Workspace files, uploads, or runtime stderr dumps.
+- Release workflow artifacts are expected to include the NSIS setup exe, optional MSI, updater package/signature, `latest.json`, and `checksums.txt`.
+- Rollback is manual: install an older setup package. Rollback must preserve local Docker data and runtime auth state.

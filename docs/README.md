@@ -9,6 +9,7 @@
 | [development-plan.md](development-plan.md) | 项目整体开发计划 |
 | [product-design.md](product-design.md) | 产品定位与交互设计 |
 | [tech-architecture.md](tech-architecture.md) | 技术架构与模块关系 |
+| [architecture/remote-backend-shared-sessions-roadmap.md](architecture/remote-backend-shared-sessions-roadmap.md) | 远程后端接入、多端共享会话与公网部署总路线 |
 | [api-spec.md](api-spec.md) | 人类可读 API 说明 |
 | [team-division.md](team-division.md) | 三人分工与所有权 |
 | [ai-collaboration-log.md](ai-collaboration-log.md) | AI 协作记录 |
@@ -18,6 +19,8 @@
 | [ai-skills/foreground-contrast-audit/SKILL.md](ai-skills/foreground-contrast-audit/SKILL.md) | 前端前景色 / 对比度 / 明暗主题逐组件验收 Skill |
 | [spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md) | Agent Runtime Pivot 决策记录 |
 | [spec/next-major-modules.spec.md](spec/next-major-modules.spec.md) | 下一阶段三大模块：打断对话、跨端文件上传、深度自定义 Agent |
+| [frontend/spec/windows-desktop-client.spec.md](frontend/spec/windows-desktop-client.spec.md) | Windows 桌面客户端网页套壳、当前 Agent 运行环境复用和总体架构 |
+| [frontend/spec/windows-desktop-host-bridge.spec.md](frontend/spec/windows-desktop-host-bridge.spec.md) | Windows 桌面客户端主机桥接、安全边界和白名单命令 |
 
 ## 角色文档
 

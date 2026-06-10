@@ -2,7 +2,7 @@
 
 > Status: Draft architecture spec  
 > Last updated: 2026-06-07  
-> Scope: interruptible conversations, cross-platform file uploads, and deep custom Agent builder  
+> Scope: interruptible conversations, cross-platform file uploads, and custom Agent server wrappers
 > Owners: B1 + B2 + F. This file is the handoff entry before implementation.
 
 ## 2026-06-07 Implementation Note: Conversation Interrupt
@@ -18,6 +18,18 @@ The conversation interrupt slice has moved from draft to implemented contract.
 - Client disconnect, conversation switching, StrictMode remount, and background SSE subscriber churn must not create `interrupted`.
 
 The rest of this document still describes the wider next-major roadmap for uploads and custom Agents. For interrupt behavior, treat this implementation note, `shared/openapi.yaml`, B1 stream code, and frontend generated types as the current truth.
+
+## 2026-06-10 Implementation Note: Custom Agent Server Wrappers
+
+The active custom Agent implementation is now the server Agent wrapper path:
+
+- A custom Agent chooses one server base Agent: `claude-code`, `codex-helper`, or `opencode-helper`.
+- Users customize transfer fields and Skills, not model accounts, MCP JSON, or runtime commands.
+- The base Agent adapter remains the execution authority; runtime auth and health stay server-controlled.
+- Orchestrator remains group-scoped: wrappers must be added to the current conversation before they can be dispatched.
+- Old non-builtin custom Agents are removed by migration because their old config shape is incompatible.
+
+Treat `docs/spec/custom-agent-assets.spec.md` as the current source of truth for custom Agent behavior. The older deep builder section below is historical unless a future spec explicitly reopens it.
 
 ## 2026-06-07 Implementation Note: Queued Next Turn
 

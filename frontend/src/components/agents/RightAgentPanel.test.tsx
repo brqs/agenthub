@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { RightAgentPanel } from './RightAgentPanel';
 import * as deploymentsAdapter from '@/lib/adapters/deployments';
+import * as memoriesAdapter from '@/lib/adapters/memories';
 import * as workspacesAdapter from '@/lib/adapters/workspaces';
 import type { WorkspaceTreeResponse } from '@/lib/adapters/workspaces';
 import { DEPLOYMENT_ACTIONS } from '@/components/artifact/deploymentPresentation';
@@ -45,6 +46,26 @@ vi.mock('@/lib/adapters/deployments', () => ({
   getDeployment: vi.fn(),
   stopDeployment: vi.fn(),
   downloadSourceArchive: vi.fn(),
+}));
+
+vi.mock('@/lib/adapters/memories', () => ({
+  getConversationMemoryHub: vi.fn().mockResolvedValue({
+    scoped_active: [],
+    scoped_candidates: [],
+    user_active: [],
+    user_candidates: [],
+  }),
+  listConversationMemoryMounts: vi.fn().mockResolvedValue({
+    items: [],
+    total: 0,
+    recall_state: 'not_attempted',
+    latest_agent_message_id: null,
+    latest_agent_id: null,
+    latest_agent_status: null,
+  }),
+  listMemories: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  updateMemory: vi.fn(),
+  forgetMemory: vi.fn(),
 }));
 
 const defaultWorkspaceTree: WorkspaceTreeResponse = {
@@ -126,6 +147,20 @@ describe('RightAgentPanel', () => {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
+    vi.mocked(memoriesAdapter.getConversationMemoryHub).mockResolvedValue({
+      scoped_active: [],
+      scoped_candidates: [],
+      user_active: [],
+      user_candidates: [],
+    });
+    vi.mocked(memoriesAdapter.listConversationMemoryMounts).mockResolvedValue({
+      items: [],
+      total: 0,
+      recall_state: 'not_attempted',
+      latest_agent_message_id: null,
+      latest_agent_id: null,
+      latest_agent_status: null,
+    });
   });
 
   function renderPanel(panel: React.ReactNode) {
@@ -152,6 +187,57 @@ describe('RightAgentPanel', () => {
     expect(screen.getByRole('button', { name: /Context/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Agents$/ })).not.toBeInTheDocument();
     expect(screen.queryByText('群聊协作中')).not.toBeInTheDocument();
+  });
+
+  it('separates current conversation memories from collapsed global preferences', async () => {
+    vi.mocked(memoriesAdapter.getConversationMemoryHub).mockResolvedValue({
+      scoped_active: [
+        {
+          id: 'memory-current',
+          owner_user_id: 'user-1',
+          scope_type: 'conversation',
+          scope_id: conversation.id,
+          container_tag: `agenthub:conversation:${conversation.id}`,
+          kind: 'decision',
+          content: '当前会话招聘文案事实',
+          importance: 'high',
+          confidence: 0.9,
+          status: 'active',
+          source_type: 'manual',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      scoped_candidates: [],
+      user_active: [
+        {
+          id: 'memory-global',
+          owner_user_id: 'user-1',
+          scope_type: 'user',
+          scope_id: null,
+          container_tag: 'agenthub:user:user-1',
+          kind: 'preference',
+          content: '全局正式中文偏好',
+          importance: 'high',
+          confidence: 0.9,
+          status: 'active',
+          source_type: 'manual',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ],
+      user_candidates: [],
+    });
+
+    renderPanel(
+      <RightAgentPanel conversation={conversation} messages={messages} agents={mockAgents} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Memory/ }));
+
+    expect(await screen.findByText('当前会话招聘文案事实')).toBeInTheDocument();
+    expect(screen.queryByText('全局正式中文偏好')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /全局用户记忆/ }));
+    expect(screen.getByText('全局正式中文偏好')).toBeInTheDocument();
   });
 
   it('shows files returned by the workspace API', async () => {

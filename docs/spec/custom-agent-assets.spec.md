@@ -1,360 +1,207 @@
-# Custom Agent Knowledge and Skill Upload Spec
+# Custom Agent Server Wrapper and Skills Spec
 
 ## Status
 
-MVP implementation target: 2026-06-08.
+Implemented direction: 2026-06-10.
 
-This spec narrows the broader Deep Custom Agent Builder roadmap into two linked
-MVP pieces: a no-code custom Agent Builder for non-technical users, and
-user-owned custom Agents that can receive Markdown knowledge files and uploaded
-skills. Users can edit binding metadata and delete those bindings.
+This spec replaces the older "from-scratch builtin custom Agent" roadmap. A user-created custom Agent is now a **server Agent wrapper**: it chooses one server-provided base Agent and adds user-facing routing/profile fields plus optional Skills.
+
+Supported base Agents:
+
+- `claude-code`
+- `codex-helper`
+- `opencode-helper`
+
+The custom Agent does not own a model, API key, MCP server, shell command, or independent runtime. Execution always goes through the selected base Agent adapter.
 
 ## Goals
 
-- Let users attach Markdown files to a custom Agent as explicit knowledge.
-- Let users upload a Markdown skill definition for a custom Agent.
-- Let users edit knowledge labels/usages and skill name/description after upload.
-- Let users download the original uploaded asset from the Agent detail panel.
-- Let users remove Agent knowledge and Agent skills without deleting the source
-  upload record for historical audit.
-- Keep B2 runtime consumption simple: assets are persisted in `Agent.config` so
-  adapters can read `config.knowledge` and `config.skills`.
-- Make frontend, web mobile, iOS WebView, and Android WebView use the same
-  multipart upload path.
+- Let non-technical users create a useful Agent by choosing a base Agent and filling understandable fields.
+- Keep runtime behavior aligned with existing server Agent contracts for Claude Code, Codex, and OpenCode.
+- Make Orchestrator routing better by exposing wrapper planning fields.
+- Keep Skills as the only extra asset capability in the main custom Agent path.
+- Remove model backpack, knowledge-first builder, MCP JSON, builtin runtime permission setup, and advanced runtime settings from the user-facing create flow.
 
 ## Non-Goals
 
-- Skill package zip extraction or script execution.
-- Vector indexing, long-term memory promotion, or automatic model ingestion.
-- MCP marketplace import or OAuth authorization flows.
-- Sharing uploaded skills across users or marketplace publication.
-
-## Existing References
-
-- `docs/spec/next-major-modules.spec.md` Module C: full custom Agent roadmap.
-- `docs/spec/upload-memory-alignment.spec.md`: upload purposes and memory flow.
-- `docs/b1/spec/file-upload-backend.spec.md`: general upload API.
-- `docs/frontend/spec/frontend-file-upload.spec.md`: cross-platform upload UX.
+- User-provided model API keys for custom Agents.
+- Creating `provider="builtin"` custom Agents.
+- User-defined MCP servers in this workflow.
+- Custom shell commands, sandbox mode, CLI auth, runtime env, or adapter args.
+- Knowledge files as a first-class builder step. Lower-level knowledge endpoints may remain for compatibility, but the product path is Skills-only.
+- Migrating old custom Agents. Existing non-builtin custom Agents are intentionally deleted by migration per product decision.
 
 ## Backend Contract
 
-All endpoints require bearer auth. Built-in Agents are read-only. Users can only
-operate on their own non-builtin Agents.
+Custom Agents still live in the `agents` table:
 
-### Upload Purposes
+- `is_builtin=false`
+- `provider` is inherited from the base Agent: `claude_code | codex | opencode`
+- `config.custom_agent_mode="server_agent_wrapper"`
+- `config.base_agent_id` is one of `claude-code | codex-helper | opencode-helper`
+- `config.wrapper_profile` stores user-facing transfer fields
 
-`UploadPurpose` must include:
-
-```text
-message_attachment
-workspace_file
-workspace_import
-agent_knowledge
-agent_icon
-skill_package
-mcp_config
-```
-
-### Agent Config Shape
-
-MVP stores Agent assets inside `Agent.config`:
+Wrapper profile:
 
 ```ts
-type AgentKnowledgeRef = {
-  upload_id: string;
-  filename: string;
-  label: string;
-  usage: "reference" | "policy" | "template" | "example";
-  content_type: string;
-  size_bytes: number;
-  sha256: string;
-  created_at: string;
-};
-
-type AgentSkillRef = {
-  skill_id: string;
-  upload_id: string;
-  name: string;
-  description: string;
-  filename: string;
-  content_type: string;
-  size_bytes: number;
-  sha256: string;
-  created_at: string;
-  metadata?: Record<string, unknown>;
+type AgentWrapperProfile = {
+  role?: string | null;
+  purpose?: string | null;
+  planning_profile?: string | null;
+  planning_strengths: string[];
+  planning_weaknesses: string[];
+  preferred_task_types: string[];
+  capabilities: string[];
+  output_style?: string | null;
+  boundaries: string[];
 };
 ```
 
-Config keys:
-
-- `knowledge`: `AgentKnowledgeRef[]`
-- `skills`: `AgentSkillRef[]`
-- `builder_profile`: structured role, purpose, goals, tone, boundaries,
-  clarification policy, output style, and starter prompts generated by the
-  no-code Builder.
-- `permissions`: user-facing permission choices. Backend maps these into
-  `allowed_tools`, which remains the final runtime boundary.
-- `memory_policy`: `none | conversation | project | user`. MVP stores and
-  displays this policy; only `none` and `conversation` have product behavior.
-- `mcp_servers`: stdio MCP configs for advanced users/dev mode. Health checks
-  are exposed separately and do not grant tools by themselves.
-
-Future versions may migrate these arrays into normalized tables. The API shape
-should remain stable.
-
-### No-Code Builder Defaults
-
-When a user creates a custom Agent through the Builder:
-
-- `provider` defaults to `builtin`.
-- `config.model_backend` defaults to `deepseek`.
-- `config.max_iterations` defaults to `10`.
-- `config.mcp_servers` defaults to `[]`.
-- `config.allowed_tools` defaults to `[]`, meaning no tools are granted until
-  the user enables permissions.
-- Workspace read maps to `read_file`; workspace write maps to `read_file` and
-  `write_file`; command execution maps to `bash`.
-
-The Builder is a product layer over `POST /api/v1/agents`; it does not create a
-separate profile table.
-
-### Create Knowledge
+### Create Agent
 
 ```http
-POST /api/v1/agents/{agent_id}/knowledge
-Content-Type: multipart/form-data
+POST /api/v1/agents
 ```
 
-Fields:
+Required semantics:
 
-- `file`: required Markdown/text file.
-- `label`: optional display label. Defaults to filename.
-- `usage`: optional, defaults to `reference`.
+- `provider` must be `claude_code`, `codex`, or `opencode`.
+- `config.custom_agent_mode` must be `server_agent_wrapper`.
+- `config.base_agent_id` must match `provider`.
+- `config.wrapper_profile` must be an object.
 
-Response: `AgentKnowledgeOut`.
+Forbidden user config fields include:
 
-Validation:
+- `command`
+- `args`
+- `sandbox_mode`
+- `runtime auth`
+- `model_profile`
+- `api_key`, `secret`, `token`, `authorization`
+- MCP server JSON
+- builtin tool permissions
 
-- File extension must be `.md`, `.markdown`, or `.txt`.
-- Upload purpose is persisted as `agent_knowledge`.
-- Duplicate `upload_id` is ignored by replacing the existing ref.
+B1/B2 copies safe runtime defaults from the base Agent, then overlays only wrapper/profile fields. The copied runtime config remains controlled by server seed/configuration.
 
-### Delete Knowledge
+### Update Agent
 
 ```http
-DELETE /api/v1/agents/{agent_id}/knowledge/{upload_id}
+PATCH /api/v1/agents/{agent_id}
 ```
 
-Response: `204`.
+Allowed for wrappers:
 
-Rules:
+- display fields such as name/avatar/capabilities/system prompt
+- `config.wrapper_profile`
 
-- Removes only the Agent config binding.
-- Keeps the upload metadata/payload available through the upload API unless the
-  user separately deletes the upload.
+Disallowed:
 
-### Update Knowledge Metadata
+- changing `base_agent_id`
+- changing provider/runtime command/auth/model/MCP/sandbox fields
 
-```http
-PATCH /api/v1/agents/{agent_id}/knowledge/{upload_id}
-Content-Type: application/json
-```
+### Skills
 
-Body:
-
-```json
-{
-  "label": "Updated display name",
-  "usage": "template"
-}
-```
-
-Response: `AgentKnowledgeOut`.
-
-Rules:
-
-- `label` is optional and normalized to a short display string.
-- `usage` is optional and must be one of `reference`, `policy`, `template`, or
-  `example`.
-- The endpoint edits only the Agent config binding. It does not rewrite the
-  upload payload.
-
-### Create Skill
+Retained endpoints:
 
 ```http
 POST /api/v1/agents/{agent_id}/skills
-Content-Type: multipart/form-data
-```
-
-Fields:
-
-- `file`: required Markdown file.
-- `name`: optional override. Defaults to YAML frontmatter `name`, first heading,
-  or filename stem.
-- `description`: optional override. Defaults to YAML frontmatter `description`
-  or the first non-empty body line.
-
-Response: `AgentSkillOut`.
-
-Validation:
-
-- MVP accepts `.md`, `.markdown`, or a file named `SKILL.md`.
-- Upload purpose is persisted as `skill_package`.
-- No script or template execution happens during import.
-- `name` and `description` are normalized to safe short strings.
-- P1 requires both `name` and `description`. They can come from form fields,
-  YAML frontmatter, a Markdown heading/body fallback, or a combination of those
-  sources.
-
-### Delete Skill
-
-```http
+PATCH /api/v1/agents/{agent_id}/skills/{skill_id}
 DELETE /api/v1/agents/{agent_id}/skills/{skill_id}
 ```
 
-Response: `204`.
+Accepted files:
 
-Rules:
+- `.md`
+- `.markdown`
+- `SKILL.md`
 
-- Removes only the Agent config binding.
-- Keeps the upload metadata/payload available through the upload API.
+Skill imports do not execute scripts. They create metadata and a binding that is injected into runtime prompts through the existing asset service.
 
-### Update Skill Metadata
+## Registry Runtime Contract
 
-```http
-PATCH /api/v1/agents/{agent_id}/skills/{skill_id}
-Content-Type: application/json
-```
+When `registry.get_adapter(custom_agent_id)` sees `custom_agent_mode=server_agent_wrapper`:
 
-Body:
+1. Load `base_agent_id`.
+2. Use the base Agent provider and adapter class.
+3. Merge base runtime config with wrapper fields.
+4. Combine base system prompt, custom system prompt, wrapper profile, and uploaded Skills.
+5. Instantiate the adapter with the custom Agent id so UI/timeline attribution uses the user-created Agent name.
 
-```json
-{
-  "name": "Draft Reviewer",
-  "description": "Review draft Markdown files."
-}
-```
+The wrapper cannot override executable runtime settings.
 
-Response: `AgentSkillOut`.
+## Orchestrator Contract
 
-Rules:
+Orchestrator sees wrappers as normal conversation members, but receives additional planning fields:
 
-- `name` and `description` are optional, but at least one should be provided by
-  the client.
-- Values are normalized to safe short strings.
-- The endpoint edits only the Agent config binding. It does not rewrite the
-  upload payload or parsed Markdown metadata.
+- `planning_profile`
+- `planning_strengths`
+- `planning_weaknesses`
+- `preferred_task_types`
+- `capabilities`
+- display name
+- real provider/base runtime availability
 
-### Delete Agent Cleanup
-
-`DELETE /api/v1/agents/{agent_id}` must remove the deleted Agent id from every
-conversation owned by the same user before deleting the Agent row. This prevents
-conversation `agent_ids` from referencing missing custom Agents.
+Group-scoped dispatch remains mandatory. A wrapper can only be selected if it is in the current conversation and its base runtime is available.
 
 ## Frontend Contract
 
-### No-Code Agent Builder
+The create dialog is a "服务器 Agent 套壳构建器":
 
-Replace the old engineering-style create form with a guided Builder:
+1. Choose base Agent: Claude Code, Codex Helper, or OpenCode Helper.
+2. Fill transfer fields: name, purpose, role, strengths, weaknesses, task types, scheduling description, output style, boundaries.
+3. Upload optional Skills.
+4. Confirm base Agent, profile summary, and Skill count.
 
-- Basics: template, name, one-sentence purpose, capability tags.
-- Behavior: role, goals, tone, boundaries, clarification policy, output style,
-  starter prompts.
-- Tools: workspace read/write, command execution, network, deployment,
-  external-account permissions, and memory policy.
-- Review: compact profile preview and folded advanced runtime/MCP JSON fields.
+Removed from the main UI:
 
-Recommendation chips and templates only fill the draft configuration. Creating
-or updating an Agent still requires an explicit user submit.
+- model backpack
+- "AgentHub 免费 DeepSeek / 使用我的 API"
+- advanced config
+- MCP JSON
+- builtin tool permissions
+- knowledge upload step
 
-### Agent Detail Panel
+Agent detail shows:
 
-For user-owned custom Agents, show two editable sections:
+- base Agent
+- wrapper profile summary
+- Skills management
+- test run
+- asset status
 
-- `Configuration overview`: role, purpose, tone, memory policy, and permission
-  summary from `builder_profile` / `permissions`.
-- `知识文件`: list `config.knowledge`, upload Markdown, download original file,
-  edit label/usage, delete binding.
-- `Skills`: list `config.skills`, upload Markdown skill, download original file,
-  edit name/description, delete binding.
-- `MCP health`: lets users run `POST /api/v1/agents/{id}/mcp/health-check` and
-  see available tools/errors without mutating the Agent.
-- `Test run`: lets users run one prompt through
-  `POST /api/v1/agents/{id}/test-run` before adding the Agent to a conversation.
+## Data Cleanup
 
-Built-in Agents remain read-only and only display existing config assets if any.
+The migration `e2f3a4b5c6d7_reset_custom_agents_for_wrappers` removes pre-wrapper custom Agent data:
 
-### UX Rules
+- delete `is_builtin=false` agents
+- remove those ids from `conversations.agent_ids`
+- delete related asset bindings, versions, usage events
+- clear `user_model_accounts`
 
-- Upload uses native file picker via `<input type="file">`.
-- Accept `.md,.markdown,.txt` for knowledge.
-- Accept `.md,.markdown` for skill MVP.
-- Let users choose knowledge `usage`.
-- Let users provide skill `name` and `description` when the Markdown file does
-  not include frontmatter.
-- Let users download the original upload through the existing upload download
-  API.
-- Delete copy must say "解除绑定" because the original upload remains.
-- Show uploading/deleting disabled state.
-- After success, update the selected Agent in local store and invalidate Agent
-  list query.
-- On failure, display a compact error message inside the panel; do not break the
-  whole Agent page.
-
-### Cross-Platform Notes
-
-- PC web, mobile web, iOS WebView, and Android WebView all use the same
-  multipart endpoints.
-- Native share sheet / camera support is out of this MVP because Agent skills
-  and knowledge are text files.
-
-## B2 Runtime Consumption
-
-B2 can read:
-
-- `agent.config["knowledge"]`
-- `agent.config["skills"]`
-
-The MVP runtime path is implemented at `agents.registry.get_adapter()`: before
-an adapter is instantiated, B1's safe asset helper resolves ready/passed upload
-refs owned by the Agent owner, reads bounded Markdown/text content, and appends
-it to the adapter `system_prompt` inside an `<agent_uploaded_assets>` section.
-
-Runtime rules:
-
-- B2 must not read upload `storage_key` directly.
-- Deleted bindings are not injected because frontend/backend remove them from
-  config.
-- Uploads with wrong owner, missing file, non-ready status, or blocked safety
-  status are skipped.
-- Context is bounded and may be truncated. Agents must not assume hidden content
-  beyond what is shown.
-
-This gives builtin/custom/external adapters the same P0 asset context because
-all runtime adapter creation goes through the registry.
+This is intentionally destructive because the old custom Agent design is no longer compatible with the product direction.
 
 ## Tests
 
 Backend:
 
-- Upload Markdown knowledge to custom Agent.
-- Patch knowledge label and usage.
-- Reject knowledge upload to builtin Agent.
-- Upload Markdown skill to custom Agent and parse metadata.
-- Reject skill upload without resolvable name/description.
-- Patch skill name and description.
-- Delete skill binding.
-- Delete custom Agent removes it from user conversations.
+- wrapper create validates provider/base match
+- forbidden config fields return 422
+- registry instantiates the base adapter and injects wrapper profile + Skills
+- Orchestrator planning receives wrapper fields
+- migration removes old custom Agent references
+- model account API routes are not mounted
 
 Frontend:
 
-- Agent detail panel upload controls for knowledge and skills.
-- Knowledge usage select and skill name/description fields.
-- Existing bindings expose download, edit, and unbind actions.
-- Failed upload/edit/delete displays inline error and does not break the page.
+- create flow sends wrapper payload
+- no model backpack/advanced/MCP UI appears
+- Skills upload accepts Markdown and ignores unsupported files
+- detail page shows base Agent, profile, and Skills
 
-Frontend:
+Manual smoke:
 
-- Agent detail displays knowledge and skill sections.
-- Upload buttons call the correct adapter and refresh local Agent state.
-- Delete buttons call the correct adapter.
+- Create a wrapper named "前端页面实现助手" based on OpenCode.
+- Upload a Skill.
+- Add it to a group chat.
+- Ask Orchestrator for a frontend artifact.
+- Timeline shows the custom Agent name while execution uses OpenCode runtime.

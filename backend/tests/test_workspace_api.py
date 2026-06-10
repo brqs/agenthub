@@ -181,6 +181,12 @@ async def test_workspace_tree_creates_workspace_for_owned_conversation(
             )
         ).scalar_one_or_none()
     assert workspace is not None
+    manifest = json.loads(
+        (Path(workspace.root_path) / ".agenthub" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["conversation_id"] == conversation["id"]
 
 
 async def test_workspace_routes_hide_other_users_conversation(

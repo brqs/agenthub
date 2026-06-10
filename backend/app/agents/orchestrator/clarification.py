@@ -22,6 +22,7 @@ from app.agents.types import ChatMessage, StreamChunk
 ClarificationMode = Literal[
     "auto",
     "requirement_alignment",
+    "previous_output_followup",
     "grill_me",
     "grill_with_docs",
     "setup_matt_pocock_skills",
@@ -331,6 +332,7 @@ async def maybe_handle_clarification(
     *,
     latest_user_request: Callable[[list[ChatMessage]], str],
     has_task_intent: Callable[[str], bool],
+    allow_auto_start: bool = True,
 ) -> ClarificationOutcome | None:
     if config.get("clarification_gate_enabled", True) is False:
         return None
@@ -340,6 +342,8 @@ async def maybe_handle_clarification(
     pending = _latest_pending_clarification(messages)
 
     if pending is not None and command is None:
+        if _mode(pending) == "previous_output_followup":
+            return None
         return await _handle_pending_answer(
             config,
             messages,
@@ -359,7 +363,7 @@ async def maybe_handle_clarification(
             original_request=command["body"],
         )
 
-    if _should_auto_clarify(config, user_request, has_task_intent):
+    if allow_auto_start and _should_auto_clarify(config, user_request, has_task_intent):
         question = await _requirement_alignment_question(config, messages, user_request)
         return await _ask_question(
             config,

@@ -44,6 +44,7 @@ from app.schemas.message import (
     UpdateMessageRequest,
     UpdateQueuedMessageRequest,
 )
+from app.services.event_service import event_service
 from app.services.message_lifecycle import cleanup_stale_streaming_messages
 from app.services.queued_messages import (
     delete_queued_user_message,
@@ -399,6 +400,20 @@ async def send_message(
     conv.last_message_at = datetime.now(UTC)
 
     await db.flush()
+    await event_service.record(
+        db,
+        user_id=user.id,
+        event_type="message.created",
+        resource_type="message",
+        resource_id=agent_msg.id,
+        conversation_id=conv_id,
+        payload={
+            "user_message_id": str(user_msg.id),
+            "agent_message_id": str(agent_msg.id),
+            "agent_id": agent_msg.agent_id,
+            "status": agent_msg.status,
+        },
+    )
     return SendMessageResponse(
         user_message=MessageOut.model_validate(user_msg),
         agent_message=MessageOut.model_validate(agent_msg),
@@ -966,4 +981,13 @@ async def regenerate_message(
     db.add(new_msg)
     conv.last_message_at = datetime.now(UTC)
     await db.flush()
+    await event_service.record(
+        db,
+        user_id=user.id,
+        event_type="message.regenerated",
+        resource_type="message",
+        resource_id=new_msg.id,
+        conversation_id=msg.conversation_id,
+        payload={"replaces_message_id": str(msg_id), "agent_id": new_msg.agent_id},
+    )
     return MessageOut.model_validate(new_msg)

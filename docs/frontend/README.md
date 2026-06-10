@@ -37,6 +37,10 @@
 | [capacitor-shell](spec/frontend-capacitor-shell.spec.md) | Capacitor v8 iOS / Android 壳层、HTTPS 构建约束与原生桥接 |
 | [macos-tauri-shell](spec/frontend-macos-tauri-shell.spec.md) | macOS Tauri 桌面套壳、打包签名、Shell 适配与验收 |
 | [file-upload](spec/frontend-file-upload.spec.md) | Web / iOS / Android 文件上传、附件队列、AttachmentBlock 和 Workspace 导入 UX |
+| [windows-desktop-client](spec/windows-desktop-client.spec.md) | Windows 桌面客户端网页套壳、运行环境复用和总体架构 |
+| [windows-desktop-host-bridge](spec/windows-desktop-host-bridge.spec.md) | Tauri 原生桥接命令、安全边界、主机能力白名单 |
+| [windows-desktop-implementation-plan](spec/windows-desktop-implementation-plan.md) | Windows 桌面客户端分阶段实施路线 |
+| [windows-desktop-test-plan](spec/windows-desktop-test-plan.md) | Windows 桌面客户端测试、验收和安全回归计划 |
 
 ## 相关 Skill
 
