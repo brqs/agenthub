@@ -661,8 +661,10 @@ async def test_quality_gate_repairs_failed_deployment_and_redeploys(
             ChatMessage(
                 role="user",
                 content=(
-                    "@orchestrator 做一个前端网页演示，部署在端口8082，"
-                    "完成浏览器质量验收，并尝试容器化部署"
+                    "@orchestrator 请为静态网站执行一键容器化部署。"
+                    "agenthub_container_server.py 监听 0.0.0.0:8000，"
+                    "调用 create_deployment(kind=\"container\", "
+                    "container_port=8000, health_path=\"/health\")。"
                 ),
             )
         ],
@@ -686,6 +688,8 @@ async def test_quality_gate_repairs_failed_deployment_and_redeploys(
             "orchestrator_platform_tool_executor": executor,
             "orchestrator_memory_writer": writer,
             "orchestrator_quality_max_repair_rounds": 2,
+            "orchestrator_container_deployment_wait_for_terminal": True,
+            "orchestrator_container_deployment_wait_timeout_seconds": 12,
         },
     )
 
@@ -700,7 +704,15 @@ async def test_quality_gate_repairs_failed_deployment_and_redeploys(
     text = "".join(chunk.text_delta or "" for chunk in chunks)
 
     assert chunks[-1].event_type == "done"
+    preview_calls = [
+        call for call in executor.calls if call[0] == "start_workspace_preview"
+    ]
+    assert preview_calls and "requested_port" not in preview_calls[0][1]
     assert len(container_calls) == 2
+    assert container_calls[0][1]["container_port"] == 8000
+    assert container_calls[0][1]["health_path"] == "/health"
+    assert container_calls[0][1]["wait_for_terminal"] is True
+    assert container_calls[0][1]["wait_timeout_seconds"] == 12
     assert "container image build failed" in repair.received_messages[-1].content
     assert "logs_tail" in repair.received_messages[-1].content
     assert any(
@@ -709,6 +721,84 @@ async def test_quality_gate_repairs_failed_deployment_and_redeploys(
         for payload in reflection_payloads
     )
     assert "Deployment repair rounds: 1." in text
+
+
+async def test_one_click_container_automation_skips_browser_verify_and_redeploys(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "opencode-helper",
+        _text_chunks("Created Dockerfile"),
+        "Dockerfile",
+        "FROM python:3.12-slim\nEXPOSE 8000\nCMD [\"python\", \"agenthub_container_server.py\"]\n",
+    )
+    repair = FakeWorkspaceWriterAdapter(
+        "codex-helper",
+        _text_chunks("Fixed server"),
+        "agenthub_container_server.py",
+        "print('ok')\n",
+    )
+    executor = FakeDeploymentRepairExecutor()
+    writer = FakeMemoryWriter()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "请为当前 workspace 执行一键容器化部署。"
+                    "创建 Dockerfile 后调用 create_deployment(kind=\"container\", "
+                    "container_port=8000, health_path=\"/health\")。"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "orchestrator_automation_kind": "one_click_container_deploy",
+            "tasks": [
+                _task(
+                    "one-click-container-prepare",
+                    "opencode-helper",
+                    "Prepare container deployment files",
+                    "Create Dockerfile",
+                    expected_output="Dockerfile",
+                )
+            ],
+            "managed_agent_ids": ["opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "opencode-helper": generator,
+                "codex-helper": repair,
+            },
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_memory_writer": writer,
+            "orchestrator_quality_max_repair_rounds": 2,
+            "orchestrator_container_deployment_wait_for_terminal": True,
+            "orchestrator_container_deployment_wait_timeout_seconds": 12,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [call[0] for call in executor.calls] == [
+        "create_deployment",
+        "create_deployment",
+    ]
+    assert executor.calls[0][1]["kind"] == "container"
+    assert executor.calls[0][1]["container_port"] == 8000
+    assert executor.calls[0][1]["health_path"] == "/health"
+    assert executor.calls[0][1]["wait_for_terminal"] is True
+    assert repair.received_messages
+    repair_prompt = "\n".join(message.content for message in repair.received_messages)
+    assert "agenthub_container_server.py" in repair_prompt
+    assert "application files with a working health route" not in repair_prompt
+    assert any(
+        event_type == "reflection_created"
+        and payload
+        and payload["reflection"]["failure_category"] == "deployment_health_failed"
+        for event_type, payload in writer.events
+    )
 
 
 async def test_quality_gate_does_not_repair_container_not_supported(

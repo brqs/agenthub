@@ -182,6 +182,12 @@ def _should_continue_dialogue(
     turn_count = len(completed_turns)
     if turn_count < len(participants):
         return True
+    if not debate:
+        if _explicit_round_count_requested(user_request):
+            return True
+        if _asks_for_continued_debate(user_request) and turn_count < len(participants) * 2:
+            return True
+        return False
     if debate and turn_count < min(MIN_DEBATE_ATTACK_DEFENSE_TURNS, DEFAULT_MAX_DIALOGUE_TURNS):
         return True
     if debate and not _explicit_round_count_requested(user_request):

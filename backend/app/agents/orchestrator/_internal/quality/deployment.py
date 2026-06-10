@@ -28,6 +28,9 @@ from app.agents.types import StreamChunk
 RELEASE_INTENT_RE = re.compile(r"(?i)(部署|发布|上线|deploy(?:ed|ment)?)")
 SOURCE_EXPORT_INTENT_RE = re.compile(r"(?i)(源码|源代码|打包|下载|source|zip)")
 CONTAINER_INTENT_RE = re.compile(r"(?i)(容器|容器化|docker|container)")
+CONTAINER_PORT_HINT_RE = re.compile(
+    r"(?i)(container_port|container\s+port|EXPOSE|监听|listen(?:s|ing)?|health_path|/health)"
+)
 
 
 async def run_deployment_tools(
@@ -37,6 +40,8 @@ async def run_deployment_tools(
     entry_path: str | None,
     requested_port: int | None,
     next_block_index: int,
+    wait_for_container_terminal: bool = False,
+    container_wait_timeout_seconds: int | None = None,
     deployment_tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]]
     | None = None,
     call_id_suffix: str = "",
@@ -72,11 +77,20 @@ async def run_deployment_tools(
             yield chunk, next_block_index
 
     if CONTAINER_INTENT_RE.search(user_request):
+        container_args: dict[str, Any] = {"kind": "container"}
+        if requested_port is not None and CONTAINER_PORT_HINT_RE.search(user_request):
+            container_args["container_port"] = requested_port
+        if "/health" in user_request or "health_path" in user_request:
+            container_args["health_path"] = "/health"
+        if wait_for_container_terminal:
+            container_args["wait_for_terminal"] = True
+            if container_wait_timeout_seconds is not None:
+                container_args["wait_timeout_seconds"] = container_wait_timeout_seconds
         async for item in _call_deployment_tool(
             executor,
             f"orch.deployment.container{call_id_suffix}",
             "create_deployment",
-            {"kind": "container"},
+            container_args,
             next_block_index,
             deployment_tool_results,
         ):
@@ -241,7 +255,9 @@ def deployment_reflection(
         "run Docker manually; AgentHub platform tools own deployment.\n"
         f"Deployment repair round: {repair_round + 1}.\n"
         "Focus on the files needed by the failed deployment, such as index.html for "
-        "static releases or Dockerfile/application health routes for container deploys.\n"
+        "static releases or Dockerfile, agenthub_container_server.py, and application "
+        "health routes for container deploys. If /health is requested, ensure it "
+        "returns HTTP 200 with an ok response.\n"
         f"Deployment evidence:\n- " + "\n- ".join(evidence)
     )
     return ReflectionResult(
@@ -257,7 +273,9 @@ def deployment_repair_expected_output(user_request: str, entry_path: str | None)
     if entry_path:
         outputs.append(entry_path)
     if CONTAINER_INTENT_RE.search(user_request):
-        outputs.extend(["Dockerfile", "application files with a working health route"])
+        outputs.append("Dockerfile")
+        if "agenthub_container_server.py" in user_request or "/health" in user_request:
+            outputs.append("agenthub_container_server.py")
     return "\n".join(outputs) or "deployment artifacts"
 
 

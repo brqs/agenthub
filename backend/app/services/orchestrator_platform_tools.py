@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import time
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
@@ -159,6 +161,12 @@ class OrchestratorPlatformToolExecutor:
         entry_path = _optional_str(arguments.get("entry_path"))
         health_path = _optional_str(arguments.get("health_path"))
         start_command = _optional_str(arguments.get("start_command"))
+        wait_for_terminal = arguments.get("wait_for_terminal") is True
+        wait_timeout_seconds = _positive_int(
+            arguments.get("wait_timeout_seconds"),
+            default=180,
+            maximum=600,
+        )
         try:
             deployment = await self._deployment_service.create(
                 self._db,
@@ -170,6 +178,12 @@ class OrchestratorPlatformToolExecutor:
                 health_path=health_path,
                 start_command=start_command,
             )
+            if wait_for_terminal and kind == "container":
+                await self._db.commit()
+                deployment = await self._wait_for_deployment_terminal(
+                    deployment,
+                    timeout_seconds=wait_timeout_seconds,
+                )
         except (
             WorkspaceDeploymentDisabledError,
             WorkspaceDeploymentError,
@@ -183,6 +197,18 @@ class OrchestratorPlatformToolExecutor:
             status="ok",
             output=_json_output(_deployment_payload(deployment.summary())),
         )
+
+    async def _wait_for_deployment_terminal(
+        self,
+        deployment: Any,
+        *,
+        timeout_seconds: int,
+    ) -> Any:
+        deadline = time.monotonic() + timeout_seconds
+        while deployment.status in {"queued", "publishing"} and time.monotonic() < deadline:
+            await asyncio.sleep(1)
+            await self._db.refresh(deployment)
+        return deployment
 
     async def _get_deployment_status(
         self,
@@ -465,6 +491,12 @@ def _int_value(value: object, *, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         return default
     return value
+
+
+def _positive_int(value: object, *, default: int, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return default
+    return min(value, maximum)
 
 
 def _tool_error(message: str, error_code: str) -> OrchestratorToolResult:

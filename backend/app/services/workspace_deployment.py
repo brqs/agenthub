@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
 import zipfile
 from collections.abc import Callable
@@ -53,6 +54,7 @@ SOURCE_EXPORT_EXCLUDED_PARTS = {
     ".ssh",
     "secrets",
 }
+logger = logging.getLogger(__name__)
 
 
 class WorkspaceDeploymentDisabledError(RuntimeError):
@@ -537,18 +539,46 @@ class WorkspaceDeploymentService:
             <= now
         ]
         for deployment in expired_containers:
-            await self._container_worker.remove(
-                container_id=deployment.container_id,
-                image_id=deployment.image_id,
-                snapshot_path=deployment.snapshot_path,
-            )
+            cleanup_error: Exception | None = None
+            try:
+                await self._container_worker.remove(
+                    container_id=deployment.container_id,
+                    image_id=deployment.image_id,
+                    snapshot_path=deployment.snapshot_path,
+                )
+            except (OSError, WorkspaceViolation) as exc:
+                cleanup_error = exc
+                logger.warning(
+                    "Container deployment cleanup failed for expired deployment %s: %s",
+                    deployment.id,
+                    exc,
+                )
             deployment.status = "stopped"
             deployment.stopped_at = now
             deployment.runtime_status = "stopped"
+            deployment.container_id = None
+            deployment.runtime_id = None
+            deployment.image_id = None
+            deployment.host_port = None
+            deployment.snapshot_path = None
             deployment.url = None
             deployment.healthcheck_url = None
-            deployment.error = "Container deployment expired and was stopped."
-            deployment.logs = [*deployment.logs, "Container deployment expired and was stopped."]
+            if cleanup_error is None:
+                deployment.error = "Container deployment expired and was stopped."
+                deployment.logs = [
+                    *deployment.logs,
+                    "Container deployment expired and was stopped.",
+                ]
+            else:
+                deployment.error = (
+                    "Container deployment expired and cleanup partially failed: "
+                    f"{cleanup_error}"
+                )
+                deployment.logs = [
+                    *deployment.logs,
+                    f"Container cleanup failed during expiration: {cleanup_error}",
+                    "Container deployment expired and was marked stopped.",
+                ]
             self._touch(deployment)
         if expired_containers:
             await db.flush()

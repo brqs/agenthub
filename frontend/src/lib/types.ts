@@ -61,6 +61,11 @@ export type ConversationMemoryHub = Schemas['ConversationMemoryHubOut'];
 export type WorkspaceDeploymentRequest = Schemas['WorkspaceDeploymentRequest'];
 export type WorkspaceDeploymentResponse = Schemas['WorkspaceDeploymentResponse'];
 export type WorkspaceDeploymentListResponse = Schemas['WorkspaceDeploymentListResponse'];
+export interface WorkspaceOneClickContainerDeploymentResponse {
+  mode: 'direct' | 'orchestrator_prepare';
+  automation_message_id?: string | null;
+  deployment?: WorkspaceDeploymentResponse | null;
+}
 
 // ─── Content blocks ───
 export interface PresentationMetadata {
@@ -328,6 +333,8 @@ export type ContentBlock =
 export type RequirementAlignmentMode = 'off' | 'strict';
 export interface TurnOptions {
   requirement_alignment?: RequirementAlignmentMode;
+  ui_hidden?: boolean;
+  automation_kind?: 'one_click_container_deploy' | null;
 }
 export type Message = Override<
   Schemas['MessageOut'],

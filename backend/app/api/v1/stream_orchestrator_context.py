@@ -55,6 +55,7 @@ AGENT_PLANNING_CONFIG_SCALAR_KEYS = (
     "qa_model",
     "runtime",
 )
+ONE_CLICK_CONTAINER_AUTOMATION_KIND = "one_click_container_deploy"
 
 
 def _agent_context(agent: Agent) -> dict[str, Any]:
@@ -247,17 +248,44 @@ async def apply_orchestrator_stream_context(
         return history, stream_config
 
     stream_config = stream_config or {}
+    default_config = getattr(adapter, "default_config", {})
+    if not isinstance(default_config, dict):
+        default_config = {}
+    if _is_one_click_container_automation(message):
+        stream_config["orchestrator_automation_kind"] = ONE_CLICK_CONTAINER_AUTOMATION_KIND
+        stream_config["conversation_scoped_agents"] = False
+        stream_config["available_agents_authoritative"] = False
+        stream_config["orchestrator_group_messages_enabled"] = False
+        stream_config["orchestrator_container_deployment_wait_for_terminal"] = True
+        stream_config["orchestrator_container_deployment_wait_timeout_seconds"] = 180
+        stream_config["orchestrator_quality_repair_agent_order"] = [
+            "opencode-helper",
+            "claude-code",
+            "codex-helper",
+        ]
+        stream_config["task_auto_fallback_enabled"] = False
+        stream_config["max_task_attempts"] = 1
+        managed_agent_ids = default_config.get("managed_agent_ids")
+        if isinstance(managed_agent_ids, list) and managed_agent_ids:
+            stream_config["managed_agent_ids"] = managed_agent_ids
+        prepare_agent_id = _one_click_prepare_agent_id(
+            stream_config.get("managed_agent_ids")
+        )
+        if prepare_agent_id is not None:
+            stream_config["tasks"] = [
+                _one_click_prepare_task(prepare_agent_id, message)
+            ]
     merged_config = adapter.merged_config(stream_config)
     if (
         stream_config.get("conversation_scoped_agents") is not True
-        and adapter.default_config.get("available_agents_authoritative") is False
+        and default_config.get("available_agents_authoritative") is False
     ):
         stream_config["available_agents_authoritative"] = False
-        if isinstance(adapter.default_config.get("managed_agent_ids"), list):
-            stream_config["managed_agent_ids"] = adapter.default_config["managed_agent_ids"]
+        if isinstance(default_config.get("managed_agent_ids"), list):
+            stream_config["managed_agent_ids"] = default_config["managed_agent_ids"]
     if (
         stream_config.get("conversation_scoped_agents") is not True
-        and adapter.default_config.get("conversation_scoped_agents") is False
+        and default_config.get("conversation_scoped_agents") is False
     ):
         stream_config["conversation_scoped_agents"] = False
     db_lock = asyncio.Lock()
@@ -302,6 +330,71 @@ async def apply_orchestrator_stream_context(
         conversation_id=message.conversation_id,
     )
     return history, stream_config
+
+
+def _is_one_click_container_automation(message: Message) -> bool:
+    turn_options = getattr(message, "turn_options", None)
+    return bool(
+        isinstance(turn_options, dict)
+        and turn_options.get("automation_kind") == ONE_CLICK_CONTAINER_AUTOMATION_KIND
+    )
+
+
+def _one_click_prepare_agent_id(value: object) -> str | None:
+    if not isinstance(value, list):
+        return None
+    candidates = [item for item in value if isinstance(item, str) and item.strip()]
+    for preferred in ("opencode-helper", "claude-code", "codex-helper"):
+        if preferred in candidates:
+            return preferred
+    for candidate in candidates:
+        if candidate != ORCHESTRATOR_AGENT_ID:
+            return candidate
+    return None
+
+
+def _one_click_prepare_task(agent_id: str, message: Message) -> dict[str, Any]:
+    turn_options = getattr(message, "turn_options", None)
+    existing_server = (
+        isinstance(turn_options, dict)
+        and turn_options.get("one_click_existing_container_server") is True
+    )
+    if existing_server:
+        instruction = (
+            "Prepare the workspace for AgentHub platform container deployment. "
+            "Create Dockerfile if it is missing with python:3.12-slim, WORKDIR /app, "
+            "COPY . ., EXPOSE 8000, and CMD that runs agenthub_container_server.py. "
+            "agenthub_container_server.py already exists: do not read, edit, validate, "
+            "or replace it before the first platform deployment. The deployment_health "
+            "repair loop will handle runtime failures after the platform deployment "
+            "observes them. Do not call create_deployment or any platform deployment "
+            "tool; the Orchestrator will do that after this task. Do not run docker, "
+            "podman, local servers, or long-running commands."
+        )
+        expected_output = None
+    else:
+        instruction = (
+            "Prepare the workspace for AgentHub platform container deployment. "
+            "If Dockerfile is missing, create it with python:3.12-slim, WORKDIR /app, "
+            "COPY . ., EXPOSE 8000, and CMD that runs agenthub_container_server.py. "
+            "If agenthub_container_server.py is missing, create a Python stdlib HTTP "
+            "server that listens on 0.0.0.0:8000, returns 200 ok for /health, and "
+            "serves existing static workspace files. Do not call create_deployment or "
+            "any platform deployment tool; the Orchestrator will do that after this "
+            "task. Do not run docker, podman, local servers, or long-running commands."
+        )
+        expected_output = "Dockerfile\nagenthub_container_server.py"
+    task = {
+        "task_id": "one-click-container-prepare",
+        "agent_id": agent_id,
+        "title": "Prepare container deployment files",
+        "instruction": instruction,
+        "include_history": False,
+        "priority": 0,
+    }
+    if expected_output is not None:
+        task["expected_output"] = expected_output
+    return task
 
 
 def _orchestrator_memory_enabled(config: dict[str, Any]) -> bool:
