@@ -14,6 +14,14 @@ from app.models.orchestrator_memory import (
     OrchestratorTask,
     OrchestratorTaskAttempt,
 )
+from app.models.session import (
+    AuditEvent,
+    ConversationShare,
+    LocalRuntimeConnector,
+    UploadSession,
+    UserEvent,
+    UserSession,
+)
 from app.models.turn_control import ConversationTurnControl
 from app.models.upload import MessageAttachment, Upload
 from app.models.user import User
@@ -37,6 +45,12 @@ __all__ = [
     "Memory",
     "MemoryMount",
     "UserModelAccount",
+    "AuditEvent",
+    "ConversationShare",
+    "LocalRuntimeConnector",
+    "UploadSession",
+    "UserEvent",
+    "UserSession",
     "ConversationTurnControl",
     "OrchestratorRun",
     "OrchestratorRunEvent",

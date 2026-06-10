@@ -123,10 +123,7 @@ async def test_legacy_raw_provider_migrates_to_builtin_adapter() -> None:
 
 
 async def test_registry_injects_custom_agent_uploaded_assets(tmp_path: Path) -> None:
-    upload_id = uuid4()
     owner_id = uuid4()
-    knowledge_path = tmp_path / "rules.md"
-    knowledge_path.write_text("# Rules\nAlways use the project vocabulary.", encoding="utf-8")
     skill_path = tmp_path / "SKILL.md"
     skill_path.write_text(
         "---\nname: Review Skill\ndescription: Review markdown drafts.\n---\nUse checklist style.",
@@ -137,20 +134,17 @@ async def test_registry_injects_custom_agent_uploaded_assets(tmp_path: Path) -> 
         id="custom-agent",
         user_id=owner_id,
         name="Custom Agent",
-        provider="builtin",
+        provider="opencode",
         avatar_url="",
         capabilities=["review"],
-        system_prompt="Base prompt.",
+        system_prompt="Wrapper prompt.",
         config={
-            "model_backend": "deepseek",
-            "mcp_servers": [],
-            "knowledge": [
-                {
-                    "upload_id": str(upload_id),
-                    "label": "Rules",
-                    "usage": "policy",
-                }
-            ],
+            "custom_agent_mode": "server_agent_wrapper",
+            "base_agent_id": "opencode-helper",
+            "wrapper_profile": {
+                "purpose": "Review markdown drafts.",
+                "planning_profile": "Use when documents need review.",
+            },
             "skills": [
                 {
                     "skill_id": "skill_1",
@@ -163,20 +157,25 @@ async def test_registry_injects_custom_agent_uploaded_assets(tmp_path: Path) -> 
         is_builtin=False,
     )
     db = FakeDb(
-        {"custom-agent": agent},
+        {
+            "custom-agent": agent,
+            "opencode-helper": _agent(
+                "opencode-helper",
+                "opencode",
+                {"command": "opencode", "args": ["run", "--format", "json"]},
+            ),
+        },
         uploads={
-            upload_id: _upload(upload_id, owner_id, "rules.md", knowledge_path),
             skill_upload_id: _upload(skill_upload_id, owner_id, "SKILL.md", skill_path),
         },
     )
 
     adapter = await get_adapter("custom-agent", db)  # type: ignore[arg-type]
 
-    assert isinstance(adapter, BuiltinAgentAdapter)
+    assert isinstance(adapter, OpenCodeAdapter)
     assert adapter.system_prompt is not None
-    assert "Base prompt." in adapter.system_prompt
-    assert "Agent Knowledge" in adapter.system_prompt
-    assert "Always use the project vocabulary." in adapter.system_prompt
+    assert "Wrapper prompt." in adapter.system_prompt
+    assert "Review markdown drafts." in adapter.system_prompt
     assert "Agent Skills" in adapter.system_prompt
     assert "Use checklist style." in adapter.system_prompt
 
@@ -194,13 +193,16 @@ async def test_registry_skips_unsafe_or_cross_owner_assets(tmp_path: Path) -> No
         id="custom-agent",
         user_id=owner_id,
         name="Custom Agent",
-        provider="builtin",
+        provider="opencode",
         avatar_url="",
         capabilities=["review"],
         system_prompt="Base prompt.",
         config={
-            "model_backend": "deepseek",
-            "mcp_servers": [],
+            "custom_agent_mode": "server_agent_wrapper",
+            "base_agent_id": "opencode-helper",
+            "wrapper_profile": {
+                "purpose": "Review markdown drafts.",
+            },
             "knowledge": [
                 {"upload_id": str(blocked_id), "label": "Blocked"},
                 {"upload_id": str(other_id), "label": "Other"},
@@ -211,7 +213,10 @@ async def test_registry_skips_unsafe_or_cross_owner_assets(tmp_path: Path) -> No
     blocked_upload = _upload(blocked_id, owner_id, "blocked.md", blocked_path)
     blocked_upload.safety_status = "blocked"
     db = FakeDb(
-        {"custom-agent": agent},
+        {
+            "custom-agent": agent,
+            "opencode-helper": _agent("opencode-helper", "opencode"),
+        },
         uploads={
             blocked_id: blocked_upload,
             other_id: _upload(other_id, other_owner_id, "other.md", other_path),
@@ -220,7 +225,10 @@ async def test_registry_skips_unsafe_or_cross_owner_assets(tmp_path: Path) -> No
 
     adapter = await get_adapter("custom-agent", db)  # type: ignore[arg-type]
 
-    assert adapter.system_prompt == "Base prompt."
+    assert isinstance(adapter, OpenCodeAdapter)
+    assert adapter.system_prompt is not None
+    assert "blocked content" not in adapter.system_prompt
+    assert "other content" not in adapter.system_prompt
 
 
 def _upload(upload_id: UUID, owner_id: UUID, filename: str, path: Path) -> Upload:

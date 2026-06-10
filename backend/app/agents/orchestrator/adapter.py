@@ -103,6 +103,9 @@ from app.agents.orchestrator._internal.routing.platform_facts import (
     platform_fact_intent,
     platform_fact_text,
 )
+from app.agents.orchestrator._internal.routing.previous_output_followup import (
+    resolve_previous_output_followup as _resolve_previous_output_followup,
+)
 from app.agents.orchestrator._internal.tools.loop import (
     run_orchestrator_tool_loop,
     tool_calling_enabled,
@@ -228,6 +231,13 @@ def _route_process_chunks(
     return tuple(chunks)
 
 
+def _normalize_stream_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    if normalized.get("tasks") == []:
+        normalized.pop("tasks", None)
+    return normalized
+
+
 class OrchestratorAdapter(BaseAgentAdapter):
     """Master agent that coordinates multiple sub-agents in group chat."""
 
@@ -244,7 +254,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
     ) -> AsyncIterator[StreamChunk]:
         yield StreamChunk(event_type="start", agent_id=self.agent_id)
 
-        merged_config = self.merged_config(config)
+        merged_config = _normalize_stream_config(self.merged_config(config))
         next_block_index = 0
         clarification = await _maybe_handle_clarification(
             merged_config,
@@ -253,6 +263,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
             workspace_path,
             latest_user_request=_latest_user_request,
             has_task_intent=_has_task_intent,
+            allow_auto_start=False,
         )
         if clarification is not None:
             for chunk in clarification.chunks:
@@ -267,6 +278,48 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 return
             if clarification.continue_messages is not None:
                 messages = clarification.continue_messages
+        else:
+            followup = await _resolve_previous_output_followup(
+                merged_config,
+                messages,
+                next_block_index,
+                workspace_path,
+            )
+            if followup is not None:
+                for chunk in followup.chunks:
+                    yield chunk
+                next_block_index = followup.next_block_index
+                if followup.done:
+                    yield StreamChunk(
+                        event_type="done",
+                        agent_id=self.agent_id,
+                        total_blocks=next_block_index,
+                    )
+                    return
+                if followup.messages is not None:
+                    messages = followup.messages
+            else:
+                clarification = await _maybe_handle_clarification(
+                    merged_config,
+                    messages,
+                    next_block_index,
+                    workspace_path,
+                    latest_user_request=_latest_user_request,
+                    has_task_intent=_has_task_intent,
+                )
+                if clarification is not None:
+                    for chunk in clarification.chunks:
+                        yield chunk
+                    next_block_index = clarification.next_block_index
+                    if clarification.done:
+                        yield StreamChunk(
+                            event_type="done",
+                            agent_id=self.agent_id,
+                            total_blocks=next_block_index,
+                        )
+                        return
+                    if clarification.continue_messages is not None:
+                        messages = clarification.continue_messages
 
         messages = await _apply_guidance_safe_point(
             merged_config,

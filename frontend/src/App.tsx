@@ -4,6 +4,7 @@ import { ChatPage } from './pages/ChatPage';
 import { AgentsPage } from './pages/AgentsPage';
 import { ArchivePage } from './pages/ArchivePage';
 import { MarkdownTestPage } from './pages/MarkdownTestPage';
+import { SharePage } from './pages/SharePage';
 import { AppLayout } from './components/layout/AppLayout';
 import { AuthGuard } from './components/layout/AuthGuard';
 
@@ -11,6 +12,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/share/:token" element={<SharePage />} />
       <Route
         element={
           <AuthGuard>

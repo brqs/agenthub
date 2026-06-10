@@ -59,6 +59,13 @@ class MemoryList(BaseModel):
     total: int
 
 
+class ConversationMemoryHubOut(BaseModel):
+    scoped_active: list[MemoryOut]
+    scoped_candidates: list[MemoryOut]
+    user_active: list[MemoryOut]
+    user_candidates: list[MemoryOut]
+
+
 class UpdateMemoryRequest(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=8000)
     importance: MemoryImportance | None = None
@@ -84,3 +91,7 @@ class MemoryMountOut(BaseModel):
 class MemoryMountList(BaseModel):
     items: list[MemoryMountOut]
     total: int
+    recall_state: Literal["not_attempted", "no_match", "mounted"] = "not_attempted"
+    latest_agent_message_id: UUID | None = None
+    latest_agent_id: str | None = None
+    latest_agent_status: str | None = None

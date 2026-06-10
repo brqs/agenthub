@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   forgetMemory,
+  getConversationMemoryHub,
   listConversationMemoryMounts,
   listMemories,
   updateMemory,
@@ -25,7 +26,16 @@ export function useConversationMemoryMounts(conversationId: string | null | unde
   });
 }
 
-export function useUpdateMemory() {
+export function useConversationMemoryHub(conversationId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['conversation-memory-hub', conversationId],
+    queryFn: () => getConversationMemoryHub(conversationId as string),
+    enabled: Boolean(conversationId),
+    retry: 1,
+  });
+}
+
+export function useUpdateMemory(conversationId?: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ memoryId, payload }: { memoryId: string; payload: UpdateMemoryRequest }) =>
@@ -33,17 +43,27 @@ export function useUpdateMemory() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['memories'] });
       void queryClient.invalidateQueries({ queryKey: ['memory-mounts'] });
+      if (conversationId) {
+        void queryClient.invalidateQueries({
+          queryKey: ['conversation-memory-hub', conversationId],
+        });
+      }
     },
   });
 }
 
-export function useForgetMemory() {
+export function useForgetMemory(conversationId?: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: forgetMemory,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['memories'] });
       void queryClient.invalidateQueries({ queryKey: ['memory-mounts'] });
+      if (conversationId) {
+        void queryClient.invalidateQueries({
+          queryKey: ['conversation-memory-hub', conversationId],
+        });
+      }
     },
   });
 }

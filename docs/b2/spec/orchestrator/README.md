@@ -100,7 +100,7 @@
 - 通用 Evaluation / Reflection Phase 2 MVP 已实现；网页 preview/browser verify、Workflow validation + allowlist dry-run、PPT outline、受控 test runner 和 deployment health 已接入 evaluator / health gate 语义，workflow runtime 与 deployment repair/redeploy live E2E 已通过。
 - DAG 并行是 Orchestrator execution 能力，不是 platform tool。
 - Preview / browser verify / create custom agent / deployment 是 Orchestrator 可调用的平台 tool，但实际执行由平台 service 完成。
-- 自建 Agent 的显式 `allowed_tools` 已进入 tool schema；builtin native/MCP 最小权限 MVP 已实现并通过 live E2E，external runtime 权限映射仍属后续 hardening。
+- 自定义 Agent 已改为服务器 Agent 套壳：`create_custom_agent` 只接收底座 Agent、传递字段和 Skills 资产入口，不再暴露 `allowed_tools`、模型账号、MCP JSON 或 runtime command。
 - Agent-to-Agent review thread MVP 已实现：关键 implementation task 可自动 handoff 给其他 Agent review，并在 failed / needs_repair outcome 下顺序或并行追加 repair task；前端 handoff timeline 交接见 [../../../frontend/agent-review-thread-handoff.md](../../../frontend/agent-review-thread-handoff.md)。
 - Workspace conflict detection 当前只记录和展示，不做自动 merge、rollback 或文件级 lock。
 - Orchestrator 最终用户可见 text block 已通过 response presentation 层生成：raw execution summary 继续写入 memory / run detail，聊天最终回复只暴露自然、简洁、面向结果的摘要。

@@ -19,9 +19,13 @@ export function LoginPage() {
     try {
       const data =
         mode === 'login'
-          ? await authAdapter.login({ username, password })
-          : await authAdapter.register({ username, password });
-      startClientSession(data.access_token, data.user);
+          ? await authAdapter.login({ username, password, platform: 'web' })
+          : await authAdapter.register({ username, password, platform: 'web' });
+      startClientSession(data.access_token, data.user, {
+        refreshToken: data.refresh_token ?? null,
+        sessionId: data.session?.id ?? null,
+        expiresIn: data.expires_in ?? null,
+      });
       navigate('/chat');
     } catch (err) {
       setError(extractApiError(err));

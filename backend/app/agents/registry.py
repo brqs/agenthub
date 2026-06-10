@@ -24,7 +24,6 @@ from app.services.agent_asset_service import (
     append_agent_asset_context,
     build_agent_asset_context,
 )
-from app.services.model_accounts import resolve_agent_model_config
 
 # provider string → adapter class
 PROVIDER_MAP: dict[str, type[BaseAgentAdapter]] = {
@@ -43,6 +42,7 @@ LEGACY_RAW_PROVIDER_TO_MODEL_BACKEND = {
 }
 
 ORCHESTRATOR_AGENT_ID = "orchestrator"
+WRAPPER_MODE = "server_agent_wrapper"
 DEFAULT_ORCHESTRATOR_SUB_AGENT_IDS = [
     "claude-code",
     "codex-helper",
@@ -74,8 +74,16 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
     if not agent:
         raise AgentNotFoundError(f"Agent {agent_id!r} not found")
 
+    runtime_agent = await _runtime_agent_for_adapter(agent, db)
+    runtime_config = _runtime_config(runtime_agent, agent)
     system_prompt = append_agent_asset_context(
-        _append_builder_profile_context(agent.system_prompt, agent.config or {}),
+        _append_wrapper_profile_context(
+            _append_builder_profile_context(
+                _combined_system_prompt(runtime_agent, agent),
+                runtime_config,
+            ),
+            runtime_config,
+        ),
         await build_agent_asset_context(db, agent),
     )
 
@@ -100,14 +108,56 @@ async def get_adapter(agent_id: str, db: AsyncSession) -> BaseAgentAdapter:
             default_config=default_config,
         )
 
-    adapter_cls, default_config = _adapter_class_and_config(agent)
-    if agent.provider == "builtin":
-        default_config = await resolve_agent_model_config(db, agent)
+    adapter_cls, default_config = _adapter_class_and_config(runtime_agent)
+    default_config = {**default_config, **runtime_config}
     return adapter_cls(
         agent_id=agent.id,
         system_prompt=system_prompt,
         default_config=default_config,
     )
+
+
+async def _runtime_agent_for_adapter(agent: Agent, db: AsyncSession) -> Agent:
+    if (agent.config or {}).get("custom_agent_mode") != WRAPPER_MODE:
+        return agent
+    base_agent_id = (agent.config or {}).get("base_agent_id")
+    if not isinstance(base_agent_id, str):
+        raise ValueError("Server Agent wrapper is missing base_agent_id")
+    base_agent = await db.get(Agent, base_agent_id)
+    if base_agent is None or not base_agent.is_builtin:
+        raise ValueError(f"Server Agent wrapper base not found: {base_agent_id}")
+    if base_agent.provider != agent.provider:
+        raise ValueError("Server Agent wrapper provider does not match base Agent")
+    return base_agent
+
+
+def _runtime_config(runtime_agent: Agent, agent: Agent) -> dict[str, Any]:
+    if (agent.config or {}).get("custom_agent_mode") != WRAPPER_MODE:
+        return dict(agent.config or {})
+    merged = dict(runtime_agent.config or {})
+    for key in (
+        "custom_agent_mode",
+        "base_agent_id",
+        "wrapper_profile",
+        "planning_profile",
+        "planning_strengths",
+        "planning_weaknesses",
+        "preferred_task_types",
+    ):
+        if key in (agent.config or {}):
+            merged[key] = (agent.config or {})[key]
+    return merged
+
+
+def _combined_system_prompt(runtime_agent: Agent, agent: Agent) -> str | None:
+    if (agent.config or {}).get("custom_agent_mode") != WRAPPER_MODE:
+        return agent.system_prompt
+    parts = [
+        runtime_agent.system_prompt,
+        agent.system_prompt,
+    ]
+    text = "\n\n".join(part.strip() for part in parts if isinstance(part, str) and part.strip())
+    return text or None
 
 
 def _adapter_class_and_config(agent: Agent) -> tuple[type[BaseAgentAdapter], dict[str, object]]:
@@ -147,6 +197,28 @@ def _append_builder_profile_context(
     _append_profile_list(lines, "Goals", profile.get("goals"))
     _append_profile_list(lines, "Do not do", profile.get("do_not_do"))
     _append_profile_line(lines, "Output style", profile.get("output_style"))
+    context = "\n".join(lines)
+    base = (system_prompt or "").strip()
+    return f"{base}\n\n{context}" if base else context
+
+
+def _append_wrapper_profile_context(
+    system_prompt: str | None,
+    config: dict[str, Any],
+) -> str | None:
+    profile = config.get("wrapper_profile")
+    if not isinstance(profile, dict):
+        return system_prompt
+    lines = ["Server Agent wrapper profile:"]
+    _append_profile_line(lines, "Role", profile.get("role"))
+    _append_profile_line(lines, "Purpose", profile.get("purpose"))
+    _append_profile_line(lines, "Planning profile", profile.get("planning_profile"))
+    _append_profile_list(lines, "Strengths", profile.get("planning_strengths"))
+    _append_profile_list(lines, "Weaknesses", profile.get("planning_weaknesses"))
+    _append_profile_list(lines, "Preferred task types", profile.get("preferred_task_types"))
+    _append_profile_list(lines, "Capabilities", profile.get("capabilities"))
+    _append_profile_line(lines, "Output style", profile.get("output_style"))
+    _append_profile_list(lines, "Boundaries", profile.get("boundaries"))
     context = "\n".join(lines)
     base = (system_prompt or "").strip()
     return f"{base}\n\n{context}" if base else context

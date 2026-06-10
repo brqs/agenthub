@@ -21,6 +21,7 @@ import { useDeployments, useRetryDeployment, useStopDeployment } from '@/hooks/u
 import * as deploymentsAdapter from '@/lib/adapters/deployments';
 import type { WorkspaceDeploymentResponse } from '@/lib/types';
 import { handleExternalLink } from '@/lib/nativeShell';
+import { saveDownloadedBlob } from '@/lib/nativeDownloads';
 
 export function DeploymentHistory({ conversationId }: { conversationId: string }) {
   const deploymentsQuery = useDeployments(conversationId);
@@ -167,14 +168,11 @@ function DeploymentHistoryItem({
         deployment.id,
         deployment.download_url,
       );
-      const href = URL.createObjectURL(archive);
-      const anchor = document.createElement('a');
-      anchor.href = href;
-      anchor.download = `agenthub-source-${deployment.id}.zip`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(href);
+      await saveDownloadedBlob(
+        archive,
+        `agenthub-source-${deployment.id}.zip`,
+        [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
+      );
       setDownloadState('idle');
     } catch {
       setDownloadState('error');

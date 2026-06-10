@@ -10,7 +10,7 @@ from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import decode_access_token
+from app.core.security import decode_access_token, decode_access_token_payload
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -54,3 +54,16 @@ async def get_current_user(
             detail={"error": {"code": "USER_NOT_FOUND", "message": "User not found"}},
         )
     return user
+
+
+async def get_current_session_id(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+) -> str | None:
+    if not credentials:
+        return None
+    try:
+        payload = decode_access_token_payload(credentials.credentials)
+    except JWTError:
+        return None
+    sid = payload.get("sid")
+    return sid if isinstance(sid, str) else None

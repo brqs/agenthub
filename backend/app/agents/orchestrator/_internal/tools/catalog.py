@@ -124,8 +124,9 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
         ToolSpec(
             name="create_custom_agent",
             description=(
-                "Create a user-owned AgentHub custom agent from a conversational "
-                "request. Use this when the user asks to create or add a new agent."
+                "Create a user-owned AgentHub custom agent as a wrapper around "
+                "claude-code, codex-helper, or opencode-helper. Use this only "
+                "after the user explicitly confirms creation."
             ),
             parameters={
                 "type": "object",
@@ -133,24 +134,39 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                     "name": {"type": "string"},
                     "provider": {
                         "type": "string",
-                        "enum": ["builtin", "claude_code", "codex", "opencode"],
+                        "enum": ["claude_code", "codex", "opencode"],
                     },
                     "system_prompt": {"type": "string"},
                     "capabilities": {
                         "type": "array",
                         "items": {"type": "string"},
                     },
-                    "config": {"type": "object"},
-                    "allowed_tools": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": (
-                            "Builtin native/MCP tool allowlist. [] means no tools."
-                        ),
+                    "config": {
+                        "type": "object",
+                        "properties": {
+                            "custom_agent_mode": {
+                                "type": "string",
+                                "const": "server_agent_wrapper",
+                            },
+                            "base_agent_id": {
+                                "type": "string",
+                                "enum": [
+                                    "claude-code",
+                                    "codex-helper",
+                                    "opencode-helper",
+                                ],
+                            },
+                            "wrapper_profile": {"type": "object"},
+                        },
+                        "required": [
+                            "custom_agent_mode",
+                            "base_agent_id",
+                            "wrapper_profile",
+                        ],
                     },
                     "add_to_conversation": {"type": "boolean", "default": True},
                 },
-                "required": ["name", "provider", "system_prompt"],
+                "required": ["name", "provider", "system_prompt", "config"],
             },
         ),
         ToolSpec(

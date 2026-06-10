@@ -33,11 +33,13 @@ from app.api.v1.stream_preview import maybe_autostart_platform_preview
 from app.core.config import settings
 from app.core.database import SessionFactory
 from app.core.deps import DbSession, get_current_user
+from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
 from app.schemas.message import MessageOut
 from app.services.context.compression import TOTAL_TOKEN_BUDGET
 from app.services.context_builder import build_context
+from app.services.event_service import event_service
 from app.services.memory_hub import MemoryHubService
 from app.services.message_lifecycle import cleanup_stale_streaming_messages
 from app.services.queued_messages import QueuedDispatch, dispatch_next_queued_message
@@ -280,6 +282,7 @@ async def _mark_stream_interrupted(
     refreshed.status = "interrupted"
     message.status = "interrupted"
     try:
+        await _record_message_terminal_event(db, refreshed)
         await db.commit()
     except Exception:
         await db.rollback()
@@ -297,6 +300,7 @@ async def _persist_stream_error(
         agent_id=chunk.agent_id,
     )
     message.status = "error"
+    await _record_message_terminal_event(db, message)
     await db.commit()
 
 
@@ -307,6 +311,7 @@ async def _persist_stream_interrupted(
 ) -> None:
     message.content = _interrupted_content_blocks(accumulator)
     message.status = "interrupted"
+    await _record_message_terminal_event(db, message)
     await db.commit()
 
 
@@ -396,6 +401,25 @@ async def _extract_terminal_memories(db: AsyncSession, message: Message) -> None
         await db.rollback()
 
 
+async def _record_message_terminal_event(db: AsyncSession, message: Message) -> None:
+    conversation = await db.get(Conversation, message.conversation_id)
+    if conversation is None:
+        return
+    await event_service.record(
+        db,
+        user_id=conversation.user_id,
+        event_type="message.terminal",
+        resource_type="message",
+        resource_id=message.id,
+        conversation_id=message.conversation_id,
+        payload={
+            "agent_id": message.agent_id,
+            "status": message.status,
+            "reply_to_id": str(message.reply_to_id) if message.reply_to_id else None,
+        },
+    )
+
+
 async def _mark_orphaned_stream_error(db: AsyncSession, message: Message) -> None:
     message.status = "error"
     if not message.content:
@@ -405,6 +429,7 @@ async def _mark_orphaned_stream_error(db: AsyncSession, message: Message) -> Non
                 "text": "Agent stream was interrupted before completion. Please retry.",
             }
         ]
+    await _record_message_terminal_event(db, message)
     await db.commit()
 
 
@@ -660,6 +685,7 @@ async def _runtime_event_generator(
             )
         message.content = blocks
         message.status = "error" if has_orphaned_tool_call else "done"
+        await _record_message_terminal_event(db, message)
         await db.commit()
         queued_next = await _dispatch_queued_next_payload(db, message)
         if queued_next is not None:
