@@ -325,8 +325,25 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
 
   const activateBackendProfile = useCallback(
     async (profileId: string): Promise<boolean> => {
-      const profile = backendProfiles.find((item) => item.id === profileId);
-      if (!desktop || !profile) return false;
+      if (!desktop) return false;
+      let profiles = backendProfiles;
+      let profile = profiles.find((item) => item.id === profileId);
+      if (!profile) {
+        try {
+          const nextPreferences = await getDesktopPreferences();
+          profiles = normalizePreferenceProfiles(nextPreferences);
+          profile = profiles.find((item) => item.id === profileId);
+          setPreferencesState(nextPreferences);
+          setBackendProfiles(profiles);
+          setActiveBackendProfileId(
+            nextPreferences.activeBackendProfileId ?? activeBackendProfileId,
+          );
+        } catch (error) {
+          setDesktopError(normalizeDesktopError(error));
+          return false;
+        }
+      }
+      if (!profile) return false;
       setCheckState('checking');
       const result = await checkDesktopBackendHealth(profile.url);
       setHealth(result);
@@ -336,6 +353,9 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
           current.map((item) =>
             item.id === profileId ? { ...item, lastHealth: 'unreachable' } : item,
           ),
+        );
+        setDesktopError(
+          normalizeDesktopError(new Error(result.error ?? '无法连接到 AgentHub 后端。')),
         );
         return false;
       }
@@ -354,7 +374,7 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
         return false;
       }
       const connectedAt = new Date().toISOString();
-      const profiles = backendProfiles.map((item) =>
+      const nextProfiles = profiles.map((item) =>
         item.id === profileId
           ? {
               ...item,
@@ -369,11 +389,11 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
       setHealth(result);
       setCheckState('ready');
       setActiveBackendProfileId(profileId);
-      await persistProfiles(profiles, profileId, result.url);
+      await persistProfiles(nextProfiles, profileId, result.url);
       setDesktopError(null);
       return true;
     },
-    [backendProfiles, desktop, persistProfiles],
+    [activeBackendProfileId, backendProfiles, desktop, persistProfiles],
   );
 
   const deleteBackendProfile = useCallback(
