@@ -277,7 +277,7 @@ async def build_context(
             context,
             memory_hub_message,
             used_tokens,
-            min(max_tokens, 1600),
+            min(max_tokens, 8000),
         )
 
     if memory_hub_message is None and memory and memory.summary_text.strip():

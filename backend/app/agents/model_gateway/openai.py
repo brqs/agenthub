@@ -169,7 +169,7 @@ class OpenAIBackend:
             temperature = 0.7
         max_tokens = merged.get("max_tokens")
         if max_tokens is None:
-            max_tokens = 4096
+            max_tokens = 8192
 
         effective_system = self.effective_system_prompt(system_prompt) or ""
 

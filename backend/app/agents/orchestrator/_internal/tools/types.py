@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-DEFAULT_TOOL_RESULT_MAX_CHARS = 4000
-DEFAULT_TOOL_READ_MAX_BYTES = 65536
+DEFAULT_TOOL_RESULT_MAX_CHARS = 12000
+DEFAULT_TOOL_READ_MAX_BYTES = 262144
 
 
 @dataclass(frozen=True, slots=True)

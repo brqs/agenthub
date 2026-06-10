@@ -58,6 +58,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-10 动态辩论轮次与胜负判断：B2 已将辩论 / 反驳 / 接力类 `dialogue_turn` 从固定初始轮次升级为执行层动态 session。初始 plan 可只包含双方最小轮次；每轮 child message 完成后，Orchestrator 根据本轮 `agent_summary`、handoff hint、用户短答/轮次要求、攻防是否完整和 max turns 判断是否追加下一轮。默认最多 8 轮；“只要双方各说一句 / 只要一轮”会固定为每个参与者 1 轮。明确辩论任务结束时会生成 deterministic `debate_judgement` run event，并在 final answer 中说明更有说服力的一方或势均力敌；非辩论 roundtable / brainstorm / data panel 不输出胜负判断。本轮未跑公网 E2E，只更新了 live E2E 脚本验收，要求 `manual_two_agent_turn_taking` 出现 Claude -> OpenCode -> Claude 生命周期且 final answer 含辩论评判。本地 targeted `108 passed`，Ruff/Mypy/`git diff --check` passed。
 
+2026-06-10 动态辩论追加 repair：针对 conversation `9f742fc3-8a52-410e-add2-142ba6fe964b` 暴露的问题，B2 收窄默认辩论续轮策略：双方完成两轮有效攻防后停止，只有用户显式指定 `N 轮` 时才继续到受保护上限；`dialogue_turn` 默认禁止跨 Agent fallback 代打对方角色，避免 OpenCode 代写正方或 Claude 代写反方；反方 output contract 增加速度、分配、治理、能耗、算力/数据集中、结构性撕裂等 markers，避免真实反方论据被误判 `output_incomplete`；若已生成的辩论轮次存在失败，不再输出 `debate_judgement`，final answer 必须按 partial/needs-attention 处理。本轮本地 targeted `110 passed`，Ruff/Mypy passed；尚未重启后端或跑公网 E2E。
+
 2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
 
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。

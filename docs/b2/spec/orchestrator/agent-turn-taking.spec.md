@@ -126,8 +126,15 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 - 默认辩论至少保证双方各一次，并在需要时继续到一轮攻防；`@agent-id 你继续` 是继续
   信号，但最终是否继续由 Orchestrator 判断。
 - 默认 max turns 为 8；显式短答请求可提前停止。
+- 默认辩论在双方完成两轮有效攻防后停止；只有用户显式指定 `N 轮` 时才继续按
+  `N * participant_count` 执行到受保护上限。这样避免每轮末尾 `@agent-id 你继续`
+  造成无界接力。
+- `dialogue_turn` 默认不允许跨 Agent fallback 代打对方角色。计划成员 runtime 失败时，
+  该轮保留独立 error / partial 证据，不能让反方 Agent 代写正方、或正方 Agent 代写反方。
 - 辩论类 final answer 需要包含 `debate_judgement` 的主持评判；非辩论 roundtable /
   brainstorm / data panel 不输出胜负判断。
+- 只有所有已生成辩论轮次均成功时才输出 `debate_judgement`；如果某个追加轮次失败，
+  final answer 必须按 partial/needs-attention 说明，不能误报完整结束。
 
 本轮本地验证已通过：
 

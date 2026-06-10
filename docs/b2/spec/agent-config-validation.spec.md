@@ -27,6 +27,9 @@
 - `provider`: `claude_code` / `codex` / `opencode` / `builtin` / `mock`
 - `system_prompt`: Agent 行为提示词，可由 runtime / builtin 使用
 - `config.model_backend`: BuiltinAgent 内部 ModelGateway backend，取值 `claude` / `deepseek` / `openai`
+- `config.context_max_tokens`: 通用 agent 会话上下文预算，默认 `64000`，范围 `1..200000`
+- `config.orchestrator_context_max_tokens`: Orchestrator 主流程上下文预算，默认 `64000`，范围 `1..200000`
+- `config.orchestrator_subagent_context_max_tokens`: Orchestrator 分发给子 Agent 的上下文预算，默认 `64000`，范围 `1..200000`
 - `config.max_iterations`: BuiltinAgent loop 最大迭代次数
 - `config.mcp_servers`: BuiltinAgent MCP stdio server 配置数组
 - `config.runtime` / `config.command` / `config.args` / `config.timeout_seconds`: external runtime 配置
@@ -44,6 +47,9 @@
 - 校验函数不能修改传入的原始 `config`。
 - 新建 Agent 只允许 `claude_code` / `codex` / `opencode` / `builtin`。
 - `mock` 仅用于内置或测试路径，不作为普通用户新建 provider。
+- `context_max_tokens`、`orchestrator_context_max_tokens`、
+  `orchestrator_subagent_context_max_tokens` 如果存在，必须是整数且满足
+  `1..200000`。
 
 ### External Runtime 规则
 
@@ -64,6 +70,14 @@
 - `model_backend` 缺省为 `claude`。
 - `model_backend` 必须是 `claude` / `deepseek` / `openai` 之一。
 - `max_iterations` 如果存在，必须是整数且满足 `1 <= max_iterations <= 50`。
+- `react_decision_max_tokens` 如果存在，必须是整数且满足 `1..4096`。
+- `task_result_context_max_chars` 如果存在，必须是整数且满足 `1..32000`。
+- `task_result_item_max_chars` 如果存在，必须是整数且满足 `1..8000`。
+- `orchestrator_memory_context_max_chars` 如果存在，必须是整数且满足 `1..32000`。
+- `orchestrator_tool_max_tokens` 如果存在，必须是整数且满足 `1..32000`。
+- `orchestrator_tool_result_max_chars` 如果存在，必须是整数且满足 `1..32000`。
+- `orchestrator_tool_read_max_bytes` / `orchestrator_evaluation_read_max_bytes`
+  如果存在，必须是整数且满足 `1..1048576`。
 - `mcp_servers` 如果存在，必须是对象数组。
 - No-code custom Agent Builder stores product-facing settings in
   `builder_profile`, `permissions`, and `memory_policy`.

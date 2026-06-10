@@ -52,6 +52,8 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_TOOL_MAX_ITERATIONS = 12
 MAX_TOOL_MAX_ITERATIONS = 50
+DEFAULT_TOOL_MAX_TOKENS = 8192
+MAX_TOOL_MAX_TOKENS = 32000
 PLATFORM_TOOL_NAMES = {
     "start_workspace_preview",
     "verify_web_preview",
@@ -402,7 +404,12 @@ def _tool_model_config(config: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("invalid_tool_config: orchestrator_tool_config must be an object")
     model_config: dict[str, Any] = {
         "temperature": 0.2,
-        "max_tokens": 2048,
+        "max_tokens": _configured_positive_int(
+            config,
+            "orchestrator_tool_max_tokens",
+            DEFAULT_TOOL_MAX_TOKENS,
+            MAX_TOOL_MAX_TOKENS,
+        ),
         "tool_choice": {"type": "auto"},
     }
     model_config.update(dict(raw_config))
@@ -410,6 +417,19 @@ def _tool_model_config(config: Mapping[str, Any]) -> dict[str, Any]:
         if key in config and key not in model_config:
             model_config[key] = config[key]
     return model_config
+
+def _configured_positive_int(
+    config: Mapping[str, Any],
+    key: str,
+    default: int,
+    maximum: int,
+) -> int:
+    value = config.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        return default
+    if value < 1:
+        return default
+    return min(value, maximum)
 
 def _tool_system_prompt(config: Mapping[str, Any]) -> str:
     agents = ", ".join(available_agent_ids(config)) or "(none)"

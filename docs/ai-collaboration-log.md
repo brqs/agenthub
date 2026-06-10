@@ -33,6 +33,38 @@ local targeted:
 ### 说明
 本轮没有重启后端、没有 seed、没有公网 E2E。公网 E2E 脚本已更新，后续需要按 deploy/restart 流程重跑 `manual_two_agent_turn_taking` 和 `agent_turn_taking_matrix` 来验证线上行为。
 
+### 追加 Repair
+用户复查 conversation `9f742fc3-8a52-410e-add2-142ba6fe964b` 后发现：
+
+1. 第 3 轮 Claude timeout 后由 OpenCode 接手成正方，破坏了真实辩论角色归属。
+2. 默认 handoff 续轮过度，跑到第 6 轮后失败。
+3. 反方输出包含速度、分配、能耗、治理等实质论据，但 output contract 误判为角色不匹配。
+4. 存在失败轮次时，Orchestrator final answer 仍输出完整辩论评判，语义不严谨。
+
+修复：
+
+- `dialogue_turn` 默认关闭跨 Agent fallback，避免对手代打。
+- 默认辩论在双方完成两轮有效攻防后停止；只有显式 `N 轮` 才继续到受保护上限。
+- 反方 markers 增加治理、监管、制度、分配、不平等、垄断、头部、算力、数据、能耗、碳排放、撕裂等。
+- 只要已生成辩论轮次存在 failed，就不输出 `debate_judgement`。
+
+追加验证：
+
+```text
+pytest:
+  tests/test_orchestrator_planning.py
+  tests/test_orchestrator_output_contracts.py
+  tests/test_orchestrator_response_presentation.py
+  tests/test_orchestrator_live_e2e_script.py
+  tests/test_orchestrator.py::test_orchestrator_dynamic_debate_continues_after_handoff
+  tests/test_orchestrator.py::test_orchestrator_dynamic_debate_respects_explicit_one_exchange
+  tests/test_orchestrator.py::test_dialogue_turn_does_not_fallback_to_opposing_participant
+result: 110 passed
+
+ruff: passed
+mypy app/agents/orchestrator: passed
+```
+
 ## 2026-06-10 — Codex 清理 OpenCode/Codex 默认模型并完成 Turn-Taking 公网 E2E
 
 ### 任务
