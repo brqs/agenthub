@@ -145,6 +145,11 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         runner.DEPLOYMENT_REPAIR_PROMPT,
         runner.main,
     ),
+    "one_click_container_deploy_repair_loop": _spec(
+        "one_click_container_deploy_repair_loop",
+        runner.ONE_CLICK_CONTAINER_DEPLOY_REPAIR_PROMPT,
+        runner.run_one_click_container_deploy_repair_loop_case,
+    ),
     "custom_agent_tools": _spec(
         "custom_agent_tools",
         runner.CUSTOM_AGENT_TOOLS_PROMPT,

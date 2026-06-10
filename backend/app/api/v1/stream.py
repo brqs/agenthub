@@ -531,9 +531,12 @@ async def _runtime_event_generator(
             return
 
         adapter = await get_adapter(message.agent_id, db)
+        adapter_default_config = getattr(adapter, "default_config", {})
+        if not isinstance(adapter_default_config, dict):
+            adapter_default_config = {}
         context_max_tokens = _configured_context_max_tokens(
             message.agent_id,
-            adapter.default_config,
+            adapter_default_config,
         )
         history = await build_context(
             db,
@@ -544,7 +547,7 @@ async def _runtime_event_generator(
         )
         planner_context_messages = None
         if message.agent_id == ORCHESTRATOR_AGENT_ID and llm_planning_enabled(
-            adapter.default_config
+            adapter_default_config
         ):
             planner_context_messages = await build_context(
                 db,
@@ -552,7 +555,7 @@ async def _runtime_event_generator(
                 current_agent_id=message.agent_id,
                 agent_message_id=message.id,
                 max_tokens=_configured_planner_context_max_tokens(
-                    adapter.default_config
+                    adapter_default_config
                 ),
             )
         workspace = await WorkspaceService().get_or_create(db, message.conversation_id)

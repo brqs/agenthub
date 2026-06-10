@@ -3,6 +3,7 @@ import type {
   WorkspaceDeploymentRequest,
   WorkspaceDeploymentListResponse,
   WorkspaceDeploymentResponse,
+  WorkspaceOneClickContainerDeploymentResponse,
 } from '@/lib/types';
 
 function deploymentPath(conversationId: string, deploymentId?: string): string {
@@ -34,6 +35,15 @@ export async function createDeployment(
   const { data } = await api.post<WorkspaceDeploymentResponse>(
     deploymentPath(conversationId),
     payload,
+  );
+  return data;
+}
+
+export async function oneClickContainerDeployment(
+  conversationId: string,
+): Promise<WorkspaceOneClickContainerDeploymentResponse> {
+  const { data } = await api.post<WorkspaceOneClickContainerDeploymentResponse>(
+    `${deploymentPath(conversationId)}/one-click-container`,
   );
   return data;
 }

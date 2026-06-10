@@ -22,7 +22,8 @@ from app.core.config import settings
 from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
-from app.models.workspace import Workspace, WorkspacePreviewSession
+from app.models.message import Message
+from app.models.workspace import Workspace, WorkspaceDeployment, WorkspacePreviewSession
 from app.services import workspace_deployment as workspace_deployment_module
 from app.services.artifacts.manifest import ArtifactManifestError, ArtifactManifestService
 from app.services.workspace.container_release import ContainerDeploymentResult
@@ -819,6 +820,53 @@ async def test_preview_cleanup_tolerates_snapshot_outside_current_root(
         assert "preview cleanup failed" in session.error
 
 
+async def test_container_cleanup_tolerates_snapshot_outside_current_root(
+    client: AsyncClient,
+    tmp_path: Path,
+) -> None:
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = UUID(conversation["id"])
+    outside_snapshot = tmp_path / "old-test-root" / "container-snapshot"
+    outside_snapshot.mkdir(parents=True)
+
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, conversation_id)
+        deployment = WorkspaceDeployment(
+            conversation_id=conversation_id,
+            workspace_id=workspace.id,
+            kind="container",
+            status="published",
+            url="http://127.0.0.1:8081",
+            healthcheck_url="http://127.0.0.1:8081/health",
+            snapshot_path=str(outside_snapshot),
+            container_id=None,
+            image_id=None,
+            runtime_id=None,
+            host_port=8081,
+            container_port=8000,
+            runtime_kind="docker",
+            runtime_status="running",
+            logs=[],
+            state_events=[],
+            started_at=datetime(2000, 1, 1, tzinfo=UTC),
+            published_at=datetime(2000, 1, 1, tzinfo=UTC),
+        )
+        db.add(deployment)
+        await db.commit()
+
+        cleaned = await WorkspaceDeploymentService().cleanup_expired(db)
+        await db.refresh(deployment)
+
+        assert cleaned >= 1
+        assert deployment.status == "stopped"
+        assert deployment.runtime_status == "stopped"
+        assert deployment.snapshot_path is None
+        assert deployment.error is not None
+        assert "cleanup partially failed" in deployment.error
+        assert any("Container cleanup failed" in line for line in deployment.logs)
+
+
 async def test_workspace_source_zip_deployment_excludes_sensitive_paths(
     client: AsyncClient,
 ) -> None:
@@ -1004,6 +1052,156 @@ async def test_workspace_container_deployment_fails_without_dockerfile(
     assert body["failure_category"] == "build_failed"
     assert body["last_error_code"] == "container_build_failed"
     assert "Dockerfile" in body["error"]
+
+
+async def test_one_click_container_deployment_direct_when_dockerfile_exists(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.v1 import workspaces as workspace_api
+
+    class FakeContainerWorker:
+        async def publish(
+            self,
+            workspace_root: Path,
+            deployment_id: UUID,
+            *,
+            container_port: int | None,
+            health_path: str,
+        ) -> ContainerDeploymentResult:
+            assert (workspace_root / "Dockerfile").is_file()
+            assert container_port == 8000
+            assert health_path == "/health"
+            return ContainerDeploymentResult(
+                url="http://127.0.0.1:8300",
+                healthcheck_url="http://127.0.0.1:8300/health",
+                runtime_id="container-one-click",
+                image_id="image-one-click",
+                container_id="container-one-click",
+                host_port=8300,
+                container_port=8000,
+                runtime_kind="docker",
+                runtime_status="running",
+                logs_tail="healthy",
+                snapshot_path=tmp_path / "container-snapshot",
+            )
+
+        async def remove(
+            self,
+            *,
+            container_id: str | None,
+            image_id: str | None,
+            snapshot_path: Path | str | None,
+        ) -> None:
+            _ = (container_id, image_id, snapshot_path)
+
+    monkeypatch.setattr(settings, "deployment_container_enabled", True)
+    monkeypatch.setattr(settings, "deployment_container_runtime", "docker")
+    monkeypatch.setattr(settings, "deployment_container_trusted_host_mode", True)
+    monkeypatch.setattr(
+        workspace_api,
+        "deployment_service",
+        WorkspaceDeploymentService(container_worker=FakeContainerWorker()),  # type: ignore[arg-type]
+    )
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+    await client.put(
+        f"/api/v1/workspaces/{conversation_id}/files/Dockerfile",
+        headers=headers,
+        content=b"FROM python:3.12-slim\nEXPOSE 8000\n",
+    )
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments/one-click-container",
+        headers=headers,
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["mode"] == "direct"
+    assert body["automation_message_id"] is None
+    assert body["deployment"]["kind"] == "container"
+    assert body["deployment"]["status"] == "queued"
+    deployed = await _deployment_until_status(
+        client,
+        headers,
+        conversation_id,
+        body["deployment"]["id"],
+        {"published"},
+    )
+    assert deployed["status"] == "published"
+    assert deployed["container_port"] == 8000
+    assert deployed["healthcheck_url"] == f"{deployed['url']}/health"
+
+
+async def test_one_click_container_deployment_creates_hidden_orchestrator_turn(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.v1 import workspaces as workspace_api
+
+    started_message_ids: list[UUID] = []
+
+    async def fake_start(message: Message, runner: Any) -> object:
+        _ = runner
+        started_message_ids.append(message.id)
+        return object()
+
+    monkeypatch.setattr(workspace_api.stream_run_manager, "start", fake_start)
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    conversation_id = conversation["id"]
+
+    response = await client.post(
+        f"/api/v1/workspaces/{conversation_id}/deployments/one-click-container",
+        headers=headers,
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    automation_message_id = UUID(body["automation_message_id"])
+    assert body == {
+        "mode": "orchestrator_prepare",
+        "automation_message_id": str(automation_message_id),
+        "deployment": None,
+    }
+    assert started_message_ids == [automation_message_id]
+
+    default_messages = await client.get(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+    )
+    assert default_messages.status_code == 200, default_messages.text
+    assert default_messages.json()["items"] == []
+
+    hidden_messages = await client.get(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        params={"include_hidden": True},
+    )
+    assert hidden_messages.status_code == 200, hidden_messages.text
+    items = hidden_messages.json()["items"]
+    assert {item["role"] for item in items} == {"user", "agent"}
+    agent_item = next(item for item in items if item["role"] == "agent")
+    assert agent_item["id"] == str(automation_message_id)
+    assert agent_item["agent_id"] == "orchestrator"
+    assert agent_item["status"] == "streaming"
+    assert all(item["turn_options"]["ui_hidden"] is True for item in items)
+    assert all(
+        item["turn_options"]["automation_kind"] == "one_click_container_deploy"
+        for item in items
+    )
+
+    async with SessionFactory() as db:
+        persisted = (
+            await db.execute(
+                select(Message).where(Message.id == automation_message_id)
+            )
+        ).scalar_one()
+        assert persisted.turn_options["automation_kind"] == "one_click_container_deploy"
+        assert persisted.turn_options["one_click_existing_container_server"] is False
 
 
 async def test_workspace_container_deployment_uses_worker_and_stops(

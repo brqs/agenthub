@@ -176,6 +176,15 @@ class WorkspaceDeploymentListResponse(BaseModel):
     items: list[WorkspaceDeploymentResponse]
 
 
+OneClickContainerDeploymentMode = Literal["direct", "orchestrator_prepare"]
+
+
+class WorkspaceOneClickContainerDeploymentResponse(BaseModel):
+    mode: OneClickContainerDeploymentMode
+    automation_message_id: UUID | None = None
+    deployment: WorkspaceDeploymentResponse | None = None
+
+
 WorkflowRunMode = Literal["dry_run"]
 WorkflowRunStatus = Literal["passed", "failed"]
 WorkflowValidationStatus = Literal["passed", "failed", "unknown"]
