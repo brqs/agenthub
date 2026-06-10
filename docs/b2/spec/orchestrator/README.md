@@ -3,7 +3,7 @@
 > 目的：作为 Orchestrator 相关 spec 的包级入口，区分当前契约和当前验证报告。
 >
 > 状态：Current package index
-> 最后更新：2026-06-08
+> 最后更新：2026-06-10
 
 ---
 
@@ -20,7 +20,7 @@
 | [memory-context.spec.md](memory-context.spec.md) | Current contract | Orchestrator structured memory 与上下文注入设计 |
 | [workspace-conflict.spec.md](workspace-conflict.spec.md) | Current contract | Workspace snapshot、file changes、同一 run 内冲突检测 |
 | [message-attribution.spec.md](message-attribution.spec.md) | Current contract | Orchestrator 合流 stream 中 block 归属与真实 Agent 子消息后端契约 |
-| [agent-turn-taking.spec.md](agent-turn-taking.spec.md) | Implemented locally; live E2E pending | Orchestrator 托管的多 Agent 轮流发言、接力讨论、辩论、评审和 panel 协作 |
+| [agent-turn-taking.spec.md](agent-turn-taking.spec.md) | Implemented + Live E2E Passed | Orchestrator 托管的多 Agent 轮流发言、接力讨论、辩论、评审和 panel 协作 |
 | [process-block.spec.md](process-block.spec.md) | Implemented MVP | 用户可见 structured process ContentBlock，展示公开执行事实 |
 | [presentation-collapse.spec.md](presentation-collapse.spec.md) | Implemented MVP + Live E2E Passed | 执行过程折叠、成员 summary 与 Orchestrator final answer 展示标记 |
 | [agent-review-thread.spec.md](agent-review-thread.spec.md) | Implemented MVP + Live E2E Passed | Agent-to-Agent review、handoff、repair thread |
@@ -118,7 +118,10 @@
 - Orchestrator context routing hardening 已实现：状态/文件/预览/部署/验收追问会在 planner 前走 bounded evidence answer；继续/修复类命令先读取 evidence，已有完成证据时直接回答，确实需要继续执行时再携带 `Orchestrator evidence pack:` system message 进入 planner / tool-loop / 子 Agent 调度。
 - Orchestrator pure dialogue handling 已实现：群聊辩论、角色扮演、圆桌讨论等明确“不需要生成文件 / 直接对话输出”的请求会生成 `conversation` tasks，不触发 artifact missing 检查，也不会从负向约束句中提取 `server.js/package.json` 等 required artifacts。
 - Orchestrator 子 Agent 实质输出合同已实现：child message `done` 必须代表该 Agent 对应任务类型的实质贡献通过 deterministic contract；纯过程块、主持式发言、转述任务或空泛完成语会先触发同 Agent `output-correction`，仍不合格再 fallback 到其他可用 Agent。该机制覆盖对话、角色扮演、头脑风暴、策略/数据分析、代码/文档产物、review 和平台动作。
-- Orchestrator Agent-to-Agent turn-taking 已完成本地后端实现：对“轮流 / 一人一句 / 接力 / 展开辩论 / panel review”等请求，后端由 Orchestrator 托管轮次计划，每一轮创建独立 child message；子 Agent 输出中的 `@agent-id` 只是 handoff hint，不能作为直接调度 API。公网 E2E 等待后续明确命令。
+- Orchestrator Agent-to-Agent turn-taking 已完成后端实现与公网 E2E：对“轮流 / 一人一句 / 接力 / 展开辩论 / panel review”等请求，后端由 Orchestrator 托管轮次计划，每一轮创建独立 child message；子 Agent 输出中的 `@agent-id` 只是 handoff hint，不能作为直接调度 API。
+- 2026-06-10 动态辩论轮次已接入执行层：初始 plan 可只包含双方最小轮次，每轮完成后 Orchestrator 根据 handoff hint、攻防是否完整、短答约束和 max turns 决定是否追加下一轮；辩论 final answer 会包含 deterministic `debate_judgement`，非辩论 panel 不输出胜负判断。
+- 2026-06-10 `manual_two_agent_turn_taking` 与 `agent_turn_taking_matrix` 公网 E2E 已通过：report `/tmp/agenthub_manual_two_agent_turn_taking_report.json`、`/tmp/agenthub_agent_turn_taking_matrix_report.json`，SSE `/tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl`、`/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl`，`passed=true`；覆盖 Claude -> OpenCode 接力、debate、roundtable、roleplay、brainstorm、data panel、review panel 和 code artifact summary。
+- OpenCode / Codex adapter 不再硬编码默认模型：缺省 `config.model` 时不传 `--model` / `-m` / SDK `model`，由各自 CLI/SDK runtime 使用本地默认；显式配置模型时才传递。OpenCode 1.16.x stdout JSON 无 assistant text 但有 `sessionID` 时，adapter 会按 session 从本地 SQLite store 只补读 assistant text part，不读取 reasoning、user prompt 或 auth/account 文件。
 - 2026-06-07 command fulfillment 公网 repair loop 已通过：`/tmp/agenthub_command_fulfillment_report.json`、`/tmp/agenthub_command_fulfillment_sse.jsonl`、`/tmp/agenthub_command_fulfillment_browser.json`，conversation `25ff9e75-7776-46b2-8549-babb78555177`，`passed=true`；覆盖 Codex/OpenCode runtime failure 后 fallback/repair、Orchestrator coordination review fallback 生成 `review.md`、8082 preview、browser verify 和 static release deployment。
 - 2026-06-08 02:24 E2E repair loop 已通过：同一 `command_fulfillment_cyberpunk_group_deploy` 场景 conversation `9fd3cd30-6b65-45a4-8833-dcadffd78f64`，`passed=true`；SSE `message_error.error` 不再泄露 raw runtime transcript，final summary 不早于 preview/verify/deploy 完成，container deployment smoke 在当时 worker 默认关闭配置下返回受控 `not_supported`。
 - 2026-06-08 context follow-up repair loop 已通过：`orchestrator_context_followup_repair` 场景 conversation `7488f39a-4eda-4f06-b21a-4540a35eb89a`，run `230826eb-7e99-4ae2-961a-31ffc6e3a84b`，`passed=true`；追问“生成了吗 / 预览地址是什么 / 浏览器验收通过了吗 / 改了哪些文件 / 继续完成缺失的部署”均走 evidence answer，不创建子 Agent message，不泄露 planner/debug/raw runtime。

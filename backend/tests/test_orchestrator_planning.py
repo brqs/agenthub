@@ -258,9 +258,9 @@ async def test_single_planner_conversation_task_rebalances_to_two_agents() -> No
     )
 
     assert chunks[-1].event_type == "done"
-    assert [
-        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["claude-code", "opencode-helper"]
+    switched_agents = [chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"]
+    assert switched_agents[:2] == ["claude-code", "opencode-helper"]
+    assert set(switched_agents) >= {"claude-code", "opencode-helper"}
     assert claude.received_messages
     assert opencode.received_messages
 

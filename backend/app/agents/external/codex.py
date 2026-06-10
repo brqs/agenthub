@@ -47,7 +47,6 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 SDK_MODULE_NAME = "agents"
 DEFAULT_COMMAND = "codex"
-DEFAULT_MODEL = "gpt-4.1"
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
 DEFAULT_RUNTIME_ERROR_MAX_CHARS = 4000
 DEFAULT_RUNTIME = "cli"
@@ -409,20 +408,20 @@ class CodexAdapter(BaseAgentAdapter):
 
         run_streamed = getattr(sdk, "run_streamed", None)
         if callable(run_streamed):
-            kwargs = self._supported_kwargs(
-                run_streamed,
-                {
-                    "input": prompt,
-                    "messages": [message.model_dump() for message in messages],
-                    "system_prompt": self._effective_instructions(
-                        messages,
-                        system_prompt,
-                        workspace_path,
-                    ),
-                    "model": str(config.get("model") or DEFAULT_MODEL),
-                    "run_config": run_config,
-                },
-            )
+            kwargs = {
+                "input": prompt,
+                "messages": [message.model_dump() for message in messages],
+                "system_prompt": self._effective_instructions(
+                    messages,
+                    system_prompt,
+                    workspace_path,
+                ),
+                "run_config": run_config,
+            }
+            model = self._explicit_model(config)
+            if model:
+                kwargs["model"] = model
+            kwargs = self._supported_kwargs(run_streamed, kwargs)
             result = run_streamed(**kwargs)
             if inspect.isawaitable(result):
                 return await result
@@ -438,18 +437,18 @@ class CodexAdapter(BaseAgentAdapter):
         workspace_path: Path,
         config: dict[str, Any],
     ) -> Any:
-        kwargs = self._supported_kwargs(
-            agent_cls,
-            {
-                "name": self.agent_id,
-                "instructions": self._effective_instructions(
-                    messages,
-                    system_prompt,
-                    workspace_path,
-                ),
-                "model": str(config.get("model") or DEFAULT_MODEL),
-            },
-        )
+        kwargs = {
+            "name": self.agent_id,
+            "instructions": self._effective_instructions(
+                messages,
+                system_prompt,
+                workspace_path,
+            ),
+        }
+        model = self._explicit_model(config)
+        if model:
+            kwargs["model"] = model
+        kwargs = self._supported_kwargs(agent_cls, kwargs)
         return agent_cls(**kwargs)
 
     def _build_run_config(
@@ -492,11 +491,14 @@ class CodexAdapter(BaseAgentAdapter):
             options=self._sandbox_options(options_cls, config),
             manifest=manifest,
         )
-        return run_config_cls(
-            model=str(config.get("model") or DEFAULT_MODEL),
-            sandbox=sandbox_config,
-            workflow_name="AgentHub Codex runtime",
-        )
+        kwargs = {
+            "sandbox": sandbox_config,
+            "workflow_name": "AgentHub Codex runtime",
+        }
+        model = self._explicit_model(config)
+        if model:
+            kwargs["model"] = model
+        return run_config_cls(**self._supported_kwargs(run_config_cls, kwargs))
 
     def _sdk_attr(self, sdk: Any, name: str, *module_names: str) -> Any:
         value = getattr(sdk, name, None)
@@ -660,6 +662,14 @@ class CodexAdapter(BaseAgentAdapter):
     def _runtime_options(self, config: dict[str, Any]) -> dict[str, Any]:
         options = config.get("runtime_options", {})
         return dict(options) if isinstance(options, Mapping) else {}
+
+    @staticmethod
+    def _explicit_model(config: dict[str, Any]) -> str | None:
+        model = config.get("model")
+        if not isinstance(model, str):
+            return None
+        model = model.strip()
+        return model or None
 
     def _sandbox_options(self, options_cls: Callable[..., Any], config: dict[str, Any]) -> Any:
         runtime_options = self._runtime_options(config)

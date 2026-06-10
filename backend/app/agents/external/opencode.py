@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import shutil
+import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Literal
@@ -41,9 +42,9 @@ from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 DEFAULT_COMMAND = "opencode"
 DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
-DEFAULT_MODEL = "deepseek/deepseek-chat"
 DEFAULT_SHARED_AUTH_DIR = "/root/.local/share/opencode"
 OPENCODE_AUTH_DIR_ENV = "AGENTHUB_OPENCODE_AUTH_DIR"
+OPENCODE_DB_PATH_ENV = "AGENTHUB_OPENCODE_DB_PATH"
 AUTH_ENV_PREFIXES = (
     "ANTHROPIC_",
     "CLAUDE_",
@@ -211,6 +212,8 @@ class OpenCodeAdapter(BaseAgentAdapter):
         text_block_open = False
         next_block_index = 0
         saw_meaningful_event = False
+        saw_done_event = False
+        session_id: str | None = None
         budget = RuntimeBudget(budget_config)
 
         try:
@@ -284,19 +287,16 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     )
                     return
 
+                session_id = session_id or self._session_id(event)
                 event_type = event.get("type")
                 if event_type == "done":
+                    saw_done_event = True
                     if text_block_open:
                         yield StreamChunk(event_type="block_end", block_index=next_block_index)
                         text_block_open = False
                         next_block_index += 1
-                    await self._wait_process(process, budget)
-                    yield StreamChunk(
-                        event_type="done",
-                        agent_id=self.agent_id,
-                        total_blocks=next_block_index,
-                    )
-                    return
+                    return_code = await self._wait_process(process, budget)
+                    break
 
                 if event_type in {"step_start", "step_finish"}:
                     continue
@@ -363,10 +363,23 @@ class OpenCodeAdapter(BaseAgentAdapter):
             yield StreamChunk(event_type="block_end", block_index=next_block_index)
             next_block_index += 1
 
-        if return_code != 0 and not saw_meaningful_event:
+        if return_code != 0 and not saw_meaningful_event and not saw_done_event:
             stderr = await self._read_stderr(process)
             yield self._exit_error(return_code, stderr)
             return
+
+        if return_code == 0 and not saw_meaningful_event and session_id:
+            db_text = await asyncio.to_thread(
+                self._assistant_text_from_session,
+                session_id,
+                merged,
+                runtime_env,
+            )
+            if db_text:
+                for chunk in self._text_chunks(db_text, next_block_index):
+                    yield chunk
+                next_block_index += 1
+                saw_meaningful_event = True
 
         yield StreamChunk(
             event_type="done",
@@ -672,12 +685,122 @@ class OpenCodeAdapter(BaseAgentAdapter):
     @staticmethod
     def _model_args(config: dict[str, Any]) -> list[str]:
         model = config.get("model")
-        if model is None:
-            model = DEFAULT_MODEL
         if not isinstance(model, str):
             return []
         model = model.strip()
         return ["--model", model] if model else []
+
+    def _session_id(self, event: dict[Any, Any]) -> str | None:
+        return self._string_field_deep(event, ("sessionID", "session_id", "sessionId"))
+
+    def _text_chunks(self, text: str, block_index: int) -> list[StreamChunk]:
+        text = sanitize_preview_deploy_text(text)
+        if not text:
+            return []
+        return [
+            StreamChunk(
+                event_type="block_start",
+                block_index=block_index,
+                block_type="text",
+            ),
+            StreamChunk(
+                event_type="delta",
+                block_index=block_index,
+                text_delta=text,
+            ),
+            StreamChunk(event_type="block_end", block_index=block_index),
+        ]
+
+    def _assistant_text_from_session(
+        self,
+        session_id: str,
+        config: dict[str, Any],
+        runtime_env: dict[str, str] | None = None,
+    ) -> str:
+        rows: list[tuple[object, object]] = []
+        for db_path in self._opencode_db_paths(config, runtime_env):
+            if not _is_readable_file(db_path):
+                continue
+            try:
+                with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as db:
+                    rows = db.execute(
+                        """
+                        select message.data, part.data
+                        from message
+                        join part on part.message_id = message.id
+                        where message.session_id = ?
+                        order by message.time_created, part.time_created, part.id
+                        """,
+                        (session_id,),
+                    ).fetchall()
+            except sqlite3.Error:
+                continue
+            if rows:
+                break
+
+        parts: list[str] = []
+        for message_raw, part_raw in rows:
+            message = self._json_object(message_raw)
+            if message.get("role") != "assistant":
+                continue
+            part = self._json_object(part_raw)
+            if part.get("type") != "text":
+                continue
+            text = part.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text)
+        return "\n".join(parts).strip()
+
+    def _opencode_db_paths(
+        self,
+        config: dict[str, Any],
+        runtime_env: dict[str, str] | None = None,
+    ) -> list[Path]:
+        configured = config.get("opencode_db_path") or os.environ.get(OPENCODE_DB_PATH_ENV)
+        if isinstance(configured, str) and configured.strip():
+            return [Path(configured).expanduser()]
+        candidates = [_shared_auth_dir() / "opencode.db"]
+        runtime_xdg_data_home = (runtime_env or {}).get("XDG_DATA_HOME")
+        if runtime_xdg_data_home:
+            candidates.append(
+                Path(runtime_xdg_data_home).expanduser() / "opencode" / "opencode.db"
+            )
+        runtime_home = (runtime_env or {}).get("HOME")
+        if runtime_home:
+            candidates.append(
+                Path(runtime_home).expanduser()
+                / ".local"
+                / "share"
+                / "opencode"
+                / "opencode.db"
+            )
+        data_home = os.environ.get("XDG_DATA_HOME")
+        if data_home:
+            candidates.append(Path(data_home).expanduser() / "opencode" / "opencode.db")
+        home = os.environ.get("HOME")
+        if home:
+            candidates.append(
+                Path(home).expanduser() / ".local" / "share" / "opencode" / "opencode.db"
+            )
+        unique: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(candidate)
+        return unique
+
+    @staticmethod
+    def _json_object(value: object) -> dict[str, Any]:
+        if not isinstance(value, str):
+            return {}
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
     def _error(self, error_code: str, error: str) -> StreamChunk:
         return external_error_chunk(

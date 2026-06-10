@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
 > 状态：Passed
-> 最后更新：2026-06-08
+> 最后更新：2026-06-10
 
 ---
 
@@ -62,6 +62,10 @@
 - `/tmp/agenthub_group_dialogue_debate_sse.jsonl`
 - `/tmp/agenthub_group_substantive_output_matrix_report.json`
 - `/tmp/agenthub_group_substantive_output_matrix_sse.jsonl`
+- `/tmp/agenthub_manual_two_agent_turn_taking_report.json`
+- `/tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl`
+- `/tmp/agenthub_agent_turn_taking_matrix_report.json`
+- `/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl`
 
 最终结论：`passed=true`。
 
@@ -111,6 +115,16 @@ preview / browser verify / deployment 输出、容器化部署按钮可发起受
 `artifact_missing`；代码/文档/review 任务仍以产物和 review gaps 作为完成证据。真实 runtime
 尾部超时但已产出合格文本时，Orchestrator 保留审计证据并将 child message 正确完成。
 
+2026-06-10 OpenCode/Codex 默认模型清理 + turn-taking repair loop 结论：
+`manual_two_agent_turn_taking` 与 `agent_turn_taking_matrix` 公网 API/SSE 复验
+`passed=true`。本轮验证 OpenCode/Codex adapter 在缺省 `config.model` 时不传模型参数，使用
+各自 runtime 本地默认；OpenCode 1.16.x stdout JSON 缺 assistant text 时可按 `sessionID`
+从本地 SQLite store 只补读 assistant text part。严格 two-agent 接力场景中，Claude Code
+先发言，OpenCode Helper 自己接话并生成常显 `agent_summary`，不接受 fallback Agent 代替
+OpenCode 通过。Matrix 覆盖 debate、roundtable、roleplay、brainstorm、data panel、review
+panel 和 code artifact summary，均无 `artifact_missing`、raw stderr、`call_` 或 workspace
+绝对路径泄露。
+
 ---
 
 ## 2. Case Results
@@ -134,6 +148,43 @@ preview / browser verify / deployment 输出、容器化部署按钮可发起受
 | Case 13 - Presentation Collapse Markers | ContentBlock presentation metadata 标记执行过程、工具 trace、产物证据、成员阶段总结和 Orchestrator 最终回答；API/SSE live 验证标记与清洗规则 | passed |
 | Case 14 - Pure Dialogue Group Debate | “不需要生成文件”的群聊辩论任务生成 conversation tasks，至少两个 child Agent 独立发言，跳过 artifact missing 检查，父 Orchestrator 正常主持总结 | passed |
 | Case 15 - Sub-Agent Substantive Output Matrix | 对话、圆桌、角色扮演、策略头脑风暴、数据分析、代码产物、review/gaps 均要求每个 child message 有实质 `agent_summary` 或可读失败/fallback 证据 | passed |
+| Case 16 - Agent Turn-Taking Runtime Defaults | Claude -> OpenCode 严格接力、OpenCode/Codex 缺省模型使用 runtime default、OpenCode session DB text fallback、turn-taking matrix 泛用性 | passed |
+
+2026-06-10 Case 16 agent turn-taking runtime defaults 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+username: 12345678
+scenario: manual_two_agent_turn_taking
+report: /tmp/agenthub_manual_two_agent_turn_taking_report.json
+sse: /tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl
+passed: true
+acceptance:
+  claude-code message_start/message_done present: true
+  opencode-helper message_start/message_done present: true
+  opencode-helper child message status done: true
+  opencode-helper has visible agent_summary: true
+  no fallback substitute for OpenCode: true
+  no artifact_missing / call_ / raw stderr / workspace absolute path: true
+
+scenario: agent_turn_taking_matrix
+report: /tmp/agenthub_agent_turn_taking_matrix_report.json
+sse: /tmp/agenthub_agent_turn_taking_matrix_sse.jsonl
+passed: true
+cases:
+  debate_no_artifacts: passed
+  roundtable_no_artifacts: passed
+  roleplay_dialogue: passed
+  strategy_brainstorm: passed
+  data_analysis_no_file: passed
+  code_artifact_with_summary: passed
+  review_requires_gaps: passed
+backend_pid: 1844628 -> 1853957
+alembic_current: c5d6e7f809ab (head)
+health: local ok, public ok
+seed_agents: not required
+```
 
 2026-06-08 Case 15 sub-agent substantive output matrix 证据：
 

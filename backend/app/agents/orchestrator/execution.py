@@ -43,6 +43,15 @@ from app.agents.orchestrator._internal.execution.attempts import (
 from app.agents.orchestrator._internal.execution.attempts import (
     task_messages as _task_messages,
 )
+from app.agents.orchestrator._internal.execution.dialogue import (
+    compute_debate_judgement as _compute_debate_judgement,
+)
+from app.agents.orchestrator._internal.execution.dialogue import (
+    dialogue_requires_sequential as _dialogue_requires_sequential,
+)
+from app.agents.orchestrator._internal.execution.dialogue import (
+    maybe_next_dialogue_turn as _maybe_next_dialogue_turn,
+)
 from app.agents.orchestrator._internal.execution.evaluation import (
     run_attempt_evaluation as _run_attempt_evaluation,
 )
@@ -635,7 +644,7 @@ async def _run_static_tasks(
     tool_specs: list[ToolSpec] | None,
     run_context: OrchestratorRunContext | None = None,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
-    if _parallel_enabled(config):
+    if _parallel_enabled(config) and not _dialogue_requires_sequential(tasks):
         async for chunk, updated_block_index in _run_parallel_tasks(
             config,
             tasks,
@@ -731,11 +740,50 @@ async def _run_static_tasks(
             repaired_review_task_ids.add(task.task_id)
             task_sequence.insert(task_index + 1, repair_task)
             task_states[repair_task.task_id] = TaskState.PENDING
+        dialogue_task = _maybe_next_dialogue_turn(
+            messages=messages,
+            task_sequence=task_sequence,
+            task_index=task_index,
+            completed_task=task,
+            completed_result=task_result,
+            run_context=run_context,
+        )
+        if dialogue_task is not None:
+            task_sequence.insert(task_index + 1, dialogue_task)
+            task_states[dialogue_task.task_id] = TaskState.PENDING
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="dialogue_turn_appended",
+                task_id=dialogue_task.task_id,
+                agent_id=dialogue_task.agent_id,
+                payload={
+                    "previous_task_id": task.task_id,
+                    "turn_number": sum(
+                        1 for item in task_sequence if item.task_type == "dialogue_turn"
+                    ),
+                    "reason": "dynamic_turn_taking",
+                },
+            )
         await _refresh_and_record_workspace_conflicts(config, run_context)
         task_index += 1
 
     refresh_workspace_conflicts(run_context)
     _mark_task_fulfillment(run_context, task_sequence, task_states)
+    judgement = _compute_debate_judgement(
+        messages=messages,
+        tasks=task_sequence,
+        run_context=run_context,
+    )
+    if judgement is not None:
+        run_context.debate_judgement = judgement
+        await _memory_record_event(
+            config,
+            run_context,
+            event_type="debate_judgement",
+            agent_id="orchestrator",
+            payload=judgement,
+        )
     await _memory_record_event(
         config,
         run_context,
@@ -831,6 +879,13 @@ async def _run_task(
                 agent_id=skipped_agent_id,
                 payload={"reason": reason},
             )
+            async for skipped_chunk in _skipped_agent_child_message_chunks(
+                config,
+                task=task,
+                agent_id=skipped_agent_id,
+                reason=reason,
+            ):
+                yield skipped_chunk, next_block_index
 
         agent_id = selection.agent_id
         if agent_id is None:
@@ -1421,6 +1476,73 @@ async def _run_task(
     refresh_workspace_conflicts(run_context)
     await _refresh_and_record_workspace_conflicts(config, run_context)
     await _memory_record_task_result(config, run_context, task, task_result)
+
+
+async def _skipped_agent_child_message_chunks(
+    config: Mapping[str, Any],
+    *,
+    task: SubTask,
+    agent_id: str,
+    reason: str,
+) -> AsyncIterator[StreamChunk]:
+    if (
+        not _group_messages_enabled(config)
+        or agent_id == "orchestrator"
+        or task.task_type not in {"conversation", "dialogue_turn"}
+    ):
+        return
+    child_message_id, start_chunk = await _start_group_message(
+        config,
+        agent_id=agent_id,
+    )
+    if start_chunk is not None:
+        yield start_chunk
+    if child_message_id is None:
+        return
+    child_next_block_index = 0
+    process_block_index: int | None = None
+    process_chunks, child_next_block_index, process_block_index = (
+        _child_process_start_chunks(
+            config,
+            child_message_id=child_message_id,
+            agent_id=agent_id,
+            task=task,
+            block_index=child_next_block_index,
+        )
+    )
+    for process_chunk in process_chunks:
+        yield process_chunk
+    for process_chunk in _child_process_finish_chunks(
+        config,
+        child_message_id=child_message_id,
+        agent_id=agent_id,
+        task=task,
+        block_index=process_block_index,
+        state=TaskState.FAILED,
+        reason=reason,
+    ):
+        yield process_chunk
+    failure_text = _failure_text(task, reason, agent_id)
+    for chunk, updated_child_block_index in _text_block_with_next(
+        child_next_block_index,
+        failure_text,
+        agent_id=agent_id,
+        presentation=_agent_summary_presentation(),
+    ):
+        child_next_block_index = updated_child_block_index
+        yield _child_message_chunk(
+            chunk,
+            message_id=child_message_id,
+            agent_id=agent_id,
+        )
+    error_chunk = await _finish_group_message(
+        config,
+        child_message_id,
+        status="error",
+        error=failure_text.strip(),
+    )
+    if error_chunk is not None:
+        yield error_chunk
 
 
 def _orchestrator_review_fallback_attempt(

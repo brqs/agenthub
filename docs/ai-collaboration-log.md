@@ -1,3 +1,88 @@
+## 2026-06-10 — Codex 实现 Orchestrator 动态辩论轮次与胜负判断
+
+### 任务
+把 Orchestrator 托管的辩论 / 反驳 / 接力类 `dialogue_turn` 从固定轮数改为动态 session：每轮完成后判断是否继续，并在辩论任务结束时给出 deterministic 胜负/平局判断。
+
+### 关键 Prompt
+> Orchestrator 动态辩论轮次与胜负判断计划
+
+### AI 输出摘要
+1. 新增 `_internal/execution/dialogue.py`，集中实现动态 dialogue session 判断、下一轮 `dialogue_turn` 构造和 deterministic `debate_judgement`。
+2. `_run_static_tasks()` 对纯 `dialogue_turn` session 强制顺序执行，避免并行 executor 破坏接力；每轮完成后可插入下一轮任务。
+3. `OrchestratorRunContext` 新增 run-local `debate_judgement`，final response facts 会把“更有说服力的一方 / 势均力敌”纳入用户可见 final answer。
+4. `manual_two_agent_turn_taking` E2E 验收脚本升级：要求 Claude -> OpenCode -> Claude 生命周期，并要求 final answer 包含辩论评判。
+5. 更新 `agent-turn-taking.spec.md`、Orchestrator README 和 B2 TODO，记录动态轮次、短答边界、max turns 和胜负判断。
+
+### 验证结果
+```text
+local targeted:
+  pytest:
+    tests/test_orchestrator_planning.py
+    tests/test_orchestrator_output_contracts.py
+    tests/test_orchestrator_response_presentation.py
+    tests/test_orchestrator_live_e2e_script.py
+    tests/test_orchestrator.py::test_orchestrator_dynamic_debate_continues_after_handoff
+    tests/test_orchestrator.py::test_orchestrator_dynamic_debate_respects_explicit_one_exchange
+  result: 108 passed
+
+  ruff: passed
+  mypy app/agents/orchestrator: passed
+  git diff --check: passed
+```
+
+### 说明
+本轮没有重启后端、没有 seed、没有公网 E2E。公网 E2E 脚本已更新，后续需要按 deploy/restart 流程重跑 `manual_two_agent_turn_taking` 和 `agent_turn_taking_matrix` 来验证线上行为。
+
+## 2026-06-10 — Codex 清理 OpenCode/Codex 默认模型并完成 Turn-Taking 公网 E2E
+
+### 任务
+修复 OpenCode 接力失败与 OpenCode/Codex adapter 硬编码默认模型问题，并使用真实账号路径验证多 Agent 接力群聊：先跑截图同例 two-agent 辩论，再跑多场景 turn-taking matrix。
+
+### 关键 Prompt
+> OpenCode和codex都删去，结合刚刚的计划重新修改
+>
+> OpenCode/Codex 默认模型清理 + Turn-Taking E2E Repair Loop
+
+### AI 输出摘要
+1. OpenCode adapter 删除硬编码 `DEFAULT_MODEL="deepseek/deepseek-chat"`；`config.model` 缺省或为空时不传 `--model`，由 OpenCode 本地 runtime 默认模型决定，显式配置模型时才传递。
+2. Codex adapter 删除硬编码 `DEFAULT_MODEL="gpt-4.1"`；CLI 缺省时不传 `-m`，SDK/runtime 缺省时不传显式 `model`，metadata 不再用硬编码模型补值。
+3. OpenCode 1.16.x stdout JSON 兼容：当进程成功退出但 stdout 没有 assistant text/tool 输出时，按 `sessionID` 从 OpenCode SQLite store 只补读 assistant text part；不读取 reasoning、user prompt 或 auth/account 文件。
+4. 修复 turn-taking 执行边界：对话计划保留完整参与者，明确成员不可用时生成独立 error child message；严格 two-agent 场景不允许 fallback Agent 代替 OpenCode 通过。
+5. E2E 脚本新增/修复 `manual_two_agent_turn_taking`，并保留 `agent_turn_taking_matrix` 泛用性回归。
+
+### 验证结果
+```text
+local targeted:
+  pytest: 203 passed, 1 skipped
+  ruff: passed
+  mypy app/agents/orchestrator app/agents/external: passed
+  git diff --check: passed
+
+deployment:
+  backend_pid: 1844628 -> 1853957
+  alembic_current: c5d6e7f809ab
+  local_health: ok
+  public_health: ok
+  seed_agents: not required
+
+public e2e:
+  scenario: manual_two_agent_turn_taking
+  report: /tmp/agenthub_manual_two_agent_turn_taking_report.json
+  sse: /tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl
+  passed: true
+
+  scenario: agent_turn_taking_matrix
+  report: /tmp/agenthub_agent_turn_taking_matrix_report.json
+  sse: /tmp/agenthub_agent_turn_taking_matrix_sse.jsonl
+  passed: true
+```
+
+### 文档同步
+同步更新 `external-runtime-adapters.spec.md`、`orchestrator/agent-turn-taking.spec.md`、`orchestrator/message-attribution.spec.md`、`orchestrator/README.md`、`orchestrator/live-e2e-report.spec.md` 和 `b2-pdf-gap-todo.spec.md`。本轮不改前端 UI、不改数据库、不改 OpenAPI、不改 seed/default config。
+
+### 经验
+外部 coding agent runtime 不应由 AgentHub adapter 私自硬编码模型默认值；缺省模型应交给 runtime 自己的本地配置。真实群聊验收也不能只看“Orchestrator 有 fallback 完成”，严格指定成员接力时必须验证该成员自己的 child message、`done` 状态和常显 `agent_summary`。
+
 ## 2026-06-07 — Codex 设计 Orchestrator 代码前需求澄清闸门
 
 ### 任务
@@ -2462,12 +2547,12 @@ conversation / analysis / direct output / 无显式产物 review 通过 contract
 ### AI 输出摘要
 1. 新增 `agent-turn-taking.spec.md`，定义 `DialoguePlan`、`dialogue_turn`、handoff hint、轮次上限、实质输出合同和 no-artifact 边界。
 2. 更新 task planning、message attribution、presentation collapse、Orchestrator README 和 B2 TODO，明确普通 `conversation` 独立发言与 `dialogue_turn` 接力发言的区别。
-3. 本轮按用户要求暂不跑公网 E2E；仅新增/规划 `agent_turn_taking_dialogue_repair` 与 `agent_turn_taking_matrix` 场景，等待后续明确命令再执行 live repair loop。
+3. 本轮按用户要求暂不跑公网 E2E；仅新增/规划 `agent_turn_taking_dialogue_repair` 与 `agent_turn_taking_matrix` 场景。2026-06-10 已补跑 `manual_two_agent_turn_taking` 与 `agent_turn_taking_matrix` 公网 repair loop，结果见本日志顶部 2026-06-10 条目。
 
 ### 当前状态
 ```text
 status: backend implemented, local targeted tests passed
-public_e2e: not run by request
+public_e2e: skipped on 2026-06-09 by request; completed on 2026-06-10
 ```
 
 ### 本地验证
