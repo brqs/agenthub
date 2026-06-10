@@ -18,9 +18,13 @@ from app.agents.orchestrator.availability import (
     scoped_runnable_agent_ids,
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
+from app.services.context.compression import estimate_tokens, truncate_text
 
 TASK_PLAN_TOOL_NAME = "submit_task_plan"
 DEFAULT_PLANNER_MAX_TOKENS = 16384
+DEFAULT_PLANNER_CONTEXT_MAX_TOKENS = 128_000
+PLANNER_CONTEXT_MAX_TOKENS_LIMIT = 1_000_000
+PLANNER_MEMORY_CONTEXT_MAX_TOKENS = 32_000
 AGENT_CAPABILITY_PROFILE_V2_HEADER = (
     "Agent capability profile v2 from recent user Orchestrator runs:"
 )
@@ -229,20 +233,72 @@ def _planner_messages(
     user_request: str,
     allowed_agent_ids: list[str],
 ) -> list[ChatMessage]:
+    source_messages = _planner_source_messages(config, messages)
+    max_tokens = _planner_context_max_tokens(config)
     agents = _available_agents_description(config, allowed_agent_ids)
-    memory_context = _planner_memory_context(messages)
-    memory_context_section = (
-        "Orchestrator memory signals available to planner:\n"
-        f"{memory_context}\n\n"
-        if memory_context
-        else ""
+    instruction_section = _planner_instruction_section()
+    agents_section = f"Available agents:\n{agents}"
+    request_text = _planner_user_request_for_budget(
+        user_request,
+        max_tokens,
+        agents_section,
+        instruction_section,
+    )
+    required_content = (
+        f"User request:\n{request_text}\n\n"
+        f"{agents_section}\n\n"
+        f"{instruction_section}"
+    )
+    remaining_tokens = max_tokens - estimate_tokens(required_content)
+
+    memory_context = _planner_memory_context(source_messages)
+    memory_context_section = _planner_memory_section(memory_context, remaining_tokens)
+    remaining_tokens -= estimate_tokens(memory_context_section)
+
+    recent_context_section = _recent_conversation_section(
+        source_messages,
+        user_request,
+        remaining_tokens,
     )
     content = (
-        "User request:\n"
-        f"{user_request}\n\n"
+        f"User request:\n{request_text}\n\n"
         f"{memory_context_section}"
-        "Available agents:\n"
-        f"{agents}\n\n"
+        f"{agents_section}\n\n"
+        f"{recent_context_section}"
+        f"{instruction_section}"
+    )
+    return [ChatMessage(role="user", content=content)]
+
+
+def _planner_context_max_tokens(config: Mapping[str, Any]) -> int:
+    value = config.get("planner_context_max_tokens")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return DEFAULT_PLANNER_CONTEXT_MAX_TOKENS
+    return min(value, PLANNER_CONTEXT_MAX_TOKENS_LIMIT)
+
+
+def _planner_source_messages(
+    config: Mapping[str, Any],
+    fallback_messages: list[ChatMessage],
+) -> list[ChatMessage]:
+    raw_messages = config.get("planner_context_messages")
+    if not isinstance(raw_messages, list):
+        return fallback_messages
+    parsed: list[ChatMessage] = []
+    for raw in raw_messages:
+        if isinstance(raw, ChatMessage):
+            parsed.append(raw)
+            continue
+        if isinstance(raw, Mapping):
+            role = raw.get("role")
+            content = raw.get("content")
+            if role in {"user", "assistant", "system"} and isinstance(content, str):
+                parsed.append(ChatMessage(role=role, content=content))
+    return parsed or fallback_messages
+
+
+def _planner_instruction_section() -> str:
+    return (
         "Port preview/deploy requests must not become sub-agent execution tasks. "
         "Plan static file creation and verification only. Do not plan Node/Express "
         "servers, package.json scripts, server.js, or any runtime port service. "
@@ -250,7 +306,138 @@ def _planner_messages(
         "instructions.\n\n"
         "Return tasks as {\"tasks\": [...]} using only these agent ids."
     )
-    return [ChatMessage(role="user", content=content)]
+
+
+def _planner_user_request_for_budget(
+    user_request: str,
+    max_tokens: int,
+    agents_section: str,
+    instruction_section: str,
+) -> str:
+    fixed_without_request = (
+        "User request:\n\n\n"
+        f"{agents_section}\n\n"
+        f"{instruction_section}"
+    )
+    request_budget = max_tokens - estimate_tokens(fixed_without_request)
+    return _truncate_to_token_budget(
+        user_request,
+        max(1, request_budget),
+        "latest user request",
+    )
+
+
+def _planner_memory_section(memory_context: str, remaining_tokens: int) -> str:
+    if not memory_context or remaining_tokens <= 0:
+        return ""
+    header = "Orchestrator memory signals available to planner:\n"
+    body_budget = remaining_tokens - estimate_tokens(header)
+    if body_budget <= 0:
+        return ""
+    label = "planner memory signals"
+    memory_budget = min(PLANNER_MEMORY_CONTEXT_MAX_TOKENS, body_budget)
+    memory_text = _truncate_to_token_budget(memory_context, memory_budget, label)
+    return f"{header}{memory_text}\n\n"
+
+
+def _recent_conversation_section(
+    messages: list[ChatMessage],
+    user_request: str,
+    remaining_tokens: int,
+) -> str:
+    if remaining_tokens <= 0:
+        return ""
+    blocks = _recent_conversation_blocks(messages, user_request)
+    if not blocks:
+        return ""
+    selected: list[str] = []
+    used_tokens = estimate_tokens("Recent conversation context:\n")
+    omitted = 0
+    budget = max(0, remaining_tokens - used_tokens)
+    for block in reversed(blocks):
+        block_tokens = estimate_tokens(block)
+        if block_tokens <= budget:
+            selected.append(block)
+            budget -= block_tokens
+            continue
+        if not selected and budget > 0:
+            selected.append(
+                _truncate_to_token_budget(
+                    block,
+                    budget,
+                    "oldest included planner conversation turn",
+                )
+            )
+            budget = 0
+            continue
+        omitted += 1
+    if not selected:
+        return ""
+    selected.reverse()
+    notice = (
+        f"[older planner conversation context omitted: {omitted} messages due to "
+        "planner_context_max_tokens]\n"
+        if omitted
+        else ""
+    )
+    return "Recent conversation context:\n" + notice + "\n\n".join(selected) + "\n\n"
+
+
+def _recent_conversation_blocks(
+    messages: list[ChatMessage],
+    user_request: str,
+) -> list[str]:
+    last_current_user_index = _latest_user_request_index(messages, user_request)
+    blocks: list[str] = []
+    for index, message in enumerate(messages):
+        if message.role == "system":
+            continue
+        if index == last_current_user_index:
+            continue
+        content = message.content.strip()
+        if not content:
+            continue
+        blocks.append(f"[{message.role}]\n{content}")
+    return blocks
+
+
+def _latest_user_request_index(
+    messages: list[ChatMessage],
+    user_request: str,
+) -> int | None:
+    normalized_request = user_request.strip()
+    fallback_index: int | None = None
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role != "user":
+            continue
+        if fallback_index is None:
+            fallback_index = index
+        if message.content.strip() == normalized_request:
+            return index
+    return fallback_index if not normalized_request else None
+
+
+def _truncate_to_token_budget(text: str, max_tokens: int, label: str) -> str:
+    if max_tokens <= 0:
+        return f"[{label} omitted due to planner_context_max_tokens]"
+    if estimate_tokens(text) <= max_tokens:
+        return text
+    notice = f"[{label} truncated due to planner_context_max_tokens]\n"
+    if estimate_tokens(notice) >= max_tokens:
+        return notice.strip()
+    low = 1
+    high = len(text)
+    best = notice.strip()
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = notice + truncate_text(text, mid)
+        if estimate_tokens(candidate) <= max_tokens:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
 
 
 def _planner_memory_context(messages: list[ChatMessage]) -> str:
@@ -258,13 +445,7 @@ def _planner_memory_context(messages: list[ChatMessage]) -> str:
     for message in messages:
         if message.role != "system":
             continue
-        for header in (
-            MEMORYHUB_CONTEXT_HEADER,
-            ORCHESTRATOR_EVIDENCE_HEADER,
-            AGENT_CAPABILITY_PROFILE_V2_HEADER,
-            USER_PREFERENCE_MEMORY_HEADER,
-            AGENT_CAPABILITY_PROFILE_HEADER,
-        ):
+        for header in PLANNER_MEMORY_SECTION_HEADERS:
             section = _memory_section(message.content, header)
             if section and section not in sections:
                 sections.append(section)

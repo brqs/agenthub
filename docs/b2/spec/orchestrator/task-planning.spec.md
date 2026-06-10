@@ -266,20 +266,35 @@ planner 流程：
 1. 可用 Agent id 优先来自 `available_agents`，否则来自 `managed_agent_ids/default_sub_agents`。
 2. planner gateway 优先使用注入的 `planner_gateway`，否则创建 ModelGateway。
 3. ModelGateway backend 取 `planner_model_backend`，再取 `model_backend`，默认 `claude`。
-4. planner prompt 要求只使用白名单 agent id。
-5. 有 tool support 时必须调用 `submit_task_plan`。
-6. 没有 tool payload 时，从文本中解析 JSON。
-7. planner 输出必须解析为 `{"tasks": [...]}` 或 tasks array。
-8. Orchestrator 校验 `agent_id`、`depends_on` 和 task schema。
-9. 纯 preview/deploy/port/server/service 任务会被过滤，除非该任务被其他任务依赖，或任务内容包含生成 artifact 的 marker。
-10. 纯对话/辩论/角色扮演任务应使用 `task_type="conversation"`，且不应附带 artifact path。
+4. stream 层为 planner 构造独立输入上下文，默认
+   `planner_context_max_tokens=128000`；普通 Orchestrator 主流程仍使用
+   `orchestrator_context_max_tokens=64000`。
+5. planner prompt 要求只使用白名单 agent id。
+6. 有 tool support 时必须调用 `submit_task_plan`。
+7. 没有 tool payload 时，从文本中解析 JSON。
+8. planner 输出必须解析为 `{"tasks": [...]}` 或 tasks array。
+9. Orchestrator 校验 `agent_id`、`depends_on` 和 task schema。
+10. 纯 preview/deploy/port/server/service 任务会被过滤，除非该任务被其他任务依赖，或任务内容包含生成 artifact 的 marker。
+11. 纯对话/辩论/角色扮演任务应使用 `task_type="conversation"`，且不应附带 artifact path。
+
+planner prompt 输入组成：
+
+- `User request`: 始终从普通当前消息提取最新用户请求，避免大上下文裁剪影响当前意图。
+- `Orchestrator memory signals`: MemoryHub、evidence、agent capability profile、用户偏好和 Orchestrator structured memory；最多约 `32000 tokens`。
+- `Available agents`: 当前可调度 Agent 白名单和 planning profile；高优先级保留。
+- `Recent conversation context`: 从 planner 专用上下文提取非 system 消息，按时间顺序呈现，保留 context builder 写入的 `[Agent: <agent_id>]` 标签；预算不足时从旧到新淘汰。
+
+如果 prompt 超过 `planner_context_max_tokens`，必须保留最新用户请求、
+available agents、agent planning profile 和 memory signals；旧 conversation turns
+优先被裁剪，并在 prompt 中标注省略。
 
 `available_agents` 描述要求：
 
 - 每个条目必须能明确映射到一个可调度 `agent_id`。
 - 推荐包含：`id`、`name`、`capabilities`、`planning_profile`、`planning_strengths`、`planning_weaknesses`、`preferred_task_types`。
 - planner prompt 应把这些描述传给模型，要求只选择白名单 id。
-- planner prompt 必须说明 Codex 是架构/审阅/兜底负责人；并行实现优先拆给 Claude Code 与 OpenCode；Codex 不应吞掉所有普通实现任务。
+- planner prompt 使用 profile、strengths、weaknesses 和 preferred_task_types
+  作为主要路由依据，不再从 provider 或 agent id 推断固定负责人。
 - 示例：
 
 ```json
@@ -306,6 +321,7 @@ planner config：
 
 - 默认 `temperature=0`。
 - 默认 `max_tokens=16384`。
+- 默认 `planner_context_max_tokens=128000`，允许配置到 `1000000`。
 - 默认 `tool_choice={"type": "auto"}`。
 - 兼容顶层 `model`、`max_retries`、`request_timeout_seconds`。
 

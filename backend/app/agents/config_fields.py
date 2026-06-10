@@ -54,10 +54,14 @@ EXTERNAL_DIRECT_CHAT_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("qa_classifier_max_tokens", 1, 1024, allow_float=False),
     NumericConfigField("qa_temperature", 0, 2),
     NumericConfigField("qa_request_timeout_seconds", 1, 120),
+    NumericConfigField("qa_stream_idle_timeout_seconds", 1, 3600),
+    NumericConfigField("qa_stream_max_runtime_seconds", 1, 3600),
+    NumericConfigField("qa_stream_heartbeat_seconds", 1, 3600),
 )
 
 BUILTIN_ORCHESTRATOR_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("max_iterations", 1, 50, allow_float=False),
+    NumericConfigField("planner_context_max_tokens", 1, 1000000, allow_float=False),
     NumericConfigField("react_decision_max_tokens", 1, 4096, allow_float=False),
     NumericConfigField("max_task_attempts", 1, 3, allow_float=False),
     NumericConfigField("task_result_context_max_chars", 1, 32000, allow_float=False),
@@ -108,6 +112,9 @@ EXTERNAL_DIRECT_CHAT_DEFAULTS: dict[str, object] = {
     "qa_classifier_max_tokens": 128,
     "qa_temperature": 0.2,
     "qa_request_timeout_seconds": 20,
+    "qa_stream_idle_timeout_seconds": 10,
+    "qa_stream_max_runtime_seconds": 45,
+    "qa_stream_heartbeat_seconds": 5,
 }
 
 ORCHESTRATOR_DEFAULTS: dict[str, object] = {
@@ -117,6 +124,7 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "context_max_tokens": 64000,
     "orchestrator_context_max_tokens": 64000,
     "orchestrator_subagent_context_max_tokens": 64000,
+    "planner_context_max_tokens": 128000,
     "llm_planning": settings.orchestrator_llm_planning_default,
     "react_enabled": True,
     "react_decision_max_tokens": 2048,

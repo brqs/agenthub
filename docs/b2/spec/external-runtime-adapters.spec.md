@@ -176,7 +176,27 @@ Adapter-specific 配置继续保留：
 
 - runtime lifecycle 字段见 [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)。
 - direct chat 字段见 `external-direct-chat-routing.spec.md`。
+- external direct-chat 流式预算字段：
+  - `qa_stream_idle_timeout_seconds`：等待下一条 direct-chat chunk 的 idle timeout。
+  - `qa_stream_max_runtime_seconds`：direct-chat 单次回答 hard timeout。
+  - `qa_stream_heartbeat_seconds`：等待 direct-chat chunk 期间的 heartbeat 间隔。
+  这些字段只作用于 `maybe_stream_direct_chat()` / ModelGateway direct-chat path，不改变
+  Claude Code / Codex / OpenCode 真实 CLI/SDK runtime budget。
 - `codex.sandbox_mode="danger-full-access"` 不能作为长期 seed 默认值；后续应收紧为 `workspace-write`，更高权限仅允许显式配置并记录审计。
+
+## 2026-06-10 Direct-Chat Dialogue Timeout Hardening
+
+纯对话 / 辩论 / 接力群聊仍优先使用 direct-chat，不默认启动真实 CLI/SDK runtime。
+Orchestrator 托管的 `conversation` / `dialogue_turn` 子任务会在调用子 Agent 时注入更宽松的
+direct-chat 流式预算：
+
+- `qa_stream_idle_timeout_seconds >= 45`
+- `qa_stream_max_runtime_seconds >= 120`
+- `qa_stream_heartbeat_seconds = 10`
+
+普通私聊 Agent、短问答和代码 / 文件 / 部署任务不使用该 Orchestrator override。若 direct-chat
+仍超时，用户可见错误必须是清洗后的本轮响应超时说明，不能暴露 `direct_chat_timeout`、
+`idle_timeout_seconds`、raw stderr 或本地路径。
 
 ## 测试计划
 

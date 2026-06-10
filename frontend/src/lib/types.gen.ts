@@ -3668,6 +3668,12 @@ export interface components {
              */
             orchestrator_subagent_context_max_tokens: number | null;
             /**
+             * Planner Context Max Tokens
+             * @description Maximum input context tokens used by the Orchestrator Planner.
+             * @default null
+             */
+            planner_context_max_tokens: number | null;
+            /**
              * Llm Planning
              * @default null
              */
@@ -3802,6 +3808,24 @@ export interface components {
              * @default null
              */
             qa_request_timeout_seconds: number | null;
+            /**
+             * Qa Stream Idle Timeout Seconds
+             * @description Idle timeout for external direct-chat streaming.
+             * @default null
+             */
+            qa_stream_idle_timeout_seconds: number | null;
+            /**
+             * Qa Stream Max Runtime Seconds
+             * @description Hard timeout for external direct-chat streaming.
+             * @default null
+             */
+            qa_stream_max_runtime_seconds: number | null;
+            /**
+             * Qa Stream Heartbeat Seconds
+             * @description Heartbeat interval for external direct-chat streaming.
+             * @default null
+             */
+            qa_stream_heartbeat_seconds: number | null;
             /**
              * Task Fallback Agent Ids
              * @default null
