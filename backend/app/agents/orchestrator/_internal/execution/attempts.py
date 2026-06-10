@@ -27,6 +27,9 @@ from app.agents.orchestrator.types import (
     TaskState,
 )
 from app.agents.types import ChatMessage
+from app.services.context.compression import TOTAL_TOKEN_BUDGET, estimate_tokens
+
+SUBAGENT_CONTEXT_MAX_TOKENS_LIMIT = 200_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +65,83 @@ def task_messages(
     if context_message is not None and previous_attempt is not None:
         base_messages.append(context_message)
     base_messages.append(task_message)
-    return base_messages
+    return _trim_task_messages_to_budget(
+        base_messages,
+        orchestrator_subagent_context_max_tokens(config),
+    )
+
+
+def orchestrator_subagent_context_max_tokens(config: Mapping[str, Any]) -> int:
+    return min(
+        positive_int_config(
+            config,
+            "orchestrator_subagent_context_max_tokens",
+            TOTAL_TOKEN_BUDGET,
+        ),
+        SUBAGENT_CONTEXT_MAX_TOKENS_LIMIT,
+    )
+
+
+def _trim_task_messages_to_budget(
+    messages: list[ChatMessage],
+    max_tokens: int,
+) -> list[ChatMessage]:
+    if not messages:
+        return []
+    if _messages_token_count(messages) <= max_tokens:
+        return messages
+
+    required = _required_task_message_indices(messages)
+    selected = set(required)
+    used_tokens = sum(_message_token_count(messages[index]) for index in selected)
+
+    for index in range(len(messages) - 2, -1, -1):
+        if index in selected:
+            continue
+        candidate_tokens = _message_token_count(messages[index])
+        if used_tokens + candidate_tokens > max_tokens:
+            continue
+        selected.add(index)
+        used_tokens += candidate_tokens
+
+    return [message for index, message in enumerate(messages) if index in selected]
+
+
+def _required_task_message_indices(messages: list[ChatMessage]) -> set[int]:
+    required = {len(messages) - 1}
+    for index, message in enumerate(messages):
+        if message.role == "system" and _is_required_task_system_context(message.content):
+            required.add(index)
+    for index in range(len(messages) - 2, -1, -1):
+        if messages[index].role == "user":
+            required.add(index)
+            break
+    return required
+
+
+def _is_required_task_system_context(content: str) -> bool:
+    return content.startswith(
+        (
+            "This is a group conversation.",
+            "MemoryHub mounted context:",
+            "Earlier compressed conversation memory:",
+            "Critical facts and constraints that must not be lost:",
+            "Previous Orchestrator structured memory:",
+            "Agent capability profile v2 from recent user Orchestrator runs:",
+            "Agent capability profile from recent Orchestrator runs:",
+            "Previous sub-agent results:",
+            "Previous attempt failure:",
+            "Workspace inventory for this task:",
+        )
+    )
+
+
+def _messages_token_count(messages: list[ChatMessage]) -> int:
+    return sum(_message_token_count(message) for message in messages)
+
+
+def _message_token_count(message: ChatMessage) -> int:
+    return max(1, estimate_tokens(message.content))
 
 
 def _workspace_inventory_message(

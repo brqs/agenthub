@@ -38,6 +38,17 @@ EXTERNAL_RUNTIME_BUDGET_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("heartbeat_interval_seconds", 1, 3600),
 )
 
+CONTEXT_BUDGET_FIELDS: tuple[NumericConfigField, ...] = (
+    NumericConfigField("context_max_tokens", 1, 200000, allow_float=False),
+    NumericConfigField("orchestrator_context_max_tokens", 1, 200000, allow_float=False),
+    NumericConfigField(
+        "orchestrator_subagent_context_max_tokens",
+        1,
+        200000,
+        allow_float=False,
+    ),
+)
+
 EXTERNAL_DIRECT_CHAT_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("qa_max_tokens", 1, 32000, allow_float=False),
     NumericConfigField("qa_classifier_max_tokens", 1, 1024, allow_float=False),
@@ -56,6 +67,7 @@ BUILTIN_ORCHESTRATOR_FIELDS: tuple[NumericConfigField, ...] = (
     NumericConfigField("auto_clarification_max_questions", 0, 8, allow_float=False),
     NumericConfigField("grill_max_questions", 1, 12, allow_float=False),
     NumericConfigField("orchestrator_tool_max_iterations", 1, 50, allow_float=False),
+    NumericConfigField("orchestrator_tool_max_tokens", 1, 32000, allow_float=False),
     NumericConfigField("orchestrator_tool_result_max_chars", 1, 32000, allow_float=False),
     NumericConfigField("orchestrator_tool_read_max_bytes", 1, 1048576, allow_float=False),
     NumericConfigField("orchestrator_parallel_max_concurrency", 1, 10, allow_float=False),
@@ -77,6 +89,7 @@ NUMERIC_CONFIG_FIELDS: dict[str, NumericConfigField] = {
     field.key: field
     for group in (
         EXTERNAL_RUNTIME_BUDGET_FIELDS,
+        CONTEXT_BUDGET_FIELDS,
         EXTERNAL_DIRECT_CHAT_FIELDS,
         BUILTIN_ORCHESTRATOR_FIELDS,
     )
@@ -91,7 +104,7 @@ def numeric_field(key: str) -> NumericConfigField:
 EXTERNAL_DIRECT_CHAT_DEFAULTS: dict[str, object] = {
     "qa_short_circuit_enabled": True,
     "qa_model_backend": "deepseek",
-    "qa_max_tokens": 2048,
+    "qa_max_tokens": 8192,
     "qa_classifier_max_tokens": 128,
     "qa_temperature": 0.2,
     "qa_request_timeout_seconds": 20,
@@ -101,17 +114,23 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "model_backend": "claude",
     "answer_model_backend": "deepseek",
     "planner_model_backend": "deepseek",
+    "context_max_tokens": 64000,
+    "orchestrator_context_max_tokens": 64000,
+    "orchestrator_subagent_context_max_tokens": 64000,
     "llm_planning": settings.orchestrator_llm_planning_default,
     "react_enabled": True,
+    "react_decision_max_tokens": 2048,
     "react_trace_visible": False,
     "direct_answer_on_planner_failure": True,
     "available_agents_authoritative": False,
     "task_fallback_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
     "max_task_attempts": 3,
+    "task_result_context_max_chars": 24000,
+    "task_result_item_max_chars": 6000,
     "max_iterations": 10,
     "orchestrator_memory_enabled": True,
     "orchestrator_memory_recent_runs": 3,
-    "orchestrator_memory_context_max_chars": 6000,
+    "orchestrator_memory_context_max_chars": 24000,
     "clarification_gate_enabled": True,
     "auto_clarification_max_questions": 3,
     "requirement_alignment_llm_enabled": True,
@@ -120,19 +139,20 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "orchestrator_tool_calling_enabled": False,
     "orchestrator_tool_trace_visible": True,
     "orchestrator_tool_max_iterations": 12,
-    "orchestrator_tool_result_max_chars": 4000,
-    "orchestrator_tool_read_max_bytes": 65536,
+    "orchestrator_tool_max_tokens": 8192,
+    "orchestrator_tool_result_max_chars": 12000,
+    "orchestrator_tool_read_max_bytes": 262144,
     "orchestrator_group_messages_enabled": True,
     "orchestrator_process_block_enabled": True,
     "orchestrator_response_polish_enabled": True,
     "orchestrator_response_polish_model_backend": None,
-    "orchestrator_response_polish_max_tokens": 900,
+    "orchestrator_response_polish_max_tokens": 2048,
     "orchestrator_parallel_enabled": settings.orchestrator_parallel_enabled_default,
     "orchestrator_parallel_max_concurrency": (
         settings.orchestrator_parallel_max_concurrency_default
     ),
     "orchestrator_evaluation_enabled": True,
-    "orchestrator_evaluation_read_max_bytes": 65536,
+    "orchestrator_evaluation_read_max_bytes": 262144,
     "orchestrator_test_runner_enabled": False,
     "orchestrator_test_command_allowlist": [],
 }

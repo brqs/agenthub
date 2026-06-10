@@ -13,6 +13,7 @@ import pytest
 import app.agents.orchestrator.execution as orchestrator_execution
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator._internal.execution.attempts import task_messages
 from app.agents.orchestrator.artifacts import (
     check_attempt_artifacts,
     extract_artifact_paths_from_text,
@@ -23,6 +24,7 @@ from app.agents.orchestrator.types import (
     OrchestratorRunContext,
     SubTask,
     TaskAttempt,
+    TaskResult,
     TaskState,
 )
 from app.agents.orchestrator.workspace_changes import (
@@ -33,7 +35,7 @@ from app.agents.registry import get_adapter
 from app.agents.types import ChatMessage, StreamChunk
 from app.models.agent import Agent
 from app.services.artifacts.manifest import ArtifactManifestService
-from app.services.context.compression import blocks_to_text
+from app.services.context.compression import blocks_to_text, estimate_tokens
 from app.services.workspace_workflow_runtime import WorkspaceWorkflowRuntimeService
 from tests.orchestrator_fakes import (
     FakeAnswerGateway,
@@ -337,6 +339,66 @@ def test_conversation_task_does_not_require_artifacts() -> None:
     finalize_artifact_candidates(attempt, task)
 
     assert attempt.artifact_paths == []
+
+
+def test_task_messages_trim_old_history_but_keep_required_context(tmp_path: Path) -> None:
+    (tmp_path / "index.html").write_text("<!doctype html>", encoding="utf-8")
+    context = OrchestratorRunContext()
+    context.record(
+        TaskResult(
+            task_id="task-a",
+            title="Planning",
+            final_state=TaskState.SUCCEEDED,
+            attempts=[
+                TaskAttempt(
+                    attempt_index=1,
+                    agent_id="agent-a",
+                    state=TaskState.SUCCEEDED,
+                    text_preview="PREVIOUS_RESULT_SUMMARY",
+                    artifact_paths=["planning.md"],
+                )
+            ],
+        )
+    )
+    task = SubTask(
+        task_id="task-b",
+        agent_id="agent-b",
+        title="Implement",
+        instruction="CURRENT_TASK_INSTRUCTION",
+        depends_on=("task-a",),
+        expected_output="index.html",
+    )
+    old_history = "OLD_HISTORY " * 2000
+    messages = [
+        ChatMessage(
+            role="system",
+            content="This is a group conversation. agent labels are present.",
+        ),
+        ChatMessage(role="user", content="old user request"),
+        ChatMessage(role="assistant", content=old_history),
+        ChatMessage(role="user", content="LATEST_USER_REQUEST"),
+    ]
+
+    result = task_messages(
+        task,
+        messages,
+        context,
+        {
+            "orchestrator_subagent_context_max_tokens": 220,
+            "task_result_context_max_chars": 2000,
+            "task_result_item_max_chars": 1000,
+        },
+        workspace_path=tmp_path,
+    )
+    text = "\n".join(message.content for message in result)
+
+    assert "OLD_HISTORY" not in text
+    assert "LATEST_USER_REQUEST" in text
+    assert "Previous sub-agent results:" in text
+    assert "PREVIOUS_RESULT_SUMMARY" in text
+    assert "Workspace inventory for this task:" in text
+    assert "CURRENT_TASK_INSTRUCTION" in text
+    assert sum(estimate_tokens(message.content) for message in result) <= 220
 
 
 async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -> None:
@@ -4477,6 +4539,74 @@ async def test_orchestrator_dynamic_debate_respects_explicit_one_exchange() -> N
     assert len(opencode.received_messages) == 1
     final_text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert "辩论评判" in final_text
+
+
+async def test_dialogue_turn_does_not_fallback_to_opposing_participant() -> None:
+    request = (
+        "@orchestrator 组织两个智能体辩论，论题是AI发展利大于弊还是弊大于利，"
+        "不需要生成文件，双方展开辩论。"
+    )
+    claude = SequencedSubAdapter(
+        "claude-code",
+        [
+            _text_chunks(
+                "正方观点：我认为 AI 发展利大于弊，因为它能提升医疗、教育和科研效率，"
+                "也能帮助普通人获得更强工具。风险需要监管，但社会整体收益更大。"
+                "@opencode-helper 请回应。"
+            ),
+            [StreamChunk(event_type="error", agent_id="claude-code", error="timeout")],
+        ],
+    )
+    opencode = SequencedSubAdapter(
+        "opencode-helper",
+        [
+            _text_chunks(
+                "针对正方提到的效率收益，我的反方观点是弊大于利。"
+                "就业替代、隐私滥用、治理滞后和信息污染会先于收益扩散，"
+                "而算力和数据集中会让头部平台拿走大部分红利。普通劳动者承担"
+                "转型成本，却未必获得再培训、议价权或收益分配，这会放大社会撕裂。"
+            ),
+        ],
+    )
+
+    chunks = await _collect(
+        OrchestratorAdapter(agent_id="orchestrator"),
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "planner_fallback_to_template": True,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "tasks": [
+                _task(
+                    "dialogue-turn-1",
+                    "claude-code",
+                    "第 1 轮发言：正方：AI 发展利大于弊",
+                    "你的角色/立场：正方，主张 AI 发展利大于弊。",
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+                _task(
+                    "dialogue-turn-2",
+                    "opencode-helper",
+                    "第 2 轮发言：反方：AI 发展弊大于利",
+                    "你的角色/立场：反方，主张 AI 发展弊大于利。本轮必须明确回应上一轮。",
+                    depends_on=["dialogue-turn-1"],
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+            ],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert len(opencode.received_messages) == 1
+    final_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "辩论评判" not in final_text
+    assert "需要注意" in final_text or "还没有成功完成请求" in final_text
 
 
 async def test_orchestrator_process_block_can_be_disabled() -> None:

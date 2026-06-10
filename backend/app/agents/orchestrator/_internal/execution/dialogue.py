@@ -105,10 +105,12 @@ def compute_debate_judgement(
     side_texts: dict[str, list[str]] = {"pro": [], "con": []}
     side_agents: dict[str, list[str]] = {"pro": [], "con": []}
     for task in dialogue_tasks:
+        result = run_context.results.get(task.task_id)
+        if result is not None and result.final_state != TaskState.SUCCEEDED:
+            return None
         side = _task_side(task)
         if side is None:
             continue
-        result = run_context.results.get(task.task_id)
         if result is None or result.final_state != TaskState.SUCCEEDED:
             continue
         text = _final_attempt_text(result)
@@ -182,6 +184,8 @@ def _should_continue_dialogue(
         return True
     if debate and turn_count < min(MIN_DEBATE_ATTACK_DEFENSE_TURNS, DEFAULT_MAX_DIALOGUE_TURNS):
         return True
+    if debate and not _explicit_round_count_requested(user_request):
+        return False
     if _handoff_requested(current_text):
         return True
     if _asks_for_continued_debate(user_request) and turn_count < len(participants) * 2:
@@ -283,6 +287,10 @@ def _explicit_short_dialogue(user_request: str) -> bool:
     ):
         return True
     return bool(_EXPLICIT_SHORT_RE.search(user_request))
+
+
+def _explicit_round_count_requested(user_request: str) -> bool:
+    return bool(_EXPLICIT_ROUNDS_RE.search(user_request))
 
 
 def _asks_for_continued_debate(user_request: str) -> bool:

@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from app.agents.registry import AgentNotFoundError, get_adapter
+from app.agents.registry import ORCHESTRATOR_AGENT_ID, AgentNotFoundError, get_adapter
 from app.agents.types import StreamChunk
 from app.api.v1.conversations import _get_owned_conversation
 from app.api.v1.stream_accumulator import StreamContentAccumulator
@@ -35,6 +35,7 @@ from app.core.deps import DbSession, get_current_user
 from app.models.message import Message
 from app.models.user import User
 from app.schemas.message import MessageOut
+from app.services.context.compression import TOTAL_TOKEN_BUDGET
 from app.services.context_builder import build_context
 from app.services.memory_hub import MemoryHubService
 from app.services.message_lifecycle import cleanup_stale_streaming_messages
@@ -51,6 +52,7 @@ workflow_runtime_service = WorkspaceWorkflowRuntimeService()
 ERROR_TEXT_MAX_CHARS = 1200
 GENERIC_STREAM_ERROR_TEXT = "Agent stream failed. Please retry."
 GENERIC_INTERRUPTED_TEXT = "已打断本次回复，可以继续补充要求。"
+CONTEXT_MAX_TOKENS_LIMIT = 200_000
 
 
 class StreamDisconnectedError(RuntimeError):
@@ -67,6 +69,22 @@ class StreamTimeoutError(RuntimeError):
     def __init__(self, error_code: str, message: str) -> None:
         super().__init__(message)
         self.error_code = error_code
+
+
+def _configured_context_max_tokens(agent_id: str, config: dict[str, Any]) -> int:
+    keys = (
+        ("orchestrator_context_max_tokens", "context_max_tokens")
+        if agent_id == ORCHESTRATOR_AGENT_ID
+        else ("context_max_tokens",)
+    )
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        if value < 1:
+            continue
+        return min(value, CONTEXT_MAX_TOKENS_LIMIT)
+    return TOTAL_TOKEN_BUDGET
 
 
 async def _wait_for_disconnect(request: Request) -> None:
@@ -478,11 +496,16 @@ async def _runtime_event_generator(
             return
 
         adapter = await get_adapter(message.agent_id, db)
+        context_max_tokens = _configured_context_max_tokens(
+            message.agent_id,
+            adapter.default_config,
+        )
         history = await build_context(
             db,
             message.conversation_id,
             current_agent_id=message.agent_id,
             agent_message_id=message.id,
+            max_tokens=context_max_tokens,
         )
         workspace = await WorkspaceService().get_or_create(db, message.conversation_id)
         history, stream_config = await apply_orchestrator_stream_context(

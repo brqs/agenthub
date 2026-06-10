@@ -77,9 +77,10 @@ class TestValidConfigs:
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 180,
             "heartbeat_interval_seconds": 15,
+            "context_max_tokens": 64000,
             "qa_short_circuit_enabled": True,
             "qa_model_backend": "deepseek",
-            "qa_max_tokens": 2048,
+            "qa_max_tokens": 8192,
             "qa_classifier_max_tokens": 128,
             "qa_temperature": 0.2,
             "qa_request_timeout_seconds": 20,
@@ -99,6 +100,7 @@ class TestValidConfigs:
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 240,
             "heartbeat_interval_seconds": 15,
+            "context_max_tokens": 64000,
         }
         result = validate_agent_config(
             provider="codex",
@@ -119,6 +121,7 @@ class TestValidConfigs:
             "max_runtime_seconds": 600,
             "idle_timeout_seconds": 180,
             "heartbeat_interval_seconds": 15,
+            "context_max_tokens": 64000,
         }
         result = validate_agent_config(
             provider="opencode",
@@ -133,35 +136,39 @@ class TestValidConfigs:
             "model_backend": "claude",
             "answer_model_backend": "deepseek",
             "planner_model_backend": "deepseek",
+            "context_max_tokens": 64000,
+            "orchestrator_context_max_tokens": 64000,
+            "orchestrator_subagent_context_max_tokens": 64000,
             "llm_planning": True,
             "planner_fallback_to_template": False,
             "orchestrator_llm_config": {"max_tokens": 1024},
             "max_iterations": 10,
             "react_enabled": True,
             "react_trace_visible": False,
-            "react_decision_max_tokens": 1024,
+            "react_decision_max_tokens": 2048,
             "mcp_servers": [],
             "allowed_tools": ["read_file", "write_file"],
             "task_fallback_agent_ids": ["codex-helper"],
             "max_task_attempts": 2,
-            "task_result_context_max_chars": 4000,
-            "task_result_item_max_chars": 1200,
+            "task_result_context_max_chars": 24000,
+            "task_result_item_max_chars": 6000,
             "orchestrator_memory_enabled": True,
             "orchestrator_memory_recent_runs": 3,
-            "orchestrator_memory_context_max_chars": 6000,
+            "orchestrator_memory_context_max_chars": 24000,
             "orchestrator_tool_calling_enabled": False,
             "orchestrator_tool_trace_visible": True,
             "orchestrator_tool_max_iterations": 12,
-            "orchestrator_tool_result_max_chars": 4000,
-            "orchestrator_tool_read_max_bytes": 65536,
+            "orchestrator_tool_max_tokens": 8192,
+            "orchestrator_tool_result_max_chars": 12000,
+            "orchestrator_tool_read_max_bytes": 262144,
             "orchestrator_group_messages_enabled": True,
             "orchestrator_response_polish_enabled": True,
             "orchestrator_response_polish_model_backend": "deepseek",
-            "orchestrator_response_polish_max_tokens": 900,
+            "orchestrator_response_polish_max_tokens": 2048,
             "orchestrator_parallel_enabled": True,
             "orchestrator_parallel_max_concurrency": 3,
             "orchestrator_evaluation_enabled": True,
-            "orchestrator_evaluation_read_max_bytes": 65536,
+            "orchestrator_evaluation_read_max_bytes": 262144,
             "orchestrator_test_runner_enabled": False,
             "orchestrator_test_command_allowlist": ["python_compile_artifacts"],
         }
@@ -763,6 +770,26 @@ class TestNumericValidation:
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "task_result_context_max_chars" in exc_info.value.message
 
+    def test_invalid_context_token_budget_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="claude_code",
+                config={"context_max_tokens": 200001},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "context_max_tokens" in exc_info.value.message
+
+    def test_invalid_orchestrator_subagent_context_budget_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_subagent_context_max_tokens": 0},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_subagent_context_max_tokens" in exc_info.value.message
+
     def test_invalid_orchestrator_memory_enabled_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
@@ -812,6 +839,16 @@ class TestNumericValidation:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "orchestrator_tool_max_iterations" in exc_info.value.message
+
+    def test_invalid_orchestrator_tool_max_tokens_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_tool_max_tokens": 32001},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_tool_max_tokens" in exc_info.value.message
 
     def test_invalid_orchestrator_tool_read_budget_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
