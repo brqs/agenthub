@@ -164,9 +164,12 @@ fn validate_backend_profile_url(profile: &BackendProfile) -> DesktopResult<()> {
                 "本地后端必须使用 localhost 或回环地址。",
             ))
         }
-        BackendProfileMode::Remote if local || parsed.scheme() != "https" => Err(
-            crate::error::DesktopError::new("backend_url_insecure", "公网后端必须使用 HTTPS。"),
-        ),
+        BackendProfileMode::Remote if local || !matches!(parsed.scheme(), "http" | "https") => {
+            Err(crate::error::DesktopError::new(
+                "backend_url_invalid",
+                "远程后端地址必须使用 http:// 或 https://。",
+            ))
+        }
         _ => Ok(()),
     }
 }
@@ -280,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn public_profiles_require_https() {
+    fn remote_profiles_allow_http_and_https() {
         assert!(validate_backend_profile_url(&profile(
             "https://agenthub.example.com",
             BackendProfileMode::Remote,
@@ -290,7 +293,7 @@ mod tests {
             "http://agenthub.example.com",
             BackendProfileMode::Remote,
         ))
-        .is_err());
+        .is_ok());
         assert!(validate_backend_profile_url(&profile(
             "https://agenthub.example.com/#token",
             BackendProfileMode::Remote,

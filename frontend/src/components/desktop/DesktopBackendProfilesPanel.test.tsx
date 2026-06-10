@@ -37,7 +37,7 @@ describe('DesktopBackendProfilesPanel', () => {
     fireEvent.change(screen.getByPlaceholderText(/连接名称/), {
       target: { value: '公网 AgentHub' },
     });
-    fireEvent.change(screen.getByPlaceholderText('https://agenthub.example.com'), {
+    fireEvent.change(screen.getByPlaceholderText(/agenthub\.example\.com/), {
       target: { value: 'https://agenthub.example.com' },
     });
     fireEvent.click(screen.getByRole('button', { name: '保存并连接' }));
@@ -49,5 +49,26 @@ describe('DesktopBackendProfilesPanel', () => {
       });
       expect(activateBackendProfile).toHaveBeenCalledWith('public');
     });
+  });
+
+  it('shows a clear warning for plain HTTP remote backend profiles', () => {
+    useDesktopEnvironmentMock.mockReturnValue({
+      backendProfiles: [
+        {
+          id: 'public-http',
+          name: '测试后端',
+          url: 'http://111.229.151.159:8000',
+          mode: 'remote',
+        },
+      ],
+      activeBackendProfileId: 'default',
+      saveBackendProfile: vi.fn(),
+      activateBackendProfile: vi.fn(),
+      deleteBackendProfile: vi.fn(),
+    } as unknown as DesktopEnvironmentState);
+
+    render(<DesktopBackendProfilesPanel />);
+
+    expect(screen.getByText(/HTTP 明文连接/)).toBeInTheDocument();
   });
 });
