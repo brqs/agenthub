@@ -1,183 +1,264 @@
 # AgentHub
 
-> IM 聊天式的多 Agent 协作平台 —— 像聊微信一样，与多个 AI 协作完成复杂任务。
+> IM-style multi-agent collaboration workspace for building, previewing, and iterating on real deliverables.
 
-[![status](https://img.shields.io/badge/status-MVP-yellow)]() [![python](https://img.shields.io/badge/python-3.11+-blue)]() [![react](https://img.shields.io/badge/react-18-61dafb)]() [![license](https://img.shields.io/badge/license-MIT-green)]()
+[![status](https://img.shields.io/badge/status-MVP-yellow)]()
+[![python](https://img.shields.io/badge/python-3.11%2B-blue)]()
+[![react](https://img.shields.io/badge/react-18-61dafb)]()
+[![fastapi](https://img.shields.io/badge/FastAPI-0.115%2B-009688)]()
 
-**演示站点**：[ag.brqs.link](http://ag.brqs.link/login)
+AgentHub turns AI collaboration into a chat-native workspace. Users can talk to coding agents, create custom agents, let an Orchestrator split work across specialist runtimes, and inspect generated files, previews, deployments, tool calls, and conversation context in one product surface.
 
-**演示视频**：[demo.mp4](demo.mp4)
+- Demo site: [ag.brqs.link](http://ag.brqs.link/login)
+- Demo video: [demo.mp4](demo.mp4)
+- API contract: [shared/openapi.yaml](shared/openapi.yaml)
+- AI collaboration guide: [AGENTS.md](AGENTS.md)
 
----
+## Demo
 
-## ✨ 核心特性
+<video src="demo.mp4" controls width="100%">
+  Your browser does not support embedded video. Download the demo instead: https://github.com/brqs/agenthub/blob/main/demo.mp4
+</video>
 
-- 💬 **IM 体验**：类似飞书 / 微信的聊天界面，零学习成本
-- 🤖 **多 Agent 协作**：单聊 + 群聊，Orchestrator 自动拆解任务
-- ⚡ **流式响应**：SSE 实时逐字输出，无加载等待焦虑
-- 🎨 **富媒体产物**：代码高亮、Diff 视图、网页预览内联展示
-- 🔌 **生态开放**：接入 Claude Code / Codex / OpenCode runtime，支持团队自建 BuiltinAgent
-- 🌐 **跨平台**：Web / Tauri 桌面 / PWA 移动一份代码
+If the embedded player is unavailable in your Markdown viewer, open [demo.mp4](demo.mp4) directly.
 
-## 🚀 快速开始
+## What It Does
 
-### 前置要求
+AgentHub is built around three product loops:
 
-- Docker & Docker Compose
-- Node.js 20+ & pnpm 8+
-- 按需准备 Claude Code / Codex / OpenCode runtime 环境；BuiltinAgent 的 ModelGateway 需要 Anthropic API Key 和/或 OpenAI-compatible API Key
+1. **Chat with agents**
+   - Direct or orchestrated conversations with built-in and custom agents.
+   - SSE streaming for text, tool activity, task progress, and rich content blocks.
+   - Message controls for interruption, regeneration, queuing, archives, and share links.
 
-### 一键启动
+2. **Generate real artifacts**
+   - Per-conversation workspace sandbox for generated files.
+   - Inline rendering for text, code, diffs, files, web previews, task cards, workflow/process states, deployment status, and tool calls.
+   - Workspace file tree, code preview, upload support, static preview, and deployment history surfaces.
+
+3. **Coordinate multiple runtimes**
+   - Built-in agents seeded from backend code: `Claude Code`, `Codex Helper`, `OpenCode Helper`, and `Orchestrator`.
+   - External runtime adapters for Claude Code, Codex CLI by default with SDK opt-in, and OpenCode CLI.
+   - Builtin Agent runtime backed by the ModelGateway layer for Claude, OpenAI-compatible, and DeepSeek-style model backends.
+   - Orchestrator planning with clarification gate, task execution, memory/context support, and managed sub-agent dispatch.
+
+## Architecture
+
+```text
+agenthub/
+├── backend/                 FastAPI backend, async services, Agent runtime layer
+│   ├── app/api/v1/           Auth, conversations, messages, stream, agents,
+│   │                         uploads, memories, workspaces, shares, events
+│   ├── app/agents/           Base adapter contract, external runtimes,
+│   │                         builtin runtime, model gateway, orchestrator
+│   ├── app/models/           SQLAlchemy models
+│   ├── app/schemas/          Pydantic schemas
+│   ├── app/services/         Business logic, workspace, deployment, memory
+│   └── alembic/              Database migrations
+├── frontend/                React + Vite client
+│   └── src/
+│       ├── components/       Chat, agents, artifact, desktop, layout, blocks
+│       ├── hooks/            Query and streaming hooks
+│       ├── lib/              API client, generated OpenAPI types, SSE helpers
+│       ├── pages/            Login, chat, agents, archive, share
+│       └── stores/           Zustand stores
+├── shared/
+│   └── openapi.yaml          API contract and frontend type source
+├── docs/                     Product, architecture, specs, collaboration logs
+└── docker-compose.yml        Local Postgres, Redis, backend, workspace volumes
+```
+
+Core backend dependency direction:
+
+```text
+API layer -> Service layer -> Models/Schemas/Infrastructure
+                    |
+                    v
+              Agent registry -> BaseAgentAdapter implementations
+```
+
+The important boundary is `backend/app/agents/base.py`: application services call agents through the registry and adapter contract. Raw model providers are kept behind the ModelGateway layer and are not registered as top-level agents.
+
+## Tech Stack
+
+| Area | Implementation |
+| --- | --- |
+| Frontend | React 18, Vite, TypeScript, React Router, Tailwind CSS, shadcn-style components, Zustand, TanStack Query |
+| Streaming | Server-Sent Events via `@microsoft/fetch-event-source` |
+| Backend | Python 3.11, FastAPI, Uvicorn, Pydantic v2, SQLAlchemy 2.0 async |
+| Storage | PostgreSQL 15, Redis 7, local workspace and upload volumes |
+| Agent runtimes | Claude Agent SDK, Codex adapter, OpenCode CLI adapter, Builtin Agent runtime, ModelGateway |
+| Quality | pytest, pytest-asyncio, ruff, mypy, vitest, Testing Library, ESLint, Prettier |
+| Clients | Web app, Tauri desktop hooks, Capacitor mobile build scripts |
+
+## Quick Start
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Node.js 20+
+- pnpm 9+
+- Optional runtime credentials for Claude Code, Codex, OpenCode, Anthropic/OpenAI-compatible/DeepSeek model backends
+
+### 1. Configure Environment
 
 ```bash
-# 1. 克隆并进入项目
-cd agenthub
-
-# 2. 配置环境变量
 cp .env.example .env
-# 编辑 .env，按需填入 runtime / ModelGateway 所需配置
+```
 
-# 3. 启动后端（Postgres + Redis + FastAPI）
+For a local smoke run, keep the default Postgres/Redis values and set only the provider keys you need. At least one configured provider/runtime is required for non-mock agent execution.
+
+Common variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `JWT_SECRET` | Auth token signing secret. Replace in any non-local environment. |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` | Provider credentials used by runtime probes and model backends. |
+| `CORS_ORIGINS` | Allowed frontend origins. Defaults include local Vite and Tauri origins. |
+| `WORKSPACE_BASE_DIR` | Root directory for generated conversation workspaces. |
+| `UPLOAD_STORAGE_DIR` | Persistent upload storage path inside the backend container. |
+| `PREVIEW_*`, `DEPLOYMENT_CONTAINER_*` | Workspace preview and container deployment controls. |
+| `VITE_API_BASE_URL` | Frontend API base URL. Defaults to `http://localhost:8000`. |
+
+### 2. Start Backend Services
+
+```bash
 docker compose up -d
+```
 
-# 4. 运行数据库迁移 + Seed 内置 Agent
-docker compose exec backend alembic upgrade head
+The backend container runs Alembic migrations on startup. To seed or refresh built-in agents explicitly:
+
+```bash
 docker compose exec backend python -m app.seeds.seed_agents
+```
 
-# 5. 启动前端（独立终端）
+Useful local endpoints:
+
+- Frontend: <http://localhost:5173>
+- API docs: <http://localhost:8000/docs>
+- Health check: <http://localhost:8000/health>
+
+### 3. Start Frontend
+
+```bash
 cd frontend
 pnpm install
 pnpm dev
-
-# 6. 打开浏览器
-open http://localhost:5173
 ```
 
-### 验证
+Open <http://localhost:5173>.
 
-- 前端：http://localhost:5173
-- 后端 API 文档：http://localhost:8000/docs
-- 后端健康检查：http://localhost:8000/health
+## Runtime Checks
 
-### External runtime smoke checks
-
-OpenCode is executed inside the backend container as a CLI runtime. After
-building and starting Docker, verify it with:
+These commands verify that the backend container can see the external runtime surfaces used by the seeded agents.
 
 ```bash
 docker compose exec backend opencode --version
 docker compose exec backend opencode auth list
 docker compose exec backend env | grep OPENCODE
-docker compose exec backend sh -lc 'rm -rf /tmp/opencode-smoke && mkdir -p /tmp/opencode-smoke && opencode run --format json --model deepseek/deepseek-chat --dir /tmp/opencode-smoke "create index.html, styles.css, and app.js, then summarize briefly"'
 ```
-
-OpenCode credentials can be provided through backend `.env` provider keys, or by
-running `docker compose exec backend opencode auth login`. The compose file keeps
-that login state in the `opencode-state` volume.
-
-Claude Code is also executed inside the backend container. Verify the SDK and
-runtime auth surface with:
 
 ```bash
 docker compose exec backend python -c "import claude_agent_sdk; print('sdk ok')"
 docker compose exec backend sh -lc 'ls -la $AGENTHUB_CLAUDE_AUTH_DIR'
 docker compose exec backend env | grep -E 'ANTHROPIC|CLAUDE|AGENTHUB_CLAUDE'
-docker compose exec backend sh -lc 'HOME=$AGENTHUB_CLAUDE_AUTH_DIR claude -p "只回复 OK" --output-format text'
 ```
 
-Claude Code credentials can be provided through backend `.env` provider keys
-such as `ANTHROPIC_API_KEY`, or through persisted CLI login state in the
-`claude-state` volume. To populate that volume interactively, run Claude with
-`HOME=$AGENTHUB_CLAUDE_AUTH_DIR` inside the backend container so `.claude.json`
-and `.claude/` are stored in the shared auth directory.
+OpenCode login state is persisted in the `opencode-state` Docker volume. Claude Code login state is persisted in the `claude-state` Docker volume through `AGENTHUB_CLAUDE_AUTH_DIR`.
 
-Simple direct-chat shortcut replies can use the configured QA model backend and
-do not prove that Claude SDK/CLI task execution is available. Artifact/build
-tasks use the Claude SDK runtime first, then the CLI fallback only if the SDK
-module is absent; both runtime paths must pass AgentHub's backend auth probe.
+## Development Commands
 
-## 📁 项目结构
-
-```
-agenthub/
-├── CLAUDE.md              ← AI 协作宪法（必读）
-├── docs/                  ← 全部文档
-│   ├── development-plan.md
-│   ├── team-division.md
-│   ├── tech-architecture.md
-│   ├── api-spec.md
-│   └── product-design.md
-├── shared/
-│   └── openapi.yaml       ← 前后端契约（唯一真相源）
-├── backend/               ← FastAPI 后端
-│   └── app/
-│       ├── core/          【B1】配置、DB、认证基础
-│       ├── models/        【B1】SQLAlchemy 模型
-│       ├── schemas/       【共享】Pydantic Schema
-│       ├── api/v1/        【B1】路由层
-│       ├── services/      【B1】业务逻辑
-│       └── agents/        【B2】External runtime、BuiltinAgent、ModelGateway、Orchestrator
-└── frontend/              ← React + Vite 前端
-    └── src/
-        ├── lib/           API 客户端、SSE、类型
-        ├── stores/        Zustand 状态
-        ├── hooks/         业务 Hook
-        ├── pages/         页面
-        └── components/    UI 组件
-```
-
-## 👥 团队分工
-
-- **F**（前端）：`frontend/**`
-- **B1**（后端核心）：`backend/app/{core,models,services,api}/**`
-- **B2**（Agent 集成）：`backend/app/agents/**`
-
-详见 [docs/team-division.md](docs/team-division.md)。
-
-## 📖 文档导航
-
-| 你想做什么 | 看哪个文档 |
-|-----------|-----------|
-| 了解项目全貌 | [development-plan.md](docs/development-plan.md) |
-| 知道谁负责什么 | [team-division.md](docs/team-division.md) |
-| 写代码 / 改架构 | [tech-architecture.md](docs/tech-architecture.md) |
-| 调 API / 加 API | [api-spec.md](docs/api-spec.md) |
-| 做 UI / 改交互 | [product-design.md](docs/product-design.md) |
-| AI 协作（必读） | [CLAUDE.md](CLAUDE.md) |
-
-## 🛠 常用命令
+### Backend
 
 ```bash
-# ─── Backend ───
-docker compose up -d                              # 启动
-docker compose logs -f backend                    # 看日志
-docker compose exec backend alembic upgrade head  # 迁移
-docker compose exec backend pytest                # 测试
-
-# ─── Frontend ───
-cd frontend
-pnpm dev                                          # 启动
-pnpm gen:types                                    # 重新生成 OpenAPI 类型
-pnpm test                                         # 测试
-pnpm build                                        # 构建
-
-# ─── 完整重置 ───
-docker compose down -v   # 删除所有数据
+docker compose logs -f backend
+docker compose exec backend alembic upgrade head
+docker compose exec backend pytest
+docker compose exec backend ruff check
+docker compose exec backend mypy app
 ```
 
-当前迁移链包含 Orchestrator structured memory 表。更新代码后请确认已执行 `alembic upgrade head`，否则 Orchestrator 编排记忆和调试接口不可用。详见 [backend/alembic/README.md](backend/alembic/README.md) 与 [Orchestrator Memory Spec](docs/b2/spec/orchestrator/memory-context.spec.md)。
+Local backend-only development is managed from `backend/` with `uv`:
 
-## 🧪 技术栈
+```bash
+cd backend
+uv run pytest
+uv run ruff check
+uv run mypy app
+```
 
-| 层级 | 选型 |
-|------|------|
-| 前端 | React 18 + Vite + TypeScript + Tailwind + shadcn/ui |
-| 后端 | Python 3.11 + FastAPI + Uvicorn |
-| 数据库 | PostgreSQL 15 + Redis 7 |
-| AI SDK | anthropic + openai |
-| 实时 | SSE (Server-Sent Events) |
-| 容器 | Docker Compose |
+### Frontend
 
-## 📝 License
+```bash
+cd frontend
+pnpm gen:types
+pnpm test
+pnpm lint
+pnpm build
+```
 
-MIT
+Run `pnpm gen:types` whenever [shared/openapi.yaml](shared/openapi.yaml) changes. Generated API types live in [frontend/src/lib/types.gen.ts](frontend/src/lib/types.gen.ts).
+
+### Desktop and Mobile
+
+The frontend includes Tauri and Capacitor scripts:
+
+```bash
+cd frontend
+pnpm desktop:dev
+pnpm tauri:build
+pnpm cap:sync
+```
+
+These surfaces depend on local native toolchains in addition to the web app requirements.
+
+## API Surface
+
+The backend mounts API v1 under `/api/v1`:
+
+| Area | Router |
+| --- | --- |
+| Auth | `/api/v1/auth` |
+| Conversations and messages | `/api/v1/conversations`, message routes, `/api/v1/stream` |
+| Agents | `/api/v1/agents` |
+| Workspaces and artifacts | `/api/v1/workspaces` |
+| Uploads | `/api/v1/uploads` |
+| Memories and context compression | `/api/v1/memories`, `/api/v1/context-compression` |
+| Realtime events | `/api/v1/events` |
+| Local runtime connectors | `/api/v1/local-runtime-connectors` |
+| Shares | `/api/v1/conversations/{conversation_id}/shares`, `/api/v1/conversation-shares/{token}` |
+| Static releases | `/releases/{release_token}` |
+
+For request/response details, use [shared/openapi.yaml](shared/openapi.yaml) or the local Swagger UI at <http://localhost:8000/docs>.
+
+## Collaboration Rules
+
+This repository is contract-driven. Before changing code, read [AGENTS.md](AGENTS.md). The short version:
+
+- API changes start in [shared/openapi.yaml](shared/openapi.yaml), then schemas/services/routes/frontend types follow.
+- Backend services use `agents.registry.get_adapter(...)`; they do not import concrete external runtimes directly.
+- Agent adapters implement the BaseAgentAdapter v2 contract and should not access the database.
+- Content block changes must stay aligned across backend schemas, OpenAPI, and frontend renderers.
+- Keep ownership boundaries clear: `frontend/**`, backend core/services/API, and `backend/app/agents/**` have different owners.
+
+## Documentation Map
+
+| Need | Document |
+| --- | --- |
+| AI collaboration rules | [AGENTS.md](AGENTS.md) |
+| Product design | [docs/product-design.md](docs/product-design.md) |
+| Technical architecture | [docs/tech-architecture.md](docs/tech-architecture.md) |
+| Team ownership | [docs/team-division.md](docs/team-division.md) |
+| API guide | [docs/api-spec.md](docs/api-spec.md) |
+| Runtime pivot ADR | [docs/spec/agent-runtime-pivot.adr.md](docs/spec/agent-runtime-pivot.adr.md) |
+| Agent adapter contract | [docs/b2/spec/agent-runtime-adapter.spec.md](docs/b2/spec/agent-runtime-adapter.spec.md) |
+| Builtin Agent framework | [docs/b2/spec/builtin-agent-framework.spec.md](docs/b2/spec/builtin-agent-framework.spec.md) |
+| Workspace sandbox | [docs/b1/spec/workspace-sandbox.spec.md](docs/b1/spec/workspace-sandbox.spec.md) |
+
+## Repository Status
+
+AgentHub is an MVP-stage project with active runtime, workspace, and orchestration development. Some docs may describe planned or recently pivoted behavior; when in doubt, prefer the current code, [shared/openapi.yaml](shared/openapi.yaml), and [AGENTS.md](AGENTS.md).
+
+## License
+
+No license file is currently included. Add a project license before public redistribution.
