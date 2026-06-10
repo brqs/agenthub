@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default AgentHub desktop permissions.","local":true,"windows":["main"],"permissions":["core:default","opener:allow-open-url"]}}
+{"default":{"identifier":"default","description":"AgentHub P3 desktop capability set. Only validated stack and user-selected file operations are exposed.","local":true,"windows":["main"],"permissions":["core:default","desktop-management","deep-link:default","dialog:allow-open","dialog:allow-save","fs:allow-read-file","fs:allow-stat","fs:allow-write-file","updater:default"]}}

@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import {
   Activity,
   Archive,
@@ -10,6 +16,7 @@ import {
   FileImage,
   FileText,
   Files,
+  FolderOpen,
   GripVertical,
   PanelRight,
   PanelRightClose,
@@ -47,6 +54,12 @@ import {
 import type { WorkspaceArtifact } from '@/lib/adapters/workspaces';
 import type { Agent, Memory, WorkspaceDeploymentRequest } from '@/lib/types';
 import { extractApiError } from '@/lib/api';
+import { useDesktopEnvironment } from '@/hooks/useDesktopEnvironment';
+import {
+  isLocalBackendUrl,
+  normalizeDesktopError,
+  openDesktopWorkspaceFolder,
+} from '@/lib/desktopBridge';
 import { cn } from '@/lib/utils';
 import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
 
@@ -267,10 +280,12 @@ function PanelHeader({
   icon: Icon,
   title,
   meta,
+  action,
 }: {
   icon: typeof Activity;
   title: string;
   meta?: string;
+  action?: ReactNode;
 }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-2">
@@ -278,11 +293,14 @@ function PanelHeader({
         <Icon className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{title}</span>
       </div>
-      {meta && (
-        <span className="shrink-0 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-500">
-          {meta}
-        </span>
-      )}
+      <div className="flex shrink-0 items-center gap-1.5">
+        {meta && (
+          <span className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-500">
+            {meta}
+          </span>
+        )}
+        {action}
+      </div>
     </div>
   );
 }
@@ -364,6 +382,10 @@ function WorkspacePanel({
   onRetryWorkspace,
   onRetryArtifact,
   onSaveArtifact,
+  canOpenWorkspace = false,
+  onOpenWorkspace,
+  workspaceOpenPending = false,
+  workspaceOpenError,
   isSavingArtifact = false,
 }: {
   workspace: { root: string; tree: WorkspaceNode[] } | null;
@@ -381,6 +403,10 @@ function WorkspacePanel({
   onRetryWorkspace: () => void;
   onRetryArtifact: () => void;
   onSaveArtifact?: (path: string, content: string | Blob, mimeType: string) => Promise<void> | void;
+  canOpenWorkspace?: boolean;
+  onOpenWorkspace?: () => void;
+  workspaceOpenPending?: boolean;
+  workspaceOpenError?: string | null;
   isSavingArtifact?: boolean;
 }) {
   const createDeployment = useCreateDeployment(conversationId);
@@ -453,7 +479,30 @@ function WorkspacePanel({
   return (
     <section className="space-y-5">
       <div>
-        <PanelHeader icon={Box} title="Workspace" meta={`${touchedFilesCount} outputs`} />
+        <PanelHeader
+          icon={Box}
+          title="Workspace"
+          meta={`${touchedFilesCount} outputs`}
+          action={
+            canOpenWorkspace ? (
+              <button
+                type="button"
+                onClick={onOpenWorkspace}
+                disabled={workspaceOpenPending}
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-800 bg-slate-950 text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                title="在资源管理器中打开 Workspace"
+                aria-label="在资源管理器中打开 Workspace"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </button>
+            ) : null
+          }
+        />
+        {workspaceOpenError && (
+          <p className="mb-3 rounded-md border border-rose-400/30 bg-rose-950/20 px-3 py-2 text-xs leading-5 text-rose-200">
+            {workspaceOpenError}
+          </p>
+        )}
 
         {isLoading && !workspace ? (
           <div className="rounded-md border border-slate-800 p-4 text-sm text-slate-500">
@@ -703,6 +752,7 @@ function RealWorkspacePanel({
   conversationId: string;
   touchedFilesCount: number;
 }) {
+  const desktop = useDesktopEnvironment();
   const workspaceQuery = useWorkspaceTree(conversationId);
   const artifactsQuery = useWorkspaceArtifacts(conversationId, true);
   const workspace = useMemo(() => {
@@ -714,6 +764,8 @@ function RealWorkspacePanel({
     };
   }, [workspaceQuery.data]);
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
+  const [workspaceOpenPending, setWorkspaceOpenPending] = useState(false);
+  const [workspaceOpenError, setWorkspaceOpenError] = useState<string | null>(null);
   const workspaceFiles = useMemo(
     () => (workspace ? flattenFiles(workspace.tree) : []),
     [workspace],
@@ -743,7 +795,27 @@ function RealWorkspacePanel({
 
   useEffect(() => {
     setSelectedArtifactPath(null);
+    setWorkspaceOpenError(null);
+    setWorkspaceOpenPending(false);
   }, [conversationId]);
+
+  const canOpenWorkspace =
+    desktop.isDesktop &&
+    Boolean(workspace) &&
+    isLocalBackendUrl(desktop.runtimeApiBaseUrl || desktop.backendUrl);
+
+  async function openWorkspaceFolder() {
+    if (!canOpenWorkspace || workspaceOpenPending) return;
+    setWorkspaceOpenPending(true);
+    setWorkspaceOpenError(null);
+    try {
+      await openDesktopWorkspaceFolder(conversationId);
+    } catch (error) {
+      setWorkspaceOpenError(normalizeDesktopError(error).message);
+    } finally {
+      setWorkspaceOpenPending(false);
+    }
+  }
 
   useEffect(() => {
     if (workspaceFiles.length === 0) {
@@ -779,6 +851,10 @@ function RealWorkspacePanel({
       onSaveArtifact={(path, content, mimeType) =>
         writeWorkspaceFile.mutateAsync({ path, content, mimeType })
       }
+      canOpenWorkspace={canOpenWorkspace}
+      onOpenWorkspace={() => void openWorkspaceFolder()}
+      workspaceOpenPending={workspaceOpenPending}
+      workspaceOpenError={workspaceOpenError}
       isSavingArtifact={writeWorkspaceFile.isPending}
     />
   );
