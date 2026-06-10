@@ -2453,3 +2453,44 @@ timeout/error 会把 child message 判成 `error`。本轮补充了文本类 out
 conversation / analysis / direct output / 无显式产物 review 通过 contract 时，Orchestrator
 保留 runtime 错误审计事件，但 child message 正常 `done` 并追加常显 `agent_summary`；代码、
 文档、部署类仍必须依赖 artifact / tool / fulfillment 证据，不能靠文本声明完成。
+
+## 2026-06-09 — Orchestrator Agent-to-Agent Turn-Taking
+
+### 任务
+修复多 Agent 群聊中“一个 Agent 输出 `@另一个 Agent`，但后端不会自动让对方接话”的问题，并扩展为通用 Orchestrator 托管接力对话能力。范围覆盖辩论、圆桌、角色扮演、头脑风暴、方案评审、代码 review panel、数据分析 panel 和需求澄清 panel。
+
+### AI 输出摘要
+1. 新增 `agent-turn-taking.spec.md`，定义 `DialoguePlan`、`dialogue_turn`、handoff hint、轮次上限、实质输出合同和 no-artifact 边界。
+2. 更新 task planning、message attribution、presentation collapse、Orchestrator README 和 B2 TODO，明确普通 `conversation` 独立发言与 `dialogue_turn` 接力发言的区别。
+3. 本轮按用户要求暂不跑公网 E2E；仅新增/规划 `agent_turn_taking_dialogue_repair` 与 `agent_turn_taking_matrix` 场景，等待后续明确命令再执行 live repair loop。
+
+### 当前状态
+```text
+status: backend implemented, local targeted tests passed
+public_e2e: not run by request
+```
+
+### 本地验证
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator_planning.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_orchestrator_output_contracts.py \
+  tests/test_orchestrator_live_e2e_script.py -q
+result: 133 passed
+
+uv run python -m ruff check app/agents/orchestrator app/api/v1 tests scripts
+result: passed
+
+uv run python -m mypy app/agents/orchestrator
+result: passed
+
+git diff --check
+result: passed
+
+full planned mypy app/agents/orchestrator app/api/v1:
+  not clean due to existing unrelated unused-ignore errors in
+  app/services/model_accounts.py, app/api/v1/model_accounts.py,
+  app/api/v1/agents.py.
+```

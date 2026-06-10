@@ -54,6 +54,8 @@ CONTEXT_FOLLOWUP_SCENARIO = SCENARIO == "orchestrator_context_followup_repair"
 PRESENTATION_COLLAPSE_SCENARIO = SCENARIO == "presentation_collapse_markers_smoke"
 GROUP_DIALOGUE_DEBATE_SCENARIO = SCENARIO == "group_dialogue_debate_no_artifacts"
 GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO = SCENARIO == "group_substantive_output_matrix"
+AGENT_TURN_TAKING_DIALOGUE_SCENARIO = SCENARIO == "agent_turn_taking_dialogue_repair"
+AGENT_TURN_TAKING_MATRIX_SCENARIO = SCENARIO == "agent_turn_taking_matrix"
 COMMAND_FULFILLMENT_SCENARIO = (
     SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
 )
@@ -443,6 +445,11 @@ GROUP_DIALOGUE_DEBATE_PROMPT = (
     "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出，注意是"
     "对话场景而不是书面书写。"
 )
+AGENT_TURN_TAKING_DIALOGUE_PROMPT = (
+    "@orchestrator 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
+    "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出，注意是对话场景。"
+    "由 Claude Code 先开始，一人一句回应对方，结束发言后可以 @另一个agent。"
+)
 GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT = (
     "@orchestrator 请进行通用子 Agent 实质输出验收，不需要生成文件。"
     "组织两个智能体围绕“AI 助手进入中小企业日常运营”做圆桌讨论："
@@ -535,8 +542,10 @@ PROMPT = SETTINGS.prompt_override or (
     if PRESENTATION_COLLAPSE_SCENARIO
     else GROUP_DIALOGUE_DEBATE_PROMPT
     if GROUP_DIALOGUE_DEBATE_SCENARIO
+    else AGENT_TURN_TAKING_DIALOGUE_PROMPT
+    if AGENT_TURN_TAKING_DIALOGUE_SCENARIO
     else GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT
-    if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO
+    if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO or AGENT_TURN_TAKING_MATRIX_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
@@ -4301,7 +4310,7 @@ def main() -> None:
             print(f"browser_report={BROWSER_REPORT_PATH}")
             print(f"sse={SSE_PATH}")
             return
-        if GROUP_DIALOGUE_DEBATE_SCENARIO:
+        if GROUP_DIALOGUE_DEBATE_SCENARIO or AGENT_TURN_TAKING_DIALOGUE_SCENARIO:
             run_group_dialogue_debate_case(client, headers, report, started_at)
             report["finished_at"] = utc_now()
             report["duration_seconds"] = round(time.time() - started_at, 3)
@@ -4311,7 +4320,7 @@ def main() -> None:
             print(f"report={REPORT_PATH}")
             print(f"sse={SSE_PATH}")
             return
-        if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO:
+        if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO or AGENT_TURN_TAKING_MATRIX_SCENARIO:
             run_group_substantive_output_matrix_case(client, headers, report, started_at)
             report["finished_at"] = utc_now()
             report["duration_seconds"] = round(time.time() - started_at, 3)

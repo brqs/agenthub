@@ -80,8 +80,13 @@ servers, Vite/Next dev servers, or server dependencies just to satisfy preview/d
 If the user asks for preview/deploy on a port, plan only file generation and content
 verification. Put any preview/deploy handling in the final platform explanation, not
 as a sub-agent execution task.
-If the user asks for a debate, role-play, roundtable, or group dialogue and explicitly
-says not to create files/artifacts, create conversation tasks with empty expected_output.
+If the user asks for a debate, role-play, roundtable, panel, or group dialogue and
+explicitly says not to create files/artifacts, create conversation tasks with empty
+expected_output. If the user asks agents to take turns, respond to each other, or
+handoff between agents, create dialogue_turn tasks: one task per turn, each assigned
+to exactly the speaker for that turn, with depends_on pointing to the previous turn.
+Each dialogue_turn instruction must tell that agent to speak only for itself, respond
+to prior turns when applicable, and not script another agent's full reply.
 """
 
 
@@ -309,7 +314,13 @@ def _task_plan_tool() -> ToolSpec:
                             "expected_output": {"type": "string"},
                             "task_type": {
                                 "type": "string",
-                                "enum": ["implementation", "review", "repair", "conversation"],
+                                "enum": [
+                                    "implementation",
+                                    "review",
+                                    "repair",
+                                    "conversation",
+                                    "dialogue_turn",
+                                ],
                                 "default": "implementation",
                             },
                             "review_of": {

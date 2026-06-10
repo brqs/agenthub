@@ -8,6 +8,7 @@ from typing import Any
 
 from app.agents.orchestrator._internal.planning.routing import (
     derive_direct_agent_tasks,
+    explicit_agent_mentions,
     latest_user_request,
 )
 from app.agents.orchestrator._internal.planning.templates.common import (
@@ -16,6 +17,9 @@ from app.agents.orchestrator._internal.planning.templates.common import (
 )
 from app.agents.orchestrator._internal.planning.templates.delivery import (
     derive_fullstack_delivery_tasks,
+)
+from app.agents.orchestrator._internal.planning.turn_taking import (
+    turn_taking_requested,
 )
 from app.agents.orchestrator.types import SubTask
 from app.agents.types import ChatMessage
@@ -86,8 +90,11 @@ def derive_tasks(config: Mapping[str, Any], messages: list[ChatMessage]) -> list
 
     user_request = latest_user_request(messages)
     direct_tasks = derive_direct_agent_tasks(agent_ids, user_request)
-    if direct_tasks:
+    if direct_tasks and not turn_taking_requested(user_request):
         return direct_tasks
+    turn_tasks = _turn_taking_dialogue_tasks(agent_ids, user_request)
+    if turn_tasks:
+        return turn_tasks
     dialogue_tasks = _dialogue_tasks(agent_ids, user_request)
     if dialogue_tasks:
         return dialogue_tasks
@@ -237,7 +244,7 @@ def _dialogue_tasks(agent_ids: list[str], user_request: str) -> list[SubTask]:
         and _has_any(normalized, NO_ARTIFACT_DIALOGUE_MARKERS)
     ):
         return []
-    ordered = _dialogue_agent_order(agent_ids)
+    ordered = _dialogue_agent_order(agent_ids, user_request)
     if not ordered:
         return []
 
@@ -310,9 +317,18 @@ def _dialogue_tasks(agent_ids: list[str], user_request: str) -> list[SubTask]:
     return tasks
 
 
-def _dialogue_agent_order(agent_ids: list[str]) -> list[str]:
+def _dialogue_agent_order(agent_ids: list[str], user_request: str = "") -> list[str]:
+    return _dialogue_agent_order_for_request(agent_ids, user_request)
+
+
+def _dialogue_agent_order_for_request(agent_ids: list[str], user_request: str) -> list[str]:
     remaining = list(dict.fromkeys(agent_ids))
     ordered: list[str] = []
+    for agent_id in explicit_agent_mentions(agent_ids, user_request):
+        if agent_id not in remaining:
+            continue
+        ordered.append(agent_id)
+        remaining.remove(agent_id)
     for preference in DIALOGUE_AGENT_PREFERENCE:
         if preference not in remaining:
             continue
@@ -320,6 +336,129 @@ def _dialogue_agent_order(agent_ids: list[str]) -> list[str]:
         remaining.remove(preference)
     ordered.extend(remaining)
     return ordered
+
+
+def _turn_taking_dialogue_tasks(
+    agent_ids: list[str],
+    user_request: str,
+) -> list[SubTask]:
+    normalized = user_request.lower()
+    if not turn_taking_requested(user_request):
+        return []
+    if not (
+        _has_any(normalized, DIALOGUE_REQUEST_MARKERS)
+        or _has_any(normalized, NO_ARTIFACT_DIALOGUE_MARKERS)
+    ):
+        return []
+    ordered = _dialogue_agent_order_for_request(agent_ids, user_request)
+    if len(ordered) < 2:
+        return []
+
+    topic = _dialogue_topic(user_request)
+    debate = "辩论" in user_request or "debate" in normalized
+    participants = ordered[: min(len(ordered), _requested_participant_count(user_request))]
+    total_turns = _requested_total_turns(user_request, len(participants))
+    tasks: list[SubTask] = []
+    for index in range(total_turns):
+        agent_id = participants[index % len(participants)]
+        turn_number = index + 1
+        role = _dialogue_turn_role(
+            topic,
+            debate=debate,
+            participant_index=index % len(participants),
+        )
+        previous_task_id = tasks[-1].task_id if tasks else None
+        task_id = f"dialogue-turn-{turn_number}"
+        title = f"第 {turn_number} 轮发言：{role['title']}"
+        instruction = (
+            "你正在 AgentHub 群聊中参加 Orchestrator 托管的多 Agent 接力对话。"
+            "\n本轮只允许你代表自己发言；不要代写其他 Agent 的完整回复。"
+            "\n不要主持、不要邀请别人登场、不要复述任务、不要只说已完成。"
+            "\n不要生成文件、不要写报告、不要要求平台工具。"
+            f"\n\n主题：{topic}"
+            f"\n本轮轮次：{turn_number}/{total_turns}"
+            f"\n你的角色/立场：{role['description']}"
+            "\n输出要求：中文、群聊口吻、1-3 段。直接给出你的观点、理由和例子。"
+        )
+        if previous_task_id:
+            instruction += (
+                "\n上一轮发言摘录会由 Orchestrator 作为上下文提供；"
+                "本轮必须明确回应、补充或反驳上一轮，不要重新开场。"
+            )
+        else:
+            instruction += "\n这是第一轮，请直接开场陈述你的立场。"
+        if turn_number < total_turns:
+            next_agent = participants[turn_number % len(participants)]
+            instruction += (
+                f"\n你可以在结尾点名 @{next_agent} 作为交接提示，"
+                "但真正调度由 Orchestrator 负责。"
+            )
+        instruction += f"\n\n原始用户请求：\n{user_request}"
+        tasks.append(
+            SubTask(
+                task_id=task_id,
+                agent_id=agent_id,
+                title=title,
+                instruction=instruction,
+                depends_on=(previous_task_id,) if previous_task_id else (),
+                priority=index,
+                expected_output="",
+                task_type="dialogue_turn",
+            )
+        )
+    return tasks
+
+
+def _dialogue_turn_role(
+    topic: str,
+    *,
+    debate: bool,
+    participant_index: int,
+) -> dict[str, str]:
+    if debate:
+        if participant_index % 2 == 0:
+            return {
+                "title": f"正方：{topic}利大于弊",
+                "description": f"正方，主张 {topic}利大于弊。",
+            }
+        return {
+            "title": f"反方：{topic}弊大于利",
+            "description": f"反方，主张 {topic}弊大于利。",
+        }
+    if participant_index == 0:
+        return {
+            "title": f"第一位成员：{topic}",
+            "description": "第一位讨论成员，给出清晰观点、理由和具体建议。",
+        }
+    return {
+        "title": f"回应成员：{topic}",
+        "description": "后续讨论成员，从不同角度补充、质疑或提出替代方案。",
+    }
+
+
+def _requested_participant_count(user_request: str) -> int:
+    if any(marker in user_request for marker in ("三个智能体", "3个智能体", "三位")):
+        return 3
+    return 2
+
+
+def _requested_total_turns(user_request: str, participant_count: int) -> int:
+    if any(marker in user_request for marker in ("一人一句", "每人一句")):
+        return participant_count
+    match = re.search(r"([2-8二三四五六七八])\s*轮", user_request)
+    if match:
+        raw = match.group(1)
+        value = {
+            "二": 2,
+            "三": 3,
+            "四": 4,
+            "五": 5,
+            "六": 6,
+            "七": 7,
+            "八": 8,
+        }.get(raw, int(raw) if raw.isdigit() else 2)
+        return max(participant_count, min(value * participant_count, 8))
+    return participant_count
 
 
 def _dialogue_topic(user_request: str) -> str:

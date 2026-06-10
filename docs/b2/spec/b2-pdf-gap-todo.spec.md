@@ -1150,3 +1150,55 @@ acceptance:
   matrix_no_artifact_missing: true
   matrix_visible_text_no_forbidden_terms: true
 ```
+
+## 17. 2026-06-09 Orchestrator Agent-to-Agent Turn-Taking
+
+本轮修复“子 Agent 输出 `@另一个 Agent` 后无人自动接话”的通用问题，已按“文档契约 -> 后端实现 -> 本地验证”的顺序完成；公网 E2E 暂不执行，等待后续明确命令。
+
+计划覆盖：
+
+- 辩论、圆桌、角色扮演、头脑风暴、观点对比。
+- 方案评审、代码 review panel、数据分析 panel、需求澄清 panel。
+- 用户直接点名第一位 Agent，但要求其他 Agent 后续回应的场景。
+
+目标语义：
+
+- Orchestrator 生成 `DialoguePlan`，按计划调度每一轮发言。
+- 每一轮都是独立 child message；同一 Agent 多轮发言也不复用上一条消息。
+- 子 Agent 输出中的 `@agent-id` 只是 handoff hint，不直接触发后端 API。
+- `dialogue_turn` 不创建 workspace artifact，不触发 `artifact_missing`。
+- 每轮通过实质输出合同后追加常显 `agent_summary`。
+
+本轮本地门禁结果：
+
+```text
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+  tests/test_orchestrator_planning.py \
+  tests/test_stream_content_blocks.py \
+  tests/test_orchestrator_response_presentation.py \
+  tests/test_orchestrator_output_contracts.py \
+  tests/test_orchestrator_live_e2e_script.py -q
+result: 133 passed
+
+uv run python -m ruff check app/agents/orchestrator app/api/v1 tests scripts
+result: passed
+
+uv run python -m mypy app/agents/orchestrator
+result: passed
+
+uv run python -m mypy app/agents/orchestrator app/api/v1
+result: blocked by existing unrelated unused-ignore errors in:
+  app/services/model_accounts.py
+  app/api/v1/model_accounts.py
+  app/api/v1/agents.py
+
+git diff --check
+result: passed
+```
+
+公网 E2E 仅新增/规划，不执行：
+
+```text
+scenario: agent_turn_taking_dialogue_repair
+scenario: agent_turn_taking_matrix
+```

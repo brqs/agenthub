@@ -99,6 +99,13 @@ Orchestrator final answer text 必须标记：
 
 执行层在子任务结束前运行实质输出合同；只有通过合同后的阶段性总结才标记为 `agent_summary`。如果第一次原始输出只是“请登场 / 已完成 / 我来主持”等无效内容，它仍可保留在折叠执行区，但不得升级为常显 summary。纠偏通过后，`agent_summary` 只展示清洗后的实质段落。
 
+对 `dialogue_turn`：
+
+- 每一轮 child message 的原始流式文本仍标记为 `execution_text`，默认折叠。
+- 该轮通过实质输出合同后追加一个常显 `agent_summary`，代表本轮正式发言或阶段结论。
+- 同一 Agent 的下一轮发言必须生成新的 child message 和新的 `agent_summary`。
+- Orchestrator final answer 只做主持总结，不把所有成员发言重新吞并进父消息。
+
 执行过程 block 标记示例：
 
 ```json
