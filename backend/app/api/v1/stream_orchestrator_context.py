@@ -239,6 +239,8 @@ async def apply_orchestrator_stream_context(
     message: Message,
     adapter: BaseAgentAdapter,
     history: list[ChatMessage],
+    *,
+    planner_context_messages: list[ChatMessage] | None = None,
 ) -> tuple[list[ChatMessage], dict[str, Any] | None]:
     stream_config = await _orchestrator_conversation_config(db, message)
     if message.agent_id != ORCHESTRATOR_AGENT_ID:
@@ -266,6 +268,11 @@ async def apply_orchestrator_stream_context(
         merged_config,
     )
     history = inject_orchestrator_memory_context(history, memory_message)
+    if planner_context_messages is not None:
+        stream_config["planner_context_messages"] = inject_orchestrator_memory_context(
+            planner_context_messages,
+            memory_message,
+        )
     if _orchestrator_memory_enabled(merged_config):
         stream_config["orchestrator_memory_writer"] = OrchestratorMemoryStore(
             db,

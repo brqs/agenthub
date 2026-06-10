@@ -189,3 +189,20 @@ agent_turn_taking_matrix:
 - 明确 two-agent 接力场景中，OpenCode 必须自己完成 OpenCode child message，不能由 fallback
   代替通过。
 - 所有完成的 child message 必须有通过 output contract 的常显 `agent_summary`。
+
+## 10. 2026-06-10 Direct-Chat Timeout Hardening
+
+`conversation` / `dialogue_turn` 是公开对话输出，不需要 workspace 文件、shell、preview 或部署时，
+子 Agent 可继续走 external direct-chat 快捷路径；这不是 hidden chain-of-thought，也不是 Agent
+之间直接互调，调度仍由 Orchestrator 托管。
+
+为避免长辩论发言或上游首包慢被 10 秒默认 idle timeout 误杀，Orchestrator 在派发
+`conversation` / `dialogue_turn` 子任务时为 direct-chat 注入更宽松的流式预算：
+
+- idle timeout 至少 45 秒；
+- hard runtime 至少 120 秒；
+- heartbeat 间隔 10 秒。
+
+该 override 只影响 Orchestrator 托管的纯对话子任务，不影响普通 Agent 私聊，也不改变真实
+Claude Code / OpenCode / Codex CLI/SDK runtime budget。若某轮仍超时，该 child message 可以
+进入 error，但 final answer 不得误报完整辩论结束。

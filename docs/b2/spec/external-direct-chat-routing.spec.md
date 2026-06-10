@@ -87,6 +87,9 @@ external adapter 收到最新用户消息后按以下顺序处理：
 | `qa_classifier_max_tokens` | int | `128` | 分类器最大输出 token |
 | `qa_temperature` | float | `0.2` | direct chat 温度 |
 | `qa_request_timeout_seconds` | float | `20` | 分类和 direct chat 的单次模型调用超时 |
+| `qa_stream_idle_timeout_seconds` | float | `10` | direct chat 流式等待下一条 chunk 的 idle timeout |
+| `qa_stream_max_runtime_seconds` | float | `45` | direct chat 单次流式回答 hard timeout |
+| `qa_stream_heartbeat_seconds` | float | `5` | direct chat 等待 chunk 期间的 heartbeat 间隔 |
 
 Seed 默认值：
 
@@ -95,6 +98,10 @@ Seed 默认值：
 | `claude-code` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=8192`, `context_max_tokens=64000`, `qa_request_timeout_seconds=20` |
 | `codex-helper` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=8192`, `context_max_tokens=64000`, `qa_request_timeout_seconds=20` |
 | `opencode-helper` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=8192`, `context_max_tokens=64000`, `qa_request_timeout_seconds=20` |
+
+Orchestrator 托管的 `conversation` / `dialogue_turn` 子任务会在调用子 Agent 时覆盖为更宽松的
+direct-chat 流式预算：idle 至少 45 秒、hard runtime 至少 120 秒、heartbeat 10 秒。该覆盖不改变
+普通 Agent 私聊，也不改变真实 CLI/SDK runtime budget。
 
 ## 配置校验
 
@@ -107,6 +114,7 @@ Seed 默认值：
 - `qa_classifier_max_tokens` 范围 `1..1024`。
 - `qa_temperature` 范围 `0..2`。
 - `qa_request_timeout_seconds` 范围 `1..120`。
+- `qa_stream_idle_timeout_seconds`、`qa_stream_max_runtime_seconds`、`qa_stream_heartbeat_seconds` 范围 `1..3600`。
 
 校验失败继续返回现有 `INVALID_AGENT_CONFIG` / `INVALID_MODEL_BACKEND` 错误结构。
 
