@@ -139,6 +139,16 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         runner.run_manual_two_agent_turn_taking_case,
     ),
     "fullstack": _spec("fullstack", runner.FULLSTACK_PROMPT, runner.main),
+    "fullstack_task_manager_parallel_repair": _spec(
+        "fullstack_task_manager_parallel_repair",
+        runner.TASK_MANAGER_PARALLEL_PROMPT,
+        runner.main,
+    ),
+    "cyberpunk_site_quality_repair_8082": _spec(
+        "cyberpunk_site_quality_repair_8082",
+        runner.CYBERPUNK_QUALITY_PROMPT,
+        runner.main,
+    ),
     "deployment": _spec("deployment", runner.DEPLOYMENT_PROMPT, runner.main),
     "deployment_repair": _spec(
         "deployment_repair",

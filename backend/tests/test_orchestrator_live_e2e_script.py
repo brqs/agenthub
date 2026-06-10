@@ -20,12 +20,15 @@ from scripts.orchestrator_e2e.scenarios import SCENARIOS
 from scripts.orchestrator_live_e2e import (
     AGENT_FALLBACK_MATRIX_PROMPT,
     COMMAND_FULFILLMENT_PROMPT,
+    CYBERPUNK_QUALITY_PROMPT,
     DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH,
     DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH,
     DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH,
     DEFAULT_COMMAND_FULFILLMENT_SSE_PATH,
     DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH,
     DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH,
+    DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH,
+    DEFAULT_CYBERPUNK_QUALITY_SSE_PATH,
     DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH,
     DEFAULT_GROUP_DIALOGUE_DEBATE_SSE_PATH,
     DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_REPORT_PATH,
@@ -40,6 +43,8 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
     DEFAULT_PRESENTATION_MARKERS_REPORT_PATH,
     DEFAULT_PRESENTATION_MARKERS_SSE_PATH,
+    DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH,
+    DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH,
     GROUP_DIALOGUE_DEBATE_PROMPT,
     GROUP_PROCESS_DATA_ANALYSIS_PROMPT,
     GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT,
@@ -53,6 +58,7 @@ from scripts.orchestrator_live_e2e import (
     P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT,
     PRESENTATION_COLLAPSE_PROMPT,
     SERVER_COMMAND_RE,
+    TASK_MANAGER_PARALLEL_PROMPT,
     evaluate_p1_agent_capability_profile,
     evaluate_p1_evaluation_repair,
     evaluate_p1_rich_artifacts,
@@ -201,6 +207,14 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
             "/tmp/agenthub_fullstack_flow_report.json",
             "/tmp/agenthub_fullstack_flow_sse.jsonl",
         ),
+        "fullstack_task_manager_parallel_repair": (
+            "/tmp/agenthub_task_manager_parallel_report.json",
+            "/tmp/agenthub_task_manager_parallel_sse.jsonl",
+        ),
+        "cyberpunk_site_quality_repair_8082": (
+            "/tmp/agenthub_cyberpunk_quality_report.json",
+            "/tmp/agenthub_cyberpunk_quality_sse.jsonl",
+        ),
         "deployment": (
             "/tmp/agenthub_deployment_flow_report.json",
             "/tmp/agenthub_deployment_flow_sse.jsonl",
@@ -325,6 +339,39 @@ def test_presentation_marker_scenario_defaults_are_registered() -> None:
         "/tmp/agenthub_presentation_markers_sse.jsonl"
     )
     assert "presentation marker" in PRESENTATION_COLLAPSE_PROMPT.lower()
+
+
+def test_task_manager_parallel_scenario_defaults_and_prompt_are_registered() -> None:
+    assert DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH == (
+        "/tmp/agenthub_task_manager_parallel_report.json"
+    )
+    assert DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH == (
+        "/tmp/agenthub_task_manager_parallel_sse.jsonl"
+    )
+    assert "任务管理 Demo" in TASK_MANAGER_PARALLEL_PROMPT
+    assert "两个智能体并行开发" in TASK_MANAGER_PARALLEL_PROMPT
+    assert "backend_app.py" in TASK_MANAGER_PARALLEL_PROMPT
+    assert "review.md" in TASK_MANAGER_PARALLEL_PROMPT
+    spec = SCENARIOS["fullstack_task_manager_parallel_repair"]
+    assert spec.prompt == TASK_MANAGER_PARALLEL_PROMPT
+    assert str(spec.default_report_path) == DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH
+    assert str(spec.default_sse_path) == DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH
+
+
+def test_cyberpunk_quality_scenario_defaults_and_prompt_are_registered() -> None:
+    assert DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH == (
+        "/tmp/agenthub_cyberpunk_quality_report.json"
+    )
+    assert DEFAULT_CYBERPUNK_QUALITY_SSE_PATH == (
+        "/tmp/agenthub_cyberpunk_quality_sse.jsonl"
+    )
+    assert "赛博朋克" in CYBERPUNK_QUALITY_PROMPT
+    assert "部署在端口8082" in CYBERPUNK_QUALITY_PROMPT
+    assert "浏览器级质量验收" in CYBERPUNK_QUALITY_PROMPT
+    spec = SCENARIOS["cyberpunk_site_quality_repair_8082"]
+    assert spec.prompt == CYBERPUNK_QUALITY_PROMPT
+    assert str(spec.default_report_path) == DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH
+    assert str(spec.default_sse_path) == DEFAULT_CYBERPUNK_QUALITY_SSE_PATH
 
 
 def test_group_dialogue_debate_scenario_defaults_are_registered() -> None:

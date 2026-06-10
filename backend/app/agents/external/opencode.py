@@ -53,6 +53,13 @@ AUTH_ENV_PREFIXES = (
     "OPENCODE_",
 )
 AUTH_ENV_SUFFIXES = ("API_KEY", "AUTH_TOKEN", "TOKEN")
+SHARED_AUTH_PROVIDER_ENV_PREFIXES = (
+    "ANTHROPIC_",
+    "CLAUDE_",
+    "CODEX_",
+    "DEEPSEEK_",
+    "OPENAI_",
+)
 OPENCODE_CLI_MISSING_ERROR = (
     "OpenCode CLI command 'opencode' was not found in backend container PATH. "
     "Install OpenCode in the backend Docker image or update opencode-helper "
@@ -823,13 +830,14 @@ class OpenCodeAdapter(BaseAgentAdapter):
             workspace_path=workspace_path,
             agent_id=self.agent_id,
         )
+        if _has_shared_auth():
+            _prefer_shared_auth(env)
         self._copy_shared_auth(env)
         return env
 
     @staticmethod
     def _copy_shared_auth(env: dict[str, str]) -> None:
-        if _has_provider_credentials():
-            return
+        has_provider_credentials = _has_provider_credentials()
         source_dir = _shared_auth_dir()
         source = source_dir / "auth.json"
         if not _is_readable_file(source):
@@ -849,6 +857,8 @@ class OpenCodeAdapter(BaseAgentAdapter):
             destination_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
         except OSError as exc:
+            if has_provider_credentials:
+                return
             raise SharedOpenCodeAuthError(OPENCODE_MISSING_CREDENTIALS_ERROR) from exc
 
     @staticmethod
@@ -869,6 +879,13 @@ def _has_provider_credentials() -> bool:
         for key, value in os.environ.items()
         if key.startswith(AUTH_ENV_PREFIXES) and key.endswith(AUTH_ENV_SUFFIXES)
     )
+
+
+def _prefer_shared_auth(env: dict[str, str]) -> None:
+    """Avoid generic backend model gateway env from overriding OpenCode account auth."""
+    for key in list(env):
+        if key.startswith(SHARED_AUTH_PROVIDER_ENV_PREFIXES):
+            env.pop(key, None)
 
 
 def _has_shared_auth() -> bool:
