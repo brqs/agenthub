@@ -84,6 +84,9 @@ class TestValidConfigs:
             "qa_classifier_max_tokens": 128,
             "qa_temperature": 0.2,
             "qa_request_timeout_seconds": 20,
+            "qa_stream_idle_timeout_seconds": 10,
+            "qa_stream_max_runtime_seconds": 45,
+            "qa_stream_heartbeat_seconds": 5,
         }
         result = validate_agent_config(
             provider="claude_code",
@@ -139,6 +142,7 @@ class TestValidConfigs:
             "context_max_tokens": 64000,
             "orchestrator_context_max_tokens": 64000,
             "orchestrator_subagent_context_max_tokens": 64000,
+            "planner_context_max_tokens": 128000,
             "llm_planning": True,
             "planner_fallback_to_template": False,
             "orchestrator_llm_config": {"max_tokens": 1024},
@@ -838,6 +842,17 @@ class TestNumericValidation:
             )
         assert exc_info.value.code == "INVALID_AGENT_CONFIG"
         assert "orchestrator_subagent_context_max_tokens" in exc_info.value.message
+
+    def test_invalid_planner_context_budget_rejected(self) -> None:
+        for value in (0, 1000001):
+            with pytest.raises(AgentConfigValidationError) as exc_info:
+                validate_agent_config(
+                    provider="builtin",
+                    config={"planner_context_max_tokens": value},
+                    system_prompt=None,
+                )
+            assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+            assert "planner_context_max_tokens" in exc_info.value.message
 
     def test_invalid_orchestrator_memory_enabled_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:

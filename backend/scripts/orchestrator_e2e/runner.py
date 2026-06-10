@@ -2345,6 +2345,8 @@ def _unresolved_missing_artifact_paths(run_detail: dict[str, Any]) -> list[str]:
     """Return missing artifacts that were not recovered by a later same-task attempt."""
 
     raw_attempts = run_detail.get("attempts") if isinstance(run_detail, dict) else []
+    if raw_attempts is None:
+        raw_attempts = []
     attempts = [item for item in raw_attempts if isinstance(item, dict)]
     unresolved: list[str] = []
     for index, attempt in enumerate(attempts):

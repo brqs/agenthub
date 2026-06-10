@@ -65,6 +65,24 @@ ruff: passed
 mypy app/agents/orchestrator: passed
 ```
 
+### Direct-Chat Timeout Hardening
+
+用户继续追查同类纯对话辩论失败后，确认红框主因不是 artifact 检查或 CLI 崩溃，而是
+`dialogue_turn` 被 external direct-chat 快捷路径接管后，默认 10 秒 idle timeout 对长辩论
+发言过短。
+
+本轮修复：
+
+- 补齐 `qa_stream_idle_timeout_seconds`、`qa_stream_max_runtime_seconds`、
+  `qa_stream_heartbeat_seconds` 的 AgentConfig / validation / OpenAPI 契约。
+- Orchestrator 在派发 `conversation` / `dialogue_turn` 子任务时注入更宽松 direct-chat
+  预算：idle 至少 45s、hard runtime 至少 120s、heartbeat 10s。
+- 普通 Agent 私聊、代码 / 文件 / 部署任务不使用该 override。
+- direct-chat timeout 用户可见错误改为“该 Agent 本轮响应超时，可以重试或继续由
+  Orchestrator 调度”，不暴露 raw internal code。
+
+本轮尚未重启后端或跑公网 E2E；需要后续按同例 prompt 重跑 `manual_two_agent_turn_taking`。
+
 ## 2026-06-10 — Codex 清理 OpenCode/Codex 默认模型并完成 Turn-Taking 公网 E2E
 
 ### 任务

@@ -30,6 +30,7 @@
 - `config.context_max_tokens`: 通用 agent 会话上下文预算，默认 `64000`，范围 `1..200000`
 - `config.orchestrator_context_max_tokens`: Orchestrator 主流程上下文预算，默认 `64000`，范围 `1..200000`
 - `config.orchestrator_subagent_context_max_tokens`: Orchestrator 分发给子 Agent 的上下文预算，默认 `64000`，范围 `1..200000`
+- `config.planner_context_max_tokens`: Orchestrator Planner 单次 LLM 输入上下文预算，默认 `128000`，范围 `1..1000000`
 - `config.max_iterations`: BuiltinAgent loop 最大迭代次数
 - `config.mcp_servers`: BuiltinAgent MCP stdio server 配置数组
 - `config.runtime` / `config.command` / `config.args` / `config.timeout_seconds`: external runtime 配置
@@ -50,6 +51,7 @@
 - `context_max_tokens`、`orchestrator_context_max_tokens`、
   `orchestrator_subagent_context_max_tokens` 如果存在，必须是整数且满足
   `1..200000`。
+- `planner_context_max_tokens` 如果存在，必须是整数且满足 `1..1000000`。
 
 ### External Runtime 规则
 

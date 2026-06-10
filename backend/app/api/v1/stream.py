@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from app.agents.orchestrator.planner import llm_planning_enabled
 from app.agents.registry import ORCHESTRATOR_AGENT_ID, AgentNotFoundError, get_adapter
 from app.agents.types import StreamChunk
 from app.api.v1.conversations import _get_owned_conversation
@@ -55,6 +56,8 @@ ERROR_TEXT_MAX_CHARS = 1200
 GENERIC_STREAM_ERROR_TEXT = "Agent stream failed. Please retry."
 GENERIC_INTERRUPTED_TEXT = "已打断本次回复，可以继续补充要求。"
 CONTEXT_MAX_TOKENS_LIMIT = 200_000
+DEFAULT_PLANNER_CONTEXT_MAX_TOKENS = 128_000
+PLANNER_CONTEXT_MAX_TOKENS_LIMIT = 1_000_000
 
 
 class StreamDisconnectedError(RuntimeError):
@@ -87,6 +90,13 @@ def _configured_context_max_tokens(agent_id: str, config: dict[str, Any]) -> int
             continue
         return min(value, CONTEXT_MAX_TOKENS_LIMIT)
     return TOTAL_TOKEN_BUDGET
+
+
+def _configured_planner_context_max_tokens(config: dict[str, Any]) -> int:
+    value = config.get("planner_context_max_tokens")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return DEFAULT_PLANNER_CONTEXT_MAX_TOKENS
+    return min(value, PLANNER_CONTEXT_MAX_TOKENS_LIMIT)
 
 
 async def _wait_for_disconnect(request: Request) -> None:
@@ -532,12 +542,26 @@ async def _runtime_event_generator(
             agent_message_id=message.id,
             max_tokens=context_max_tokens,
         )
+        planner_context_messages = None
+        if message.agent_id == ORCHESTRATOR_AGENT_ID and llm_planning_enabled(
+            adapter.default_config
+        ):
+            planner_context_messages = await build_context(
+                db,
+                message.conversation_id,
+                current_agent_id=message.agent_id,
+                agent_message_id=message.id,
+                max_tokens=_configured_planner_context_max_tokens(
+                    adapter.default_config
+                ),
+            )
         workspace = await WorkspaceService().get_or_create(db, message.conversation_id)
         history, stream_config = await apply_orchestrator_stream_context(
             db,
             message,
             adapter,
             history,
+            planner_context_messages=planner_context_messages,
         )
 
         stream_claimed = True

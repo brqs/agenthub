@@ -80,6 +80,12 @@ class AgentConfig(BaseModel):
         le=numeric_field("orchestrator_subagent_context_max_tokens").maximum,
         description="Maximum context tokens passed from Orchestrator to sub-agents.",
     )
+    planner_context_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("planner_context_max_tokens").minimum,
+        le=numeric_field("planner_context_max_tokens").maximum,
+        description="Maximum input context tokens used by the Orchestrator Planner.",
+    )
     llm_planning: bool | None = None
     planner_fallback_to_template: bool | None = None
     available_agents_authoritative: bool | None = None
@@ -152,6 +158,24 @@ class AgentConfig(BaseModel):
         default=None,
         ge=numeric_field("qa_request_timeout_seconds").minimum,
         le=numeric_field("qa_request_timeout_seconds").maximum,
+    )
+    qa_stream_idle_timeout_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("qa_stream_idle_timeout_seconds").minimum,
+        le=numeric_field("qa_stream_idle_timeout_seconds").maximum,
+        description="Idle timeout for external direct-chat streaming.",
+    )
+    qa_stream_max_runtime_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("qa_stream_max_runtime_seconds").minimum,
+        le=numeric_field("qa_stream_max_runtime_seconds").maximum,
+        description="Hard timeout for external direct-chat streaming.",
+    )
+    qa_stream_heartbeat_seconds: float | None = Field(
+        default=None,
+        ge=numeric_field("qa_stream_heartbeat_seconds").minimum,
+        le=numeric_field("qa_stream_heartbeat_seconds").maximum,
+        description="Heartbeat interval for external direct-chat streaming.",
     )
     task_fallback_agent_ids: list[str] | None = None
     max_task_attempts: int | None = Field(

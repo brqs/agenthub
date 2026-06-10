@@ -60,6 +60,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-10 动态辩论追加 repair：针对 conversation `9f742fc3-8a52-410e-add2-142ba6fe964b` 暴露的问题，B2 收窄默认辩论续轮策略：双方完成两轮有效攻防后停止，只有用户显式指定 `N 轮` 时才继续到受保护上限；`dialogue_turn` 默认禁止跨 Agent fallback 代打对方角色，避免 OpenCode 代写正方或 Claude 代写反方；反方 output contract 增加速度、分配、治理、能耗、算力/数据集中、结构性撕裂等 markers，避免真实反方论据被误判 `output_incomplete`；若已生成的辩论轮次存在失败，不再输出 `debate_judgement`，final answer 必须按 partial/needs-attention 处理。本轮本地 targeted `110 passed`，Ruff/Mypy passed；尚未重启后端或跑公网 E2E。
 
+2026-06-10 纯对话 direct-chat timeout hardening：针对同类辩论场景中 Claude Code child message 出现 `direct_chat_timeout` 红框，B2 补齐 external direct-chat 流式预算配置字段，并让 Orchestrator 托管的 `conversation` / `dialogue_turn` 子任务在调用子 Agent 时使用更宽松 direct-chat 预算（idle 至少 45s、hard runtime 至少 120s、heartbeat 10s）。普通 Agent 私聊和代码 / 文件 / 部署任务不受该 override 影响；若仍超时，用户可见错误必须为清洗后的“本轮响应超时”说明，不能泄露 raw internal code。本轮先完成本地 targeted 与文档更新；公网 E2E 需后续按同例 prompt 重跑。
+
 2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
 
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。

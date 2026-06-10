@@ -191,6 +191,10 @@ from app.agents.orchestrator.workspace_changes import (
 )
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
+_DIALOGUE_DIRECT_CHAT_MIN_IDLE_TIMEOUT_SECONDS = 45.0
+_DIALOGUE_DIRECT_CHAT_MIN_MAX_RUNTIME_SECONDS = 120.0
+_DIALOGUE_DIRECT_CHAT_HEARTBEAT_SECONDS = 10.0
+
 
 def _dependencies_satisfied(
     task: SubTask,
@@ -375,6 +379,8 @@ def _visible_failure_reason(reason: str) -> str:
     lowered = str(reason or "").lower()
     if not lowered:
         return "当前没有可展示的详细错误。"
+    if "direct_chat_timeout" in lowered or "idle_timeout_seconds" in lowered:
+        return "该 Agent 本轮响应超时，可以重试或继续由 Orchestrator 调度。"
     if any(marker in lowered for marker in ("permission denied", "[errno", "auth", "claude.json")):
         return "运行时认证或权限配置需要检查。"
     if "no html entry file" in lowered:
@@ -1705,7 +1711,28 @@ def _sub_agent_stream_config(
         }
     )
     stream_config["runtime_context"] = runtime_context
+    if task.task_type in {"conversation", "dialogue_turn"}:
+        _apply_dialogue_direct_chat_budget(stream_config)
     return stream_config
+
+
+def _apply_dialogue_direct_chat_budget(stream_config: dict[str, Any]) -> None:
+    stream_config["qa_stream_idle_timeout_seconds"] = max(
+        _float_config(stream_config.get("qa_stream_idle_timeout_seconds")),
+        _DIALOGUE_DIRECT_CHAT_MIN_IDLE_TIMEOUT_SECONDS,
+    )
+    stream_config["qa_stream_max_runtime_seconds"] = max(
+        _float_config(stream_config.get("qa_stream_max_runtime_seconds")),
+        _DIALOGUE_DIRECT_CHAT_MIN_MAX_RUNTIME_SECONDS,
+    )
+    stream_config["qa_stream_heartbeat_seconds"] = _DIALOGUE_DIRECT_CHAT_HEARTBEAT_SECONDS
+
+
+def _float_config(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return 0.0
+    parsed = float(value)
+    return parsed if parsed > 0 else 0.0
 
 
 async def _run_parallel_tasks(
