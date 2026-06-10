@@ -1,0 +1,25 @@
+[[permission]]
+identifier = "desktop-management"
+description = "Allows the AgentHub main window to manage only the validated local AgentHub stack."
+commands.allow = [
+  "desktop_get_environment",
+  "desktop_choose_project_root",
+  "desktop_get_stack_binding",
+  "desktop_check_local_stack",
+  "desktop_start_local_stack",
+  "desktop_stop_local_stack",
+  "desktop_restart_backend",
+  "desktop_tail_service_logs",
+  "desktop_export_diagnostics",
+  "desktop_save_diagnostics",
+  "desktop_get_preferences",
+  "desktop_set_preferences",
+  "desktop_open_workspace_folder",
+  "desktop_open_external_url",
+  "desktop_show_notification",
+  "desktop_get_release_info",
+  "desktop_check_for_update",
+  "desktop_install_update",
+  "desktop_open_release_page",
+  "desktop_collect_crash_report",
+]

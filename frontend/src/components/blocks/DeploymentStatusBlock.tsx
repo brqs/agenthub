@@ -22,6 +22,7 @@ import {
 import * as deploymentsAdapter from '@/lib/adapters/deployments';
 import { useDeploymentStatus, useRetryDeployment, useStopDeployment } from '@/hooks/useDeployments';
 import { handleExternalLink } from '@/lib/nativeShell';
+import { saveDownloadedBlob } from '@/lib/nativeDownloads';
 import type { DeploymentStatusBlock as DeploymentStatusBlockType } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -75,14 +76,11 @@ export function DeploymentStatusBlock({
         block.deployment_id,
         downloadUrl,
       );
-      const href = URL.createObjectURL(archive);
-      const anchor = document.createElement('a');
-      anchor.href = href;
-      anchor.download = filenameFor(block);
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(href);
+      await saveDownloadedBlob(
+        archive,
+        filenameFor(block),
+        [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
+      );
       setDownloadState('idle');
     } catch {
       setDownloadState('error');

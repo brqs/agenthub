@@ -1,0 +1,160 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-desktop-release:
+    name: Build signed Windows desktop artifacts
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install frontend dependencies
+        run: pnpm --dir frontend install --frozen-lockfile
+
+      - name: Frontend tests
+        run: |
+          pnpm --dir frontend exec vitest run
+          pnpm --dir frontend exec tsc -b
+          pnpm --dir frontend build
+
+      - name: Rust tests
+        working-directory: frontend/src-tauri
+        run: |
+          cargo fmt --check
+          cargo test
+          cargo clippy -- -D warnings
+
+      - name: Backend smoke tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://agenthub:agenthub_dev_pw@localhost:5432/agenthub_test
+        run: |
+          uv sync --extra dev
+          uv run ruff check app tests
+          uv run pytest -q tests/test_health.py
+
+      - name: Validate updater signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+            throw "TAURI_SIGNING_PRIVATE_KEY is required for desktop releases."
+          }
+          if (-not $env:TAURI_UPDATER_PUBLIC_KEY) {
+            throw "TAURI_UPDATER_PUBLIC_KEY is required for desktop releases."
+          }
+
+      - name: Write release Tauri config
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: |
+          $configPath = "frontend/src-tauri/tauri.conf.json"
+          $releaseConfigPath = "frontend/src-tauri/tauri.release.conf.json"
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          $config.bundle | Add-Member -NotePropertyName createUpdaterArtifacts -NotePropertyValue $true -Force
+          $config.plugins.updater.pubkey = $env:TAURI_UPDATER_PUBLIC_KEY
+          $config | ConvertTo-Json -Depth 32 | Set-Content -Encoding UTF8 $releaseConfigPath
+
+      - name: Build desktop bundle
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm --dir frontend exec tauri build --config src-tauri/tauri.release.conf.json
+
+      - name: Collect release artifacts
+        run: |
+          $version = (Get-Content frontend/package.json -Raw | ConvertFrom-Json).version
+          $tag = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+          $out = New-Item -ItemType Directory -Force -Path release-artifacts
+          $bundleRoot = "frontend/src-tauri/target/release/bundle"
+
+          $nsis = Get-ChildItem $bundleRoot -Recurse -Filter "*.exe" | Select-Object -First 1
+          if (-not $nsis) { throw "NSIS setup exe was not produced." }
+          Copy-Item $nsis.FullName "$out/AgentHub_Desktop_${version}_x64-setup.exe"
+
+          $msi = Get-ChildItem $bundleRoot -Recurse -Filter "*.msi" | Select-Object -First 1
+          if (-not $msi) { throw "MSI bundle was not produced." }
+          Copy-Item $msi.FullName "$out/AgentHub_Desktop_${version}_x64_en-US.msi"
+
+          $updater = Get-ChildItem $bundleRoot -Recurse -File |
+            Where-Object { $_.Name -match "\.(zip|tar\.gz)$" -and $_.Name -notmatch "\.sig$" } |
+            Select-Object -First 1
+          if (-not $updater) { throw "Updater package was not produced." }
+          $updaterExt = if ($updater.Name.EndsWith(".tar.gz")) { "tar.gz" } else { $updater.Extension.TrimStart(".") }
+          $updaterName = "AgentHub_Desktop_${version}_x64-updater.$updaterExt"
+          Copy-Item $updater.FullName "$out/$updaterName"
+
+          $sig = Get-ChildItem $bundleRoot -Recurse -File |
+            Where-Object { $_.Name -eq "$($updater.Name).sig" -or $_.Name -like "*.sig" } |
+            Select-Object -First 1
+          if (-not $sig) { throw "Updater signature was not produced." }
+          Copy-Item $sig.FullName "$out/$updaterName.sig"
+
+          $signature = (Get-Content $sig.FullName -Raw).Trim()
+          $latest = @{
+            version = $version
+            notes = "AgentHub Desktop $version"
+            pub_date = (Get-Date).ToUniversalTime().ToString("o")
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $signature
+                url = "https://github.com/$repo/releases/download/$tag/$updaterName"
+              }
+            }
+          }
+          $latest | ConvertTo-Json -Depth 8 | Set-Content -Encoding UTF8 "$out/latest.json"
+
+          Get-ChildItem $out -File | ForEach-Object {
+            $hash = Get-FileHash $_.FullName -Algorithm SHA256
+            "$($hash.Hash.ToLowerInvariant())  $($_.Name)"
+          } | Set-Content -Encoding UTF8 "$out/checksums.txt"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agenthub-desktop-release
+          path: release-artifacts/*
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          generate_release_notes: true

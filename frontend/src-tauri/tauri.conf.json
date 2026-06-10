@@ -1,23 +1,23 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "AgentHub",
-  "version": "0.1.0",
+  "productName": "AgentHub Desktop",
+  "version": "0.1.1",
   "identifier": "com.agenthub.desktop",
   "build": {
-    "beforeDevCommand": "pnpm dev",
-    "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "pnpm build:desktop",
+    "beforeDevCommand": "pnpm dev --host 127.0.0.1",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "label": "main",
-        "title": "AgentHub",
-        "width": 1280,
-        "height": 860,
-        "minWidth": 1024,
-        "minHeight": 720,
+        "title": "AgentHub Desktop",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1100,
+        "minHeight": 700,
         "resizable": true,
         "fullscreen": false
       }
@@ -28,15 +28,43 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app", "dmg"],
+    "targets": "all",
+    "publisher": "AgentHub",
+    "copyright": "Copyright © 2026 AgentHub",
+    "category": "Productivity",
+    "shortDescription": "AgentHub Windows desktop client",
+    "longDescription": "AgentHub Desktop hosts the AgentHub web app, connects to the local AgentHub backend, and exposes a small set of safe Windows desktop utilities.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns"
+      "icons/icon.icns",
+      "icons/icon.ico"
     ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "displayLanguageSelector": false
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "12.0"
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["agenthub"]
+      }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxOUI0RTVDQzIxQ0RDRTUKUldUbDNCekNYRTZic1RBWGtxK0Voa1UwTzNRMGJELzRZZStuSmJYVWIwMWJKNmRpYjRNOW9rSmkK",
+      "endpoints": [
+        "https://github.com/brqs/agenthub/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

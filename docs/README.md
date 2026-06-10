@@ -18,6 +18,8 @@
 | [ai-skills/foreground-contrast-audit/SKILL.md](ai-skills/foreground-contrast-audit/SKILL.md) | 前端前景色 / 对比度 / 明暗主题逐组件验收 Skill |
 | [spec/agent-runtime-pivot.adr.md](spec/agent-runtime-pivot.adr.md) | Agent Runtime Pivot 决策记录 |
 | [spec/next-major-modules.spec.md](spec/next-major-modules.spec.md) | 下一阶段三大模块：打断对话、跨端文件上传、深度自定义 Agent |
+| [frontend/spec/windows-desktop-client.spec.md](frontend/spec/windows-desktop-client.spec.md) | Windows 桌面客户端网页套壳、当前 Agent 运行环境复用和总体架构 |
+| [frontend/spec/windows-desktop-host-bridge.spec.md](frontend/spec/windows-desktop-host-bridge.spec.md) | Windows 桌面客户端主机桥接、安全边界和白名单命令 |
 
 ## 角色文档
 
