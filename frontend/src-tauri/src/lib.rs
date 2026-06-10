@@ -13,6 +13,7 @@ mod stack;
 mod state;
 
 use tauri::Manager;
+use tauri::WebviewWindowBuilder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,8 +40,19 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir()?;
             let state = state::AppState::new(app_data_dir)
                 .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })?;
+            let webview_data_dir = state.app_data_dir.join("webview-v2");
             release::install_panic_hook(state.crash_log_path());
             app.manage(state);
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|window| window.label == "main")
+                .ok_or("main window config is missing")?;
+            WebviewWindowBuilder::from_config(app, window_config)?
+                .data_directory(webview_data_dir)
+                .build()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

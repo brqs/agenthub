@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AgentHub Desktop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "com.agenthub.desktop",
   "build": {
     "beforeDevCommand": "pnpm dev --host 127.0.0.1",
@@ -13,7 +13,9 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "AgentHub Desktop",
+        "url": "index.html?desktopVersion=0.1.2",
         "width": 1440,
         "height": 900,
         "minWidth": 1100,
