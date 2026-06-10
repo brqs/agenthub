@@ -49,9 +49,9 @@ class FakeRunConfig:
     def __init__(
         self,
         *,
-        model: str,
         sandbox: FakeSandboxRunConfig,
         workflow_name: str,
+        model: str | None = None,
     ) -> None:
         self.model = model
         self.sandbox = sandbox
@@ -411,7 +411,28 @@ class TestCodexAdapterStream:
         assert isinstance(run_config.sandbox.client, FakeUnixLocalSandboxClient)
         assert run_config.sandbox.manifest.root == str(tmp_path)
         assert run_config.sandbox.options.exposed_ports == (3000,)
+        assert run_config.model is None
+        assert "model" not in call["agent"].kwargs
         assert not hasattr(run_config.sandbox.options, "approval_policy")
+
+    async def test_sdk_runtime_passes_explicit_model_only_when_configured(
+        self,
+        adapter: CodexAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        runner = FakeRunner(events=[])
+        monkeypatch.setattr(adapter, "_load_sdk", lambda: FakeSdk(runner))
+
+        await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={"runtime": "sdk", "model": "gpt-custom"},
+        )
+
+        call = runner.calls[0]
+        assert call["run_config"].model == "gpt-custom"
+        assert call["agent"].kwargs["model"] == "gpt-custom"
 
     def test_cli_prompt_includes_workspace_rules(
         self,
@@ -531,6 +552,7 @@ class TestCodexAdapterStream:
         ]
         assert chunks[2].text_delta == "codex cli default ok"
         assert seen_command[0].endswith("codex")
+        assert "-m" not in seen_command
         assert seen_command[seen_command.index("--sandbox") + 1] == "danger-full-access"
 
     async def test_cli_runtime_uses_configured_command(

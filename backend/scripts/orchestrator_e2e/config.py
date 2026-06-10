@@ -70,6 +70,9 @@ DEFAULT_AGENT_TURN_TAKING_DIALOGUE_SSE_PATH = (  # noqa: S108
 DEFAULT_AGENT_TURN_TAKING_MATRIX_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl"  # noqa: S108
 )
+DEFAULT_MANUAL_TWO_AGENT_TURN_TAKING_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl"  # noqa: S108
+)
 
 DEFAULT_P1_ATTRIBUTION_REPORT_PATH = "/tmp/agenthub_p1_attribution_report.json"  # noqa: S108
 DEFAULT_P1_WORKFLOW_REPORT_PATH = "/tmp/agenthub_p1_workflow_report.json"  # noqa: S108
@@ -129,6 +132,9 @@ DEFAULT_AGENT_TURN_TAKING_DIALOGUE_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_AGENT_TURN_TAKING_MATRIX_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_agent_turn_taking_matrix_report.json"  # noqa: S108
+)
+DEFAULT_MANUAL_TWO_AGENT_TURN_TAKING_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_manual_two_agent_turn_taking_report.json"  # noqa: S108
 )
 
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
@@ -240,6 +246,10 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
     "agent_turn_taking_matrix": ScenarioDefaults(
         DEFAULT_AGENT_TURN_TAKING_MATRIX_REPORT_PATH,
         DEFAULT_AGENT_TURN_TAKING_MATRIX_SSE_PATH,
+    ),
+    "manual_two_agent_turn_taking": ScenarioDefaults(
+        DEFAULT_MANUAL_TWO_AGENT_TURN_TAKING_REPORT_PATH,
+        DEFAULT_MANUAL_TWO_AGENT_TURN_TAKING_SSE_PATH,
     ),
     "p1_attribution": ScenarioDefaults(
         DEFAULT_P1_ATTRIBUTION_REPORT_PATH,

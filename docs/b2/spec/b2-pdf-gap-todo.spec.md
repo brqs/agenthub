@@ -54,6 +54,10 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-07 fallback / 真实群聊体验 hardening：B2 进一步修复“已知不可用 Agent 先红框失败再 fallback”的体验问题。Orchestrator 在每次 attempt 前过滤当前会话不可运行、cooldown、run-local 已硬失败和非 group scope Agent；已知不可运行时不创建该 Agent child message，只在 process / memory 记录改派。单次 run 内硬失败 Agent 会立即进入 run-local unavailable，当前 run 后续 task 和并行 batch 避开它；全局 cooldown 才会影响后续 planner / fallback selection。并行 batch 会按首选可运行 Agent 去重，避免同一坏 runtime 刷多条失败气泡。runtime hard failure 判定收窄为认证/配额/credential/CLI missing/provider runtime unavailable/明确 runtime timeout；子 Agent error chunk 会保留 `error_code`，避免 `process exited` 这类泛化 error 漏掉 `external_runtime_error` / `runtime_idle_timeout` 信号；artifact missing、普通 not found、验证/构建/test 失败只触发当前 task fallback，不进入 runtime cooldown。子消息错误文本继续清洗本地路径、Errno、认证文件、stderr、stack trace 和 call id；legacy fullstack fallback 不再硬编码 OKR 主题。本地 targeted gate `180 passed`，Ruff/Mypy/`git diff --check` passed。公网 `agent_fallback_matrix` 已重跑通过，report `/tmp/agenthub_agent_fallback_matrix_report.json`、SSE `/tmp/agenthub_agent_fallback_matrix_sse.jsonl`、`passed=true`；Codex / OpenCode 覆盖 preflight skip，Claude 覆盖运行中失败后 fallback。
 
+2026-06-10 OpenCode/Codex 默认模型清理 + Agent-to-Agent turn-taking repair loop：B2 已移除 OpenCode / Codex adapter 的硬编码默认模型。`config.model` 缺省或为空时，OpenCode 不传 `--model`，Codex CLI 不传 `-m`，Codex SDK/runtime 不传显式 `model`，由各自本地 runtime 默认配置决定；显式配置模型时才传递。OpenCode 1.16.x `opencode run --format json` 若 stdout 只返回 `sessionID` 而未吐 assistant text，adapter 会按 session 从 OpenCode SQLite store 只补读 assistant `text` part，不读取 reasoning、user prompt 或 auth/account 文件。本轮同例公网 repair loop `manual_two_agent_turn_taking` 已通过：report `/tmp/agenthub_manual_two_agent_turn_taking_report.json`、SSE `/tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl`，Claude Code 先发言，OpenCode Helper 自动接话并以自身 child message `done` + 常显 `agent_summary` 完成，不能靠 fallback 代替。泛用性公网 matrix `agent_turn_taking_matrix` 已通过：report `/tmp/agenthub_agent_turn_taking_matrix_report.json`、SSE `/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl`，覆盖 debate、roundtable、roleplay、brainstorm、data panel、review panel、code artifact summary，`passed=true`。本轮未改 seed/default config，未执行 `seed_agents`。
+
+2026-06-10 动态辩论轮次与胜负判断：B2 已将辩论 / 反驳 / 接力类 `dialogue_turn` 从固定初始轮次升级为执行层动态 session。初始 plan 可只包含双方最小轮次；每轮 child message 完成后，Orchestrator 根据本轮 `agent_summary`、handoff hint、用户短答/轮次要求、攻防是否完整和 max turns 判断是否追加下一轮。默认最多 8 轮；“只要双方各说一句 / 只要一轮”会固定为每个参与者 1 轮。明确辩论任务结束时会生成 deterministic `debate_judgement` run event，并在 final answer 中说明更有说服力的一方或势均力敌；非辩论 roundtable / brainstorm / data panel 不输出胜负判断。本轮未跑公网 E2E，只更新了 live E2E 脚本验收，要求 `manual_two_agent_turn_taking` 出现 Claude -> OpenCode -> Claude 生命周期且 final answer 含辩论评判。本地 targeted `108 passed`，Ruff/Mypy/`git diff --check` passed。
+
 2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
 
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
@@ -1151,9 +1155,9 @@ acceptance:
   matrix_visible_text_no_forbidden_terms: true
 ```
 
-## 17. 2026-06-09 Orchestrator Agent-to-Agent Turn-Taking
+## 17. 2026-06-09/10 Orchestrator Agent-to-Agent Turn-Taking
 
-本轮修复“子 Agent 输出 `@另一个 Agent` 后无人自动接话”的通用问题，已按“文档契约 -> 后端实现 -> 本地验证”的顺序完成；公网 E2E 暂不执行，等待后续明确命令。
+本轮修复“子 Agent 输出 `@另一个 Agent` 后无人自动接话”的通用问题，已按“文档契约 -> 后端实现 -> 本地验证 -> 公网 E2E repair loop”的顺序完成。
 
 计划覆盖：
 
@@ -1196,9 +1200,24 @@ git diff --check
 result: passed
 ```
 
-公网 E2E 仅新增/规划，不执行：
+公网 E2E 已执行并通过：
 
 ```text
-scenario: agent_turn_taking_dialogue_repair
+scenario: manual_two_agent_turn_taking
+report: /tmp/agenthub_manual_two_agent_turn_taking_report.json
+sse: /tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl
+passed: true
+acceptance:
+  claude-code message_start/message_done present: true
+  opencode-helper message_start/message_done present: true
+  opencode-helper agent_summary present: true
+  fallback cannot substitute for OpenCode in strict two-agent case: true
+
 scenario: agent_turn_taking_matrix
+report: /tmp/agenthub_agent_turn_taking_matrix_report.json
+sse: /tmp/agenthub_agent_turn_taking_matrix_sse.jsonl
+passed: true
+cases: debate_no_artifacts, roundtable_no_artifacts, roleplay_dialogue,
+       strategy_brainstorm, data_analysis_no_file, code_artifact_with_summary,
+       review_requires_gaps
 ```

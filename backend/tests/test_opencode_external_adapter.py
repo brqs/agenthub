@@ -7,6 +7,7 @@ import json
 import os
 import shlex
 import shutil
+import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -112,6 +113,85 @@ async def asyncio_never() -> None:
 
 def _json_line(payload: dict[str, Any]) -> bytes:
     return (json.dumps(payload) + "\n").encode()
+
+
+def _write_opencode_db_fixture(path: Path, session_id: str) -> None:
+    with sqlite3.connect(path) as db:
+        db.execute(
+            """
+            create table message (
+                id text primary key,
+                session_id text not null,
+                time_created integer not null,
+                data text not null
+            )
+            """
+        )
+        db.execute(
+            """
+            create table part (
+                id text primary key,
+                message_id text not null,
+                session_id text not null,
+                time_created integer not null,
+                data text not null
+            )
+            """
+        )
+        db.execute(
+            "insert into message values (?, ?, ?, ?)",
+            (
+                "msg_user",
+                session_id,
+                1,
+                json.dumps({"role": "user"}, ensure_ascii=False),
+            ),
+        )
+        db.execute(
+            "insert into part values (?, ?, ?, ?, ?)",
+            (
+                "part_user",
+                "msg_user",
+                session_id,
+                2,
+                json.dumps({"type": "text", "text": "user prompt"}, ensure_ascii=False),
+            ),
+        )
+        db.execute(
+            "insert into message values (?, ?, ?, ?)",
+            (
+                "msg_assistant",
+                session_id,
+                3,
+                json.dumps({"role": "assistant"}, ensure_ascii=False),
+            ),
+        )
+        db.execute(
+            "insert into part values (?, ?, ?, ?, ?)",
+            (
+                "part_reasoning",
+                "msg_assistant",
+                session_id,
+                4,
+                json.dumps(
+                    {"type": "reasoning", "text": "hidden reasoning"},
+                    ensure_ascii=False,
+                ),
+            ),
+        )
+        db.execute(
+            "insert into part values (?, ?, ?, ?, ?)",
+            (
+                "part_text",
+                "msg_assistant",
+                session_id,
+                5,
+                json.dumps(
+                    {"type": "text", "text": "assistant visible text"},
+                    ensure_ascii=False,
+                ),
+            ),
+        )
 
 
 async def _collect(
@@ -295,7 +375,7 @@ class TestOpenCodeAdapterStream:
         argv = factory.calls[0]["argv"]
         assert Path(argv[0]).stem.lower() == "opencode"
         assert argv[1:4] == ["run", "--format", "json"]
-        assert argv[4:6] == ["--model", "deepseek/deepseek-chat"]
+        assert "--model" not in argv
         assert "--dir" in argv
         assert [chunk.event_type for chunk in chunks] == [
             "start",
@@ -323,6 +403,128 @@ class TestOpenCodeAdapterStream:
         assert chunks[-1].event_type == "done"
         argv = factory.calls[0]["argv"]
         assert argv[4:6] == ["--model", "deepseek/deepseek-v4-flash"]
+
+    async def test_json_format_reads_assistant_text_from_opencode_db_when_stdout_is_empty(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        session_id = "ses_test"
+        process = FakeProcess(
+            [
+                _json_line(
+                    {
+                        "type": "step_start",
+                        "sessionID": session_id,
+                        "part": {"type": "step-start"},
+                    }
+                )
+            ]
+        )
+        _patch_subprocess(monkeypatch, process)
+        db_path = tmp_path / "opencode.db"
+        _write_opencode_db_fixture(db_path, session_id)
+
+        chunks = await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            config={"opencode_db_path": str(db_path)},
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "delta",
+            "block_end",
+            "done",
+        ]
+        assert chunks[2].text_delta == "assistant visible text"
+        assert chunks[-1].total_blocks == 1
+
+    async def test_json_format_skips_unreadable_shared_db_and_reads_home_db(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        session_id = "ses_home"
+        process = FakeProcess(
+            [
+                _json_line(
+                    {
+                        "type": "step_start",
+                        "sessionID": session_id,
+                        "part": {"type": "step-start"},
+                    }
+                )
+            ]
+        )
+        _patch_subprocess(monkeypatch, process)
+
+        shared_dir = tmp_path / "shared"
+        shared_dir.mkdir()
+        shared_db = shared_dir / "opencode.db"
+        shared_db.write_text("not sqlite", encoding="utf-8")
+        home = tmp_path / "home"
+        home_db = home / ".local" / "share" / "opencode" / "opencode.db"
+        home_db.parent.mkdir(parents=True)
+        _write_opencode_db_fixture(home_db, session_id)
+
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setattr(opencode_module, "_shared_auth_dir", lambda: shared_dir)
+
+        def fake_readable(path: Path) -> bool:
+            return path != shared_db and path.is_file()
+
+        monkeypatch.setattr(opencode_module, "_is_readable_file", fake_readable)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert chunks[2].text_delta == "assistant visible text"
+        assert chunks[-1].event_type == "done"
+
+    async def test_json_format_reads_assistant_text_from_isolated_runtime_db(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        session_id = "ses_isolated"
+        process = FakeProcess(
+            [
+                _json_line(
+                    {
+                        "type": "step_start",
+                        "sessionID": session_id,
+                        "part": {"type": "step-start"},
+                    }
+                )
+            ]
+        )
+        _patch_subprocess(monkeypatch, process)
+
+        runtime_home = tmp_path / "runtime-home"
+        runtime_db = runtime_home / ".local" / "share" / "opencode" / "opencode.db"
+        runtime_db.parent.mkdir(parents=True)
+        _write_opencode_db_fixture(runtime_db, session_id)
+
+        real_runtime_env = opencode_module.OpenCodeAdapter._runtime_env
+
+        def fake_runtime_env(
+            self: OpenCodeAdapter,
+            config: dict[str, Any],
+            workspace_path: Path,
+        ) -> dict[str, str]:
+            env = real_runtime_env(self, config, workspace_path)
+            env["HOME"] = str(runtime_home)
+            env["XDG_DATA_HOME"] = str(runtime_home / ".local" / "share")
+            return env
+
+        monkeypatch.setattr(OpenCodeAdapter, "_runtime_env", fake_runtime_env)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert chunks[2].text_delta == "assistant visible text"
+        assert chunks[-1].event_type == "done"
 
     async def test_tool_call_and_result_are_mapped(
         self,

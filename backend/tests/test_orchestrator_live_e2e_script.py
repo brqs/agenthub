@@ -7,7 +7,9 @@ from scripts.orchestrator_e2e.runner import (
     AGENT_FALLBACK_E2E_WRITE_RUNTIME,
     AGENT_FALLBACK_MATRIX_CASES,
     BUILTIN_SUB_AGENT_IDS,
+    _child_output_contract,
     _looks_generic_completion,
+    _unresolved_missing_artifact_paths,
     command_fulfillment_statuses,
     evaluate_fallback_task_card_case,
     fallback_group_agent_ids,
@@ -64,6 +66,93 @@ def test_server_command_scan_ignores_negated_server_js_filename() -> None:
 
 def test_server_command_scan_rejects_executable_server_js_command() -> None:
     assert SERVER_COMMAND_RE.search("Run node server.js to serve the app.") is not None
+
+
+def test_child_output_contract_accepts_concise_artifact_summary() -> None:
+    message = {
+        "id": "msg-1",
+        "agent_id": "opencode-helper",
+        "status": "done",
+        "content": [
+            {
+                "type": "text",
+                "presentation": {"role": "agent_summary"},
+                "text": (
+                    "已完成：创建任务卡片静态前端组件。\n"
+                    "产物：index.html、styles.css、app.js。\n"
+                    "验证：2/2 项通过。"
+                ),
+            }
+        ],
+    }
+
+    contract = _child_output_contract(message)
+
+    assert contract["substantive_output_passed"] is True
+    assert contract["terminal_output_accepted"] is True
+    assert contract["failure_reason"] == ""
+
+
+def test_unresolved_missing_artifact_paths_ignores_recovered_fallback_files() -> None:
+    run_detail = {
+        "attempts": [
+            {
+                "task_id": "auto-1",
+                "agent_id": "claude-code",
+                "missing_artifact_paths": ["index.html", "styles.css", "app.js"],
+                "artifact_paths": [],
+                "error": "missing artifact: index.html, styles.css, app.js",
+            },
+            {
+                "task_id": "auto-1",
+                "agent_id": "opencode-helper",
+                "missing_artifact_paths": [],
+                "artifact_paths": ["index.html", "styles.css", "app.js"],
+                "error": None,
+            },
+        ]
+    }
+
+    assert _unresolved_missing_artifact_paths(run_detail) == []
+
+
+def test_unresolved_missing_artifact_paths_ignores_later_task_recovery() -> None:
+    run_detail = {
+        "attempts": [
+            {
+                "task_id": "auto-1",
+                "missing_artifact_paths": ["index.html", "styles.css", "app.js"],
+                "artifact_paths": [],
+            },
+            {
+                "task_id": "auto-2",
+                "missing_artifact_paths": [],
+                "artifact_paths": ["index.html", "styles.css", "app.js"],
+                "error": "non-fatal review issue after files were written",
+            },
+        ]
+    }
+
+    assert _unresolved_missing_artifact_paths(run_detail) == []
+
+
+def test_unresolved_missing_artifact_paths_keeps_unrecovered_files() -> None:
+    run_detail = {
+        "attempts": [
+            {
+                "task_id": "auto-1",
+                "missing_artifact_paths": ["index.html", "styles.css", "app.js"],
+                "artifact_paths": [],
+            },
+            {
+                "task_id": "auto-1",
+                "missing_artifact_paths": [],
+                "artifact_paths": ["index.html", "styles.css"],
+            },
+        ]
+    }
+
+    assert _unresolved_missing_artifact_paths(run_detail) == ["app.js"]
 
 
 def test_p1_rich_artifacts_defaults_are_registered() -> None:
@@ -179,6 +268,10 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "agent_turn_taking_matrix": (
             "/tmp/agenthub_agent_turn_taking_matrix_report.json",
             "/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl",
+        ),
+        "manual_two_agent_turn_taking": (
+            "/tmp/agenthub_manual_two_agent_turn_taking_report.json",
+            "/tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl",
         ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",

@@ -133,6 +133,11 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         runner.GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT,
         runner.run_group_substantive_output_matrix_case,
     ),
+    "manual_two_agent_turn_taking": _spec(
+        "manual_two_agent_turn_taking",
+        runner.MANUAL_TWO_AGENT_TURN_TAKING_PROMPT,
+        runner.run_manual_two_agent_turn_taking_case,
+    ),
     "fullstack": _spec("fullstack", runner.FULLSTACK_PROMPT, runner.main),
     "deployment": _spec("deployment", runner.DEPLOYMENT_PROMPT, runner.main),
     "deployment_repair": _spec(

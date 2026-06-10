@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator._internal.execution.dialogue import (
+    debate_judgement_line as _debate_judgement_line,
+)
 from app.agents.orchestrator._internal.execution.fulfillment import (
     fulfillment_needs_attention as _fulfillment_needs_attention,
 )
@@ -237,6 +240,8 @@ def _response_facts(
     urls = _tool_urls(tool_results)
     needs_attention.extend(_tool_attention(tool_results))
     needs_attention.extend(_fulfillment_needs_attention(run_context))
+    if run_context.debate_judgement is not None:
+        review.append(_debate_judgement_line(run_context.debate_judgement))
     overall_status = _overall_status(states.values(), run_context, needs_attention)
     return ResponseFacts(
         user_request=user_request,
