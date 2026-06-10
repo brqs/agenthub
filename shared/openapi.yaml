@@ -7536,6 +7536,39 @@ components:
           default: null
           description: ModelGateway backend for orchestrator LLM planning.
           title: Planner Model Backend
+        context_max_tokens:
+          anyOf:
+          - maximum: 200000
+            minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Maximum conversation context tokens passed to this agent.
+          title: Context Max Tokens
+          minimum: 1
+          maximum: 200000
+        orchestrator_context_max_tokens:
+          anyOf:
+          - maximum: 200000
+            minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Maximum context tokens used by the Orchestrator main flow.
+          title: Orchestrator Context Max Tokens
+          minimum: 1
+          maximum: 200000
+        orchestrator_subagent_context_max_tokens:
+          anyOf:
+          - maximum: 200000
+            minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Maximum context tokens passed from Orchestrator to sub-agents.
+          title: Orchestrator Subagent Context Max Tokens
+          minimum: 1
+          maximum: 200000
         llm_planning:
           anyOf:
           - type: boolean
@@ -7845,6 +7878,16 @@ components:
           title: Orchestrator Tool Max Iterations
           minimum: 1
           maximum: 50
+        orchestrator_tool_max_tokens:
+          anyOf:
+          - maximum: 32000
+            minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          title: Orchestrator Tool Max Tokens
+          minimum: 1
+          maximum: 32000
         orchestrator_tool_result_max_chars:
           anyOf:
           - maximum: 32000

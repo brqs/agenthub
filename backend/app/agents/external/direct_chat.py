@@ -20,7 +20,7 @@ from app.agents.types import ChatMessage, StreamChunk
 Route = Literal["direct_chat", "runtime", "disabled"]
 
 DEFAULT_QA_BACKEND = "deepseek"
-DEFAULT_QA_MAX_TOKENS = 2048
+DEFAULT_QA_MAX_TOKENS = 8192
 DEFAULT_CLASSIFIER_MAX_TOKENS = 128
 DEFAULT_QA_TEMPERATURE = 0.2
 DEFAULT_QA_REQUEST_TIMEOUT_SECONDS = 20.0

@@ -3650,6 +3650,24 @@ export interface components {
              */
             planner_model_backend: ("claude" | "deepseek" | "openai") | null;
             /**
+             * Context Max Tokens
+             * @description Maximum conversation context tokens passed to this agent.
+             * @default null
+             */
+            context_max_tokens: number | null;
+            /**
+             * Orchestrator Context Max Tokens
+             * @description Maximum context tokens used by the Orchestrator main flow.
+             * @default null
+             */
+            orchestrator_context_max_tokens: number | null;
+            /**
+             * Orchestrator Subagent Context Max Tokens
+             * @description Maximum context tokens passed from Orchestrator to sub-agents.
+             * @default null
+             */
+            orchestrator_subagent_context_max_tokens: number | null;
+            /**
              * Llm Planning
              * @default null
              */
@@ -3834,6 +3852,11 @@ export interface components {
              * @default null
              */
             orchestrator_tool_max_iterations: number | null;
+            /**
+             * Orchestrator Tool Max Tokens
+             * @default null
+             */
+            orchestrator_tool_max_tokens: number | null;
             /**
              * Orchestrator Tool Result Max Chars
              * @default null

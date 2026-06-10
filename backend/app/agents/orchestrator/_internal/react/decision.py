@@ -18,7 +18,7 @@ from app.agents.orchestrator.types import (
 )
 from app.agents.types import ChatMessage, StreamChunk
 
-DEFAULT_REACT_DECISION_MAX_TOKENS = 1024
+DEFAULT_REACT_DECISION_MAX_TOKENS = 2048
 MAX_REACT_DECISION_MAX_TOKENS = 4096
 
 FormatTaskResultContext = Callable[[str, TaskResult, int], str]

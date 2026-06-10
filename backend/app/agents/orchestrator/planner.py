@@ -20,7 +20,7 @@ from app.agents.orchestrator.availability import (
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 TASK_PLAN_TOOL_NAME = "submit_task_plan"
-DEFAULT_PLANNER_MAX_TOKENS = 2048
+DEFAULT_PLANNER_MAX_TOKENS = 16384
 AGENT_CAPABILITY_PROFILE_V2_HEADER = (
     "Agent capability profile v2 from recent user Orchestrator runs:"
 )

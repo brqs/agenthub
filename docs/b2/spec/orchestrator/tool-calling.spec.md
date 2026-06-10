@@ -93,8 +93,9 @@ v1 已实现范围：
 | `orchestrator_tool_calling_enabled` | bool | `false` | 是否启用 Orchestrator tool loop。 |
 | `orchestrator_tool_trace_visible` | bool | `true` | 是否向用户显示 tool_call/tool_result。 |
 | `orchestrator_tool_max_iterations` | int | `12` | tool loop 最大轮数，建议校验 `1..50`。 |
-| `orchestrator_tool_result_max_chars` | int | `4000` | 单个 tool result 注入模型上下文的最大字符数。 |
-| `orchestrator_tool_read_max_bytes` | int | `65536` | `read_artifact` 最大读取字节数。 |
+| `orchestrator_tool_max_tokens` | int | `8192` | tool loop 单次模型输出 token 预算，建议校验 `1..32000`。 |
+| `orchestrator_tool_result_max_chars` | int | `12000` | 单个 tool result 注入模型上下文的最大字符数。 |
+| `orchestrator_tool_read_max_bytes` | int | `262144` | `read_artifact` 最大读取字节数。 |
 
 入口顺序：
 
@@ -917,6 +918,7 @@ tool results drive next model action
   - `orchestrator_tool_calling_enabled`
   - `orchestrator_tool_trace_visible`
   - `orchestrator_tool_max_iterations`
+  - `orchestrator_tool_max_tokens`
   - `orchestrator_tool_result_max_chars`
   - `orchestrator_tool_read_max_bytes`
   - seed 默认仍关闭 `orchestrator_tool_calling_enabled=false`。

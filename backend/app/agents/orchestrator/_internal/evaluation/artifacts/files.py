@@ -10,7 +10,7 @@ from typing import Any
 from app.agents.orchestrator._internal.evaluation.types import EvaluationIssue, EvaluationResult
 from app.agents.orchestrator.types import SubTask, TaskAttempt
 
-DEFAULT_EVALUATION_READ_MAX_BYTES = 65_536
+DEFAULT_EVALUATION_READ_MAX_BYTES = 262_144
 MAX_EVALUATION_READ_LIMIT = 1_048_576
 SENSITIVE_PATH_PARTS = {".agenthub", ".env", ".ssh", "secrets"}
 WORKFLOW_INTENT_RE = re.compile(r"(?i)(workflow|工作流|流程编排|dag)")

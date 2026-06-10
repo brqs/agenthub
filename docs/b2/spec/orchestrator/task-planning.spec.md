@@ -182,6 +182,7 @@ direct answer 使用：
 - 否则创建 ModelGateway。
 - backend 取 `answer_model_backend`，再取 `model_backend`，默认 `claude`。
 - 模型参数来自 `orchestrator_answer_config`，并兼容顶层 `model`、`max_retries`、`request_timeout_seconds`。
+- 默认 `max_tokens=4096`，可通过 `orchestrator_answer_config.max_tokens` 覆盖。
 
 ---
 
@@ -304,7 +305,7 @@ planner 流程：
 planner config：
 
 - 默认 `temperature=0`。
-- 默认 `max_tokens=2048`。
+- 默认 `max_tokens=16384`。
 - 默认 `tool_choice={"type": "auto"}`。
 - 兼容顶层 `model`、`max_retries`、`request_timeout_seconds`。
 

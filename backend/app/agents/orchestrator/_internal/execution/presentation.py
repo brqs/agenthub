@@ -450,7 +450,7 @@ def _polish_model_config(config: Mapping[str, Any]) -> dict[str, Any]:
         model_config.update(dict(raw))
     model_config["max_tokens"] = _positive_int(
         config.get("orchestrator_response_polish_max_tokens"),
-        900,
+        2048,
     )
     for key in ("model", "max_retries", "request_timeout_seconds"):
         if key in config and key not in model_config:

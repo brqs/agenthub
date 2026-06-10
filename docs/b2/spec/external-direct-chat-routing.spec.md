@@ -83,7 +83,7 @@ external adapter 收到最新用户消息后按以下顺序处理：
 | `qa_model_backend` | enum | `deepseek` | direct chat 使用的 `ModelGateway` backend，取值 `claude` / `deepseek` / `openai` |
 | `qa_model` | string \| null | null | direct chat 的具体模型名；为空则使用 backend 默认模型 |
 | `qa_classifier_model` | string \| null | null | 分类器模型名；为空则复用 `qa_model` 或 backend 默认模型 |
-| `qa_max_tokens` | int | `2048` | direct chat 最大输出 token |
+| `qa_max_tokens` | int | `8192` | direct chat 最大输出 token |
 | `qa_classifier_max_tokens` | int | `128` | 分类器最大输出 token |
 | `qa_temperature` | float | `0.2` | direct chat 温度 |
 | `qa_request_timeout_seconds` | float | `20` | 分类和 direct chat 的单次模型调用超时 |
@@ -92,9 +92,9 @@ Seed 默认值：
 
 | Agent | 默认配置补充 |
 |---|---|
-| `claude-code` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=2048`, `qa_request_timeout_seconds=20` |
-| `codex-helper` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=2048`, `qa_request_timeout_seconds=20` |
-| `opencode-helper` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=2048`, `qa_request_timeout_seconds=20` |
+| `claude-code` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=8192`, `context_max_tokens=64000`, `qa_request_timeout_seconds=20` |
+| `codex-helper` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=8192`, `context_max_tokens=64000`, `qa_request_timeout_seconds=20` |
+| `opencode-helper` | `qa_short_circuit_enabled=true`, `qa_model_backend=deepseek`, `qa_max_tokens=8192`, `context_max_tokens=64000`, `qa_request_timeout_seconds=20` |
 
 ## 配置校验
 

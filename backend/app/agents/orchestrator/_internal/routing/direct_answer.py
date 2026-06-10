@@ -278,7 +278,7 @@ def _answer_config(config: Mapping[str, Any]) -> dict[str, Any]:
 
     answer_config: dict[str, Any] = {
         "temperature": 0.2,
-        "max_tokens": 1024,
+        "max_tokens": 4096,
     }
     answer_config.update(dict(raw_config))
     for key in ("model", "max_retries", "request_timeout_seconds"):
