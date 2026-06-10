@@ -36,6 +36,11 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend/src-tauri
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -108,27 +113,22 @@ jobs:
 
           $nsis = Get-ChildItem $bundleRoot -Recurse -Filter "*.exe" | Select-Object -First 1
           if (-not $nsis) { throw "NSIS setup exe was not produced." }
-          Copy-Item $nsis.FullName "$out/AgentHub_Desktop_${version}_x64-setup.exe"
+          $nsisName = "AgentHub_Desktop_${version}_x64-setup.exe"
+          Copy-Item $nsis.FullName "$out/$nsisName"
+          $nsisSig = Get-Item "$($nsis.FullName).sig" -ErrorAction SilentlyContinue
+          if (-not $nsisSig) { throw "Signed NSIS updater signature was not produced." }
+          Copy-Item $nsisSig.FullName "$out/$nsisName.sig"
 
           $msi = Get-ChildItem $bundleRoot -Recurse -Filter "*.msi" | Select-Object -First 1
           if (-not $msi) { throw "MSI bundle was not produced." }
-          Copy-Item $msi.FullName "$out/AgentHub_Desktop_${version}_x64_en-US.msi"
+          $msiName = "AgentHub_Desktop_${version}_x64_en-US.msi"
+          Copy-Item $msi.FullName "$out/$msiName"
+          $msiSig = Get-Item "$($msi.FullName).sig" -ErrorAction SilentlyContinue
+          if ($msiSig) {
+            Copy-Item $msiSig.FullName "$out/$msiName.sig"
+          }
 
-          $updater = Get-ChildItem $bundleRoot -Recurse -File |
-            Where-Object { $_.Name -match "\.(zip|tar\.gz)$" -and $_.Name -notmatch "\.sig$" } |
-            Select-Object -First 1
-          if (-not $updater) { throw "Updater package was not produced." }
-          $updaterExt = if ($updater.Name.EndsWith(".tar.gz")) { "tar.gz" } else { $updater.Extension.TrimStart(".") }
-          $updaterName = "AgentHub_Desktop_${version}_x64-updater.$updaterExt"
-          Copy-Item $updater.FullName "$out/$updaterName"
-
-          $sig = Get-ChildItem $bundleRoot -Recurse -File |
-            Where-Object { $_.Name -eq "$($updater.Name).sig" -or $_.Name -like "*.sig" } |
-            Select-Object -First 1
-          if (-not $sig) { throw "Updater signature was not produced." }
-          Copy-Item $sig.FullName "$out/$updaterName.sig"
-
-          $signature = (Get-Content $sig.FullName -Raw).Trim()
+          $signature = (Get-Content $nsisSig.FullName -Raw).Trim()
           $latest = @{
             version = $version
             notes = "AgentHub Desktop $version"
@@ -136,7 +136,7 @@ jobs:
             platforms = @{
               "windows-x86_64" = @{
                 signature = $signature
-                url = "https://github.com/$repo/releases/download/$tag/$updaterName"
+                url = "https://github.com/$repo/releases/download/$tag/$nsisName"
               }
             }
           }
