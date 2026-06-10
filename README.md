@@ -4,6 +4,8 @@
 
 [![status](https://img.shields.io/badge/status-MVP-yellow)]() [![python](https://img.shields.io/badge/python-3.11+-blue)]() [![react](https://img.shields.io/badge/react-18-61dafb)]() [![license](https://img.shields.io/badge/license-MIT-green)]()
 
+**演示站点**：[ag.brqs.link](http://ag.brqs.link/login)
+
 ---
 
 ## ✨ 核心特性
