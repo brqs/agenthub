@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator._internal.tools.loop import _tool_model_config
 from app.agents.orchestrator.tools import OrchestratorToolResult
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
@@ -38,6 +39,17 @@ class FakeGateway:
         chunks = self._chunk_sequences[index] if index < len(self._chunk_sequences) else []
         for chunk in chunks:
             yield chunk
+
+
+def test_tool_model_config_uses_expanded_default_and_config_override() -> None:
+    assert _tool_model_config({})["max_tokens"] == 8192
+    assert (
+        _tool_model_config({"orchestrator_tool_max_tokens": 12000})["max_tokens"]
+        == 12000
+    )
+    assert _tool_model_config({"orchestrator_tool_config": {"max_tokens": 2048}})[
+        "max_tokens"
+    ] == 2048
 
 
 class FakeWriterAdapter(BaseAgentAdapter):

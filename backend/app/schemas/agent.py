@@ -84,6 +84,24 @@ class AgentConfig(BaseModel):
         default=None,
         description="ModelGateway backend for orchestrator LLM planning.",
     )
+    context_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("context_max_tokens").minimum,
+        le=numeric_field("context_max_tokens").maximum,
+        description="Maximum conversation context tokens passed to this agent.",
+    )
+    orchestrator_context_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_context_max_tokens").minimum,
+        le=numeric_field("orchestrator_context_max_tokens").maximum,
+        description="Maximum context tokens used by the Orchestrator main flow.",
+    )
+    orchestrator_subagent_context_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_subagent_context_max_tokens").minimum,
+        le=numeric_field("orchestrator_subagent_context_max_tokens").maximum,
+        description="Maximum context tokens passed from Orchestrator to sub-agents.",
+    )
     llm_planning: bool | None = None
     planner_fallback_to_template: bool | None = None
     available_agents_authoritative: bool | None = None
@@ -193,6 +211,11 @@ class AgentConfig(BaseModel):
         default=None,
         ge=numeric_field("orchestrator_tool_max_iterations").minimum,
         le=numeric_field("orchestrator_tool_max_iterations").maximum,
+    )
+    orchestrator_tool_max_tokens: int | None = Field(
+        default=None,
+        ge=numeric_field("orchestrator_tool_max_tokens").minimum,
+        le=numeric_field("orchestrator_tool_max_tokens").maximum,
     )
     orchestrator_tool_result_max_chars: int | None = Field(
         default=None,

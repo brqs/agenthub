@@ -10,6 +10,7 @@ from app.agents.config_fields import (
     CLAUDE_CODE_RUNTIMES,
     CODEX_RUNTIMES,
     CODEX_SANDBOX_MODES,
+    CONTEXT_BUDGET_FIELDS,
     EXTERNAL_DIRECT_CHAT_FIELDS,
     EXTERNAL_RUNTIME_BUDGET_FIELDS,
     SUPPORTED_UPSTREAM_PROVIDERS,
@@ -418,6 +419,17 @@ def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> 
             )
 
 
+def _validate_context_budget_config(config: dict[str, Any]) -> None:
+    for field in CONTEXT_BUDGET_FIELDS:
+        _validate_numeric(
+            config,
+            field.key,
+            field.minimum,
+            field.maximum,
+            allow_float=field.allow_float,
+        )
+
+
 def _validate_external_direct_chat_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "qa_short_circuit_enabled")
     qa_model_backend = config.get("qa_model_backend")
@@ -553,6 +565,7 @@ def validate_agent_config(
     _ = system_prompt
     normalized = dict(config)
     _validate_no_inline_secrets(normalized)
+    _validate_context_budget_config(normalized)
 
     provider = provider.lower()
 

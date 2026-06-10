@@ -834,6 +834,11 @@ async def _run_task(
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     task_result = TaskResult(task_id=task.task_id, title=task.title)
     fallback_agents = _task_fallback_agent_ids(config)
+    if (
+        task.task_type == "dialogue_turn"
+        and config.get("orchestrator_dialogue_turn_cross_agent_fallback_enabled") is not True
+    ):
+        fallback_agents = []
     max_attempts = _max_task_attempts(config)
     considered_agents: set[str] = set()
     await _memory_record_event(

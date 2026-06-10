@@ -132,6 +132,33 @@ def test_dialogue_turn_accepts_clear_negative_stance_without_fixed_phrase() -> N
     assert "就业断层" in validation.summary_text
 
 
+def test_dialogue_turn_accepts_negative_distribution_and_speed_argument() -> None:
+    task = SubTask(
+        task_id="turn-2",
+        agent_id="opencode-helper",
+        title="第 2 轮发言：反方",
+        instruction=(
+            "本轮必须明确回应上一轮，不要代写其他 Agent 的完整发言。"
+            "你的角色/立场：反方，主张 AI 快速发展弊大于利。"
+        ),
+        depends_on=("turn-1",),
+        task_type="dialogue_turn",
+    )
+
+    validation = validate_task_output(
+        task,
+        _attempt(
+            "针对上一轮正方关于效率和医疗收益的说法，我认为问题在速度和分配。"
+            "技术迭代远超制度、监管和再培训能力时，普通劳动者会先承受就业替代、"
+            "隐私滥用、数据垄断和算力集中带来的结构性撕裂。生成式 AI 的能耗、"
+            "碳排放和信息污染也会被全社会承担，而头部平台拿走主要收益。"
+        ),
+    )
+
+    assert validation.passed
+    assert "结构性撕裂" in validation.summary_text
+
+
 def test_dialogue_turn_accepts_substantive_reply_with_agent_mention() -> None:
     task = SubTask(
         task_id="turn-2",

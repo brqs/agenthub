@@ -563,7 +563,7 @@ CONTEXT_COMPRESSION_BASE_URL=https://api.deepseek.com
   "mode": "hybrid",
   "provider": "deepseek",
   "model": "deepseek-v4-flash",
-  "summary_max_tokens": 1200,
+  "summary_max_tokens": 4000,
   "recent_raw_keep": 12,
   "api_key_configured": true,
   "api_key_source": "context_compression_api_key",
@@ -1188,7 +1188,11 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 | `capabilities` | 字符串数组，最多 10 项 |
 | `system_prompt` | 最长 8KB |
 | `config.model_backend` | 仅 `builtin` 使用，取值 `claude` / `deepseek` / `openai` |
+| `config.context_max_tokens` | 通用 agent 会话上下文 token 预算，1 - 200000，默认 64000 |
+| `config.orchestrator_context_max_tokens` | Orchestrator 主流程上下文 token 预算，1 - 200000，默认 64000 |
+| `config.orchestrator_subagent_context_max_tokens` | Orchestrator 分发给子 Agent 的上下文 token 预算，1 - 200000，默认 64000 |
 | `config.max_iterations` | 仅 `builtin` 使用，1 - 50 |
+| `config.orchestrator_tool_max_tokens` | Orchestrator tool loop 输出 token 预算，1 - 32000，默认 8192 |
 | `config.mcp_servers` | 仅 `builtin` 使用，MCP server 配置数组 |
 | `config.runtime` | `claude_code` 可选 `sdk` / `cli`；`codex` 可选 `cli` / `sdk` |
 | `config.command` | `claude_code` CLI runtime、`codex` CLI runtime、`opencode` CLI runtime 可使用，string 或 string array |
