@@ -915,6 +915,13 @@ paths:
           pattern: ^(before|after)$
           default: before
           title: Direction
+      - name: include_hidden
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Hidden
       responses:
         '200':
           description: Successful Response
@@ -2828,6 +2835,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/workspaces/{conversation_id}/deployments/one-click-container:
+    post:
+      tags:
+      - Workspaces
+      summary: Create One Click Container Deployment
+      operationId: create_one_click_container_deployment_api_v1_workspaces__conversation_id__deployments_one_click_container_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceOneClickContainerDeploymentResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}:
     get:
       tags:
@@ -3746,6 +3782,14 @@ components:
           - type: 'null'
           title: Orchestrator Subagent Context Max Tokens
           description: Maximum context tokens passed from Orchestrator to sub-agents.
+        planner_context_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 1000000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Planner Context Max Tokens
+          description: Maximum input context tokens used by the Orchestrator Planner.
         llm_planning:
           anyOf:
           - type: boolean
@@ -3904,6 +3948,30 @@ components:
             minimum: 1.0
           - type: 'null'
           title: Qa Request Timeout Seconds
+        qa_stream_idle_timeout_seconds:
+          anyOf:
+          - type: number
+            maximum: 3600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Qa Stream Idle Timeout Seconds
+          description: Idle timeout for external direct-chat streaming.
+        qa_stream_max_runtime_seconds:
+          anyOf:
+          - type: number
+            maximum: 3600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Qa Stream Max Runtime Seconds
+          description: Hard timeout for external direct-chat streaming.
+        qa_stream_heartbeat_seconds:
+          anyOf:
+          - type: number
+            maximum: 3600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Qa Stream Heartbeat Seconds
+          description: Heartbeat interval for external direct-chat streaming.
         task_fallback_agent_ids:
           anyOf:
           - items:
@@ -7223,6 +7291,16 @@ components:
           - strict
           title: Requirement Alignment
           default: 'off'
+        ui_hidden:
+          type: boolean
+          title: Ui Hidden
+          default: false
+        automation_kind:
+          anyOf:
+          - type: string
+            const: one_click_container_deploy
+          - type: 'null'
+          title: Automation Kind
       type: object
       title: TurnOptions
     UpdateAgentKnowledgeRequest:
@@ -8386,6 +8464,28 @@ components:
       - created_at
       - updated_at
       title: WorkspaceDeploymentResponse
+    WorkspaceOneClickContainerDeploymentResponse:
+      properties:
+        mode:
+          type: string
+          enum:
+          - direct
+          - orchestrator_prepare
+          title: Mode
+        automation_message_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Automation Message Id
+        deployment:
+          anyOf:
+          - $ref: '#/components/schemas/WorkspaceDeploymentResponse'
+          - type: 'null'
+      type: object
+      required:
+      - mode
+      title: WorkspaceOneClickContainerDeploymentResponse
     WorkspacePreviewRequest:
       properties:
         entry_path:

@@ -1,7 +1,7 @@
 # Orchestrator Native Deployment Execution Spec
 
-> 状态：Production hardening API E2E passed
-> 最后更新：2026-06-08
+> 状态：Production hardening + one-click repair loop E2E passed
+> 最后更新：2026-06-10
 > 依据：课程设计第五点“部署发布”，以聊天中直接发送“部署”指令并返回部署状态卡片为产品目标。
 
 ## 1. 背景与重构目标
@@ -154,10 +154,14 @@ DEPLOYMENT_CONTAINER_PORT_END=8085
 前端交互策略：
 
 - “容器化部署”按钮不以 workspace 是否已有 `Dockerfile` 作为静默禁用条件。
-- 只要有 conversation / workspace，前端可以发起 `create_deployment(kind="container")`。
-- 缺少 `Dockerfile`、runtime 不可用、容器 worker 被管理员关闭或平台策略拒绝时，由后端返回受控
-  `failed` / `not_supported` 状态和可读原因。
-- 按钮可点击表示可以发起平台部署请求；是否真实发布由后端 policy、runtime preflight 和 worker 状态决定。
+- workspace 已有 `Dockerfile` 时，前端继续发起直接 `create_deployment(kind="container")`。
+- workspace 缺少 `Dockerfile` 时，前端调用
+  `POST /api/v1/workspaces/{conversation_id}/deployments/one-click-container`，由后端创建隐藏
+  Orchestrator automation 自动补齐 `Dockerfile` / `agenthub_container_server.py` 并触发 container deployment。
+- runtime 不可用、容器 worker 被管理员关闭或平台策略拒绝时，由后端返回受控
+  `failed` / `not_supported` 状态和可读原因；有 Dockerfile 的直接部署不会静默失败。
+- 按钮可点击表示可以发起平台部署请求；无 Dockerfile 的“从零部署”是否真实发布由隐藏 Orchestrator
+  automation、policy、runtime preflight、worker 状态和 repair/redeploy loop 共同决定。
 
 如需使用 Docker 而不是默认 Podman，必须显式 trusted override：
 
@@ -353,6 +357,9 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - 部署阶段已接入 `deployment_health` evaluation：失败时生成结构化 reflection，repair instruction
   包含 deployment kind、error、logs/logs_tail 和原始 tool arguments；repair agent 修改 workspace 后会重新调用
   同一个 deployment tool。`queued/publishing` 视为 pending/skipped，`not_supported` 仅记录平台限制，不触发自动修复。
+- `one-click-container` API 已支持“无 Dockerfile 从零部署”：已有 `Dockerfile` 时直连 container deployment；
+  缺少 `Dockerfile` 时创建 `ui_hidden=true`、`automation_kind="one_click_container_deploy"` 的隐藏
+  Orchestrator 自动任务，生成最小静态站点容器入口并等待 deployment terminal 状态。
 - 2026-06-04 B2-TODO-05 direct public API E2E 已验证历史 production-default
   `not_supported` 和 trusted Docker demo override `queued -> published` 两条路径。
 - 2026-06-08 起默认改为 `DEPLOYMENT_CONTAINER_ENABLED=true` + `podman`；新增 runtime preflight，
@@ -362,9 +369,12 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 
 - 直接 API E2E 已扩展 container case；当前默认应在 Podman 可用时返回 `queued/publishing -> published`，
   runtime 不可用或管理员关闭 worker 时返回 `not_supported`。
-- 前端发布操作中的“容器化部署”按钮可以发起受控 `create_deployment(kind="container")`
-  请求；缺少 Dockerfile、runtime 不可用或 `DEPLOYMENT_CONTAINER_ENABLED=false` 时，应展示后端返回的
-  受控失败 / `not_supported` 状态，而不是静默禁用入口。
+- 前端发布操作中的“容器化部署”按钮可以发起受控部署请求；已有 Dockerfile 时调用
+  `create_deployment(kind="container")`，缺少 Dockerfile 时调用 `one-click-container` API。
+- runtime 不可用或 `DEPLOYMENT_CONTAINER_ENABLED=false` 时，应展示后端返回的受控失败 /
+  `not_supported` 状态，而不是静默禁用入口。
+- 2026-06-10 起，缺少 Dockerfile 的按钮路径会创建隐藏 automation turn；默认消息列表不展示隐藏
+  automation，但发布历史继续轮询 queued / publishing / failed / published 状态。
 - 前端未完成时，后端验收以直接 API E2E 和 Orchestrator API/SSE E2E 为准，不要求远端 UI 渲染状态卡。
 - 历史 Orchestrator API/SSE E2E 已在 demo override 下验证静态发布、源码包和容器发布链路。
 - 2026-06-04 direct API E2E 证据：
@@ -387,6 +397,18 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
   - optional repair report：`/tmp/agenthub_b2_todo_05_orch_repair_report.json` 未通过；
     已观察到 `failure_category=build_failed`、`last_error_code=container_build_failed`，
     但未观察到 `reflection_created` 和第二次 redeploy；作为后续 repair loop 稳定性补项。
+- 2026-06-10 one-click container repair loop E2E 证据：
+  - report：`/tmp/agenthub_one_click_container_deploy_repair_report.json`，
+    SSE `/tmp/agenthub_one_click_container_deploy_repair_sse.jsonl`，conversation
+    `f5c2de5e-f1c6-4c71-bd00-26cdb51c3a1c`，automation message
+    `7441aa2f-0166-4d21-bdfa-1b63dd069e37`。
+  - 初始 workspace 无 `Dockerfile`，one-click API 返回 `mode="orchestrator_prepare"`；默认 message list
+    不展示隐藏 automation，`include_hidden=true` 可读取。
+  - 隐藏 Orchestrator 生成 `Dockerfile`，首次 container health 因预置坏
+    `agenthub_container_server.py` 失败，随后记录 `reflection_created`，`opencode-helper`
+    执行 `deployment-repair-1`，第二次 `create_deployment(kind="container")` 发布成功。
+  - final deployment `d2548f58-1387-4354-be96-9b888d5ceee6` 为 `published`，
+    healthcheck URL 返回 `ok`，stop cleanup 和 8081-8085 端口残留检查均通过。
 - Orchestrator live E2E 增加 deployment repair 专用场景：首次容器部署失败后必须观察到
   `deployment_health` failure、`reflection_created`、repair agent attempt、第二次 `create_deployment` 和最终
   `published=true`。
@@ -399,7 +421,10 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - 默认 container enabled + Podman runtime available -> `queued/publishing -> published`。
 - Runtime 缺失或 container disabled -> `not_supported`。
 - Docker trusted false -> `not_supported` / policy rejected；Podman trusted false 允许。
-- Dockerfile 不存在 -> 初始 `queued`，worker 最终 `failed` + `failure_category="build_failed"`。
+- 直接 `create_deployment(kind="container")` 且 Dockerfile 不存在 -> 初始 `queued`，worker 最终
+  `failed` + `failure_category="build_failed"`。
+- `one-click-container` 且 Dockerfile 不存在 -> 隐藏 Orchestrator automation 先生成 Dockerfile，再触发
+  container deployment；失败时进入 deployment health reflection / repair / redeploy loop。
 - Dockerfile 存在且健康检查通过 -> 初始 `queued`，worker 最终 `published`。
 - host port 被占用 -> 换端口或失败，策略必须明确。
 - repeated stop deployment -> 幂等 `stopped`；queued/publishing stop 记录 cancellation intent。
@@ -407,9 +432,9 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - Dockerfile 尝试 privileged / host mount 不应被平台 run 参数允许。
 - 构建超时、运行超时、健康检查失败均写入 error/logs/state_events。
 
-Orchestrator API/SSE queued worker 复验已覆盖 production-default `not_supported` 和 trusted Docker demo
-override `queued/publishing -> published` 两条聊天编排链路；剩余补测集中在 repair/redeploy loop 对 queued
-worker 新状态语义的稳定复验。
+Orchestrator API/SSE queued worker 复验已覆盖 production-default `not_supported`、trusted Docker demo
+override `queued/publishing -> published` 和 one-click from-zero `failed -> reflection -> repair -> published`
+三条聊天编排链路。后续可选补测集中在更多真实项目类型，而不是当前静态站点 one-click MVP。
 
 ```text
 @orchestrator 请生成一个最小 FastAPI 服务，包含 Dockerfile，
@@ -492,6 +517,30 @@ conversation_id: 9fd3cd30-6b65-45a4-8833-dcadffd78f64
 container_deployment_smoke_status_code: 201
 container_deployment_smoke_status: not_supported
 container_error: Container deployment is disabled. Enable DEPLOYMENT_CONTAINER_ENABLED to use it.
+result: passed
+```
+
+2026-06-10 One-click container from-zero repair loop：
+
+```text
+scenario: one_click_container_deploy_repair_loop
+report: /tmp/agenthub_one_click_container_deploy_repair_report.json
+sse: /tmp/agenthub_one_click_container_deploy_repair_sse.jsonl
+conversation_id: f5c2de5e-f1c6-4c71-bd00-26cdb51c3a1c
+automation_message_id: 7441aa2f-0166-4d21-bdfa-1b63dd069e37
+initial_workspace_without_dockerfile: true
+one_click_mode_orchestrator_prepare: true
+hidden_automation_not_listed_by_default: true
+workspace_has_dockerfile: true
+deployment_initial_failure_or_repair_trigger_seen: true
+reflection_created: true
+repair_agent_attempt_exists: true
+redeploy_called: true
+final_container_deployment_id: d2548f58-1387-4354-be96-9b888d5ceee6
+container_deployment_published: true
+container_health_ok: true
+container_stop_cleanup_ok: true
+local_deployment_ports_clean: true
 result: passed
 ```
 

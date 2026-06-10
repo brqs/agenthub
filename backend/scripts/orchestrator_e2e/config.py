@@ -27,6 +27,9 @@ DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
+DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_one_click_container_deploy_repair_sse.jsonl"  # noqa: S108
+)
 DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH = "/tmp/agenthub_custom_agent_tools_sse.jsonl"  # noqa: S108
 DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_architected_frontend_group_chat_sse.jsonl"  # noqa: S108
@@ -90,6 +93,9 @@ DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # no
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
+DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_one_click_container_deploy_repair_report.json"  # noqa: S108
+)
 DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH = "/tmp/agenthub_custom_agent_tools_report.json"  # noqa: S108
 DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_architected_frontend_group_chat_report.json"  # noqa: S108
@@ -180,6 +186,11 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
     "deployment_repair": ScenarioDefaults(
         DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH,
         DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH,
+        DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH,
+    ),
+    "one_click_container_deploy_repair_loop": ScenarioDefaults(
+        DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_REPORT_PATH,
+        DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_SSE_PATH,
         DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH,
     ),
     "custom_agent_tools": ScenarioDefaults(

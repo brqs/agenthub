@@ -48,6 +48,25 @@ export function useCreateDeployment(conversationId: string | null | undefined) {
   });
 }
 
+export function useOneClickContainerDeployment(conversationId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => deploymentsAdapter.oneClickContainerDeployment(conversationId as string),
+    onSuccess: (response) => {
+      if (response.deployment) {
+        queryClient.setQueryData(
+          ['workspace-deployment', conversationId, response.deployment.id],
+          response.deployment,
+        );
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ['workspace-deployments', conversationId],
+      });
+    },
+  });
+}
+
 export function useStopDeployment(conversationId: string | null | undefined) {
   const queryClient = useQueryClient();
 

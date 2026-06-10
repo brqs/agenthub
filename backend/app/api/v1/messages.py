@@ -236,6 +236,13 @@ def _turn_options(requirement_alignment: str | None) -> dict[str, str]:
     }
 
 
+def _is_ui_hidden_message(message: Message) -> bool:
+    return bool(
+        isinstance(message.turn_options, dict)
+        and message.turn_options.get("ui_hidden") is True
+    )
+
+
 async def _touch_conversation(db: DbSession, user_id: UUID, conv_id: UUID) -> None:
     conv = await _get_owned_conversation(db, user_id, conv_id)
     conv.last_message_at = datetime.now(UTC)
@@ -253,6 +260,7 @@ async def list_messages(
     cursor: str | None = Query(default=None),
     limit: int = Query(default=30, ge=1, le=100),
     direction: str = Query(default="before", pattern="^(before|after)$"),
+    include_hidden: bool = Query(default=False),
 ) -> MessageList:
     await _get_owned_conversation(db, user.id, conv_id)
 
@@ -307,6 +315,9 @@ async def list_messages(
         has_more = len(page) > limit
         items = list(reversed(page[:limit]))
         next_cursor = str(items[0].id) if has_more and items else None
+
+    if not include_hidden:
+        items = [message for message in items if not _is_ui_hidden_message(message)]
 
     queue_positions = await _queue_position_map(
         db,

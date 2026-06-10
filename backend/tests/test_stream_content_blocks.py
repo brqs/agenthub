@@ -1862,7 +1862,8 @@ async def test_orchestrator_dialogue_turns_auto_schedule_next_agent(
 
     assert response.status_code == 200
     assert messages["agent_message"]["agent_id"] == orchestrator_id
-    assert sse_text.count("event: message_start") == 2
+    expected_child_agents = [first_id, second_id, first_id, second_id]
+    assert sse_text.count("event: message_start") == len(expected_child_agents)
     assert "artifact_missing" not in sse_text
     assert claude_adapter.received_messages
     assert opencode_adapter.received_messages
@@ -1875,7 +1876,7 @@ async def test_orchestrator_dialogue_turns_auto_schedule_next_agent(
         for message in stored_messages
         if message.role == "agent" and message.agent_id in {first_id, second_id}
     ]
-    assert [message.agent_id for message in child_messages] == [first_id, second_id]
+    assert [message.agent_id for message in child_messages] == expected_child_agents
     assert {message.status for message in child_messages} == {"done"}
     assert all(
         any(

@@ -1180,6 +1180,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces/{conversation_id}/deployments/one-click-container": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create One Click Container Deployment */
+        post: operations["create_one_click_container_deployment_api_v1_workspaces__conversation_id__deployments_one_click_container_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspaces/{conversation_id}/deployments/{deployment_id}": {
         parameters: {
             query?: never;
@@ -1645,6 +1662,11 @@ export interface components {
              * @description Maximum context tokens passed from Orchestrator to sub-agents.
              */
             orchestrator_subagent_context_max_tokens?: number | null;
+            /**
+             * Planner Context Max Tokens
+             * @description Maximum input context tokens used by the Orchestrator Planner.
+             */
+            planner_context_max_tokens?: number | null;
             /** Llm Planning */
             llm_planning?: boolean | null;
             /** Planner Fallback To Template */
@@ -1703,6 +1725,21 @@ export interface components {
             qa_temperature?: number | null;
             /** Qa Request Timeout Seconds */
             qa_request_timeout_seconds?: number | null;
+            /**
+             * Qa Stream Idle Timeout Seconds
+             * @description Idle timeout for external direct-chat streaming.
+             */
+            qa_stream_idle_timeout_seconds?: number | null;
+            /**
+             * Qa Stream Max Runtime Seconds
+             * @description Hard timeout for external direct-chat streaming.
+             */
+            qa_stream_max_runtime_seconds?: number | null;
+            /**
+             * Qa Stream Heartbeat Seconds
+             * @description Heartbeat interval for external direct-chat streaming.
+             */
+            qa_stream_heartbeat_seconds?: number | null;
             /** Task Fallback Agent Ids */
             task_fallback_agent_ids?: string[] | null;
             /** Max Task Attempts */
@@ -3381,6 +3418,13 @@ export interface components {
              * @enum {string}
              */
             requirement_alignment: "off" | "strict";
+            /**
+             * Ui Hidden
+             * @default false
+             */
+            ui_hidden: boolean;
+            /** Automation Kind */
+            automation_kind?: "one_click_container_deploy" | null;
         };
         /** UpdateAgentKnowledgeRequest */
         UpdateAgentKnowledgeRequest: {
@@ -3964,6 +4008,17 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** WorkspaceOneClickContainerDeploymentResponse */
+        WorkspaceOneClickContainerDeploymentResponse: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "direct" | "orchestrator_prepare";
+            /** Automation Message Id */
+            automation_message_id?: string | null;
+            deployment?: components["schemas"]["WorkspaceDeploymentResponse"] | null;
         };
         /** WorkspacePreviewRequest */
         WorkspacePreviewRequest: {
@@ -5134,6 +5189,7 @@ export interface operations {
                 cursor?: string | null;
                 limit?: number;
                 direction?: string;
+                include_hidden?: boolean;
             };
             header?: never;
             path: {
@@ -7034,6 +7090,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceDeploymentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_one_click_container_deployment_api_v1_workspaces__conversation_id__deployments_one_click_container_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOneClickContainerDeploymentResponse"];
                 };
             };
             /** @description Validation Error */

@@ -103,3 +103,63 @@ async def test_orchestrator_stream_context_injects_memory_into_planner_context(
     assert stream_config is not None
     planner_context = stream_config["planner_context_messages"]
     assert any("prior decision" in message.content for message in planner_context)
+
+
+async def test_one_click_container_stream_context_uses_fixed_prepare_task(
+    monkeypatch,
+) -> None:
+    class FakeMessage:
+        agent_id = "orchestrator"
+        conversation_id = uuid4()
+        id = uuid4()
+        reply_to_id = uuid4()
+        turn_options = {
+            "automation_kind": "one_click_container_deploy",
+            "one_click_existing_container_server": True,
+        }
+
+    class FakeAdapter:
+        default_config = {
+            "orchestrator_memory_enabled": False,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+        }
+
+        def merged_config(self, stream_config):
+            return {**self.default_config, **stream_config}
+
+    async def fake_conversation_config(_db, _message):
+        return {}
+
+    monkeypatch.setattr(
+        orchestrator_context_module,
+        "_orchestrator_conversation_config",
+        fake_conversation_config,
+    )
+
+    _history, stream_config = (
+        await orchestrator_context_module.apply_orchestrator_stream_context(
+            None,
+            FakeMessage(),
+            FakeAdapter(),
+            [ChatMessage(role="user", content="prepare and deploy")],
+        )
+    )
+
+    assert stream_config is not None
+    assert stream_config["conversation_scoped_agents"] is False
+    assert stream_config["available_agents_authoritative"] is False
+    assert stream_config["orchestrator_group_messages_enabled"] is False
+    assert stream_config["orchestrator_container_deployment_wait_for_terminal"] is True
+    assert stream_config["orchestrator_quality_repair_agent_order"] == [
+        "opencode-helper",
+        "claude-code",
+        "codex-helper",
+    ]
+    assert stream_config["task_auto_fallback_enabled"] is False
+    assert stream_config["max_task_attempts"] == 1
+    assert stream_config["tasks"][0]["agent_id"] == "opencode-helper"
+    assert stream_config["tasks"][0]["task_id"] == "one-click-container-prepare"
+    assert "do not read, edit, validate" in stream_config["tasks"][0]["instruction"]
+    assert "Do not call create_deployment" in stream_config["tasks"][0]["instruction"]
+    assert stream_config["tasks"][0]["include_history"] is False
+    assert "expected_output" not in stream_config["tasks"][0]

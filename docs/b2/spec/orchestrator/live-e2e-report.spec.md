@@ -149,6 +149,7 @@ panel 和 code artifact summary，均无 `artifact_missing`、raw stderr、`call
 | Case 14 - Pure Dialogue Group Debate | “不需要生成文件”的群聊辩论任务生成 conversation tasks，至少两个 child Agent 独立发言，跳过 artifact missing 检查，父 Orchestrator 正常主持总结 | passed |
 | Case 15 - Sub-Agent Substantive Output Matrix | 对话、圆桌、角色扮演、策略头脑风暴、数据分析、代码产物、review/gaps 均要求每个 child message 有实质 `agent_summary` 或可读失败/fallback 证据 | passed |
 | Case 16 - Agent Turn-Taking Runtime Defaults | Claude -> OpenCode 严格接力、OpenCode/Codex 缺省模型使用 runtime default、OpenCode session DB text fallback、turn-taking matrix 泛用性 | passed |
+| Case 17 - One-click Container From Zero Repair Loop | 初始 workspace 无 Dockerfile；one-click endpoint 创建隐藏 Orchestrator automation；生成 Dockerfile，首次 health 失败后 reflection，repair agent 修复，第二次 container deployment published，health/stop cleanup 通过 | passed |
 
 2026-06-10 Case 16 agent turn-taking runtime defaults 证据：
 
@@ -442,6 +443,38 @@ deployment_repair_initial_failure_seen: true
 deployment_repair_reflection_created: false
 deployment_repair_redeploy_called: false
 note: optional repair/redeploy confirmation did not block the B2-TODO-05 queued worker acceptance.
+```
+
+2026-06-10 One-click Container From Zero Repair Loop 证据：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+scenario: one_click_container_deploy_repair_loop
+report: /tmp/agenthub_one_click_container_deploy_repair_report.json
+sse: /tmp/agenthub_one_click_container_deploy_repair_sse.jsonl
+conversation_id: f5c2de5e-f1c6-4c71-bd00-26cdb51c3a1c
+automation_message_id: 7441aa2f-0166-4d21-bdfa-1b63dd069e37
+passed: true
+initial_workspace_without_dockerfile: true
+one_click_mode_orchestrator_prepare: true
+hidden_automation_message_exists: true
+hidden_automation_not_listed_by_default: true
+workspace_has_dockerfile: true
+workspace_has_container_server: true
+sse_create_deployment_called: true
+deployment_initial_failure_or_repair_trigger_seen: true
+reflection_created: true
+repair_agent_attempt_exists: true
+repair_task_id: deployment-repair-1
+repair_agent_id: opencode-helper
+redeploy_called: true
+final_container_deployment_id: d2548f58-1387-4354-be96-9b888d5ceee6
+container_deployment_published: true
+container_url_200: true
+container_health_ok: true
+container_stop_cleanup_ok: true
+local_deployment_ports_clean: true
 ```
 
 ```text

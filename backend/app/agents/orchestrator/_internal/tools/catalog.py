@@ -188,6 +188,12 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                     "container_port": {"type": "integer", "minimum": 1, "maximum": 65535},
                     "health_path": {"type": "string"},
                     "start_command": {"type": "string"},
+                    "wait_for_terminal": {"type": "boolean"},
+                    "wait_timeout_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 600,
+                    },
                 },
                 "required": ["kind"],
             },
