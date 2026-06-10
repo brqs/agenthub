@@ -263,6 +263,7 @@ async def list_messages(
     include_hidden: bool = Query(default=False),
 ) -> MessageList:
     await _get_owned_conversation(db, user.id, conv_id)
+    await cleanup_stale_streaming_messages(db)
 
     cursor_message: Message | None = None
     if cursor:
