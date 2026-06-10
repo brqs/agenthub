@@ -6,6 +6,8 @@
 
 **演示站点**：[ag.brqs.link](http://ag.brqs.link/login)
 
+**演示视频**：[demo.mp4](demo.mp4)
+
 ---
 
 ## ✨ 核心特性
