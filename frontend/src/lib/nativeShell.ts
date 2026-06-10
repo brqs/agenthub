@@ -1,6 +1,7 @@
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
+import { isDesktopRuntime, openDesktopExternalUrl } from '@/lib/desktopBridge';
 import { useUiStore } from '@/stores/uiStore';
 
 let initialized = false;
@@ -9,7 +10,7 @@ export type ShellPlatform = 'web' | 'capacitor' | 'tauri';
 
 export function getShellPlatform(): ShellPlatform {
   if (Capacitor.isNativePlatform()) return 'capacitor';
-  if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) return 'tauri';
+  if (isDesktopRuntime()) return 'tauri';
   return 'web';
 }
 
@@ -39,13 +40,12 @@ export async function handleNativeBackButton(canGoBack: boolean): Promise<void> 
 
 export async function openExternalUrl(url: string): Promise<void> {
   const platform = getShellPlatform();
-  if (platform === 'capacitor') {
-    await Browser.open({ url });
+  if (platform === 'tauri') {
+    await openDesktopExternalUrl(url);
     return;
   }
-  if (platform === 'tauri') {
-    const { openUrl } = await import('@tauri-apps/plugin-opener');
-    await openUrl(url);
+  if (platform === 'capacitor') {
+    await Browser.open({ url });
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');

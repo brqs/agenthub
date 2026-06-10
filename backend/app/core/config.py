@@ -145,11 +145,20 @@ class Settings(BaseSettings):
     agent_stream_hard_timeout_seconds: int = Field(default=900)
 
     # ─── CORS ───
-    cors_origins: str = Field(default="http://localhost:5173")
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173,http://tauri.localhost"
+    )
+    desktop_cors_origins: str = Field(default="http://tauri.localhost")
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        origins: list[str] = []
+        for raw in (self.cors_origins, self.desktop_cors_origins):
+            for origin in raw.split(","):
+                normalized = origin.strip()
+                if normalized and normalized not in origins:
+                    origins.append(normalized)
+        return origins
 
     @property
     def is_development(self) -> bool:

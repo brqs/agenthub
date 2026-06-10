@@ -16,10 +16,7 @@ paths:
           content:
             application/json:
               schema:
-                additionalProperties:
-                  type: string
-                type: object
-                title: Response Health Health Get
+                $ref: '#/components/schemas/HealthResponse'
   /api/v1/auth/register:
     post:
       tags:
@@ -4591,6 +4588,29 @@ components:
       required:
       - content
       title: GuidanceRequest
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        version:
+          type: string
+          title: Version
+        environment:
+          type: string
+          title: Environment
+        dependencies:
+          additionalProperties:
+            type: string
+          type: object
+          title: Dependencies
+      type: object
+      required:
+      - status
+      - version
+      - environment
+      - dependencies
+      title: HealthResponse
     HTTPValidationError:
       properties:
         detail:

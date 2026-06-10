@@ -1,7 +1,7 @@
 import { App } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openDesktopExternalUrl } from './desktopBridge';
 import { getShellPlatform, handleNativeBackButton, openExternalUrl } from './nativeShell';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -24,9 +24,13 @@ vi.mock('@capacitor/core', () => ({
   },
 }));
 
-vi.mock('@tauri-apps/plugin-opener', () => ({
-  openUrl: vi.fn(),
-}));
+vi.mock('./desktopBridge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./desktopBridge')>();
+  return {
+    ...actual,
+    openDesktopExternalUrl: vi.fn(),
+  };
+});
 
 describe('nativeShell', () => {
   beforeEach(() => {
@@ -40,7 +44,7 @@ describe('nativeShell', () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     vi.mocked(App.exitApp).mockResolvedValue();
     vi.mocked(Browser.open).mockResolvedValue();
-    vi.mocked(openUrl).mockResolvedValue();
+    vi.mocked(openDesktopExternalUrl).mockResolvedValue({ opened: true });
   });
 
   it('closes a mobile sheet before navigating back', async () => {
@@ -64,7 +68,7 @@ describe('nativeShell', () => {
     expect(Browser.open).toHaveBeenCalledWith({ url: 'https://example.com' });
   });
 
-  it('detects the Tauri desktop shell and opens external URLs through the opener plugin', async () => {
+  it('detects the Tauri desktop shell and opens external URLs through the validated bridge', async () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(false);
     window.__TAURI_INTERNALS__ = {};
 
@@ -72,7 +76,7 @@ describe('nativeShell', () => {
 
     await openExternalUrl('https://example.com');
 
-    expect(openUrl).toHaveBeenCalledWith('https://example.com');
+    expect(openDesktopExternalUrl).toHaveBeenCalledWith('https://example.com');
     expect(Browser.open).not.toHaveBeenCalled();
   });
 });

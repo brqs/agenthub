@@ -7,14 +7,18 @@
  */
 
 import axios, { AxiosError, type AxiosInstance } from 'axios';
-import { env } from '@/lib/env';
+import { getApiBaseUrl, subscribeApiBaseUrl } from '@/lib/env';
 import { resetClientSession } from '@/lib/session';
 import { useAuthStore } from '@/stores/authStore';
 
 export const api: AxiosInstance = axios.create({
-  baseURL: env.apiBaseUrl,
+  baseURL: getApiBaseUrl(),
   timeout: 30_000,
   headers: { 'Content-Type': 'application/json' },
+});
+
+subscribeApiBaseUrl((url) => {
+  api.defaults.baseURL = url;
 });
 
 api.interceptors.request.use((config) => {

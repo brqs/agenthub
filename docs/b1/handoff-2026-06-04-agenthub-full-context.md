@@ -968,3 +968,41 @@ Validation run for this slice:
 - `DATABASE_URL=postgresql+asyncpg://agenthub:agenthub_dev_pw@localhost:5432/agenthub_test uv run pytest tests/test_conversation_api.py tests/test_context_builder.py -q`
 - `pnpm exec tsc -b`
 - `pnpm exec vitest run src/components/chat/MessageInput.test.tsx src/components/chat/MessageBubble.test.tsx`
+
+## 2026-06-09 Handoff Addendum: Windows Desktop P2 Managed Local Stack
+
+Windows Desktop P2 now manages an existing local AgentHub Docker stack through a narrow Tauri Rust bridge.
+
+- The desktop bridge discovers and validates an AgentHub project root, but existing `agenthub-backend` Compose labels are authoritative. A conflicting or missing original project directory is an error because silently switching Compose projects can make historical conversations appear lost behind new volumes.
+- The bridge only assembles fixed Docker argv for backend/postgres/redis. There is no arbitrary shell command, arbitrary service name, environment dump, runtime invocation, `down -v`, prune, volume removal, or database reset command.
+- Normal start uses existing images, then runs Alembic migration, built-in Agent reconciliation, and `/health` readiness. Rebuild requires a second user confirmation.
+- Start/stop/restart are serialized by an operation mutex and emit progress events through a Tauri Channel.
+- Remote backend mode hides local Docker controls. Local auto-start is opt-in and defaults to false.
+- Logs and diagnostics are sanitized. Diagnostics do not read `.env`, auth state, message content, uploads, or Workspace file contents.
+- B1 lifespan logs structured startup stages for built-in Agent config reconciliation, Workspace cleanup, application ready, and shutdown.
+- B2 runtime selection remains backend-owned. The desktop app never invokes Claude Code, Codex, OpenCode, or MCP directly.
+
+## 2026-06-09 Handoff Addendum: Windows Desktop P3 Native Utilities
+
+Windows Desktop P3 adds a small set of user-initiated native utilities without widening the runtime boundary.
+
+- F uses the Windows system picker for uploads and system Save As for source archives; the existing B1 upload/download APIs remain the only data transport.
+- Workspace opening is conversation-scoped. React passes only a conversation UUID, and Rust resolves the authoritative P2 project binding, verifies the workspace manifest and rejects path/reparse escapes before opening Explorer.
+- Diagnostics export returns an opaque one-time token. The save command cannot accept an arbitrary source path.
+- External links are opened through a validated command limited to `http`, `https`, and `mailto`.
+- Desktop notifications are opt-in and contain only generic terminal state. They consume persisted top-level message terminal events, not B2 runtime subprocess output.
+- B1 and OpenAPI remain unchanged. B2 continues to own Claude/Codex/OpenCode/MCP availability and execution.
+- P4 must handle notification-center cold start activation, protocol registration, signing, and the complete installer/update lifecycle.
+
+## 2026-06-10 Handoff Addendum: Windows Desktop P4 Installer And Updater
+
+Windows Desktop P4 defines the distributable/update story for the Tauri client.
+
+- First install uses an NSIS setup exe. MSI remains an auxiliary enterprise/test artifact.
+- Future updates use Tauri updater against GitHub Releases. Update artifacts must be signed; the updater private key belongs only in CI secrets.
+- The desktop client updates itself only. It must not automatically upgrade Docker Desktop, rebuild backend images, reset databases, delete volumes, or migrate user project directories.
+- `agenthub://chat/{conversationId}` and `agenthub://notification/{notificationId}?conversationId={conversationId}` are the only supported deep links. Both require UUIDs and only navigate the UI.
+- `single-instance` owns duplicate launches and forwards deep links to the existing main window.
+- Crash/panic diagnostics are app-data local, tail-limited, and sanitized. They must not include `.env`, model API keys, auth state, prompts, messages, Workspace files, uploads, or runtime stderr dumps.
+- Release workflow artifacts are expected to include the NSIS setup exe, optional MSI, updater package/signature, `latest.json`, and `checksums.txt`.
+- Rollback is manual: install an older setup package. Rollback must preserve local Docker data and runtime auth state.

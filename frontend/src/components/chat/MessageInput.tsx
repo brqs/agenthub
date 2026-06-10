@@ -20,6 +20,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgentMentionPicker } from './AgentMentionPicker';
 import { extractApiError } from '@/lib/api';
 import { uploadFile } from '@/lib/adapters/uploads';
+import {
+  isDesktopRuntime,
+  normalizeDesktopError,
+  selectDesktopFiles,
+} from '@/lib/desktopBridge';
 import type { DemoConversation } from '@/lib/mockData';
 import type { Agent, AttachmentPreview, RequirementAlignmentMode, UploadOut } from '@/lib/types';
 
@@ -295,7 +300,26 @@ export function MessageInput({
     }
     const nextItems = acceptedFiles.map(createLocalUploadItem);
     setUploadItems((current) => [...current, ...nextItems]);
-    await Promise.all(nextItems.map((item) => uploadLocalItem(item)));
+    for (const item of nextItems) {
+      await uploadLocalItem(item);
+    }
+  }
+
+  async function pickFiles() {
+    if (!isDesktopRuntime()) {
+      fileInputRef.current?.click();
+      return;
+    }
+    setSubmitError(null);
+    try {
+      const files = await selectDesktopFiles({
+        maxFiles: MAX_ATTACHMENTS_PER_MESSAGE - uploadItems.length,
+        maxBytes: MAX_UPLOAD_BYTES,
+      });
+      if (files.length) await addFiles(files);
+    } catch (error) {
+      setSubmitError(normalizeDesktopError(error).message);
+    }
   }
 
   async function uploadLocalItem(item: LocalUploadItem) {
@@ -324,7 +348,7 @@ export function MessageInput({
         filename: item.filename,
         purpose: 'message_attachment',
         conversationId: conversation.id,
-        clientPlatform: 'web',
+        clientPlatform: isDesktopRuntime() ? 'desktop' : 'web',
         signal: controller.signal,
         onProgress: (progress) => {
           setUploadItems((current) =>
@@ -444,7 +468,7 @@ export function MessageInput({
         />
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => void pickFiles()}
           disabled={isOffline || uploadItems.length >= MAX_ATTACHMENTS_PER_MESSAGE}
           className="shrink-0 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-slate-800 dark:hover:text-white"
           title="添加附件"
