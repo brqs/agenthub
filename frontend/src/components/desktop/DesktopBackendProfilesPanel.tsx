@@ -18,6 +18,15 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
     }
   }
 
+  async function testActiveProfile(url: string, profileId: string) {
+    setBusyId(profileId);
+    try {
+      await desktop.checkBackend(url);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function saveProfile() {
     setBusyId('new');
     try {
@@ -102,7 +111,17 @@ export function DesktopBackendProfilesPanel({ compact = false }: { compact?: boo
                   </p>
                 )}
               </div>
-              {!active && (
+              {active ? (
+                <button
+                  type="button"
+                  onClick={() => testActiveProfile(profile.url, profile.id)}
+                  disabled={busyId !== null}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-300 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-500/50 dark:text-indigo-200 dark:hover:bg-indigo-500/10"
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  {busyId === profile.id ? '测试中' : '测试'}
+                </button>
+              ) : (
                 <>
                   <button
                     type="button"

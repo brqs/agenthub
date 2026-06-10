@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { DesktopBackendProfilesPanel } from '@/components/desktop/DesktopBackendProfilesPanel';
+import { useDesktopEnvironment } from '@/hooks/useDesktopEnvironment';
 import { extractApiError } from '@/lib/api';
 import * as authAdapter from '@/lib/adapters/auth';
 import { startClientSession } from '@/lib/session';
@@ -10,6 +12,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const desktop = useDesktopEnvironment();
   const navigate = useNavigate();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -94,6 +97,42 @@ export function LoginPage() {
             {mode === 'login' ? '立即注册' : '去登录'}
           </button>
         </div>
+
+        {desktop.isDesktop && (
+          <details className="mt-5 rounded-md border border-slate-200 bg-slate-50/80 p-3 text-left dark:border-slate-700 dark:bg-slate-900/50">
+            <summary className="cursor-pointer list-none">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    后端连接
+                  </p>
+                  <p
+                    className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400"
+                    title={desktop.runtimeApiBaseUrl}
+                  >
+                    当前：{desktop.runtimeApiBaseUrl}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    desktop.checkState === 'ready'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-200'
+                      : desktop.checkState === 'checking'
+                        ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-200'
+                        : 'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                >
+                  {desktop.checkState === 'ready'
+                    ? '已连接'
+                    : desktop.checkState === 'checking'
+                      ? '检测中'
+                      : '可切换'}
+                </span>
+              </div>
+            </summary>
+            <DesktopBackendProfilesPanel compact />
+          </details>
+        )}
       </div>
     </div>
   );
