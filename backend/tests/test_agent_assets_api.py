@@ -56,17 +56,58 @@ async def _register(client: AsyncClient) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+async def _ensure_opencode_base_agent() -> None:
+    async with SessionFactory() as db:
+        existing = await db.get(Agent, "opencode-helper")
+        if existing is None:
+            db.add(
+                Agent(
+                    id="opencode-helper",
+                    user_id=None,
+                    name="OpenCode Helper",
+                    provider="opencode",
+                    avatar_url="",
+                    capabilities=["coding", "files"],
+                    system_prompt="OpenCode base agent for wrapper tests.",
+                    config={
+                        "command": "opencode",
+                        "args": [],
+                        "max_runtime_seconds": 600,
+                        "idle_timeout_seconds": 360,
+                        "heartbeat_interval_seconds": 15,
+                    },
+                    is_builtin=True,
+                )
+            )
+            await db.commit()
+
+
 async def _create_custom_agent(client: AsyncClient, headers: dict[str, str]) -> dict[str, Any]:
+    await _ensure_opencode_base_agent()
     response = await client.post(
         "/api/v1/agents",
         headers=headers,
         json={
             "name": "Asset Agent",
-            "provider": "builtin",
+            "provider": "opencode",
             "avatar_url": "",
-            "capabilities": ["knowledge"],
+            "capabilities": ["skills"],
             "system_prompt": "Use uploaded context carefully.",
-            "config": {"model_backend": "deepseek", "max_iterations": 4, "mcp_servers": []},
+            "config": {
+                "custom_agent_mode": "server_agent_wrapper",
+                "base_agent_id": "opencode-helper",
+                "wrapper_profile": {
+                    "role": "Asset Agent",
+                    "purpose": "Use uploaded context carefully.",
+                    "planning_profile": "Use this wrapper when uploaded Skills are relevant.",
+                    "planning_strengths": ["asset_context"],
+                    "planning_weaknesses": [],
+                    "preferred_task_types": ["implementation"],
+                    "capabilities": ["skills"],
+                    "output_style": "Concise",
+                    "boundaries": [],
+                },
+            },
         },
     )
     assert response.status_code == 201, response.text

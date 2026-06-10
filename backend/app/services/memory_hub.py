@@ -23,18 +23,47 @@ from app.models.message import Message
 from app.services.context.compression import message_to_text, truncate_text
 
 ACTIVE_MEMORY_STATUSES = {"active", "candidate"}
-AUTO_ACTIVE_MARKERS = (
-    "记住",
-    "以后",
-    "默认",
+PERSISTENT_MEMORY_MARKERS = (
+    "请记住",
+    "记住：",
+    "以后默认",
+    "从今以后",
     "我喜欢",
     "我偏好",
-    "必须",
-    "不能",
-    "不要",
-    "只能",
-    "确认",
-    "决定",
+    "每次都",
+    "始终",
+    "永远",
+)
+PERSISTENT_CONSTRAINT_PATTERNS = (
+    re.compile(r"(?:所有|任何|以后|始终).{0,20}(?:必须|不能|不要|只能)"),
+    re.compile(r"(?:必须|不能|不要|只能).{0,20}(?:所有|任何|以后|始终)"),
+)
+CANDIDATE_MEMORY_MARKERS = (
+    "项目目标是",
+    "本项目使用",
+    "项目采用",
+    "我们决定",
+    "已经确认",
+    "术语定义",
+)
+ONE_OFF_REQUEST_PREFIXES = (
+    "帮我",
+    "请你",
+    "能不能",
+    "可不可以",
+    "麻烦",
+    "给我",
+    "改一下",
+)
+NON_MEMORY_TEXT_MARKERS = (
+    "execution summary",
+    "planned ",
+    "tool call",
+    "调用失败",
+    "正在处理",
+    "正在组织回复",
+    "对不起",
+    "抱歉",
 )
 SECRET_MARKERS = (
     "api_key",
@@ -108,6 +137,78 @@ class MemoryHubService:
         ).scalars().all()
         return list(rows), total
 
+    async def list_conversation_memory_hub(
+        self,
+        db: AsyncSession,
+        *,
+        owner_user_id: UUID,
+        conversation: Conversation,
+        limit: int = 100,
+    ) -> dict[str, list[Memory]]:
+        limit = max(1, min(limit, 200))
+        scoped_tags = {
+            _container_tag(
+                "conversation",
+                conversation.id,
+                owner_user_id=owner_user_id,
+            ),
+            _container_tag(
+                "workspace",
+                conversation.id,
+                owner_user_id=owner_user_id,
+            ),
+        }
+        if conversation.mode == "group":
+            scoped_tags.add(
+                _container_tag(
+                    "group",
+                    conversation.id,
+                    owner_user_id=owner_user_id,
+                )
+            )
+        scoped_rows = list(
+            (
+                await db.execute(
+                    select(Memory)
+                    .where(Memory.owner_user_id == owner_user_id)
+                    .where(Memory.status.in_(("active", "candidate")))
+                    .where(Memory.container_tag.in_(scoped_tags))
+                    .order_by(desc(Memory.updated_at), desc(Memory.created_at))
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        user_rows = list(
+            (
+                await db.execute(
+                    select(Memory)
+                    .where(Memory.owner_user_id == owner_user_id)
+                    .where(Memory.status.in_(("active", "candidate")))
+                    .where(Memory.scope_type == "user")
+                    .order_by(desc(Memory.updated_at), desc(Memory.created_at))
+                    .limit(limit)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return {
+            "scoped_active": [
+                item for item in scoped_rows if item.status == "active"
+            ],
+            "scoped_candidates": [
+                item for item in scoped_rows if item.status == "candidate"
+            ],
+            "user_active": [
+                item for item in user_rows if item.status == "active"
+            ],
+            "user_candidates": [
+                item for item in user_rows if item.status == "candidate"
+            ],
+        }
+
     async def update_memory(
         self,
         db: AsyncSession,
@@ -154,11 +255,11 @@ class MemoryHubService:
         if conversation is None:
             return []
 
-        source_messages = [agent_message]
+        source_messages: list[Message] = []
         if agent_message.reply_to_id:
             parent = await db.get(Message, agent_message.reply_to_id)
-            if parent is not None:
-                source_messages.insert(0, parent)
+            if parent is not None and parent.role == "user":
+                source_messages.append(parent)
 
         created: list[Memory] = []
         for source_message in source_messages:
@@ -192,11 +293,17 @@ class MemoryHubService:
         for sentence in sentences:
             if _looks_sensitive(sentence):
                 continue
-            lowered = sentence.lower()
-            if not any(marker in lowered or marker in sentence for marker in AUTO_ACTIVE_MARKERS):
+            if _looks_like_non_memory(sentence):
+                continue
+            is_persistent = _has_persistent_memory_marker(sentence)
+            if not is_persistent and not any(
+                marker in sentence for marker in CANDIDATE_MEMORY_MARKERS
+            ):
                 continue
             kind, importance, normalized = _classify_sentence(sentence)
-            status = "active" if importance in {"critical", "high"} else "candidate"
+            status = "active" if is_persistent else "candidate"
+            if status == "candidate" and importance in {"critical", "high"}:
+                importance = "normal"
             valid_until = (
                 datetime.now(UTC) + timedelta(days=2)
                 if any(marker in sentence for marker in TEMPORAL_MARKERS)
@@ -209,7 +316,7 @@ class MemoryHubService:
                     kind=kind,
                     content=truncate_text(sentence, MAX_MEMORY_CONTENT_CHARS),
                     importance=importance,
-                    confidence=0.75 if status == "active" else 0.55,
+                    confidence=0.85 if status == "active" else 0.55,
                     status=status,
                     normalized_key=normalized or _normalized_key(kind, sentence),
                     valid_until=valid_until,
@@ -395,6 +502,29 @@ def _looks_sensitive(text: str) -> bool:
     return bool(re.search(r"(sk-[a-zA-Z0-9_-]{16,}|[A-Za-z0-9_=-]{32,})", text))
 
 
+def _has_persistent_memory_marker(text: str) -> bool:
+    return any(marker in text for marker in PERSISTENT_MEMORY_MARKERS) or any(
+        pattern.search(text) is not None for pattern in PERSISTENT_CONSTRAINT_PATTERNS
+    )
+
+
+def _looks_like_non_memory(text: str) -> bool:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    if any(marker in lowered for marker in NON_MEMORY_TEXT_MARKERS):
+        return True
+    if normalized.endswith(("?", "？")):
+        return True
+    if any(
+        normalized.startswith(prefix)
+        for prefix in ONE_OFF_REQUEST_PREFIXES
+    ) and not _has_persistent_memory_marker(normalized):
+        return True
+    if normalized.count("#") >= 3 or normalized.count("|") >= 6:
+        return True
+    return False
+
+
 def _candidate_sentences(text: str) -> list[str]:
     rough = re.split(r"[。！？!?;\n]+", text)
     return [segment.strip(" -\t") for segment in rough if 8 <= len(segment.strip()) <= 500]
@@ -405,11 +535,17 @@ def _classify_sentence(sentence: str) -> tuple[str, str, str | None]:
         return "preference", "high", LANGUAGE_MEMORY_KEY
     if "中文" in sentence and ("回复" in sentence or "回答" in sentence):
         return "preference", "high", LANGUAGE_MEMORY_KEY
-    if any(marker in sentence for marker in ("必须", "不能", "不要", "只能")):
+    if any(
+        pattern.search(sentence) is not None
+        for pattern in PERSISTENT_CONSTRAINT_PATTERNS
+    ):
         return "constraint", "critical", None
-    if any(marker in sentence for marker in ("确认", "决定", "就按")):
+    if any(marker in sentence for marker in ("已经确认", "我们决定", "就按")):
         return "decision", "high", None
-    if any(marker in sentence for marker in ("我喜欢", "我偏好", "默认", "以后")):
+    if any(
+        marker in sentence
+        for marker in ("我喜欢", "我偏好", "以后默认", "从今以后")
+    ):
         return "preference", "high", None
     return "fact", "normal", None
 

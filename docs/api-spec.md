@@ -1265,27 +1265,9 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 
 ---
 
-### 6.6 GET `/api/v1/agents/templates` - Custom Agent builder templates
+### 6.6 GET `/api/v1/agents/templates` - Removed
 
-Returns safe no-code templates for the Agent Builder. Templates are UI starting
-points only; the final Agent is still created through `POST /api/v1/agents`.
-
-```ts
-type AgentTemplateList = {
-  items: Array<{
-    id: string;
-    name: string;
-    description: string;
-    category: string;
-    capabilities: string[];
-    builder_profile: AgentBuilderProfile;
-    permissions: AgentPermissions;
-    memory_policy: "none" | "conversation" | "project" | "user";
-    model_backend: "claude" | "deepseek" | "openai";
-  }>;
-};
-```
-
+Deprecated. The old no-code builtin Agent Builder template endpoint has been removed from the active product path. Custom Agents are now created as server Agent wrappers around `claude-code`, `codex-helper`, or `opencode-helper`, with transfer fields stored in `config.wrapper_profile` and Skills managed through Agent asset APIs.
 ### 6.7 POST `/api/v1/agents/{id}/mcp/health-check`
 
 Runs a lightweight health check for stdio MCP servers configured on a visible
@@ -1323,6 +1305,41 @@ type AgentTestRunOut = {
   error_code?: string | null;
 };
 ```
+
+---
+
+## Public Server Discovery
+
+### GET `/api/v1/server-info`
+
+无需认证。供 Web、Desktop 和移动客户端在登录前识别 AgentHub 服务端及其非敏感能力。
+
+```json
+{
+  "server_id": "agenthub-production",
+  "version": "0.1.0",
+  "deployment_mode": "hosted",
+  "features": {
+    "uploads": true,
+    "workspace": true,
+    "orchestrator": true,
+    "desktop_local_stack": false
+  },
+  "auth": {
+    "type": "jwt"
+  },
+  "limits": {
+    "max_upload_mb": 100
+  }
+}
+```
+
+约束：
+
+- 公网部署应设置稳定且唯一的 `AGENTHUB_SERVER_ID`。
+- `deployment_mode=hosted` 时客户端不得展示本地 Docker 栈控制。
+- 该接口不返回数据库地址、模型密钥、runtime 登录态或用户信息。
+- 客户端仍以 `/health` 判断服务是否 ready；`server-info` 用于身份与能力发现。
 
 ---
 
@@ -1464,15 +1481,18 @@ interface Agent {
 }
 
 interface AgentConfig {
+  custom_agent_mode?: "server_agent_wrapper" | null;
+  base_agent_id?: "claude-code" | "codex-helper" | "opencode-helper" | null;
+  wrapper_profile?: AgentWrapperProfile | null;
+
+  // Internal/base runtime fields. User-created wrappers inherit these from the
+  // selected server base Agent; create/update requests must not override them.
   model_backend?: "claude" | "deepseek" | "openai";
   answer_model_backend?: "claude" | "deepseek" | "openai";
   planner_model_backend?: "claude" | "deepseek" | "openai";
   max_iterations?: number;
   mcp_servers?: object[];
   allowed_tools?: string[];
-  builder_profile?: AgentBuilderProfile | null;
-  permissions?: AgentPermissions | null;
-  memory_policy?: "none" | "conversation" | "project" | "user";
   runtime?: "sdk" | "cli";
   sandbox_mode?: "read-only" | "workspace-write" | "danger-full-access";
   command?: string | string[];
@@ -1481,24 +1501,16 @@ interface AgentConfig {
   [key: string]: any;
 }
 
-interface AgentBuilderProfile {
+interface AgentWrapperProfile {
   role?: string | null;
   purpose?: string | null;
-  goals: string[];
-  tone?: string | null;
-  do_not_do: string[];
-  clarification_policy: "ask_first" | "balanced" | "decide_with_defaults";
+  planning_profile?: string | null;
+  planning_strengths: string[];
+  planning_weaknesses: string[];
+  preferred_task_types: string[];
+  capabilities: string[];
   output_style?: string | null;
-  starters: string[];
-}
-
-interface AgentPermissions {
-  workspace_read: boolean;
-  workspace_write: boolean;
-  run_commands: "never" | "ask" | "auto_low_risk";
-  network: "never" | "ask" | "allowlisted";
-  deploy: "never" | "ask";
-  external_accounts: "never" | "ask";
+  boundaries: string[];
 }
 ```
 

@@ -20,6 +20,7 @@ from app.models.conversation import Conversation
 from app.models.upload import MessageAttachment, Upload
 from app.schemas.upload import (
     AttachmentPreview,
+    ClientPlatform,
     UploadOut,
     UploadPurpose,
     UploadSafetyStatus,
@@ -58,6 +59,7 @@ class UploadService:
         conversation_id: UUID | None,
         purpose: UploadPurpose,
         file: UploadFile,
+        client_platform: ClientPlatform = "web",
     ) -> Upload:
         filename = _safe_filename(file.filename or "upload.bin")
         upload = Upload(
@@ -71,6 +73,7 @@ class UploadService:
             sha256="",
             storage_key="",
             status="processing",
+            client_platform=client_platform,
             safety_status="passed",
             preview={},
         )
@@ -114,6 +117,82 @@ class UploadService:
         upload.preview = self._build_preview(upload, target_path).model_dump(exclude_none=True)
         await db.flush()
         return upload
+
+    async def create_upload_from_path(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: UUID,
+        conversation_id: UUID | None,
+        purpose: UploadPurpose,
+        filename: str,
+        content_type: str,
+        source_path: Path,
+        expected_sha256: str | None,
+        client_platform: ClientPlatform = "web",
+    ) -> Upload:
+        safe_name = _safe_filename(filename)
+        target_upload = Upload(
+            owner_user_id=user_id,
+            conversation_id=conversation_id,
+            purpose=purpose,
+            filename=safe_name,
+            content_type=content_type or "application/octet-stream",
+            detected_content_type=None,
+            size_bytes=0,
+            sha256="",
+            storage_key="",
+            status="processing",
+            client_platform=client_platform,
+            safety_status="passed",
+            preview={},
+        )
+        db.add(target_upload)
+        await db.flush()
+        target_dir = self.storage_dir / str(user_id) / str(target_upload.id)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / safe_name
+        digest = hashlib.sha256()
+        total = 0
+        with source_path.open("rb") as incoming, target_path.open("wb") as out:
+            while chunk := incoming.read(1024 * 1024):
+                total += len(chunk)
+                if total > settings.upload_max_file_bytes:
+                    shutil.rmtree(target_dir, ignore_errors=True)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail={
+                            "error": {
+                                "code": "UPLOAD_TOO_LARGE",
+                                "message": "Uploaded file exceeds the configured size limit",
+                            }
+                        },
+                    )
+                digest.update(chunk)
+                out.write(chunk)
+        actual_sha256 = digest.hexdigest()
+        if expected_sha256 and actual_sha256.lower() != expected_sha256.lower():
+            shutil.rmtree(target_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error": {
+                        "code": "UPLOAD_DIGEST_MISMATCH",
+                        "message": "Upload checksum did not match",
+                    }
+                },
+            )
+        detected_type = _detect_content_type(safe_name, content_type)
+        target_upload.size_bytes = total
+        target_upload.sha256 = actual_sha256
+        target_upload.detected_content_type = detected_type
+        target_upload.storage_key = str(target_path)
+        target_upload.status = "ready"
+        target_upload.preview = self._build_preview(target_upload, target_path).model_dump(
+            exclude_none=True
+        )
+        await db.flush()
+        return target_upload
 
     async def get_owned_upload(
         self,
@@ -271,6 +350,7 @@ class UploadService:
             sha256=upload.sha256,
             purpose=cast(UploadPurpose, upload.purpose),
             status=cast(UploadStatus, upload.status),
+            client_platform=cast(ClientPlatform, upload.client_platform),
             safety_status=cast(UploadSafetyStatus, upload.safety_status),
             preview=AttachmentPreview.model_validate(upload.preview)
             if upload.preview

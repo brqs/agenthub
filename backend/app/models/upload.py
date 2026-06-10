@@ -42,6 +42,7 @@ class Upload(Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(1024), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="ready")
+    client_platform: Mapped[str] = mapped_column(String(16), nullable=False, default="web")
     safety_status: Mapped[str] = mapped_column(String(32), nullable=False, default="passed")
     preview: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)

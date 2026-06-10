@@ -514,7 +514,14 @@ def _collect_event_evidence(events: Iterable[Any], pack: EvidencePack) -> None:
 def _compact_status_lines(pack: EvidencePack) -> list[str]:
     lines: list[str] = []
     if pack.run_status:
-        lines.append(f"最近一次 Orchestrator 运行状态：{_status_label(pack.run_status)}。")
+        lines.append(f"最近一次 Orchestrator 任务状态：{_status_label(pack.run_status)}。")
+    if pack.run_request:
+        lines.append(f"最近任务：{_truncate(pack.run_request, 300)}")
+    if pack.tasks:
+        lines.append("执行结果：" + "；".join(pack.tasks[:5]) + "。")
+    output_files = _dedupe([*pack.artifacts, *pack.changed_files])
+    if output_files:
+        lines.append("任务产物：" + "、".join(output_files[:10]) + "。")
     if pack.fulfillment:
         satisfied = [
             _fulfillment_label(key)

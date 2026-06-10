@@ -55,6 +55,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh */
+        post: operations["refresh_api_v1_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_v1_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/me": {
         parameters: {
             query?: never;
@@ -67,6 +101,127 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sessions */
+        get: operations["list_sessions_api_v1_auth_sessions_get"];
+        put?: never;
+        post?: never;
+        /** Delete Other Sessions */
+        delete: operations["delete_other_sessions_api_v1_auth_sessions_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Session */
+        delete: operations["delete_session_api_v1_auth_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Session */
+        patch: operations["update_session_api_v1_auth_sessions__session_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Events */
+        get: operations["list_events_api_v1_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/events/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream Events */
+        get: operations["stream_events_api_v1_events_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/local-runtime-connectors/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Local Runtime Connector Status */
+        get: operations["get_local_runtime_connector_status_api_v1_local_runtime_connectors_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/local-runtime-connectors/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register Local Runtime Connector */
+        post: operations["register_local_runtime_connector_api_v1_local_runtime_connectors_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/local-runtime-connectors/{connector_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Local Runtime Connector */
+        delete: operations["revoke_local_runtime_connector_api_v1_local_runtime_connectors__connector_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -169,6 +324,23 @@ export interface paths {
         };
         /** List Conversation Memory Mounts */
         get: operations["list_conversation_memory_mounts_api_v1_conversations__conv_id__memory_mounts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{conv_id}/memory-hub": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Conversation Memory Hub */
+        get: operations["get_conversation_memory_hub_api_v1_conversations__conv_id__memory_hub_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -462,6 +634,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/server-info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Server Info
+         * @description Return non-sensitive metadata used by multi-backend clients.
+         */
+        get: operations["get_server_info_api_v1_server_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{conversation_id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Conversation Shares */
+        get: operations["list_conversation_shares_api_v1_conversations__conversation_id__shares_get"];
+        put?: never;
+        /** Create Conversation Share */
+        post: operations["create_conversation_share_api_v1_conversations__conversation_id__shares_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{conversation_id}/shares/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Conversation Share */
+        delete: operations["revoke_conversation_share_api_v1_conversations__conversation_id__shares__share_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversation-shares/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Public Conversation Share */
+        get: operations["get_public_conversation_share_api_v1_conversation_shares__token__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/messages/{msg_id}/stream": {
         parameters: {
             query?: never;
@@ -494,23 +738,6 @@ export interface paths {
         put?: never;
         /** Create Agent */
         post: operations["create_agent_api_v1_agents_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/agents/templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Agent Templates */
-        get: operations["list_agent_templates_api_v1_agents_templates_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -691,76 +918,6 @@ export interface paths {
         patch: operations["update_agent_skill_api_v1_agents__agent_id__skills__skill_id__patch"];
         trace?: never;
     };
-    "/api/v1/model-providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Model Providers */
-        get: operations["list_model_providers_api_v1_model_providers_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/model-accounts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Accounts */
-        get: operations["list_accounts_api_v1_model_accounts_get"];
-        put?: never;
-        /** Create Account */
-        post: operations["create_account_api_v1_model_accounts_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/model-accounts/{account_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete Account */
-        delete: operations["delete_account_api_v1_model_accounts__account_id__delete"];
-        options?: never;
-        head?: never;
-        /** Update Account */
-        patch: operations["update_account_api_v1_model_accounts__account_id__patch"];
-        trace?: never;
-    };
-    "/api/v1/model-accounts/{account_id}/verify": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Verify Account */
-        post: operations["verify_account_api_v1_model_accounts__account_id__verify_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/uploads": {
         parameters: {
             query?: never;
@@ -772,6 +929,75 @@ export interface paths {
         put?: never;
         /** Create Upload */
         post: operations["create_upload_api_v1_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Upload Session */
+        post: operations["create_upload_session_api_v1_uploads_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Upload Session */
+        get: operations["get_upload_session_api_v1_uploads_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        /** Cancel Upload Session */
+        delete: operations["cancel_upload_session_api_v1_uploads_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/sessions/{session_id}/parts/{part_number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Upload Session Part */
+        put: operations["put_upload_session_part_api_v1_uploads_sessions__session_id__parts__part_number__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/sessions/{session_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Upload Session */
+        post: operations["complete_upload_session_api_v1_uploads_sessions__session_id__complete_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1251,41 +1477,6 @@ export interface components {
             /** Bindings */
             bindings?: components["schemas"]["AgentAssetBindingOut"][];
         };
-        /** AgentBuilderProfile */
-        AgentBuilderProfile: {
-            /**
-             * Role
-             * @default null
-             */
-            role: string | null;
-            /**
-             * Purpose
-             * @default null
-             */
-            purpose: string | null;
-            /** Goals */
-            goals?: string[];
-            /**
-             * Tone
-             * @default null
-             */
-            tone: string | null;
-            /** Do Not Do */
-            do_not_do?: string[];
-            /**
-             * Clarification Policy
-             * @default balanced
-             * @enum {string}
-             */
-            clarification_policy: "ask_first" | "balanced" | "decide_with_defaults";
-            /**
-             * Output Style
-             * @default null
-             */
-            output_style: string | null;
-            /** Starters */
-            starters?: string[];
-        };
         /** AgentCapabilityProfileItemOut */
         AgentCapabilityProfileItemOut: {
             /** Agent Id */
@@ -1417,6 +1608,165 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** AgentConfig */
+        AgentConfig: {
+            /** Custom Agent Mode */
+            custom_agent_mode?: "server_agent_wrapper" | null;
+            /** Base Agent Id */
+            base_agent_id?: ("claude-code" | "codex-helper" | "opencode-helper") | null;
+            wrapper_profile?: components["schemas"]["AgentWrapperProfile"] | null;
+            /**
+             * Model Backend
+             * @description ModelGateway backend for builtin agents.
+             */
+            model_backend?: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Answer Model Backend
+             * @description ModelGateway backend for orchestrator direct answers.
+             */
+            answer_model_backend?: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Planner Model Backend
+             * @description ModelGateway backend for orchestrator LLM planning.
+             */
+            planner_model_backend?: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Context Max Tokens
+             * @description Maximum conversation context tokens passed to this agent.
+             */
+            context_max_tokens?: number | null;
+            /**
+             * Orchestrator Context Max Tokens
+             * @description Maximum context tokens used by the Orchestrator main flow.
+             */
+            orchestrator_context_max_tokens?: number | null;
+            /**
+             * Orchestrator Subagent Context Max Tokens
+             * @description Maximum context tokens passed from Orchestrator to sub-agents.
+             */
+            orchestrator_subagent_context_max_tokens?: number | null;
+            /** Llm Planning */
+            llm_planning?: boolean | null;
+            /** Planner Fallback To Template */
+            planner_fallback_to_template?: boolean | null;
+            /** Available Agents Authoritative */
+            available_agents_authoritative?: boolean | null;
+            /** Orchestrator Llm Config */
+            orchestrator_llm_config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Max Iterations */
+            max_iterations?: number | null;
+            /** React Enabled */
+            react_enabled?: boolean | null;
+            /** React Trace Visible */
+            react_trace_visible?: boolean | null;
+            /** React Decision Max Tokens */
+            react_decision_max_tokens?: number | null;
+            /** Mcp Servers */
+            mcp_servers?: {
+                [key: string]: unknown;
+            }[] | null;
+            /**
+             * Allowed Tools
+             * @description Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools.
+             */
+            allowed_tools?: string[] | null;
+            /** Command */
+            command?: string | string[] | null;
+            /** Args */
+            args?: string[] | null;
+            /** Timeout Seconds */
+            timeout_seconds?: number | null;
+            /** Max Runtime Seconds */
+            max_runtime_seconds?: number | null;
+            /** Idle Timeout Seconds */
+            idle_timeout_seconds?: number | null;
+            /** Heartbeat Interval Seconds */
+            heartbeat_interval_seconds?: number | null;
+            /** Qa Short Circuit Enabled */
+            qa_short_circuit_enabled?: boolean | null;
+            /**
+             * Qa Model Backend
+             * @description ModelGateway backend for external direct chat.
+             */
+            qa_model_backend?: ("claude" | "deepseek" | "openai") | null;
+            /** Qa Model */
+            qa_model?: string | null;
+            /** Qa Classifier Model */
+            qa_classifier_model?: string | null;
+            /** Qa Max Tokens */
+            qa_max_tokens?: number | null;
+            /** Qa Classifier Max Tokens */
+            qa_classifier_max_tokens?: number | null;
+            /** Qa Temperature */
+            qa_temperature?: number | null;
+            /** Qa Request Timeout Seconds */
+            qa_request_timeout_seconds?: number | null;
+            /** Task Fallback Agent Ids */
+            task_fallback_agent_ids?: string[] | null;
+            /** Max Task Attempts */
+            max_task_attempts?: number | null;
+            /** Task Result Context Max Chars */
+            task_result_context_max_chars?: number | null;
+            /** Task Result Item Max Chars */
+            task_result_item_max_chars?: number | null;
+            /** Orchestrator Memory Enabled */
+            orchestrator_memory_enabled?: boolean | null;
+            /** Orchestrator Memory Recent Runs */
+            orchestrator_memory_recent_runs?: number | null;
+            /** Orchestrator Memory Context Max Chars */
+            orchestrator_memory_context_max_chars?: number | null;
+            /** Orchestrator Tool Calling Enabled */
+            orchestrator_tool_calling_enabled?: boolean | null;
+            /** Orchestrator Tool Trace Visible */
+            orchestrator_tool_trace_visible?: boolean | null;
+            /** Orchestrator Tool Max Iterations */
+            orchestrator_tool_max_iterations?: number | null;
+            /** Orchestrator Tool Max Tokens */
+            orchestrator_tool_max_tokens?: number | null;
+            /** Orchestrator Tool Result Max Chars */
+            orchestrator_tool_result_max_chars?: number | null;
+            /** Orchestrator Tool Read Max Bytes */
+            orchestrator_tool_read_max_bytes?: number | null;
+            /** Orchestrator Group Messages Enabled */
+            orchestrator_group_messages_enabled?: boolean | null;
+            /** Orchestrator Process Block Enabled */
+            orchestrator_process_block_enabled?: boolean | null;
+            /** Orchestrator Response Polish Enabled */
+            orchestrator_response_polish_enabled?: boolean | null;
+            /** Clarification Gate Enabled */
+            clarification_gate_enabled?: boolean | null;
+            /** Auto Clarification Max Questions */
+            auto_clarification_max_questions?: number | null;
+            /** Requirement Alignment Llm Enabled */
+            requirement_alignment_llm_enabled?: boolean | null;
+            /** Grill Max Questions */
+            grill_max_questions?: number | null;
+            /** Workspace Docs Enabled */
+            workspace_docs_enabled?: boolean | null;
+            /**
+             * Orchestrator Response Polish Model Backend
+             * @description ModelGateway backend for Orchestrator final response polish.
+             */
+            orchestrator_response_polish_model_backend?: ("claude" | "deepseek" | "openai") | null;
+            /** Orchestrator Response Polish Max Tokens */
+            orchestrator_response_polish_max_tokens?: number | null;
+            /** Orchestrator Parallel Enabled */
+            orchestrator_parallel_enabled?: boolean | null;
+            /** Orchestrator Parallel Max Concurrency */
+            orchestrator_parallel_max_concurrency?: number | null;
+            /** Orchestrator Evaluation Enabled */
+            orchestrator_evaluation_enabled?: boolean | null;
+            /** Orchestrator Evaluation Read Max Bytes */
+            orchestrator_evaluation_read_max_bytes?: number | null;
+            /** Orchestrator Test Runner Enabled */
+            orchestrator_test_runner_enabled?: boolean | null;
+            /** Orchestrator Test Command Allowlist */
+            orchestrator_test_command_allowlist?: string[] | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** AgentKnowledgeOut */
         AgentKnowledgeOut: {
             /**
@@ -1523,43 +1873,6 @@ export interface components {
              */
             created_at: string;
         };
-        /** AgentPermissions */
-        AgentPermissions: {
-            /**
-             * Workspace Read
-             * @default false
-             */
-            workspace_read: boolean;
-            /**
-             * Workspace Write
-             * @default false
-             */
-            workspace_write: boolean;
-            /**
-             * Run Commands
-             * @default never
-             * @enum {string}
-             */
-            run_commands: "never" | "ask" | "auto_low_risk";
-            /**
-             * Network
-             * @default never
-             * @enum {string}
-             */
-            network: "never" | "ask" | "allowlisted";
-            /**
-             * Deploy
-             * @default never
-             * @enum {string}
-             */
-            deploy: "never" | "ask";
-            /**
-             * External Accounts
-             * @default never
-             * @enum {string}
-             */
-            external_accounts: "never" | "ask";
-        };
         /** AgentSkillOut */
         AgentSkillOut: {
             /** Skill Id */
@@ -1591,38 +1904,6 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        /** AgentTemplateListOut */
-        AgentTemplateListOut: {
-            /** Items */
-            items?: components["schemas"]["AgentTemplateOut"][];
-        };
-        /** AgentTemplateOut */
-        AgentTemplateOut: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Description */
-            description: string;
-            /** Category */
-            category: string;
-            /** Capabilities */
-            capabilities?: string[];
-            builder_profile: components["schemas"]["AgentBuilderProfile"];
-            permissions?: components["schemas"]["AgentPermissions"];
-            /**
-             * Memory Policy
-             * @default conversation
-             * @enum {string}
-             */
-            memory_policy: "none" | "conversation" | "project" | "user";
-            /**
-             * Model Backend
-             * @default deepseek
-             * @enum {string}
-             */
-            model_backend: "claude" | "deepseek" | "openai";
-        };
         /** AgentTestRunOut */
         AgentTestRunOut: {
             /**
@@ -1641,6 +1922,27 @@ export interface components {
         AgentTestRunRequest: {
             /** Prompt */
             prompt: string;
+        };
+        /** AgentWrapperProfile */
+        AgentWrapperProfile: {
+            /** Role */
+            role?: string | null;
+            /** Purpose */
+            purpose?: string | null;
+            /** Planning Profile */
+            planning_profile?: string | null;
+            /** Planning Strengths */
+            planning_strengths?: string[];
+            /** Planning Weaknesses */
+            planning_weaknesses?: string[];
+            /** Preferred Task Types */
+            preferred_task_types?: string[];
+            /** Capabilities */
+            capabilities?: string[];
+            /** Output Style */
+            output_style?: string | null;
+            /** Boundaries */
+            boundaries?: string[];
         };
         /** AttachmentBlock */
         AttachmentBlock: {
@@ -1707,6 +2009,8 @@ export interface components {
         AuthResponse: {
             /** Access Token */
             access_token: string;
+            /** Refresh Token */
+            refresh_token?: string | null;
             /**
              * Token Type
              * @default bearer
@@ -1715,6 +2019,7 @@ export interface components {
             /** Expires In */
             expires_in: number;
             user: components["schemas"]["UserOut"];
+            session?: components["schemas"]["UserSessionOut"] | null;
         };
         /** Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post */
         Body_create_agent_knowledge_api_v1_agents__agent_id__knowledge_post: {
@@ -1750,6 +2055,12 @@ export interface components {
             purpose: "message_attachment" | "workspace_file" | "workspace_import" | "agent_knowledge" | "agent_icon" | "skill_package" | "mcp_config";
             /** Conversation Id */
             conversation_id?: string | null;
+            /**
+             * Client Platform
+             * @default web
+             * @enum {string}
+             */
+            client_platform: "web" | "desktop" | "ios" | "android";
         };
         /** ClarificationBlock */
         ClarificationBlock: {
@@ -1819,6 +2130,16 @@ export interface components {
             /** Code */
             code: string;
         };
+        /** CompleteUploadSessionRequest */
+        CompleteUploadSessionRequest: {
+            /** Sha256 */
+            sha256?: string | null;
+        };
+        /** CompleteUploadSessionResponse */
+        CompleteUploadSessionResponse: {
+            session: components["schemas"]["UploadSessionOut"];
+            upload: components["schemas"]["UploadOut"];
+        };
         /** ContextCompressionConfigOut */
         ContextCompressionConfigOut: {
             /** Mode */
@@ -1876,6 +2197,17 @@ export interface components {
             page: number;
             /** Page Size */
             page_size: number;
+        };
+        /** ConversationMemoryHubOut */
+        ConversationMemoryHubOut: {
+            /** Scoped Active */
+            scoped_active: components["schemas"]["MemoryOut"][];
+            /** Scoped Candidates */
+            scoped_candidates: components["schemas"]["MemoryOut"][];
+            /** User Active */
+            user_active: components["schemas"]["MemoryOut"][];
+            /** User Candidates */
+            user_candidates: components["schemas"]["MemoryOut"][];
         };
         /** ConversationMemoryOut */
         ConversationMemoryOut: {
@@ -1946,6 +2278,36 @@ export interface components {
              */
             created_at: string;
         };
+        /** ConversationShareOut */
+        ConversationShareOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Token */
+            token?: string | null;
+            /** Url Path */
+            url_path?: string | null;
+            /** Include Artifacts */
+            include_artifacts: boolean;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Accessed At */
+            last_accessed_at?: string | null;
+        };
         /** CreateAgentRequest */
         CreateAgentRequest: {
             /** Name */
@@ -1954,7 +2316,7 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "claude_code" | "codex" | "opencode" | "builtin";
+            provider: "claude_code" | "codex" | "opencode";
             /**
              * Avatar Url
              * @default
@@ -1964,10 +2326,7 @@ export interface components {
             capabilities?: string[];
             /** System Prompt */
             system_prompt?: string | null;
-            /** Config */
-            config?: {
-                [key: string]: unknown;
-            };
+            config?: components["schemas"]["AgentConfig"];
         };
         /** CreateConversationRequest */
         CreateConversationRequest: {
@@ -1981,21 +2340,48 @@ export interface components {
             /** Agent Ids */
             agent_ids: string[];
         };
-        /** CreateModelAccountRequest */
-        CreateModelAccountRequest: {
-            /** Display Name */
-            display_name: string;
+        /** CreateConversationShareRequest */
+        CreateConversationShareRequest: {
+            /** Expires At */
+            expires_at?: string | null;
             /**
-             * Provider
+             * Include Artifacts
+             * @default false
+             */
+            include_artifacts: boolean;
+        };
+        /** CreateUploadSessionRequest */
+        CreateUploadSessionRequest: {
+            /** Filename */
+            filename: string;
+            /**
+             * Content Type
+             * @default application/octet-stream
+             */
+            content_type: string;
+            /** Total Size Bytes */
+            total_size_bytes: number;
+            /**
+             * Purpose
+             * @default message_attachment
              * @enum {string}
              */
-            provider: "deepseek" | "openai" | "anthropic" | "openai_compatible";
-            /** Api Key */
-            api_key: string;
-            /** Model */
-            model: string;
-            /** Base Url */
-            base_url?: string | null;
+            purpose: "message_attachment" | "workspace_file" | "workspace_import" | "agent_knowledge" | "agent_icon" | "skill_package" | "mcp_config";
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Expected Sha256 */
+            expected_sha256?: string | null;
+            /**
+             * Client Platform
+             * @default web
+             * @enum {string}
+             */
+            client_platform: "web" | "desktop" | "ios" | "android";
+            /**
+             * Part Size Bytes
+             * @default 5000000
+             */
+            part_size_bytes: number;
         };
         /** DeploymentStatusBlock */
         DeploymentStatusBlock: {
@@ -2114,6 +2500,19 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HealthResponse */
+        HealthResponse: {
+            /** Status */
+            status: string;
+            /** Version */
+            version: string;
+            /** Environment */
+            environment: string;
+            /** Dependencies */
+            dependencies: {
+                [key: string]: string;
+            };
+        };
         /** InterruptMessageResponse */
         InterruptMessageResponse: {
             /**
@@ -2123,12 +2522,73 @@ export interface components {
             state: "interrupted" | "already_terminal" | "interrupting";
             message: components["schemas"]["MessageOut"];
         };
+        /** LocalRuntimeConnectorOut */
+        LocalRuntimeConnectorOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Endpoint Url */
+            endpoint_url: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "unavailable" | "revoked";
+            /** Runtime Ids */
+            runtime_ids?: string[];
+            /** Capabilities */
+            capabilities?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Seen At */
+            last_seen_at?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Last Error */
+            last_error?: string | null;
+        };
+        /** LocalRuntimeConnectorStatusOut */
+        LocalRuntimeConnectorStatusOut: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Deployment Mode
+             * @enum {string}
+             */
+            deployment_mode: "local" | "hosted";
+            /** Connectors */
+            connectors?: components["schemas"]["LocalRuntimeConnectorOut"][];
+        };
         /** LoginRequest */
         LoginRequest: {
             /** Username */
             username: string;
             /** Password */
             password: string;
+            /** Device Name */
+            device_name?: string | null;
+            /**
+             * Platform
+             * @default web
+             * @enum {string}
+             */
+            platform: "web" | "desktop" | "ios" | "android";
+        };
+        /** LogoutRequest */
+        LogoutRequest: {
+            /** Refresh Token */
+            refresh_token?: string | null;
         };
         /** MemoryList */
         MemoryList: {
@@ -2143,6 +2603,18 @@ export interface components {
             items: components["schemas"]["MemoryMountOut"][];
             /** Total */
             total: number;
+            /**
+             * Recall State
+             * @default not_attempted
+             * @enum {string}
+             */
+            recall_state: "not_attempted" | "no_match" | "mounted";
+            /** Latest Agent Message Id */
+            latest_agent_message_id?: string | null;
+            /** Latest Agent Id */
+            latest_agent_id?: string | null;
+            /** Latest Agent Status */
+            latest_agent_status?: string | null;
         };
         /** MemoryMountOut */
         MemoryMountOut: {
@@ -2298,99 +2770,6 @@ export interface components {
             /** Queue Position */
             queue_position?: number | null;
             turn_options?: components["schemas"]["TurnOptions"];
-        };
-        /** ModelAccountListOut */
-        ModelAccountListOut: {
-            /** Items */
-            items?: components["schemas"]["ModelAccountOut"][];
-        };
-        /** ModelAccountOut */
-        ModelAccountOut: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Display Name */
-            display_name: string;
-            /**
-             * Provider
-             * @enum {string}
-             */
-            provider: "deepseek" | "openai" | "anthropic" | "openai_compatible";
-            /**
-             * Protocol
-             * @enum {string}
-             */
-            protocol: "openai_compatible" | "anthropic";
-            /** Model */
-            model: string;
-            /** Base Url */
-            base_url?: string | null;
-            /** Api Key Preview */
-            api_key_preview: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "unverified" | "ready" | "unavailable";
-            /** Last Verified At */
-            last_verified_at?: string | null;
-            /** Last Error */
-            last_error?: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-        };
-        /** ModelAccountVerifyOut */
-        ModelAccountVerifyOut: {
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "unverified" | "ready" | "unavailable";
-            /** Error */
-            error?: string | null;
-            /** Verified At */
-            verified_at?: string | null;
-        };
-        /** ModelProviderListOut */
-        ModelProviderListOut: {
-            /** Items */
-            items?: components["schemas"]["ModelProviderOut"][];
-        };
-        /** ModelProviderOut */
-        ModelProviderOut: {
-            /**
-             * Provider
-             * @enum {string}
-             */
-            provider: "deepseek" | "openai" | "anthropic" | "openai_compatible";
-            /** Company Name */
-            company_name: string;
-            /**
-             * Protocol
-             * @enum {string}
-             */
-            protocol: "openai_compatible" | "anthropic";
-            /** Default Model */
-            default_model: string;
-            /** Models */
-            models?: string[];
-            /**
-             * Requires Base Url
-             * @default false
-             */
-            requires_base_url: boolean;
-            /** Default Base Url */
-            default_base_url?: string | null;
         };
         /** OrchestratorRunDetailOut */
         OrchestratorRunDetailOut: {
@@ -2636,6 +3015,50 @@ export interface components {
             /** Agent Id */
             agent_id?: string | null;
         };
+        /** PublicConversationShareOut */
+        PublicConversationShareOut: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Title */
+            title: string;
+            /** Mode */
+            mode: string;
+            /** Include Artifacts */
+            include_artifacts: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Messages */
+            messages?: components["schemas"]["PublicSharedMessageOut"][];
+        };
+        /** PublicSharedMessageOut */
+        PublicSharedMessageOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Role */
+            role: string;
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Content */
+            content?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** QueueMergeRequest */
         QueueMergeRequest: {
             /** Message Ids */
@@ -2677,12 +3100,45 @@ export interface components {
             /** Messages */
             messages: components["schemas"]["MessageOut"][];
         };
+        /** RefreshTokenRequest */
+        RefreshTokenRequest: {
+            /** Refresh Token */
+            refresh_token: string;
+        };
+        /** RegisterLocalRuntimeConnectorRequest */
+        RegisterLocalRuntimeConnectorRequest: {
+            /**
+             * Name
+             * @default AgentHub Desktop
+             */
+            name: string;
+            /** Endpoint Url */
+            endpoint_url: string;
+            /** Bearer Token */
+            bearer_token: string;
+            /** Runtime Ids */
+            runtime_ids?: ("claude-code" | "codex-helper" | "opencode-helper")[];
+            /** Capabilities */
+            capabilities?: {
+                [key: string]: unknown;
+            };
+            /** Expires At */
+            expires_at?: string | null;
+        };
         /** RegisterRequest */
         RegisterRequest: {
             /** Username */
             username: string;
             /** Password */
             password: string;
+            /** Device Name */
+            device_name?: string | null;
+            /**
+             * Platform
+             * @default web
+             * @enum {string}
+             */
+            platform: "web" | "desktop" | "ios" | "android";
         };
         /** SendMessageRequest */
         SendMessageRequest: {
@@ -2703,6 +3159,46 @@ export interface components {
         SendMessageResponse: {
             user_message: components["schemas"]["MessageOut"];
             agent_message: components["schemas"]["MessageOut"];
+        };
+        /** ServerAuthInfo */
+        ServerAuthInfo: {
+            /**
+             * Type
+             * @default jwt
+             * @constant
+             */
+            type: "jwt";
+        };
+        /** ServerFeatures */
+        ServerFeatures: {
+            /** Uploads */
+            uploads: boolean;
+            /** Workspace */
+            workspace: boolean;
+            /** Orchestrator */
+            orchestrator: boolean;
+            /** Desktop Local Stack */
+            desktop_local_stack: boolean;
+        };
+        /** ServerInfoResponse */
+        ServerInfoResponse: {
+            /** Server Id */
+            server_id: string;
+            /** Version */
+            version: string;
+            /**
+             * Deployment Mode
+             * @enum {string}
+             */
+            deployment_mode: "local" | "hosted";
+            features: components["schemas"]["ServerFeatures"];
+            auth: components["schemas"]["ServerAuthInfo"];
+            limits: components["schemas"]["ServerLimits"];
+        };
+        /** ServerLimits */
+        ServerLimits: {
+            /** Max Upload Mb */
+            max_upload_mb: number;
         };
         /** SideChatRequest */
         SideChatRequest: {
@@ -2903,10 +3399,7 @@ export interface components {
             capabilities?: string[] | null;
             /** System Prompt */
             system_prompt?: string | null;
-            /** Config */
-            config?: {
-                [key: string]: unknown;
-            } | null;
+            config?: components["schemas"]["AgentConfig"] | null;
         };
         /** UpdateAgentSkillRequest */
         UpdateAgentSkillRequest: {
@@ -2963,17 +3456,6 @@ export interface components {
             /** Is Pinned */
             is_pinned?: boolean | null;
         };
-        /** UpdateModelAccountRequest */
-        UpdateModelAccountRequest: {
-            /** Display Name */
-            display_name?: string | null;
-            /** Api Key */
-            api_key?: string | null;
-            /** Model */
-            model?: string | null;
-            /** Base Url */
-            base_url?: string | null;
-        };
         /** UpdateQueuedMessageRequest */
         UpdateQueuedMessageRequest: {
             /** Content */
@@ -2982,6 +3464,11 @@ export interface components {
             target_agent_id?: string | null;
             /** Requirement Alignment */
             requirement_alignment?: ("off" | "strict") | null;
+        };
+        /** UpdateSessionRequest */
+        UpdateSessionRequest: {
+            /** Device Name */
+            device_name?: string | null;
         };
         /** UploadOut */
         UploadOut: {
@@ -3011,6 +3498,12 @@ export interface components {
              */
             status: "ready" | "processing" | "failed" | "deleted";
             /**
+             * Client Platform
+             * @default web
+             * @enum {string}
+             */
+            client_platform: "web" | "desktop" | "ios" | "android";
+            /**
              * Safety Status
              * @enum {string}
              */
@@ -3020,6 +3513,91 @@ export interface components {
             error_code?: string | null;
             /** Error Message */
             error_message?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** UploadSessionOut */
+        UploadSessionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Filename */
+            filename: string;
+            /** Content Type */
+            content_type: string;
+            /** Total Size Bytes */
+            total_size_bytes: number;
+            /** Expected Sha256 */
+            expected_sha256?: string | null;
+            /**
+             * Client Platform
+             * @enum {string}
+             */
+            client_platform: "web" | "desktop" | "ios" | "android";
+            /** Part Size Bytes */
+            part_size_bytes: number;
+            /** Received Parts */
+            received_parts?: number[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "completed" | "cancelled" | "failed" | "expired";
+            /** Upload Id */
+            upload_id?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /** UserEventList */
+        UserEventList: {
+            /** Items */
+            items: components["schemas"]["UserEventOut"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
+        /** UserEventOut */
+        UserEventOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Cursor */
+            cursor: number;
+            /** Event Type */
+            event_type: string;
+            /** Resource Type */
+            resource_type: string;
+            /** Resource Id */
+            resource_id: string;
+            /** Conversation Id */
+            conversation_id?: string | null;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
             /**
              * Created At
              * Format: date-time
@@ -3067,6 +3645,49 @@ export interface components {
             };
             /** Summary */
             summary?: string[];
+        };
+        /** UserSessionList */
+        UserSessionList: {
+            /** Items */
+            items: components["schemas"]["UserSessionOut"][];
+            /** Total */
+            total: number;
+        };
+        /** UserSessionOut */
+        UserSessionOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Device Name */
+            device_name: string;
+            /** Platform */
+            platform: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Last Active At
+             * Format: date-time
+             */
+            last_active_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Revoked Reason */
+            revoked_reason?: string | null;
+            /**
+             * Is Current
+             * @default false
+             */
+            is_current: boolean;
         };
         /** ValidationError */
         ValidationError: {
@@ -3600,357 +4221,6 @@ export interface components {
             /** Completed At */
             completed_at?: string | null;
         };
-        /** AgentModelProfile */
-        AgentModelProfile: {
-            /**
-             * Source
-             * @default agenthub_default
-             * @enum {string}
-             */
-            source: "agenthub_default" | "user_account";
-            /**
-             * Account Id
-             * @default null
-             */
-            account_id: string | null;
-            /**
-             * Provider
-             * @default null
-             */
-            provider: string | null;
-            /**
-             * Model
-             * @default null
-             */
-            model: string | null;
-        };
-        /** AgentConfig */
-        AgentConfig: {
-            /**
-             * Model Backend
-             * @description ModelGateway backend for builtin agents.
-             * @default null
-             */
-            model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * @description User-facing model selection for builtin custom agents.
-             * @default null
-             */
-            model_profile: components["schemas"]["AgentModelProfile"] | null;
-            /**
-             * Answer Model Backend
-             * @description ModelGateway backend for orchestrator direct answers.
-             * @default null
-             */
-            answer_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Planner Model Backend
-             * @description ModelGateway backend for orchestrator LLM planning.
-             * @default null
-             */
-            planner_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Context Max Tokens
-             * @description Maximum conversation context tokens passed to this agent.
-             * @default null
-             */
-            context_max_tokens: number | null;
-            /**
-             * Orchestrator Context Max Tokens
-             * @description Maximum context tokens used by the Orchestrator main flow.
-             * @default null
-             */
-            orchestrator_context_max_tokens: number | null;
-            /**
-             * Orchestrator Subagent Context Max Tokens
-             * @description Maximum context tokens passed from Orchestrator to sub-agents.
-             * @default null
-             */
-            orchestrator_subagent_context_max_tokens: number | null;
-            /**
-             * Llm Planning
-             * @default null
-             */
-            llm_planning: boolean | null;
-            /**
-             * Planner Fallback To Template
-             * @default null
-             */
-            planner_fallback_to_template: boolean | null;
-            /**
-             * Available Agents Authoritative
-             * @default null
-             */
-            available_agents_authoritative: boolean | null;
-            /**
-             * Orchestrator Llm Config
-             * @default null
-             */
-            orchestrator_llm_config: {
-                [key: string]: unknown;
-            } | null;
-            /**
-             * Max Iterations
-             * @default null
-             */
-            max_iterations: number | null;
-            /**
-             * React Enabled
-             * @default null
-             */
-            react_enabled: boolean | null;
-            /**
-             * React Trace Visible
-             * @default null
-             */
-            react_trace_visible: boolean | null;
-            /**
-             * React Decision Max Tokens
-             * @default null
-             */
-            react_decision_max_tokens: number | null;
-            /**
-             * Mcp Servers
-             * @default null
-             */
-            mcp_servers: {
-                [key: string]: unknown;
-            }[] | null;
-            /**
-             * Allowed Tools
-             * @description Maximum builtin native/MCP tools this agent may receive. Omit to keep legacy behavior; [] means no tools.
-             * @default null
-             */
-            allowed_tools: string[] | null;
-            /** @default null */
-            builder_profile: components["schemas"]["AgentBuilderProfile"] | null;
-            /** @default null */
-            permissions: components["schemas"]["AgentPermissions"] | null;
-            /**
-             * Memory Policy
-             * @default null
-             */
-            memory_policy: ("none" | "conversation" | "project" | "user") | null;
-            /**
-             * Command
-             * @default null
-             */
-            command: string | string[] | null;
-            /**
-             * Args
-             * @default null
-             */
-            args: string[] | null;
-            /**
-             * Timeout Seconds
-             * @default null
-             */
-            timeout_seconds: number | null;
-            /**
-             * Max Runtime Seconds
-             * @default null
-             */
-            max_runtime_seconds: number | null;
-            /**
-             * Idle Timeout Seconds
-             * @default null
-             */
-            idle_timeout_seconds: number | null;
-            /**
-             * Heartbeat Interval Seconds
-             * @default null
-             */
-            heartbeat_interval_seconds: number | null;
-            /**
-             * Qa Short Circuit Enabled
-             * @default null
-             */
-            qa_short_circuit_enabled: boolean | null;
-            /**
-             * Qa Model Backend
-             * @description ModelGateway backend for external direct chat.
-             * @default null
-             */
-            qa_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Qa Model
-             * @default null
-             */
-            qa_model: string | null;
-            /**
-             * Qa Classifier Model
-             * @default null
-             */
-            qa_classifier_model: string | null;
-            /**
-             * Qa Max Tokens
-             * @default null
-             */
-            qa_max_tokens: number | null;
-            /**
-             * Qa Classifier Max Tokens
-             * @default null
-             */
-            qa_classifier_max_tokens: number | null;
-            /**
-             * Qa Temperature
-             * @default null
-             */
-            qa_temperature: number | null;
-            /**
-             * Qa Request Timeout Seconds
-             * @default null
-             */
-            qa_request_timeout_seconds: number | null;
-            /**
-             * Task Fallback Agent Ids
-             * @default null
-             */
-            task_fallback_agent_ids: string[] | null;
-            /**
-             * Max Task Attempts
-             * @default null
-             */
-            max_task_attempts: number | null;
-            /**
-             * Task Result Context Max Chars
-             * @default null
-             */
-            task_result_context_max_chars: number | null;
-            /**
-             * Task Result Item Max Chars
-             * @default null
-             */
-            task_result_item_max_chars: number | null;
-            /**
-             * Orchestrator Memory Enabled
-             * @default null
-             */
-            orchestrator_memory_enabled: boolean | null;
-            /**
-             * Orchestrator Memory Recent Runs
-             * @default null
-             */
-            orchestrator_memory_recent_runs: number | null;
-            /**
-             * Orchestrator Memory Context Max Chars
-             * @default null
-             */
-            orchestrator_memory_context_max_chars: number | null;
-            /**
-             * Orchestrator Tool Calling Enabled
-             * @default null
-             */
-            orchestrator_tool_calling_enabled: boolean | null;
-            /**
-             * Orchestrator Tool Trace Visible
-             * @default null
-             */
-            orchestrator_tool_trace_visible: boolean | null;
-            /**
-             * Orchestrator Tool Max Iterations
-             * @default null
-             */
-            orchestrator_tool_max_iterations: number | null;
-            /**
-             * Orchestrator Tool Max Tokens
-             * @default null
-             */
-            orchestrator_tool_max_tokens: number | null;
-            /**
-             * Orchestrator Tool Result Max Chars
-             * @default null
-             */
-            orchestrator_tool_result_max_chars: number | null;
-            /**
-             * Orchestrator Tool Read Max Bytes
-             * @default null
-             */
-            orchestrator_tool_read_max_bytes: number | null;
-            /**
-             * Orchestrator Group Messages Enabled
-             * @default null
-             */
-            orchestrator_group_messages_enabled: boolean | null;
-            /**
-             * Orchestrator Process Block Enabled
-             * @default null
-             */
-            orchestrator_process_block_enabled: boolean | null;
-            /**
-             * Orchestrator Response Polish Enabled
-             * @default null
-             */
-            orchestrator_response_polish_enabled: boolean | null;
-            /**
-             * Clarification Gate Enabled
-             * @default null
-             */
-            clarification_gate_enabled: boolean | null;
-            /**
-             * Auto Clarification Max Questions
-             * @default null
-             */
-            auto_clarification_max_questions: number | null;
-            /**
-             * Requirement Alignment Llm Enabled
-             * @default null
-             */
-            requirement_alignment_llm_enabled: boolean | null;
-            /**
-             * Grill Max Questions
-             * @default null
-             */
-            grill_max_questions: number | null;
-            /**
-             * Workspace Docs Enabled
-             * @default null
-             */
-            workspace_docs_enabled: boolean | null;
-            /**
-             * Orchestrator Response Polish Model Backend
-             * @description ModelGateway backend for Orchestrator final response polish.
-             * @default null
-             */
-            orchestrator_response_polish_model_backend: ("claude" | "deepseek" | "openai") | null;
-            /**
-             * Orchestrator Response Polish Max Tokens
-             * @default null
-             */
-            orchestrator_response_polish_max_tokens: number | null;
-            /**
-             * Orchestrator Parallel Enabled
-             * @default null
-             */
-            orchestrator_parallel_enabled: boolean | null;
-            /**
-             * Orchestrator Parallel Max Concurrency
-             * @default null
-             */
-            orchestrator_parallel_max_concurrency: number | null;
-            /**
-             * Orchestrator Evaluation Enabled
-             * @default null
-             */
-            orchestrator_evaluation_enabled: boolean | null;
-            /**
-             * Orchestrator Evaluation Read Max Bytes
-             * @default null
-             */
-            orchestrator_evaluation_read_max_bytes: number | null;
-            /**
-             * Orchestrator Test Runner Enabled
-             * @default null
-             */
-            orchestrator_test_runner_enabled: boolean | null;
-            /**
-             * Orchestrator Test Command Allowlist
-             * @default null
-             */
-            orchestrator_test_command_allowlist: string[] | null;
-        } & {
-            [key: string]: unknown;
-        };
     };
     responses: never;
     parameters: never;
@@ -3975,9 +4245,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };
@@ -4048,6 +4316,70 @@ export interface operations {
             };
         };
     };
+    refresh_api_v1_auth_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RefreshTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_v1_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LogoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_api_v1_auth_me_get: {
         parameters: {
             query?: never;
@@ -4064,6 +4396,255 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+        };
+    };
+    list_sessions_api_v1_auth_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSessionList"];
+                };
+            };
+        };
+    };
+    delete_other_sessions_api_v1_auth_sessions_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_session_api_v1_auth_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_session_api_v1_auth_sessions__session_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_events_api_v1_events_get: {
+        parameters: {
+            query?: {
+                cursor?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserEventList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stream_events_api_v1_events_stream_get: {
+        parameters: {
+            query?: {
+                cursor?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_local_runtime_connector_status_api_v1_local_runtime_connectors_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRuntimeConnectorStatusOut"];
+                };
+            };
+        };
+    };
+    register_local_runtime_connector_api_v1_local_runtime_connectors_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterLocalRuntimeConnectorRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRuntimeConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_local_runtime_connector_api_v1_local_runtime_connectors__connector_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                connector_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalRuntimeConnectorOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4350,6 +4931,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryMountList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_memory_hub_api_v1_conversations__conv_id__memory_hub_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                conv_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationMemoryHubOut"];
                 };
             };
             /** @description Validation Error */
@@ -5011,6 +5625,155 @@ export interface operations {
             };
         };
     };
+    get_server_info_api_v1_server_info_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerInfoResponse"];
+                };
+            };
+        };
+    };
+    list_conversation_shares_api_v1_conversations__conversation_id__shares_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationShareOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_conversation_share_api_v1_conversations__conversation_id__shares_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConversationShareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationShareOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_conversation_share_api_v1_conversations__conversation_id__shares__share_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationShareOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_conversation_share_api_v1_conversation_shares__token__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicConversationShareOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     stream_message_api_v1_messages__msg_id__stream_get: {
         parameters: {
             query?: never;
@@ -5105,26 +5868,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_agent_templates_api_v1_agents_templates_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentTemplateListOut"];
                 };
             };
         };
@@ -5589,174 +6332,6 @@ export interface operations {
             };
         };
     };
-    list_model_providers_api_v1_model_providers_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelProviderListOut"];
-                };
-            };
-        };
-    };
-    list_accounts_api_v1_model_accounts_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelAccountListOut"];
-                };
-            };
-        };
-    };
-    create_account_api_v1_model_accounts_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateModelAccountRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelAccountOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_account_api_v1_model_accounts__account_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_account_api_v1_model_accounts__account_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UpdateModelAccountRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelAccountOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    verify_account_api_v1_model_accounts__account_id__verify_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelAccountVerifyOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     create_upload_api_v1_uploads_post: {
         parameters: {
             query?: never;
@@ -5777,6 +6352,172 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_upload_session_api_v1_uploads_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUploadSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_upload_session_api_v1_uploads_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_upload_session_api_v1_uploads_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_upload_session_part_api_v1_uploads_sessions__session_id__parts__part_number__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                part_number: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadSessionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_upload_session_api_v1_uploads_sessions__session_id__complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteUploadSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompleteUploadSessionResponse"];
                 };
             };
             /** @description Validation Error */

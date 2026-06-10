@@ -10,7 +10,12 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.agents.config_validation import AgentConfigValidationError, validate_agent_config
+from app.agents.config_validation import (
+    WRAPPER_BASE_PROVIDERS,
+    WRAPPER_MODE,
+    AgentConfigValidationError,
+    validate_agent_config,
+)
 from app.agents.orchestrator.tools import OrchestratorToolResult
 from app.models.agent import Agent
 from app.models.conversation import Conversation
@@ -45,7 +50,8 @@ PLATFORM_TOOL_NAMES = {
     "stop_deployment",
     "package_workspace_source",
 }
-CREATABLE_PROVIDERS = {"builtin", "claude_code", "codex", "opencode"}
+CREATABLE_PROVIDERS = {"claude_code", "codex", "opencode"}
+WRAPPER_USER_CONFIG_KEYS = {"custom_agent_mode", "base_agent_id", "wrapper_profile"}
 
 
 class OrchestratorPlatformToolExecutor:
@@ -295,7 +301,7 @@ class OrchestratorPlatformToolExecutor:
         system_prompt = str(arguments["system_prompt"]).strip()
         if provider not in CREATABLE_PROVIDERS:
             return _tool_error(
-                "provider must be one of: builtin, claude_code, codex, opencode",
+                "provider must be one of: claude_code, codex, opencode",
                 "invalid_provider",
             )
         capabilities = _string_list(arguments.get("capabilities"))
@@ -303,14 +309,30 @@ class OrchestratorPlatformToolExecutor:
         if not isinstance(raw_config, Mapping):
             return _tool_error("config must be an object", "invalid_arguments")
         config = dict(raw_config)
-        if "allowed_tools" in arguments:
-            config["allowed_tools"] = arguments.get("allowed_tools")
-        elif provider == "builtin" and "allowed_tools" not in config:
-            config["allowed_tools"] = []
+        config_error = _validate_wrapper_tool_config(provider, config)
+        if config_error is not None:
+            return config_error
+
+        base_agent_id = str(config["base_agent_id"])
+        base_agent = await self._db.get(Agent, base_agent_id)
+        if (
+            base_agent is None
+            or not base_agent.is_builtin
+            or base_agent.provider != provider
+        ):
+            return _tool_error(
+                "base_agent_id must reference a matching built-in server Agent",
+                "invalid_agent_config",
+            )
+        normalized_input = dict(base_agent.config or {})
+        normalized_input["custom_agent_mode"] = WRAPPER_MODE
+        normalized_input["base_agent_id"] = base_agent.id
+        normalized_input["wrapper_profile"] = config.get("wrapper_profile") or {}
+        _sync_wrapper_planning_fields(normalized_input)
         try:
             normalized_config = validate_agent_config(
                 provider=provider,
-                config=config,
+                config=normalized_input,
                 system_prompt=system_prompt,
             )
         except AgentConfigValidationError as exc:
@@ -351,7 +373,7 @@ class OrchestratorPlatformToolExecutor:
                         "name": agent.name,
                         "provider": agent.provider,
                         "capabilities": agent.capabilities,
-                        "allowed_tools": normalized_config.get("allowed_tools"),
+                        "base_agent_id": normalized_config.get("base_agent_id"),
                         "is_builtin": agent.is_builtin,
                     },
                     "added_to_conversation": add_to_conversation
@@ -359,6 +381,44 @@ class OrchestratorPlatformToolExecutor:
                 }
             ),
         )
+
+
+def _validate_wrapper_tool_config(
+    provider: str,
+    config: dict[str, Any],
+) -> OrchestratorToolResult | None:
+    unknown = sorted(set(config) - WRAPPER_USER_CONFIG_KEYS)
+    if unknown:
+        return _tool_error(
+            f"Custom Agent wrappers may not configure config.{unknown[0]}",
+            "invalid_agent_config",
+        )
+    if config.get("custom_agent_mode") != WRAPPER_MODE:
+        return _tool_error(
+            "custom_agent_mode must be server_agent_wrapper",
+            "invalid_agent_config",
+        )
+    base_agent_id = config.get("base_agent_id")
+    if WRAPPER_BASE_PROVIDERS.get(str(base_agent_id)) != provider:
+        return _tool_error("base_agent_id does not match provider", "invalid_agent_config")
+    if not isinstance(config.get("wrapper_profile"), Mapping):
+        return _tool_error("wrapper_profile must be an object", "invalid_agent_config")
+    return None
+
+
+def _sync_wrapper_planning_fields(config: dict[str, Any]) -> None:
+    profile = config.get("wrapper_profile")
+    if not isinstance(profile, Mapping):
+        return
+    for key in (
+        "planning_profile",
+        "planning_strengths",
+        "planning_weaknesses",
+        "preferred_task_types",
+    ):
+        value = profile.get(key)
+        if value:
+            config[key] = value
 
 
 def _required_str(value: object, field: str) -> str | OrchestratorToolResult:

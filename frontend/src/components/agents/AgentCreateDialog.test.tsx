@@ -1,152 +1,99 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { AgentCreateDialog } from './AgentCreateDialog';
 
-vi.mock('@/hooks/useAgentTemplates', () => ({
-  useAgentTemplates: () => ({
-    data: {
-      items: [
-        {
-          id: 'paper-research-assistant',
-          name: 'Paper Helper',
-          description: 'Organize research notes.',
-          category: 'research',
-          capabilities: ['research', 'writing'],
-          builder_profile: {
-            role: 'Research assistant',
-            purpose: 'Organize papers',
-            goals: ['Summarize notes'],
-            tone: 'careful',
-            do_not_do: ['Invent citations'],
-            clarification_policy: 'ask_first',
-            output_style: 'Use sections',
-            starters: ['Summarize this note'],
-          },
-          permissions: {
-            workspace_read: true,
-            workspace_write: false,
-            run_commands: 'never',
-            network: 'never',
-            deploy: 'never',
-            external_accounts: 'never',
-          },
-          memory_policy: 'conversation',
-          model_backend: 'deepseek',
-        },
-      ],
-    },
-  }),
-}));
-
-vi.mock('@/hooks/useModelAccounts', () => ({
-  useModelProviders: () => ({
-    data: {
-      items: [
-        {
-          provider: 'deepseek',
-          company_name: 'DeepSeek',
-          protocol: 'openai_compatible',
-          default_model: 'deepseek-v4-flash',
-          models: ['deepseek-v4-flash'],
-          requires_base_url: false,
-          default_base_url: 'https://api.deepseek.com',
-        },
-      ],
-    },
-  }),
-  useModelAccounts: () => ({
-    accounts: { data: { items: [] } },
-    create: { mutateAsync: vi.fn(), isPending: false },
-    update: { mutateAsync: vi.fn(), isPending: false },
-    remove: { mutateAsync: vi.fn(), isPending: false },
-    verify: { mutateAsync: vi.fn(), isPending: false },
-  }),
-}));
-
-function goToReview() {
+function fillRequiredProfile() {
+  fireEvent.click(screen.getByRole('button', { name: /OpenCode Helper/ }));
   fireEvent.click(screen.getByRole('button', { name: '下一步' }));
-  fireEvent.click(screen.getByRole('button', { name: '下一步' }));
-  fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+  fireEvent.change(screen.getByLabelText('名称'), {
+    target: { value: '前端页面实现助手' },
+  });
+  fireEvent.change(screen.getByLabelText('一句话用途'), {
+    target: { value: '负责实现静态网页和交互效果。' },
+  });
+  fireEvent.change(screen.getByLabelText('角色'), {
+    target: { value: '资深前端实现者' },
+  });
+  fireEvent.change(screen.getByLabelText('调度描述'), {
+    target: { value: '当任务需要生成 HTML、CSS、JS 或修复前端页面时调用。' },
+  });
+  fireEvent.change(screen.getByLabelText('能力标签'), {
+    target: { value: '前端实现, 静态网页' },
+  });
 }
 
 describe('AgentCreateDialog', () => {
-  it('submits no-code builder profile and safe builtin defaults', () => {
+  it('creates a server agent wrapper payload', () => {
     const onCreate = vi.fn();
     render(<AgentCreateDialog open onClose={vi.fn()} onCreate={onCreate} />);
 
-    expect(screen.getByText('快捷模板（可选）')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '不使用模板' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /论文资料整理助手/ })).not.toHaveClass('border-brand');
+    expect(screen.getByText('创建服务器 Agent 套壳')).toBeInTheDocument();
+    expect(screen.queryByText('高级配置')).not.toBeInTheDocument();
+    expect(screen.queryByText('AgentHub 免费 DeepSeek')).not.toBeInTheDocument();
 
+    fillRequiredProfile();
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: '前端页面实现助手',
+        provider: 'opencode',
+        baseAgentId: 'opencode-helper',
+        capabilities: ['前端实现', '静态网页'],
+        systemPrompt: expect.stringContaining('角色：资深前端实现者'),
+        wrapperProfile: expect.objectContaining({
+          purpose: '负责实现静态网页和交互效果。',
+          planning_profile: '当任务需要生成 HTML、CSS、JS 或修复前端页面时调用。',
+          capabilities: ['前端实现', '静态网页'],
+        }),
+      }),
+    );
+  });
+
+  it('requires a selected base agent before submit', () => {
+    const onCreate = vi.fn();
+    render(<AgentCreateDialog open onClose={vi.fn()} onCreate={onCreate} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     fireEvent.change(screen.getByLabelText('名称'), {
-      target: { value: 'My Research Agent' },
+      target: { value: '未选择底座' },
     });
     fireEvent.change(screen.getByLabelText('一句话用途'), {
-      target: { value: 'Help me organize literature notes.' },
+      target: { value: '测试用途' },
     });
-    fireEvent.change(screen.getByLabelText('能力标签'), {
-      target: { value: 'research, writing' },
-    });
-    goToReview();
-    fireEvent.click(screen.getByRole('button', { name: '创建' }));
-
-    expect(onCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'My Research Agent',
-        provider: 'builtin',
-        model: 'deepseek',
-        memoryPolicy: 'conversation',
-        builderProfile: expect.objectContaining({
-          clarification_policy: 'balanced',
-          purpose: 'Help me organize literature notes.',
-        }),
-        permissions: expect.objectContaining({
-          workspace_read: false,
-          workspace_write: false,
-        }),
-      }),
-    );
-  });
-
-  it('maps workspace and command permissions into the create payload', () => {
-    const onCreate = vi.fn();
-    render(<AgentCreateDialog open onClose={vi.fn()} onCreate={onCreate} />);
-
-    fireEvent.change(screen.getByLabelText('名称'), {
-      target: { value: 'Workspace Agent' },
+    fireEvent.change(screen.getByLabelText('调度描述'), {
+      target: { value: '测试调度描述' },
     });
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     fireEvent.click(screen.getByRole('button', { name: '下一步' }));
-    fireEvent.click(screen.getByLabelText('修改 Workspace 文件'));
-    fireEvent.click(screen.getByLabelText('运行命令'));
-    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
-    expect(onCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        permissions: expect.objectContaining({
-          workspace_read: true,
-          workspace_write: true,
-          run_commands: 'ask',
-        }),
-      }),
-    );
-  });
-
-  it('blocks submit when advanced MCP JSON is invalid', () => {
-    const onCreate = vi.fn();
-    render(<AgentCreateDialog open onClose={vi.fn()} onCreate={onCreate} />);
-
-    fireEvent.change(screen.getByLabelText('名称'), {
-      target: { value: 'MCP Agent' },
-    });
-    goToReview();
-    fireEvent.click(screen.getByRole('button', { name: '高级配置' }));
-    fireEvent.change(screen.getByLabelText('MCP 服务器 JSON'), {
-      target: { value: '{' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: '创建' }));
-
-    expect(screen.getByText('MCP 服务器配置必须是 JSON 数组。')).toBeInTheDocument();
+    expect(screen.getByText('请先选择一个服务器底座 Agent。')).toBeInTheDocument();
     expect(onCreate).not.toHaveBeenCalled();
+  });
+
+  it('collects markdown skill files', () => {
+    const onCreate = vi.fn();
+    render(<AgentCreateDialog open onClose={vi.fn()} onCreate={onCreate} />);
+    fillRequiredProfile();
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const skill = new File(['# Skill'], 'SKILL.md', { type: 'text/markdown' });
+    const ignored = new File(['zip'], 'skill.zip', { type: 'application/zip' });
+    fireEvent.change(input, { target: { files: [skill, ignored] } });
+
+    expect(screen.getByText('SKILL.md')).toBeInTheDocument();
+    expect(screen.queryByText('skill.zip')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '下一步' }));
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+
+    expect(onCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillFiles: [skill],
+      }),
+    );
   });
 });

@@ -690,6 +690,16 @@ Structured Orchestrator memory now treats `interrupted` as a terminal run/task-a
 
 AgentHub now has a local Supermemory-style `MemoryHub` layer for important memory and dynamic context mounting.
 
+## 2026-06-10 Follow-up Continuity And Scoped Memory Addendum
+
+- Terse modification requests such as “改得厉害一点”“继续优化”“换个风格” are resolved against the latest modifiable terminal run in the same conversation only.
+- The resolver exposes a bounded `Previous output follow-up context:` section to the planner. It never enables unrestricted planner access to the complete structured run history.
+- The source priority is safe Workspace text artifacts, attempt `text_preview`, visible child-Agent text, then task/run summaries. Multiple independent candidates require clarification.
+- `GET /api/v1/conversations/{conversation_id}/memory-hub` is the UI scope contract. Current conversation/workspace/group memories are separated from cross-conversation user preferences.
+- `memory-mounts` reports `not_attempted`, `no_match`, or `mounted` for the latest Agent reply. The UI label is “本会话已注入记录”.
+- Automatic extraction reads the parent user message only. Direct activation requires explicit durable language such as “请记住”“以后默认”“我偏好” or a durable all/always constraint.
+- Deterministic `rules-v1` pollution is archived, not deleted, and remains auditable through migration metadata.
+
 Core contract:
 
 - `MemoryHub` is the primary long-term semantic memory source for normal agent context. `ConversationMemory.summary_text` remains as legacy fallback/debug context when MemoryHub has no useful mounted context.
