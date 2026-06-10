@@ -336,7 +336,7 @@ MVP 目标：
 ## 12. Remote Backend Profiles
 
 - Desktop 可以保存多个本地或远程 AgentHub 连接档案。
-- 非回环远程地址必须使用 HTTPS。
+- 非回环远程地址推荐使用 HTTPS；用户显式填写 HTTP 时允许连接，但必须展示明文传输风险提示。
 - 每个后端拥有独立的 JWT 本地存储分区。
 - 切换档案时必须先清理 Query、Chat、Agent 和 active stream，再恢复目标后端登录态。
 - `/health` 用于就绪探测，`/api/v1/server-info` 用于读取服务端身份、部署模式与能力。

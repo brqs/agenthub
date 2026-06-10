@@ -1,5 +1,5 @@
-mod deep_link;
 mod connector;
+mod deep_link;
 mod diagnostics;
 mod environment;
 mod error;

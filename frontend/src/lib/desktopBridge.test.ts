@@ -124,15 +124,14 @@ describe('desktopBridge', () => {
     expect(health.serverInfo?.deployment_mode).toBe('hosted');
   });
 
-  it('rejects insecure public backends before sending a request', async () => {
-    const fetchMock = vi.fn();
+  it('allows explicit HTTP backend profiles for remote test deployments', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok' })));
     vi.stubGlobal('fetch', fetchMock);
 
     const health = await checkDesktopBackendHealth('http://agenthub.example.com');
 
-    expect(health.status).toBe('unreachable');
-    expect(health.error).toBe('公网后端必须使用 HTTPS。');
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith('http://agenthub.example.com/health', expect.any(Object));
+    expect(health.status).toBe('ready');
   });
 
   it('rejects a changed server identity for a saved backend profile', () => {

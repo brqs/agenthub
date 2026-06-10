@@ -659,15 +659,18 @@ function normalizePreferenceProfiles(preferences: DesktopPreferences): DesktopBa
 function normalizeBackendProfileUrl(url: string): string {
   const raw = url.trim();
   const localWithoutProtocol = /^(localhost|127\.0\.0\.1|\[?::1\]?)(:\d+)?(\/|$)/i.test(raw);
+  const remoteHttpWithoutProtocol =
+    /^(\d{1,3}\.){3}\d{1,3}(:\d+)?(\/|$)/.test(raw) ||
+    /^\[[0-9a-f:]+\](:\d+)?(\/|$)/i.test(raw) ||
+    /^[^/:]+:\d+(\/|$)/.test(raw);
   const normalized = new URL(
-    raw.match(/^https?:\/\//i) ? raw : `${localWithoutProtocol ? 'http' : 'https'}://${raw}`,
+    raw.match(/^https?:\/\//i)
+      ? raw
+      : `${localWithoutProtocol || remoteHttpWithoutProtocol ? 'http' : 'https'}://${raw}`,
   );
   normalized.hash = '';
   normalized.search = '';
   const value = normalized.toString().replace(/\/$/, '');
-  if (!isLocalProfileUrl(value) && normalized.protocol !== 'https:') {
-    throw new Error('公网后端必须使用 HTTPS。');
-  }
   return value;
 }
 
