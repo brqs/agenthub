@@ -67,6 +67,7 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         "is_builtin": agent.is_builtin,
     }
     if isinstance(agent.config, dict):
+        _apply_wrapper_profile_context(context, agent.config)
         for key in AGENT_PLANNING_CONFIG_SCALAR_KEYS:
             value = agent.config.get(key)
             if isinstance(value, str) and value.strip():
@@ -113,6 +114,33 @@ def _agent_context(agent: Agent) -> dict[str, Any]:
         context["runtime_available"] = False
         context["runtime_error"] = cooldown_error
     return context
+
+
+def _apply_wrapper_profile_context(context: dict[str, Any], config: dict[str, Any]) -> None:
+    if config.get("custom_agent_mode") != "server_agent_wrapper":
+        return
+    base_agent_id = config.get("base_agent_id")
+    if isinstance(base_agent_id, str) and base_agent_id:
+        context["base_agent_id"] = base_agent_id
+    profile = config.get("wrapper_profile")
+    if not isinstance(profile, dict):
+        return
+    for key in (
+        "planning_profile",
+        "planning_strengths",
+        "planning_weaknesses",
+        "preferred_task_types",
+    ):
+        value = profile.get(key)
+        if value:
+            context[key] = value
+    capabilities = _planning_list(profile.get("capabilities"))
+    if capabilities:
+        context["capabilities"] = capabilities
+    role = _planning_text(profile.get("role"))
+    purpose = _planning_text(profile.get("purpose"))
+    if role or purpose:
+        context["system_prompt_summary"] = " ".join(item for item in (role, purpose) if item)
 
 
 def _has_explicit_planning_profile(context: dict[str, Any]) -> bool:

@@ -23,58 +23,36 @@ AgentProvider = Literal[
     "openai",
     "custom",
 ]
-CreatableAgentProvider = Literal["claude_code", "codex", "opencode", "builtin"]
+CreatableAgentProvider = Literal["claude_code", "codex", "opencode"]
 ModelBackend = Literal["claude", "deepseek", "openai"]
-ModelProfileSource = Literal["agenthub_default", "user_account"]
 AgentKnowledgeUsage = Literal["reference", "policy", "template", "example"]
 AgentAssetKind = Literal["knowledge", "skill"]
 AgentAssetStatus = Literal["active", "unbound"]
 AgentAssetVersionAction = Literal["created", "updated", "unbound", "materialized"]
 AgentAssetUsageStatus = Literal["injected", "skipped", "failed"]
-AgentMemoryPolicy = Literal["none", "conversation", "project", "user"]
-AgentClarificationPolicy = Literal["ask_first", "balanced", "decide_with_defaults"]
-AgentPermissionCommandPolicy = Literal["never", "ask", "auto_low_risk"]
-AgentPermissionNetworkPolicy = Literal["never", "ask", "allowlisted"]
-AgentPermissionAskPolicy = Literal["never", "ask"]
 AgentMCPHealthStatus = Literal["ready", "unavailable"]
 AgentTestRunStatus = Literal["done", "error"]
 
 
-class AgentBuilderProfile(BaseModel):
+class AgentWrapperProfile(BaseModel):
     role: str | None = Field(default=None, max_length=400)
     purpose: str | None = Field(default=None, max_length=400)
-    goals: list[str] = Field(default_factory=list, max_length=12)
-    tone: str | None = Field(default=None, max_length=160)
-    do_not_do: list[str] = Field(default_factory=list, max_length=12)
-    clarification_policy: AgentClarificationPolicy = "balanced"
+    planning_profile: str | None = Field(default=None, max_length=2000)
+    planning_strengths: list[str] = Field(default_factory=list, max_length=20)
+    planning_weaknesses: list[str] = Field(default_factory=list, max_length=20)
+    preferred_task_types: list[str] = Field(default_factory=list, max_length=12)
+    capabilities: list[str] = Field(default_factory=list, max_length=12)
     output_style: str | None = Field(default=None, max_length=400)
-    starters: list[str] = Field(default_factory=list, max_length=8)
-
-
-class AgentPermissions(BaseModel):
-    workspace_read: bool = False
-    workspace_write: bool = False
-    run_commands: AgentPermissionCommandPolicy = "never"
-    network: AgentPermissionNetworkPolicy = "never"
-    deploy: AgentPermissionAskPolicy = "never"
-    external_accounts: AgentPermissionAskPolicy = "never"
-
-
-class AgentModelProfile(BaseModel):
-    source: ModelProfileSource = "agenthub_default"
-    account_id: UUID | None = None
-    provider: str | None = Field(default=None, max_length=32)
-    model: str | None = Field(default=None, max_length=160)
+    boundaries: list[str] = Field(default_factory=list, max_length=12)
 
 
 class AgentConfig(BaseModel):
+    custom_agent_mode: Literal["server_agent_wrapper"] | None = None
+    base_agent_id: Literal["claude-code", "codex-helper", "opencode-helper"] | None = None
+    wrapper_profile: AgentWrapperProfile | None = None
     model_backend: ModelBackend | None = Field(
         default=None,
         description="ModelGateway backend for builtin agents.",
-    )
-    model_profile: AgentModelProfile | None = Field(
-        default=None,
-        description="User-facing model selection for builtin custom agents.",
     )
     answer_model_backend: ModelBackend | None = Field(
         default=None,
@@ -126,9 +104,6 @@ class AgentConfig(BaseModel):
             "Omit to keep legacy behavior; [] means no tools."
         ),
     )
-    builder_profile: AgentBuilderProfile | None = None
-    permissions: AgentPermissions | None = None
-    memory_policy: AgentMemoryPolicy | None = None
     command: str | list[str] | None = None
     args: list[str] | None = None
     timeout_seconds: float | None = Field(
@@ -380,22 +355,6 @@ class AgentAssetUsageListOut(BaseModel):
     total: int
 
 
-class AgentTemplateOut(BaseModel):
-    id: str
-    name: str
-    description: str
-    category: str
-    capabilities: list[str] = Field(default_factory=list)
-    builder_profile: AgentBuilderProfile
-    permissions: AgentPermissions = Field(default_factory=AgentPermissions)
-    memory_policy: AgentMemoryPolicy = "conversation"
-    model_backend: ModelBackend = "deepseek"
-
-
-class AgentTemplateListOut(BaseModel):
-    items: list[AgentTemplateOut] = Field(default_factory=list)
-
-
 class AgentMCPToolOut(BaseModel):
     name: str
     description: str | None = None
@@ -430,7 +389,7 @@ class CreateAgentRequest(BaseModel):
     avatar_url: str = ""
     capabilities: list[str] = Field(default_factory=list, max_length=10)
     system_prompt: str | None = Field(default=None, max_length=8192)
-    config: dict[str, Any] = Field(default_factory=dict)
+    config: AgentConfig = Field(default_factory=AgentConfig)
 
 
 class UpdateAgentRequest(BaseModel):
@@ -438,7 +397,7 @@ class UpdateAgentRequest(BaseModel):
     avatar_url: str | None = None
     capabilities: list[str] | None = Field(default=None, max_length=10)
     system_prompt: str | None = Field(default=None, max_length=8192)
-    config: dict[str, Any] | None = None
+    config: AgentConfig | None = None
 
 
 class AgentList(OffsetPagination[AgentOut]):

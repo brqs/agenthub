@@ -11,6 +11,9 @@ from app.agents.model_gateway import ModelGateway
 from app.agents.orchestrator._internal.routing.evidence import (
     ORCHESTRATOR_EVIDENCE_HEADER,
 )
+from app.agents.orchestrator._internal.routing.previous_output_followup import (
+    PREVIOUS_OUTPUT_FOLLOWUP_HEADER,
+)
 from app.agents.orchestrator.availability import (
     is_runnable_agent_context,
     runnable_agent_id,
@@ -34,6 +37,7 @@ ORCHESTRATOR_MEMORY_HEADER = "Previous Orchestrator structured memory:"
 MEMORYHUB_CONTEXT_HEADER = "MemoryHub mounted context:"
 PLANNER_MEMORY_SECTION_HEADERS = (
     MEMORYHUB_CONTEXT_HEADER,
+    PREVIOUS_OUTPUT_FOLLOWUP_HEADER,
     ORCHESTRATOR_EVIDENCE_HEADER,
     AGENT_CAPABILITY_PROFILE_V2_HEADER,
     USER_PREFERENCE_MEMORY_HEADER,
@@ -260,6 +264,7 @@ def _planner_memory_context(messages: list[ChatMessage]) -> str:
             continue
         for header in (
             MEMORYHUB_CONTEXT_HEADER,
+            PREVIOUS_OUTPUT_FOLLOWUP_HEADER,
             ORCHESTRATOR_EVIDENCE_HEADER,
             AGENT_CAPABILITY_PROFILE_V2_HEADER,
             USER_PREFERENCE_MEMORY_HEADER,

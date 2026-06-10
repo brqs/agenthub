@@ -1,5 +1,7 @@
 import { ExternalLink, Monitor, RefreshCw, X } from 'lucide-react';
 import { DesktopLocalStackPanel } from '@/components/desktop/DesktopLocalStackPanel';
+import { DesktopBackendProfilesPanel } from '@/components/desktop/DesktopBackendProfilesPanel';
+import { DeviceSessionsPanel } from '@/components/layout/DeviceSessionsPanel';
 import { useDesktopEnvironment } from '@/hooks/useDesktopEnvironment';
 import { env } from '@/lib/env';
 import { useUiStore, type SystemTheme, type ThemeMode, type ThemePreference } from '@/stores/uiStore';
@@ -42,6 +44,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           <SettingRow label="本地演示数据" value="已关闭" />
           <SettingRow label="构建类型" value="frontend-api" />
 
+          <DeviceSessionsPanel />
+
           {desktop.isDesktop && (
             <section className="rounded-md border border-indigo-200 bg-indigo-50 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
               <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-indigo-700 dark:text-indigo-200">
@@ -60,6 +64,9 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                 {desktop.health?.version && (
                   <SettingRow compact label="后端版本" value={desktop.health.version} />
                 )}
+              </div>
+              <div className="mt-4">
+                <DesktopBackendProfilesPanel />
               </div>
               <div className="mt-4 rounded-md border border-white/70 bg-white/70 p-3 dark:border-slate-700/60 dark:bg-slate-950/35">
                 <div className="flex items-center justify-between gap-3">

@@ -25,6 +25,23 @@ async def test_health() -> None:
     assert body["dependencies"]["api"] == "ok"
 
 
+@pytest.mark.asyncio
+async def test_server_info_exposes_public_capabilities() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/v1/server-info")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["server_id"] == settings.agenthub_server_id
+    assert body["version"] == "0.1.0"
+    assert body["deployment_mode"] in {"local", "hosted"}
+    assert body["features"]["uploads"] is True
+    assert body["features"]["workspace"] is True
+    assert body["auth"]["type"] == "jwt"
+    assert body["limits"]["max_upload_mb"] == settings.upload_max_file_bytes // 1_000_000
+
+
 def test_default_cors_allows_tauri_origin() -> None:
     assert "http://tauri.localhost" in settings.cors_origin_list
 

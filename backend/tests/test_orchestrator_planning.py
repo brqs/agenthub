@@ -201,6 +201,101 @@ async def test_turn_taking_request_uses_deterministic_tasks_before_planner() -> 
     assert [task.agent_id for task in tasks] == ["claude-code", "opencode-helper"]
 
 
+async def test_empty_tasks_config_falls_back_to_dynamic_task_planning() -> None:
+    tasks = await resolve_tasks(
+        {
+            "tasks": [],
+            "managed_agent_ids": ["custom-copywriter"],
+            "llm_planning": False,
+        },
+        [ChatMessage(role="user", content="Write a recruitment copy for USTC.")],
+        None,
+    )
+
+    assert tasks
+    assert {task.agent_id for task in tasks} == {"custom-copywriter"}
+    assert "Write a recruitment copy for USTC." in tasks[0].instruction
+
+
+async def test_orchestrator_empty_tasks_config_does_not_short_circuit_stream() -> None:
+    sub_agent = FakeSubAdapter(
+        "custom-copywriter",
+        _text_chunks("Recruitment copy draft complete."),
+    )
+
+    async def adapter_factory(agent_id: str):
+        assert agent_id == "custom-copywriter"
+        return sub_agent
+
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [],
+            "managed_agent_ids": ["custom-copywriter"],
+            "adapter_factory": adapter_factory,
+            "llm_planning": False,
+        },
+        messages=[ChatMessage(role="user", content="Write a recruitment copy for USTC.")],
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "custom-copywriter"
+        for chunk in chunks
+    )
+    assert not any(
+        chunk.event_type == "error" and "config.tasks" in (chunk.error or "")
+        for chunk in chunks
+    )
+
+
+async def test_empty_planner_task_list_falls_back_for_copywriting_task() -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={"tasks": []},
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    sub_agent = FakeSubAdapter(
+        "custom-copywriter",
+        _text_chunks("Recruitment copy draft complete."),
+    )
+
+    async def adapter_factory(agent_id: str):
+        assert agent_id == "custom-copywriter"
+        return sub_agent
+
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["custom-copywriter"],
+            "adapter_factory": adapter_factory,
+        },
+        messages=[ChatMessage(role="user", content="Write a recruitment copy for USTC.")],
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(planner.calls) == 1
+    assert any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "custom-copywriter"
+        for chunk in chunks
+    )
+    assert not any(
+        chunk.event_type == "error" and "config.tasks" in (chunk.error or "")
+        for chunk in chunks
+    )
+
+
 async def test_single_planner_conversation_task_rebalances_to_two_agents() -> None:
     request = (
         "@orchestrator 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
@@ -377,6 +472,9 @@ async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -
         "Agent capability profile from recent Orchestrator runs:\n"
         "- @claude-code: success_count=0; failure_count=1\n"
         "- @opencode-helper: success_count=1; failure_count=0\n\n"
+        "Previous output follow-up context:\n"
+        "Task: 编写中科大招聘文案\n"
+        "Previous output: 加入中科大，和优秀的人一起做有影响力的事。\n\n"
         "Previous Orchestrator structured memory:\n"
         "private historical details that the planner does not need"
     )
@@ -403,6 +501,8 @@ async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -
     assert "@opencode-helper: success_rate=1.0; score=2.1" in planner_message
     assert "@opencode-helper: success_count=1; failure_count=0" in planner_message
     assert "language_style_hints: chinese=2" in planner_message
+    assert "Previous output follow-up context:" in planner_message
+    assert "加入中科大" in planner_message
     assert "private historical details" not in planner_message
 
 

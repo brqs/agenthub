@@ -20,6 +20,7 @@ import {
   getDesktopReleaseInfo,
   getStoredDesktopBackendUrl,
   installDesktopUpdate,
+  isDesktopBackendIdentityCompatible,
   isDesktopRuntime,
   normalizeDesktopError,
   openDesktopReleasePage,
@@ -29,6 +30,7 @@ import {
   startDesktopLocalStack,
   stopDesktopLocalStack,
   type DesktopBackendHealth,
+  type DesktopBackendProfile,
   type DesktopBridgeError,
   type DesktopCrashReport,
   type DesktopEnvironment,
@@ -41,6 +43,7 @@ import {
   type DesktopUpdateInstallResult,
 } from '@/lib/desktopBridge';
 import { getApiBaseUrl, setRuntimeApiBaseUrl, subscribeApiBaseUrl } from '@/lib/env';
+import { switchClientBackend } from '@/lib/session';
 
 export type DesktopCheckState = 'idle' | 'checking' | 'ready' | 'unreachable';
 export type DesktopUpdateState =
@@ -60,6 +63,8 @@ export interface DesktopEnvironmentState {
   checkState: DesktopCheckState;
   environment: DesktopEnvironment | null;
   preferences: DesktopPreferences | null;
+  backendProfiles: DesktopBackendProfile[];
+  activeBackendProfileId: string | null;
   releaseInfo: DesktopReleaseInfo | null;
   updateCheck: DesktopUpdateCheckResult | null;
   updateState: DesktopUpdateState;
@@ -69,6 +74,11 @@ export interface DesktopEnvironmentState {
   desktopError: DesktopBridgeError | null;
   operationPending: boolean;
   setBackendUrl: (url: string) => void;
+  saveBackendProfile: (
+    profile: Pick<DesktopBackendProfile, 'name' | 'url'> & { id?: string },
+  ) => Promise<DesktopBackendProfile | null>;
+  activateBackendProfile: (profileId: string) => Promise<boolean>;
+  deleteBackendProfile: (profileId: string) => Promise<boolean>;
   checkBackend: (url?: string, signal?: AbortSignal) => Promise<DesktopBackendHealth>;
   refreshLocalStack: () => Promise<DesktopLocalStackStatus | null>;
   chooseProjectRoot: () => Promise<void>;
@@ -105,6 +115,10 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
   const [checkState, setCheckState] = useState<DesktopCheckState>('idle');
   const [environment, setEnvironment] = useState<DesktopEnvironment | null>(null);
   const [preferences, setPreferencesState] = useState<DesktopPreferences | null>(null);
+  const [backendProfiles, setBackendProfiles] = useState<DesktopBackendProfile[]>(() => [
+    defaultBackendProfile(getStoredDesktopBackendUrl()),
+  ]);
+  const [activeBackendProfileId, setActiveBackendProfileId] = useState<string | null>('default');
   const [releaseInfo, setReleaseInfo] = useState<DesktopReleaseInfo | null>(null);
   const [updateCheck, setUpdateCheck] = useState<DesktopUpdateCheckResult | null>(null);
   const [updateState, setUpdateState] = useState<DesktopUpdateState>('idle');
@@ -134,8 +148,15 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
     ])
       .then(([nextEnvironment, nextPreferences, nextStack, nextReleaseInfo]) => {
         if (cancelled) return;
+        const profiles = normalizePreferenceProfiles(nextPreferences);
+        const activeProfile =
+          profiles.find((profile) => profile.id === nextPreferences.activeBackendProfileId) ??
+          profiles[0];
         setEnvironment(nextEnvironment);
         setPreferencesState(nextPreferences);
+        setBackendProfiles(profiles);
+        setActiveBackendProfileId(activeProfile?.id ?? null);
+        if (activeProfile) setBackendUrlState(activeProfile.url);
         setStackStatus(nextStack);
         setReleaseInfo(nextReleaseInfo);
       })
@@ -181,20 +202,194 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
       setHealth(result);
       setCheckState(result.status === 'ready' ? 'ready' : 'unreachable');
       if (result.status === 'ready') {
-        setRuntimeApiBaseUrl(result.url, { persistDesktop: desktop });
+        const activeProfile = backendProfiles.find(
+          (profile) => profile.id === activeBackendProfileId,
+        );
+        const sameSavedAddress =
+          activeProfile?.url.replace(/\/+$/, '') === result.url.replace(/\/+$/, '');
+        if (
+          activeProfile &&
+          sameSavedAddress &&
+          !isDesktopBackendIdentityCompatible(activeProfile, result)
+        ) {
+          const incompatible: DesktopBackendHealth = {
+            ...result,
+            status: 'unreachable',
+            reachable: false,
+            error: '该地址返回了不同的 AgentHub 服务器身份。为保护登录态，已拒绝自动连接。',
+          };
+          setHealth(incompatible);
+          setCheckState('unreachable');
+          setDesktopError(normalizeDesktopError(new Error(incompatible.error)));
+          setBackendProfiles((current) =>
+            current.map((profile) =>
+              profile.id === activeProfile.id
+                ? { ...profile, lastHealth: 'incompatible' }
+                : profile,
+            ),
+          );
+          return incompatible;
+        }
+        if (getApiBaseUrl() !== result.url) {
+          switchClientBackend(result.url, desktop);
+        } else {
+          setRuntimeApiBaseUrl(result.url, { persistDesktop: desktop });
+        }
         setBackendUrlState(result.url);
         if (desktop) {
           try {
-            const next = await setDesktopPreferences({ backendUrl: result.url });
+            const connectedAt = new Date().toISOString();
+            const profiles = backendProfiles.map((profile) =>
+              profile.id === activeBackendProfileId
+                ? {
+                    ...profile,
+                    url: result.url,
+                    mode: isLocalProfileUrl(result.url)
+                      ? ('local' as const)
+                      : ('remote' as const),
+                    serverId:
+                      sameSavedAddress && !result.serverInfo?.server_id
+                        ? profile.serverId
+                        : result.serverInfo?.server_id,
+                    lastConnectedAt: connectedAt,
+                    lastHealth: 'ready' as const,
+                  }
+                : profile,
+            );
+            const next = await setDesktopPreferences({
+              backendUrl: result.url,
+              backendProfiles: profiles,
+              activeBackendProfileId: activeBackendProfileId ?? undefined,
+            });
             setPreferencesState(next);
+            setBackendProfiles(normalizePreferenceProfiles(next));
+            setActiveBackendProfileId(next.activeBackendProfileId ?? activeBackendProfileId);
           } catch {
             // A healthy backend remains usable even if desktop preferences cannot be persisted.
           }
         }
+        setDesktopError(null);
       }
       return result;
     },
-    [backendUrl, desktop],
+    [activeBackendProfileId, backendProfiles, backendUrl, desktop],
+  );
+
+  const persistProfiles = useCallback(
+    async (
+      profiles: DesktopBackendProfile[],
+      activeId: string | null,
+      backendUrlValue?: string,
+    ) => {
+      if (!desktop) return null;
+      const next = await setDesktopPreferences({
+        backendProfiles: profiles,
+        activeBackendProfileId: activeId ?? undefined,
+        backendUrl: backendUrlValue,
+      });
+      setPreferencesState(next);
+      setBackendProfiles(normalizePreferenceProfiles(next));
+      setActiveBackendProfileId(next.activeBackendProfileId ?? activeId);
+      return next;
+    },
+    [desktop],
+  );
+
+  const saveBackendProfile = useCallback(
+    async (
+      input: Pick<DesktopBackendProfile, 'name' | 'url'> & { id?: string },
+    ): Promise<DesktopBackendProfile | null> => {
+      if (!desktop) return null;
+      try {
+        const normalizedUrl = normalizeBackendProfileUrl(input.url);
+        const profile: DesktopBackendProfile = {
+          id: input.id ?? crypto.randomUUID(),
+          name: input.name.trim(),
+          url: normalizedUrl,
+          mode: isLocalProfileUrl(normalizedUrl) ? 'local' : 'remote',
+        };
+        if (!profile.name) throw new Error('请输入连接名称。');
+        const profiles = backendProfiles.some((item) => item.id === profile.id)
+          ? backendProfiles.map((item) => (item.id === profile.id ? profile : item))
+          : [...backendProfiles, profile];
+        await persistProfiles(profiles, activeBackendProfileId);
+        setDesktopError(null);
+        return profile;
+      } catch (error) {
+        setDesktopError(normalizeDesktopError(error));
+        return null;
+      }
+    },
+    [activeBackendProfileId, backendProfiles, desktop, persistProfiles],
+  );
+
+  const activateBackendProfile = useCallback(
+    async (profileId: string): Promise<boolean> => {
+      const profile = backendProfiles.find((item) => item.id === profileId);
+      if (!desktop || !profile) return false;
+      setCheckState('checking');
+      const result = await checkDesktopBackendHealth(profile.url);
+      setHealth(result);
+      if (result.status !== 'ready') {
+        setCheckState('unreachable');
+        setBackendProfiles((current) =>
+          current.map((item) =>
+            item.id === profileId ? { ...item, lastHealth: 'unreachable' } : item,
+          ),
+        );
+        return false;
+      }
+      if (!isDesktopBackendIdentityCompatible(profile, result)) {
+        setCheckState('unreachable');
+        setDesktopError(
+          normalizeDesktopError(
+            new Error('该地址返回了不同的 AgentHub 服务器身份。为保护登录态，已拒绝自动切换。'),
+          ),
+        );
+        setBackendProfiles((current) =>
+          current.map((item) =>
+            item.id === profileId ? { ...item, lastHealth: 'incompatible' } : item,
+          ),
+        );
+        return false;
+      }
+      const connectedAt = new Date().toISOString();
+      const profiles = backendProfiles.map((item) =>
+        item.id === profileId
+          ? {
+              ...item,
+              serverId: result.serverInfo?.server_id,
+              lastConnectedAt: connectedAt,
+              lastHealth: 'ready' as const,
+            }
+          : item,
+      );
+      switchClientBackend(result.url, true);
+      setBackendUrlState(result.url);
+      setHealth(result);
+      setCheckState('ready');
+      setActiveBackendProfileId(profileId);
+      await persistProfiles(profiles, profileId, result.url);
+      setDesktopError(null);
+      return true;
+    },
+    [backendProfiles, desktop, persistProfiles],
+  );
+
+  const deleteBackendProfile = useCallback(
+    async (profileId: string): Promise<boolean> => {
+      if (
+        !desktop ||
+        profileId === activeBackendProfileId ||
+        backendProfiles.length <= 1
+      ) {
+        return false;
+      }
+      const profiles = backendProfiles.filter((item) => item.id !== profileId);
+      await persistProfiles(profiles, activeBackendProfileId);
+      return true;
+    },
+    [activeBackendProfileId, backendProfiles, desktop, persistProfiles],
   );
 
   const refreshLocalStack = useCallback(async () => {
@@ -378,6 +573,8 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
     checkState,
     environment,
     preferences,
+    backendProfiles,
+    activeBackendProfileId,
     releaseInfo,
     updateCheck,
     updateState,
@@ -387,6 +584,9 @@ function useDesktopEnvironmentState(): DesktopEnvironmentState {
     desktopError,
     operationPending,
     setBackendUrl,
+    saveBackendProfile,
+    activateBackendProfile,
+    deleteBackendProfile,
     checkBackend,
     refreshLocalStack,
     chooseProjectRoot,
@@ -412,6 +612,8 @@ function createWebDesktopEnvironmentState(): DesktopEnvironmentState {
     checkState: 'idle',
     environment: null,
     preferences: null,
+    backendProfiles: [],
+    activeBackendProfileId: null,
     releaseInfo: null,
     updateCheck: null,
     updateState: 'idle',
@@ -421,6 +623,9 @@ function createWebDesktopEnvironmentState(): DesktopEnvironmentState {
     desktopError: null,
     operationPending: false,
     setBackendUrl: () => undefined,
+    saveBackendProfile: async () => null,
+    activateBackendProfile: async () => false,
+    deleteBackendProfile: async () => false,
     checkBackend: async (url = backendUrl, signal) => checkDesktopBackendHealth(url, signal),
     refreshLocalStack: async () => null,
     chooseProjectRoot: async () => undefined,
@@ -434,4 +639,43 @@ function createWebDesktopEnvironmentState(): DesktopEnvironmentState {
     openReleasePage: async () => undefined,
     collectCrashReport: async () => null,
   };
+}
+
+function defaultBackendProfile(url: string): DesktopBackendProfile {
+  return {
+    id: 'default',
+    name: isLocalProfileUrl(url) ? '本地 AgentHub' : 'AgentHub 服务器',
+    url,
+    mode: isLocalProfileUrl(url) ? 'local' : 'remote',
+  };
+}
+
+function normalizePreferenceProfiles(preferences: DesktopPreferences): DesktopBackendProfile[] {
+  return preferences.backendProfiles?.length
+    ? preferences.backendProfiles
+    : [defaultBackendProfile(preferences.backendUrl)];
+}
+
+function normalizeBackendProfileUrl(url: string): string {
+  const raw = url.trim();
+  const localWithoutProtocol = /^(localhost|127\.0\.0\.1|\[?::1\]?)(:\d+)?(\/|$)/i.test(raw);
+  const normalized = new URL(
+    raw.match(/^https?:\/\//i) ? raw : `${localWithoutProtocol ? 'http' : 'https'}://${raw}`,
+  );
+  normalized.hash = '';
+  normalized.search = '';
+  const value = normalized.toString().replace(/\/$/, '');
+  if (!isLocalProfileUrl(value) && normalized.protocol !== 'https:') {
+    throw new Error('公网后端必须使用 HTTPS。');
+  }
+  return value;
+}
+
+function isLocalProfileUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+  } catch {
+    return false;
+  }
 }

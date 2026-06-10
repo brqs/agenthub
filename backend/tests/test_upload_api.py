@@ -145,6 +145,62 @@ async def test_upload_can_be_downloaded_and_deleted(client: AsyncClient) -> None
     assert deleted_download.status_code == 410
 
 
+async def test_upload_records_client_platform(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation_id, _agent_id = await _create_single_conversation(client, headers)
+    response = await client.post(
+        "/api/v1/uploads",
+        headers=headers,
+        data={
+            "purpose": "message_attachment",
+            "conversation_id": conversation_id,
+            "client_platform": "desktop",
+        },
+        files={"file": ("desktop-note.txt", b"hello desktop", "text/plain")},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["client_platform"] == "desktop"
+
+
+async def test_resumable_upload_session_completes_to_upload(client: AsyncClient) -> None:
+    _, headers = await _register(client)
+    conversation_id, _agent_id = await _create_single_conversation(client, headers)
+    create = await client.post(
+        "/api/v1/uploads/sessions",
+        headers=headers,
+        json={
+            "filename": "mobile-note.txt",
+            "content_type": "text/plain",
+            "total_size_bytes": 12,
+            "purpose": "message_attachment",
+            "conversation_id": conversation_id,
+            "client_platform": "ios",
+            "part_size_bytes": 256000,
+        },
+    )
+    assert create.status_code == 201, create.text
+    session_id = create.json()["id"]
+
+    part = await client.put(
+        f"/api/v1/uploads/sessions/{session_id}/parts/1",
+        headers={**headers, "Content-Type": "application/octet-stream"},
+        content=b"hello mobile",
+    )
+    assert part.status_code == 200, part.text
+    assert part.json()["received_parts"] == [1]
+
+    complete = await client.post(
+        f"/api/v1/uploads/sessions/{session_id}/complete",
+        headers=headers,
+        json={},
+    )
+    assert complete.status_code == 200, complete.text
+    body = complete.json()
+    assert body["session"]["status"] == "completed"
+    assert body["upload"]["filename"] == "mobile-note.txt"
+    assert body["upload"]["client_platform"] == "ios"
+
+
 async def test_send_message_persists_attachment_block(client: AsyncClient) -> None:
     _, headers = await _register(client)
     conversation_id, _agent_id = await _create_single_conversation(client, headers)

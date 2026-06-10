@@ -9,6 +9,7 @@
 | [development-plan.md](development-plan.md) | 项目整体开发计划 |
 | [product-design.md](product-design.md) | 产品定位与交互设计 |
 | [tech-architecture.md](tech-architecture.md) | 技术架构与模块关系 |
+| [architecture/remote-backend-shared-sessions-roadmap.md](architecture/remote-backend-shared-sessions-roadmap.md) | 远程后端接入、多端共享会话与公网部署总路线 |
 | [api-spec.md](api-spec.md) | 人类可读 API 说明 |
 | [team-division.md](team-division.md) | 三人分工与所有权 |
 | [ai-collaboration-log.md](ai-collaboration-log.md) | AI 协作记录 |

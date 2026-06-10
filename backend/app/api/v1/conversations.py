@@ -18,6 +18,7 @@ from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.conversation_memory import ConversationMemory
 from app.models.memory import Memory
+from app.models.message import Message
 from app.models.user import User
 from app.schemas.conversation import (
     AgentCapabilityProfileItemOut,
@@ -37,7 +38,13 @@ from app.schemas.conversation import (
     UpdateConversationRequest,
     UserPreferenceMemoryOut,
 )
-from app.schemas.memory import MemoryMountList, MemoryMountOut, MemoryOut
+from app.schemas.memory import (
+    ConversationMemoryHubOut,
+    MemoryMountList,
+    MemoryMountOut,
+    MemoryOut,
+)
+from app.services.event_service import event_service
 from app.services.memory_hub import MemoryHubService
 from app.services.orchestrator_memory import (
     build_agent_capability_profile,
@@ -152,6 +159,14 @@ async def create_conversation(
     )
     db.add(conv)
     await db.flush()
+    await event_service.record(
+        db,
+        user_id=user.id,
+        event_type="conversation.created",
+        resource_type="conversation",
+        resource_id=conv.id,
+        conversation_id=conv.id,
+    )
     return ConversationOut.model_validate(conv)
 
 
@@ -269,7 +284,7 @@ async def list_conversation_memory_mounts(
     user: Annotated[User, Depends(get_current_user)],
     limit: int = Query(default=50, ge=1, le=200),
 ) -> MemoryMountList:
-    await _get_owned_conversation(db, user.id, conv_id)
+    conversation = await _get_owned_conversation(db, user.id, conv_id)
     mounts, total = await MemoryHubService().list_mounts(
         db,
         conversation_id=conv_id,
@@ -287,6 +302,32 @@ async def list_conversation_memory_mounts(
             )
         ).scalars().all()
         memories = {memory.id: memory for memory in rows}
+    latest_agent_query = (
+        select(Message)
+        .where(Message.conversation_id == conv_id)
+        .where(Message.role == "agent")
+    )
+    if conversation.mode == "group" and "orchestrator" in conversation.agent_ids:
+        latest_agent_query = latest_agent_query.where(
+            Message.agent_id == "orchestrator"
+        )
+    latest_agent_message = (
+        await db.execute(
+            latest_agent_query.order_by(desc(Message.created_at)).limit(1)
+        )
+    ).scalar_one_or_none()
+    recall_state = (
+        "not_attempted"
+        if latest_agent_message is None
+        else (
+            "mounted"
+            if any(
+                mount.agent_message_id == latest_agent_message.id
+                for mount in mounts
+            )
+            else "no_match"
+        )
+    )
     return MemoryMountList(
         items=[
             MemoryMountOut(
@@ -306,6 +347,38 @@ async def list_conversation_memory_mounts(
             for mount in mounts
         ],
         total=total,
+        recall_state=recall_state,
+        latest_agent_message_id=(
+            latest_agent_message.id if latest_agent_message is not None else None
+        ),
+        latest_agent_id=(
+            latest_agent_message.agent_id if latest_agent_message is not None else None
+        ),
+        latest_agent_status=(
+            latest_agent_message.status if latest_agent_message is not None else None
+        ),
+    )
+
+
+@router.get("/{conv_id}/memory-hub", response_model=ConversationMemoryHubOut)
+async def get_conversation_memory_hub(
+    conv_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=100, ge=1, le=200),
+) -> ConversationMemoryHubOut:
+    conversation = await _get_owned_conversation(db, user.id, conv_id)
+    groups = await MemoryHubService().list_conversation_memory_hub(
+        db,
+        owner_user_id=user.id,
+        conversation=conversation,
+        limit=limit,
+    )
+    return ConversationMemoryHubOut(
+        **{
+            key: [MemoryOut.model_validate(item) for item in items]
+            for key, items in groups.items()
+        }
     )
 
 
@@ -378,6 +451,19 @@ async def update_conversation(
     if payload.is_archived is not None:
         conv.is_archived = payload.is_archived
     await db.flush()
+    await event_service.record(
+        db,
+        user_id=user.id,
+        event_type="conversation.updated",
+        resource_type="conversation",
+        resource_id=conv.id,
+        conversation_id=conv.id,
+        payload={
+            "title": conv.title,
+            "is_pinned": conv.is_pinned,
+            "is_archived": conv.is_archived,
+        },
+    )
     return ConversationOut.model_validate(conv)
 
 
@@ -392,3 +478,11 @@ async def delete_conversation(
     await WorkspaceDeploymentService().cleanup_for_conversation(db, conv_id)
     await WorkspaceService().delete(db, conv_id)
     await db.delete(conv)
+    await event_service.record(
+        db,
+        user_id=user.id,
+        event_type="conversation.deleted",
+        resource_type="conversation",
+        resource_id=conv_id,
+        conversation_id=conv_id,
+    )

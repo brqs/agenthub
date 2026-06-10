@@ -1,9 +1,6 @@
 export const queryKeys = {
   authMe: (token: string | null) => ['auth', 'me', token ?? 'anonymous'] as const,
   agents: (userId: string | null | undefined) => ['agents', userId ?? 'anonymous'] as const,
-  modelProviders: () => ['model-providers'] as const,
-  modelAccounts: (userId: string | null | undefined) =>
-    ['model-accounts', userId ?? 'anonymous'] as const,
   agentAssets: (userId: string | null | undefined, agentId: string | null | undefined) =>
     ['agent-assets', userId ?? 'anonymous', agentId ?? 'none'] as const,
   agentAssetHistory: (userId: string | null | undefined, agentId: string | null | undefined) =>

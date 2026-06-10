@@ -7,8 +7,35 @@ import { readFile, stat, writeFile } from '@tauri-apps/plugin-fs';
 export const DEFAULT_DESKTOP_BACKEND_URL = 'http://localhost:8000';
 
 const DESKTOP_BACKEND_URL_STORAGE_KEY = 'agenthub.desktop.backendUrl';
+const DESKTOP_BACKEND_CHECK_TIMEOUT_MS = 10_000;
 
 export type DesktopBackendHealthStatus = 'ready' | 'starting' | 'unreachable';
+export type DesktopBackendProfileMode = 'local' | 'remote';
+export type DesktopBackendProfileHealth = 'ready' | 'unreachable' | 'incompatible';
+
+export interface DesktopBackendProfile {
+  id: string;
+  name: string;
+  url: string;
+  mode: DesktopBackendProfileMode;
+  serverId?: string;
+  lastConnectedAt?: string;
+  lastHealth?: DesktopBackendProfileHealth;
+}
+
+export interface AgentHubServerInfo {
+  server_id: string;
+  version: string;
+  deployment_mode: 'local' | 'hosted';
+  features: {
+    uploads: boolean;
+    workspace: boolean;
+    orchestrator: boolean;
+    desktop_local_stack: boolean;
+  };
+  auth: { type: 'jwt' };
+  limits: { max_upload_mb: number };
+}
 
 export interface DesktopBackendHealth {
   url: string;
@@ -17,7 +44,16 @@ export interface DesktopBackendHealth {
   version?: string;
   environment?: string;
   dependencies?: Record<string, string>;
+  serverInfo?: AgentHubServerInfo;
   error?: string;
+}
+
+export function isDesktopBackendIdentityCompatible(
+  profile: DesktopBackendProfile,
+  health: DesktopBackendHealth,
+): boolean {
+  const currentServerId = health.serverInfo?.server_id;
+  return !profile.serverId || profile.serverId === currentServerId;
 }
 
 export interface DesktopEnvironment {
@@ -83,6 +119,8 @@ export interface DesktopServiceLogTail {
 
 export interface DesktopPreferences {
   backendUrl: string;
+  backendProfiles: DesktopBackendProfile[];
+  activeBackendProfileId?: string;
   autoStartLocalStack: boolean;
   notificationsEnabled: boolean;
   autoCheckUpdates: boolean;
@@ -95,6 +133,8 @@ export interface DesktopPreferences {
 
 export interface DesktopPreferencesPatch {
   backendUrl?: string;
+  backendProfiles?: DesktopBackendProfile[];
+  activeBackendProfileId?: string;
   autoStartLocalStack?: boolean;
   notificationsEnabled?: boolean;
   autoCheckUpdates?: boolean;
@@ -158,6 +198,17 @@ export interface DesktopCrashReport {
   exists: boolean;
   lines: string[];
   truncated: boolean;
+}
+
+export interface LocalRuntimeConnectorProbe {
+  available: boolean;
+  reason?: string;
+}
+
+export interface LocalRuntimeConnectorState {
+  running: boolean;
+  endpointUrl?: string;
+  runtimeIds: string[];
 }
 
 export interface DesktopFilePickerOptions {
@@ -245,6 +296,15 @@ export async function checkDesktopBackendHealth(
   let normalized: string;
   try {
     normalized = normalizeBackendUrl(url);
+    const parsed = new URL(normalized);
+    if (!isLocalBackendUrl(normalized) && parsed.protocol !== 'https:') {
+      return {
+        url: normalized,
+        reachable: false,
+        status: 'unreachable',
+        error: '公网后端必须使用 HTTPS。',
+      };
+    }
   } catch (error) {
     return {
       url,
@@ -254,12 +314,25 @@ export async function checkDesktopBackendHealth(
     };
   }
 
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(signal?.reason);
+  if (signal?.aborted) {
+    controller.abort(signal.reason);
+  } else {
+    signal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, DESKTOP_BACKEND_CHECK_TIMEOUT_MS);
+
   try {
     const response = await fetch(`${normalized}/health`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       cache: 'no-store',
-      signal,
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -273,6 +346,10 @@ export async function checkDesktopBackendHealth(
 
     const body = await response.json().catch(() => ({}));
     const status = body?.status === 'ok' ? 'ready' : 'starting';
+    const serverInfo =
+      status === 'ready'
+        ? await fetchAgentHubServerInfo(normalized, controller.signal)
+        : undefined;
     return {
       url: normalized,
       reachable: true,
@@ -280,17 +357,60 @@ export async function checkDesktopBackendHealth(
       version: typeof body?.version === 'string' ? body.version : undefined,
       environment: typeof body?.environment === 'string' ? body.environment : undefined,
       dependencies: isStringRecord(body?.dependencies) ? body.dependencies : undefined,
+      serverInfo,
       error: status === 'ready' ? undefined : '后端正在启动，请稍后重试。',
     };
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    if (signal?.aborted && error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
     return {
       url: normalized,
       reachable: false,
       status: 'unreachable',
-      error: error instanceof Error ? error.message : '无法连接到 AgentHub 后端。',
+      error: timedOut
+        ? '连接 AgentHub 后端超时，请检查服务器地址和网络。'
+        : error instanceof Error
+          ? error.message
+          : '无法连接到 AgentHub 后端。',
     };
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener('abort', abortFromCaller);
   }
+}
+
+async function fetchAgentHubServerInfo(
+  url: string,
+  signal?: AbortSignal,
+): Promise<AgentHubServerInfo | undefined> {
+  try {
+    const response = await fetch(`${url}/api/v1/server-info`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+      signal,
+    });
+    if (!response.ok) return undefined;
+    const body: unknown = await response.json();
+    return isAgentHubServerInfo(body) ? body : undefined;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    return undefined;
+  }
+}
+
+function isAgentHubServerInfo(value: unknown): value is AgentHubServerInfo {
+  if (!value || typeof value !== 'object') return false;
+  const info = value as Record<string, unknown>;
+  return (
+    typeof info.server_id === 'string' &&
+    typeof info.version === 'string' &&
+    (info.deployment_mode === 'local' || info.deployment_mode === 'hosted') &&
+    Boolean(info.features && typeof info.features === 'object') &&
+    Boolean(info.auth && typeof info.auth === 'object') &&
+    Boolean(info.limits && typeof info.limits === 'object')
+  );
 }
 
 export async function getDesktopEnvironment(): Promise<DesktopEnvironment> {
@@ -387,6 +507,18 @@ export async function openDesktopReleasePage(): Promise<{ opened: boolean }> {
 
 export async function collectDesktopCrashReport(): Promise<DesktopCrashReport> {
   return invokeDesktop('desktop_collect_crash_report');
+}
+
+export async function probeLocalRuntimeConnector(): Promise<LocalRuntimeConnectorProbe> {
+  return invokeDesktop('desktop_probe_local_runtime_connector');
+}
+
+export async function startLocalRuntimeConnector(): Promise<LocalRuntimeConnectorState> {
+  return invokeDesktop('desktop_start_local_runtime_connector');
+}
+
+export async function stopLocalRuntimeConnector(): Promise<LocalRuntimeConnectorState> {
+  return invokeDesktop('desktop_stop_local_runtime_connector');
 }
 
 export async function listenForDesktopNotificationActivation(

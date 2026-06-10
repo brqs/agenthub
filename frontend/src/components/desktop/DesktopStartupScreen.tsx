@@ -17,6 +17,7 @@ import type {
 } from '@/lib/desktopBridge';
 import type { DesktopCheckState } from '@/hooks/useDesktopEnvironment';
 import { DesktopLogsPanel } from './DesktopLogsPanel';
+import { DesktopBackendProfilesPanel } from './DesktopBackendProfilesPanel';
 
 interface DesktopStartupScreenProps {
   backendUrl: string;
@@ -106,6 +107,8 @@ export function DesktopStartupScreen({
             disabled={checking}
           />
         </label>
+
+        <DesktopBackendProfilesPanel compact />
 
         {failed && (
           <div className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">

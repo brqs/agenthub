@@ -48,6 +48,12 @@ export function DesktopBootstrapGate({ children }: { children: ReactNode }) {
   }, [bootstrapped, isDesktop, runCheck]);
 
   useEffect(() => {
+    if (isDesktop && checkState === 'ready') {
+      setBootstrapped(true);
+    }
+  }, [checkState, isDesktop]);
+
+  useEffect(() => {
     if (
       !isDesktop ||
       bootstrapped ||

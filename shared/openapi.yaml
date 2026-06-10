@@ -67,6 +67,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - Auth
+      summary: Refresh
+      operationId: refresh_api_v1_auth_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/auth/logout:
+    post:
+      tags:
+      - Auth
+      summary: Logout
+      operationId: logout_api_v1_auth_logout_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+        required: true
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
   /api/v1/auth/me:
     get:
       tags:
@@ -82,6 +130,231 @@ paths:
                 $ref: '#/components/schemas/UserOut'
       security:
       - HTTPBearer: []
+  /api/v1/auth/sessions:
+    get:
+      tags:
+      - Auth
+      summary: List Sessions
+      operationId: list_sessions_api_v1_auth_sessions_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSessionList'
+      security:
+      - HTTPBearer: []
+    delete:
+      tags:
+      - Auth
+      summary: Delete Other Sessions
+      operationId: delete_other_sessions_api_v1_auth_sessions_delete
+      responses:
+        '204':
+          description: Successful Response
+      security:
+      - HTTPBearer: []
+  /api/v1/auth/sessions/{session_id}:
+    patch:
+      tags:
+      - Auth
+      summary: Update Session
+      operationId: update_session_api_v1_auth_sessions__session_id__patch
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSessionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSessionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Auth
+      summary: Delete Session
+      operationId: delete_session_api_v1_auth_sessions__session_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/events:
+    get:
+      tags:
+      - Events
+      summary: List Events
+      operationId: list_events_api_v1_events_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 500
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEventList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/events/stream:
+    get:
+      tags:
+      - Events
+      summary: Stream Events
+      operationId: stream_events_api_v1_events_stream_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+          title: Cursor
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/local-runtime-connectors/status:
+    get:
+      tags:
+      - Local Runtime Connectors
+      summary: Get Local Runtime Connector Status
+      operationId: get_local_runtime_connector_status_api_v1_local_runtime_connectors_status_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRuntimeConnectorStatusOut'
+      security:
+      - HTTPBearer: []
+  /api/v1/local-runtime-connectors/register:
+    post:
+      tags:
+      - Local Runtime Connectors
+      summary: Register Local Runtime Connector
+      operationId: register_local_runtime_connector_api_v1_local_runtime_connectors_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterLocalRuntimeConnectorRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRuntimeConnectorOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/local-runtime-connectors/{connector_id}:
+    delete:
+      tags:
+      - Local Runtime Connectors
+      summary: Revoke Local Runtime Connector
+      operationId: revoke_local_runtime_connector_api_v1_local_runtime_connectors__connector_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: connector_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Connector Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalRuntimeConnectorOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/conversations:
     get:
       tags:
@@ -411,6 +684,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MemoryMountList'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conv_id}/memory-hub:
+    get:
+      tags:
+      - Conversations
+      summary: Get Conversation Memory Hub
+      operationId: get_conversation_memory_hub_api_v1_conversations__conv_id__memory_hub_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conv_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conv Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationMemoryHubOut'
         '422':
           description: Validation Error
           content:
@@ -1060,6 +1371,149 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/server-info:
+    get:
+      tags:
+      - Misc
+      summary: Get Server Info
+      description: Return non-sensitive metadata used by multi-backend clients.
+      operationId: get_server_info_api_v1_server_info_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerInfoResponse'
+  /api/v1/conversations/{conversation_id}/shares:
+    post:
+      tags:
+      - Shares
+      summary: Create Conversation Share
+      operationId: create_conversation_share_api_v1_conversations__conversation_id__shares_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationShareRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationShareOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - Shares
+      summary: List Conversation Shares
+      operationId: list_conversation_shares_api_v1_conversations__conversation_id__shares_get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConversationShareOut'
+                title: Response List Conversation Shares Api V1 Conversations  Conversation
+                  Id  Shares Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversations/{conversation_id}/shares/{share_id}:
+    delete:
+      tags:
+      - Shares
+      summary: Revoke Conversation Share
+      operationId: revoke_conversation_share_api_v1_conversations__conversation_id__shares__share_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Conversation Id
+      - name: share_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Share Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationShareOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/conversation-shares/{token}:
+    get:
+      tags:
+      - Shares
+      summary: Get Public Conversation Share
+      operationId: get_public_conversation_share_api_v1_conversation_shares__token__get
+      parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicConversationShareOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/messages/{msg_id}/stream:
     get:
       tags:
@@ -1180,21 +1634,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/agents/templates:
-    get:
-      tags:
-      - Agents
-      summary: List Agent Templates
-      operationId: list_agent_templates_api_v1_agents_templates_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AgentTemplateListOut'
-      security:
-      - HTTPBearer: []
   /api/v1/agents/{agent_id}/mcp/health-check:
     post:
       tags:
@@ -1651,150 +2090,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/model-providers:
-    get:
-      tags:
-      - Model Accounts
-      summary: List Model Providers
-      operationId: list_model_providers_api_v1_model_providers_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelProviderListOut'
-      security:
-      - HTTPBearer: []
-  /api/v1/model-accounts:
-    get:
-      tags:
-      - Model Accounts
-      summary: List Accounts
-      operationId: list_accounts_api_v1_model_accounts_get
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelAccountListOut'
-      security:
-      - HTTPBearer: []
-    post:
-      tags:
-      - Model Accounts
-      summary: Create Account
-      operationId: create_account_api_v1_model_accounts_post
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateModelAccountRequest'
-        required: true
-      responses:
-        '201':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelAccountOut'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-      security:
-      - HTTPBearer: []
-  /api/v1/model-accounts/{account_id}:
-    patch:
-      tags:
-      - Model Accounts
-      summary: Update Account
-      operationId: update_account_api_v1_model_accounts__account_id__patch
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: account_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Account Id
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdateModelAccountRequest'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelAccountOut'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-    delete:
-      tags:
-      - Model Accounts
-      summary: Delete Account
-      operationId: delete_account_api_v1_model_accounts__account_id__delete
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: account_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Account Id
-      responses:
-        '204':
-          description: Successful Response
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /api/v1/model-accounts/{account_id}/verify:
-    post:
-      tags:
-      - Model Accounts
-      summary: Verify Account
-      operationId: verify_account_api_v1_model_accounts__account_id__verify_post
-      security:
-      - HTTPBearer: []
-      parameters:
-      - name: account_id
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-          title: Account Id
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ModelAccountVerifyOut'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/uploads:
     post:
       tags:
@@ -1822,6 +2117,168 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
       security:
       - HTTPBearer: []
+  /api/v1/uploads/sessions:
+    post:
+      tags:
+      - Uploads
+      summary: Create Upload Session
+      operationId: create_upload_session_api_v1_uploads_sessions_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUploadSessionRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+      security:
+      - HTTPBearer: []
+  /api/v1/uploads/sessions/{session_id}:
+    get:
+      tags:
+      - Uploads
+      summary: Get Upload Session
+      operationId: get_upload_session_api_v1_uploads_sessions__session_id__get
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - Uploads
+      summary: Cancel Upload Session
+      operationId: cancel_upload_session_api_v1_uploads_sessions__session_id__delete
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads/sessions/{session_id}/parts/{part_number}:
+    put:
+      tags:
+      - Uploads
+      summary: Put Upload Session Part
+      operationId: put_upload_session_part_api_v1_uploads_sessions__session_id__parts__part_number__put
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: part_number
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Part Number
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              contentMediaType: application/octet-stream
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/uploads/sessions/{session_id}/complete:
+    post:
+      tags:
+      - Uploads
+      summary: Complete Upload Session
+      operationId: complete_upload_session_api_v1_uploads_sessions__session_id__complete_post
+      security:
+      - HTTPBearer: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadSessionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteUploadSessionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/uploads/{upload_id}:
     get:
       tags:
@@ -2987,64 +3444,6 @@ components:
           title: Bindings
       type: object
       title: AgentAssetsOut
-    AgentBuilderProfile:
-      properties:
-        role:
-          anyOf:
-          - maxLength: 400
-            type: string
-          - type: 'null'
-          default: null
-          title: Role
-        purpose:
-          anyOf:
-          - maxLength: 400
-            type: string
-          - type: 'null'
-          default: null
-          title: Purpose
-        goals:
-          items:
-            type: string
-          maxItems: 12
-          title: Goals
-          type: array
-        tone:
-          anyOf:
-          - maxLength: 160
-            type: string
-          - type: 'null'
-          default: null
-          title: Tone
-        do_not_do:
-          items:
-            type: string
-          maxItems: 12
-          title: Do Not Do
-          type: array
-        clarification_policy:
-          default: balanced
-          enum:
-          - ask_first
-          - balanced
-          - decide_with_defaults
-          title: Clarification Policy
-          type: string
-        output_style:
-          anyOf:
-          - maxLength: 400
-            type: string
-          - type: 'null'
-          default: null
-          title: Output Style
-        starters:
-          items:
-            type: string
-          maxItems: 8
-          title: Starters
-          type: array
-      title: AgentBuilderProfile
-      type: object
     AgentCapabilityProfileItemOut:
       properties:
         agent_id:
@@ -3272,6 +3671,424 @@ components:
       - generated_at
       - total
       title: AgentCapabilityProfileV2Out
+    AgentConfig:
+      properties:
+        custom_agent_mode:
+          anyOf:
+          - type: string
+            const: server_agent_wrapper
+          - type: 'null'
+          title: Custom Agent Mode
+        base_agent_id:
+          anyOf:
+          - type: string
+            enum:
+            - claude-code
+            - codex-helper
+            - opencode-helper
+          - type: 'null'
+          title: Base Agent Id
+        wrapper_profile:
+          anyOf:
+          - $ref: '#/components/schemas/AgentWrapperProfile'
+          - type: 'null'
+        model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          title: Model Backend
+          description: ModelGateway backend for builtin agents.
+        answer_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          title: Answer Model Backend
+          description: ModelGateway backend for orchestrator direct answers.
+        planner_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          title: Planner Model Backend
+          description: ModelGateway backend for orchestrator LLM planning.
+        context_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 200000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Context Max Tokens
+          description: Maximum conversation context tokens passed to this agent.
+        orchestrator_context_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 200000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Context Max Tokens
+          description: Maximum context tokens used by the Orchestrator main flow.
+        orchestrator_subagent_context_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 200000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Subagent Context Max Tokens
+          description: Maximum context tokens passed from Orchestrator to sub-agents.
+        llm_planning:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Llm Planning
+        planner_fallback_to_template:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Planner Fallback To Template
+        available_agents_authoritative:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Available Agents Authoritative
+        orchestrator_llm_config:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Orchestrator Llm Config
+        max_iterations:
+          anyOf:
+          - type: integer
+            maximum: 50.0
+            minimum: 1.0
+          - type: 'null'
+          title: Max Iterations
+        react_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: React Enabled
+        react_trace_visible:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: React Trace Visible
+        react_decision_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 4096.0
+            minimum: 1.0
+          - type: 'null'
+          title: React Decision Max Tokens
+        mcp_servers:
+          anyOf:
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          - type: 'null'
+          title: Mcp Servers
+        allowed_tools:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Allowed Tools
+          description: Maximum builtin native/MCP tools this agent may receive. Omit
+            to keep legacy behavior; [] means no tools.
+        command:
+          anyOf:
+          - type: string
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Command
+        args:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Args
+        timeout_seconds:
+          anyOf:
+          - type: number
+            maximum: 3600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Timeout Seconds
+        max_runtime_seconds:
+          anyOf:
+          - type: number
+            maximum: 3600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Max Runtime Seconds
+        idle_timeout_seconds:
+          anyOf:
+          - type: number
+            maximum: 3600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Idle Timeout Seconds
+        heartbeat_interval_seconds:
+          anyOf:
+          - type: number
+            maximum: 3600.0
+            minimum: 1.0
+          - type: 'null'
+          title: Heartbeat Interval Seconds
+        qa_short_circuit_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Qa Short Circuit Enabled
+        qa_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          title: Qa Model Backend
+          description: ModelGateway backend for external direct chat.
+        qa_model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Qa Model
+        qa_classifier_model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Qa Classifier Model
+        qa_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 32000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Qa Max Tokens
+        qa_classifier_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 1024.0
+            minimum: 1.0
+          - type: 'null'
+          title: Qa Classifier Max Tokens
+        qa_temperature:
+          anyOf:
+          - type: number
+            maximum: 2.0
+            minimum: 0.0
+          - type: 'null'
+          title: Qa Temperature
+        qa_request_timeout_seconds:
+          anyOf:
+          - type: number
+            maximum: 120.0
+            minimum: 1.0
+          - type: 'null'
+          title: Qa Request Timeout Seconds
+        task_fallback_agent_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Task Fallback Agent Ids
+        max_task_attempts:
+          anyOf:
+          - type: integer
+            maximum: 3.0
+            minimum: 1.0
+          - type: 'null'
+          title: Max Task Attempts
+        task_result_context_max_chars:
+          anyOf:
+          - type: integer
+            maximum: 32000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Task Result Context Max Chars
+        task_result_item_max_chars:
+          anyOf:
+          - type: integer
+            maximum: 8000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Task Result Item Max Chars
+        orchestrator_memory_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Memory Enabled
+        orchestrator_memory_recent_runs:
+          anyOf:
+          - type: integer
+            maximum: 10.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Memory Recent Runs
+        orchestrator_memory_context_max_chars:
+          anyOf:
+          - type: integer
+            maximum: 32000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Memory Context Max Chars
+        orchestrator_tool_calling_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Tool Calling Enabled
+        orchestrator_tool_trace_visible:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Tool Trace Visible
+        orchestrator_tool_max_iterations:
+          anyOf:
+          - type: integer
+            maximum: 50.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Tool Max Iterations
+        orchestrator_tool_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 32000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Tool Max Tokens
+        orchestrator_tool_result_max_chars:
+          anyOf:
+          - type: integer
+            maximum: 32000.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Tool Result Max Chars
+        orchestrator_tool_read_max_bytes:
+          anyOf:
+          - type: integer
+            maximum: 1048576.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Tool Read Max Bytes
+        orchestrator_group_messages_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Group Messages Enabled
+        orchestrator_process_block_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Process Block Enabled
+        orchestrator_response_polish_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Response Polish Enabled
+        clarification_gate_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Clarification Gate Enabled
+        auto_clarification_max_questions:
+          anyOf:
+          - type: integer
+            maximum: 8.0
+            minimum: 0.0
+          - type: 'null'
+          title: Auto Clarification Max Questions
+        requirement_alignment_llm_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Requirement Alignment Llm Enabled
+        grill_max_questions:
+          anyOf:
+          - type: integer
+            maximum: 12.0
+            minimum: 1.0
+          - type: 'null'
+          title: Grill Max Questions
+        workspace_docs_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Workspace Docs Enabled
+        orchestrator_response_polish_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          title: Orchestrator Response Polish Model Backend
+          description: ModelGateway backend for Orchestrator final response polish.
+        orchestrator_response_polish_max_tokens:
+          anyOf:
+          - type: integer
+            maximum: 4096.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Response Polish Max Tokens
+        orchestrator_parallel_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Parallel Enabled
+        orchestrator_parallel_max_concurrency:
+          anyOf:
+          - type: integer
+            maximum: 10.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Parallel Max Concurrency
+        orchestrator_evaluation_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Evaluation Enabled
+        orchestrator_evaluation_read_max_bytes:
+          anyOf:
+          - type: integer
+            maximum: 1048576.0
+            minimum: 1.0
+          - type: 'null'
+          title: Orchestrator Evaluation Read Max Bytes
+        orchestrator_test_runner_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Test Runner Enabled
+        orchestrator_test_command_allowlist:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Orchestrator Test Command Allowlist
+      additionalProperties: true
+      type: object
+      title: AgentConfig
     AgentKnowledgeOut:
       properties:
         upload_id:
@@ -3450,48 +4267,6 @@ components:
       - provider
       - created_at
       title: AgentOut
-    AgentPermissions:
-      properties:
-        workspace_read:
-          default: false
-          title: Workspace Read
-          type: boolean
-        workspace_write:
-          default: false
-          title: Workspace Write
-          type: boolean
-        run_commands:
-          default: never
-          enum:
-          - never
-          - ask
-          - auto_low_risk
-          title: Run Commands
-          type: string
-        network:
-          default: never
-          enum:
-          - never
-          - ask
-          - allowlisted
-          title: Network
-          type: string
-        deploy:
-          default: never
-          enum:
-          - never
-          - ask
-          title: Deploy
-          type: string
-        external_accounts:
-          default: never
-          enum:
-          - never
-          - ask
-          title: External Accounts
-          type: string
-      title: AgentPermissions
-      type: object
     AgentSkillOut:
       properties:
         skill_id:
@@ -3539,63 +4314,6 @@ components:
       - sha256
       - created_at
       title: AgentSkillOut
-    AgentTemplateListOut:
-      properties:
-        items:
-          items:
-            $ref: '#/components/schemas/AgentTemplateOut'
-          type: array
-          title: Items
-      type: object
-      title: AgentTemplateListOut
-    AgentTemplateOut:
-      properties:
-        id:
-          type: string
-          title: Id
-        name:
-          type: string
-          title: Name
-        description:
-          type: string
-          title: Description
-        category:
-          type: string
-          title: Category
-        capabilities:
-          items:
-            type: string
-          type: array
-          title: Capabilities
-        builder_profile:
-          $ref: '#/components/schemas/AgentBuilderProfile'
-        permissions:
-          $ref: '#/components/schemas/AgentPermissions'
-        memory_policy:
-          type: string
-          enum:
-          - none
-          - conversation
-          - project
-          - user
-          title: Memory Policy
-          default: conversation
-        model_backend:
-          type: string
-          enum:
-          - claude
-          - deepseek
-          - openai
-          title: Model Backend
-          default: deepseek
-      type: object
-      required:
-      - id
-      - name
-      - description
-      - category
-      - builder_profile
-      title: AgentTemplateOut
     AgentTestRunOut:
       properties:
         status:
@@ -3663,6 +4381,64 @@ components:
       required:
       - prompt
       title: AgentTestRunRequest
+    AgentWrapperProfile:
+      properties:
+        role:
+          anyOf:
+          - type: string
+            maxLength: 400
+          - type: 'null'
+          title: Role
+        purpose:
+          anyOf:
+          - type: string
+            maxLength: 400
+          - type: 'null'
+          title: Purpose
+        planning_profile:
+          anyOf:
+          - type: string
+            maxLength: 2000
+          - type: 'null'
+          title: Planning Profile
+        planning_strengths:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          title: Planning Strengths
+        planning_weaknesses:
+          items:
+            type: string
+          type: array
+          maxItems: 20
+          title: Planning Weaknesses
+        preferred_task_types:
+          items:
+            type: string
+          type: array
+          maxItems: 12
+          title: Preferred Task Types
+        capabilities:
+          items:
+            type: string
+          type: array
+          maxItems: 12
+          title: Capabilities
+        output_style:
+          anyOf:
+          - type: string
+            maxLength: 400
+          - type: 'null'
+          title: Output Style
+        boundaries:
+          items:
+            type: string
+          type: array
+          maxItems: 12
+          title: Boundaries
+      type: object
+      title: AgentWrapperProfile
     AttachmentBlock:
       properties:
         type:
@@ -3783,6 +4559,11 @@ components:
         access_token:
           type: string
           title: Access Token
+        refresh_token:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refresh Token
         token_type:
           type: string
           title: Token Type
@@ -3792,6 +4573,10 @@ components:
           title: Expires In
         user:
           $ref: '#/components/schemas/UserOut'
+        session:
+          anyOf:
+          - $ref: '#/components/schemas/UserSessionOut'
+          - type: 'null'
       type: object
       required:
       - access_token
@@ -3866,6 +4651,15 @@ components:
             format: uuid
           - type: 'null'
           title: Conversation Id
+        client_platform:
+          type: string
+          enum:
+          - web
+          - desktop
+          - ios
+          - android
+          title: Client Platform
+          default: web
       type: object
       required:
       - file
@@ -3997,6 +4791,28 @@ components:
       - language
       - code
       title: CodeBlock
+    CompleteUploadSessionRequest:
+      properties:
+        sha256:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 64
+          - type: 'null'
+          title: Sha256
+      type: object
+      title: CompleteUploadSessionRequest
+    CompleteUploadSessionResponse:
+      properties:
+        session:
+          $ref: '#/components/schemas/UploadSessionOut'
+        upload:
+          $ref: '#/components/schemas/UploadOut'
+      type: object
+      required:
+      - session
+      - upload
+      title: CompleteUploadSessionResponse
     ContextCompressionConfigOut:
       properties:
         mode:
@@ -4130,6 +4946,35 @@ components:
       - page
       - page_size
       title: ConversationList
+    ConversationMemoryHubOut:
+      properties:
+        scoped_active:
+          items:
+            $ref: '#/components/schemas/MemoryOut'
+          type: array
+          title: Scoped Active
+        scoped_candidates:
+          items:
+            $ref: '#/components/schemas/MemoryOut'
+          type: array
+          title: Scoped Candidates
+        user_active:
+          items:
+            $ref: '#/components/schemas/MemoryOut'
+          type: array
+          title: User Active
+        user_candidates:
+          items:
+            $ref: '#/components/schemas/MemoryOut'
+          type: array
+          title: User Candidates
+      type: object
+      required:
+      - scoped_active
+      - scoped_candidates
+      - user_active
+      - user_candidates
+      title: ConversationMemoryHubOut
     ConversationMemoryOut:
       properties:
         conversation_id:
@@ -4225,6 +5070,58 @@ components:
       - last_message_at
       - created_at
       title: ConversationOut
+    ConversationShareOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        token:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Token
+        url_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Url Path
+        include_artifacts:
+          type: boolean
+          title: Include Artifacts
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Revoked At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        last_accessed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Accessed At
+      type: object
+      required:
+      - id
+      - conversation_id
+      - include_artifacts
+      - created_at
+      title: ConversationShareOut
     CreateAgentRequest:
       properties:
         name:
@@ -4238,7 +5135,6 @@ components:
           - claude_code
           - codex
           - opencode
-          - builtin
           title: Provider
         avatar_url:
           type: string
@@ -4257,9 +5153,7 @@ components:
           - type: 'null'
           title: System Prompt
         config:
-          additionalProperties: true
-          type: object
-          title: Config
+          $ref: '#/components/schemas/AgentConfig'
       type: object
       required:
       - name
@@ -4290,44 +5184,81 @@ components:
       - mode
       - agent_ids
       title: CreateConversationRequest
-    CreateModelAccountRequest:
+    CreateConversationShareRequest:
       properties:
-        display_name:
-          type: string
-          maxLength: 120
-          minLength: 1
-          title: Display Name
-        provider:
-          type: string
-          enum:
-          - deepseek
-          - openai
-          - anthropic
-          - openai_compatible
-          title: Provider
-        api_key:
-          type: string
-          maxLength: 4096
-          minLength: 1
-          title: Api Key
-        model:
-          type: string
-          maxLength: 160
-          minLength: 1
-          title: Model
-        base_url:
+        expires_at:
           anyOf:
           - type: string
-            maxLength: 512
+            format: date-time
           - type: 'null'
-          title: Base Url
+          title: Expires At
+        include_artifacts:
+          type: boolean
+          title: Include Artifacts
+          default: false
+      type: object
+      title: CreateConversationShareRequest
+    CreateUploadSessionRequest:
+      properties:
+        filename:
+          type: string
+          maxLength: 255
+          minLength: 1
+          title: Filename
+        content_type:
+          type: string
+          maxLength: 255
+          title: Content Type
+          default: application/octet-stream
+        total_size_bytes:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Total Size Bytes
+        purpose:
+          type: string
+          enum:
+          - message_attachment
+          - workspace_file
+          - workspace_import
+          - agent_knowledge
+          - agent_icon
+          - skill_package
+          - mcp_config
+          title: Purpose
+          default: message_attachment
+        conversation_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Conversation Id
+        expected_sha256:
+          anyOf:
+          - type: string
+            maxLength: 64
+            minLength: 64
+          - type: 'null'
+          title: Expected Sha256
+        client_platform:
+          type: string
+          enum:
+          - web
+          - desktop
+          - ios
+          - android
+          title: Client Platform
+          default: web
+        part_size_bytes:
+          type: integer
+          maximum: 20000000.0
+          minimum: 256000.0
+          title: Part Size Bytes
+          default: 5000000
       type: object
       required:
-      - display_name
-      - provider
-      - api_key
-      - model
-      title: CreateModelAccountRequest
+      - filename
+      - total_size_bytes
+      title: CreateUploadSessionRequest
     DeploymentStatusBlock:
       properties:
         type:
@@ -4588,6 +5519,15 @@ components:
       required:
       - content
       title: GuidanceRequest
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
     HealthResponse:
       properties:
         status:
@@ -4611,15 +5551,6 @@ components:
       - environment
       - dependencies
       title: HealthResponse
-    HTTPValidationError:
-      properties:
-        detail:
-          items:
-            $ref: '#/components/schemas/ValidationError'
-          type: array
-          title: Detail
-      type: object
-      title: HTTPValidationError
     InterruptMessageResponse:
       properties:
         state:
@@ -4636,6 +5567,90 @@ components:
       - state
       - message
       title: InterruptMessageResponse
+    LocalRuntimeConnectorOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        endpoint_url:
+          type: string
+          title: Endpoint Url
+        status:
+          type: string
+          enum:
+          - ready
+          - unavailable
+          - revoked
+          title: Status
+        runtime_ids:
+          items:
+            type: string
+          type: array
+          title: Runtime Ids
+        capabilities:
+          additionalProperties: true
+          type: object
+          title: Capabilities
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        last_seen_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Seen At
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Revoked At
+        last_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Error
+      type: object
+      required:
+      - id
+      - name
+      - endpoint_url
+      - status
+      - created_at
+      title: LocalRuntimeConnectorOut
+    LocalRuntimeConnectorStatusOut:
+      properties:
+        enabled:
+          type: boolean
+          title: Enabled
+        deployment_mode:
+          type: string
+          enum:
+          - local
+          - hosted
+          title: Deployment Mode
+        connectors:
+          items:
+            $ref: '#/components/schemas/LocalRuntimeConnectorOut'
+          type: array
+          title: Connectors
+      type: object
+      required:
+      - enabled
+      - deployment_mode
+      title: LocalRuntimeConnectorStatusOut
     LoginRequest:
       properties:
         username:
@@ -4644,11 +5659,36 @@ components:
         password:
           type: string
           title: Password
+        device_name:
+          anyOf:
+          - type: string
+            maxLength: 160
+          - type: 'null'
+          title: Device Name
+        platform:
+          type: string
+          enum:
+          - web
+          - desktop
+          - ios
+          - android
+          title: Platform
+          default: web
       type: object
       required:
       - username
       - password
       title: LoginRequest
+    LogoutRequest:
+      properties:
+        refresh_token:
+          anyOf:
+          - type: string
+            maxLength: 512
+          - type: 'null'
+          title: Refresh Token
+      type: object
+      title: LogoutRequest
     MemoryList:
       properties:
         items:
@@ -4674,6 +5714,30 @@ components:
         total:
           type: integer
           title: Total
+        recall_state:
+          type: string
+          enum:
+          - not_attempted
+          - no_match
+          - mounted
+          title: Recall State
+          default: not_attempted
+        latest_agent_message_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Latest Agent Message Id
+        latest_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Latest Agent Id
+        latest_agent_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Latest Agent Status
       type: object
       required:
       - items
@@ -4965,163 +6029,6 @@ components:
       - role
       - created_at
       title: MessageOut
-    ModelAccountListOut:
-      properties:
-        items:
-          items:
-            $ref: '#/components/schemas/ModelAccountOut'
-          type: array
-          title: Items
-      type: object
-      title: ModelAccountListOut
-    ModelAccountOut:
-      properties:
-        id:
-          type: string
-          format: uuid
-          title: Id
-        display_name:
-          type: string
-          title: Display Name
-        provider:
-          type: string
-          enum:
-          - deepseek
-          - openai
-          - anthropic
-          - openai_compatible
-          title: Provider
-        protocol:
-          type: string
-          enum:
-          - openai_compatible
-          - anthropic
-          title: Protocol
-        model:
-          type: string
-          title: Model
-        base_url:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Base Url
-        api_key_preview:
-          type: string
-          title: Api Key Preview
-        status:
-          type: string
-          enum:
-          - unverified
-          - ready
-          - unavailable
-          title: Status
-        last_verified_at:
-          anyOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-          title: Last Verified At
-        last_error:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Last Error
-        created_at:
-          type: string
-          format: date-time
-          title: Created At
-        updated_at:
-          type: string
-          format: date-time
-          title: Updated At
-      type: object
-      required:
-      - id
-      - display_name
-      - provider
-      - protocol
-      - model
-      - api_key_preview
-      - status
-      - created_at
-      - updated_at
-      title: ModelAccountOut
-    ModelAccountVerifyOut:
-      properties:
-        status:
-          type: string
-          enum:
-          - unverified
-          - ready
-          - unavailable
-          title: Status
-        error:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Error
-        verified_at:
-          anyOf:
-          - type: string
-            format: date-time
-          - type: 'null'
-          title: Verified At
-      type: object
-      required:
-      - status
-      title: ModelAccountVerifyOut
-    ModelProviderListOut:
-      properties:
-        items:
-          items:
-            $ref: '#/components/schemas/ModelProviderOut'
-          type: array
-          title: Items
-      type: object
-      title: ModelProviderListOut
-    ModelProviderOut:
-      properties:
-        provider:
-          type: string
-          enum:
-          - deepseek
-          - openai
-          - anthropic
-          - openai_compatible
-          title: Provider
-        company_name:
-          type: string
-          title: Company Name
-        protocol:
-          type: string
-          enum:
-          - openai_compatible
-          - anthropic
-          title: Protocol
-        default_model:
-          type: string
-          title: Default Model
-        models:
-          items:
-            type: string
-          type: array
-          title: Models
-        requires_base_url:
-          type: boolean
-          title: Requires Base Url
-          default: false
-        default_base_url:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Default Base Url
-      type: object
-      required:
-      - provider
-      - company_name
-      - protocol
-      - default_model
-      title: ModelProviderOut
     OrchestratorRunDetailOut:
       properties:
         run:
@@ -5557,6 +6464,74 @@ components:
       - kind
       - status
       title: ProcessStep
+    PublicConversationShareOut:
+      properties:
+        conversation_id:
+          type: string
+          format: uuid
+          title: Conversation Id
+        title:
+          type: string
+          title: Title
+        mode:
+          type: string
+          title: Mode
+        include_artifacts:
+          type: boolean
+          title: Include Artifacts
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        messages:
+          items:
+            $ref: '#/components/schemas/PublicSharedMessageOut'
+          type: array
+          title: Messages
+      type: object
+      required:
+      - conversation_id
+      - title
+      - mode
+      - include_artifacts
+      - created_at
+      title: PublicConversationShareOut
+    PublicSharedMessageOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        role:
+          type: string
+          title: Role
+        agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Agent Id
+        content:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Content
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - role
+      - created_at
+      title: PublicSharedMessageOut
     QueueMergeRequest:
       properties:
         message_ids:
@@ -5673,6 +6648,60 @@ components:
       required:
       - messages
       title: QueueReorderResponse
+    RefreshTokenRequest:
+      properties:
+        refresh_token:
+          type: string
+          maxLength: 512
+          minLength: 32
+          title: Refresh Token
+      type: object
+      required:
+      - refresh_token
+      title: RefreshTokenRequest
+    RegisterLocalRuntimeConnectorRequest:
+      properties:
+        name:
+          type: string
+          maxLength: 160
+          minLength: 1
+          title: Name
+          default: AgentHub Desktop
+        endpoint_url:
+          type: string
+          maxLength: 512
+          minLength: 1
+          title: Endpoint Url
+        bearer_token:
+          type: string
+          maxLength: 4096
+          minLength: 16
+          title: Bearer Token
+        runtime_ids:
+          items:
+            type: string
+            enum:
+            - claude-code
+            - codex-helper
+            - opencode-helper
+          type: array
+          maxItems: 8
+          title: Runtime Ids
+        capabilities:
+          additionalProperties: true
+          type: object
+          title: Capabilities
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+      type: object
+      required:
+      - endpoint_url
+      - bearer_token
+      title: RegisterLocalRuntimeConnectorRequest
     RegisterRequest:
       properties:
         username:
@@ -5685,6 +6714,21 @@ components:
           type: string
           minLength: 8
           title: Password
+        device_name:
+          anyOf:
+          - type: string
+            maxLength: 160
+          - type: 'null'
+          title: Device Name
+        platform:
+          type: string
+          enum:
+          - web
+          - desktop
+          - ios
+          - android
+          title: Platform
+          default: web
       type: object
       required:
       - username
@@ -5761,6 +6805,74 @@ components:
       - user_message
       - agent_message
       title: SendMessageResponse
+    ServerAuthInfo:
+      properties:
+        type:
+          type: string
+          const: jwt
+          title: Type
+          default: jwt
+      type: object
+      title: ServerAuthInfo
+    ServerFeatures:
+      properties:
+        uploads:
+          type: boolean
+          title: Uploads
+        workspace:
+          type: boolean
+          title: Workspace
+        orchestrator:
+          type: boolean
+          title: Orchestrator
+        desktop_local_stack:
+          type: boolean
+          title: Desktop Local Stack
+      type: object
+      required:
+      - uploads
+      - workspace
+      - orchestrator
+      - desktop_local_stack
+      title: ServerFeatures
+    ServerInfoResponse:
+      properties:
+        server_id:
+          type: string
+          title: Server Id
+        version:
+          type: string
+          title: Version
+        deployment_mode:
+          type: string
+          enum:
+          - local
+          - hosted
+          title: Deployment Mode
+        features:
+          $ref: '#/components/schemas/ServerFeatures'
+        auth:
+          $ref: '#/components/schemas/ServerAuthInfo'
+        limits:
+          $ref: '#/components/schemas/ServerLimits'
+      type: object
+      required:
+      - server_id
+      - version
+      - deployment_mode
+      - features
+      - auth
+      - limits
+      title: ServerInfoResponse
+    ServerLimits:
+      properties:
+        max_upload_mb:
+          type: integer
+          title: Max Upload Mb
+      type: object
+      required:
+      - max_upload_mb
+      title: ServerLimits
     SideChatRequest:
       properties:
         content:
@@ -6164,10 +7276,8 @@ components:
           title: System Prompt
         config:
           anyOf:
-          - additionalProperties: true
-            type: object
+          - $ref: '#/components/schemas/AgentConfig'
           - type: 'null'
-          title: Config
       type: object
       title: UpdateAgentRequest
     UpdateAgentSkillRequest:
@@ -6330,37 +7440,6 @@ components:
           title: Is Pinned
       type: object
       title: UpdateMessageRequest
-    UpdateModelAccountRequest:
-      properties:
-        display_name:
-          anyOf:
-          - type: string
-            maxLength: 120
-            minLength: 1
-          - type: 'null'
-          title: Display Name
-        api_key:
-          anyOf:
-          - type: string
-            maxLength: 4096
-            minLength: 1
-          - type: 'null'
-          title: Api Key
-        model:
-          anyOf:
-          - type: string
-            maxLength: 160
-            minLength: 1
-          - type: 'null'
-          title: Model
-        base_url:
-          anyOf:
-          - type: string
-            maxLength: 512
-          - type: 'null'
-          title: Base Url
-      type: object
-      title: UpdateModelAccountRequest
     UpdateQueuedMessageRequest:
       properties:
         content:
@@ -6415,6 +7494,17 @@ components:
           title: Requirement Alignment
       type: object
       title: UpdateQueuedMessageRequest
+    UpdateSessionRequest:
+      properties:
+        device_name:
+          anyOf:
+          - type: string
+            maxLength: 160
+            minLength: 1
+          - type: 'null'
+          title: Device Name
+      type: object
+      title: UpdateSessionRequest
     UploadOut:
       properties:
         id:
@@ -6457,6 +7547,15 @@ components:
           - failed
           - deleted
           title: Status
+        client_platform:
+          type: string
+          enum:
+          - web
+          - desktop
+          - ios
+          - android
+          title: Client Platform
+          default: web
         safety_status:
           type: string
           enum:
@@ -6495,6 +7594,149 @@ components:
       - safety_status
       - created_at
       title: UploadOut
+    UploadSessionOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        filename:
+          type: string
+          title: Filename
+        content_type:
+          type: string
+          title: Content Type
+        total_size_bytes:
+          type: integer
+          title: Total Size Bytes
+        expected_sha256:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Expected Sha256
+        client_platform:
+          type: string
+          enum:
+          - web
+          - desktop
+          - ios
+          - android
+          title: Client Platform
+        part_size_bytes:
+          type: integer
+          title: Part Size Bytes
+        received_parts:
+          items:
+            type: integer
+          type: array
+          title: Received Parts
+        status:
+          type: string
+          enum:
+          - open
+          - completed
+          - cancelled
+          - failed
+          - expired
+          title: Status
+        upload_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Upload Id
+        error_code:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Code
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+      type: object
+      required:
+      - id
+      - filename
+      - content_type
+      - total_size_bytes
+      - client_platform
+      - part_size_bytes
+      - status
+      - created_at
+      - updated_at
+      - expires_at
+      title: UploadSessionOut
+    UserEventList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/UserEventOut'
+          type: array
+          title: Items
+        next_cursor:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Next Cursor
+      type: object
+      required:
+      - items
+      title: UserEventList
+    UserEventOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        cursor:
+          type: integer
+          title: Cursor
+        event_type:
+          type: string
+          title: Event Type
+        resource_type:
+          type: string
+          title: Resource Type
+        resource_id:
+          type: string
+          title: Resource Id
+        conversation_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Conversation Id
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - cursor
+      - event_type
+      - resource_type
+      - resource_id
+      - created_at
+      title: UserEventOut
     UserOut:
       properties:
         id:
@@ -6557,6 +7799,69 @@ components:
       - runs_considered
       - source_conversation_count
       title: UserPreferenceMemoryOut
+    UserSessionList:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/UserSessionOut'
+          type: array
+          title: Items
+        total:
+          type: integer
+          title: Total
+      type: object
+      required:
+      - items
+      - total
+      title: UserSessionList
+    UserSessionOut:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        device_name:
+          type: string
+          title: Device Name
+        platform:
+          type: string
+          title: Platform
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        last_active_at:
+          type: string
+          format: date-time
+          title: Last Active At
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        revoked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Revoked At
+        revoked_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Revoked Reason
+        is_current:
+          type: boolean
+          title: Is Current
+          default: false
+      type: object
+      required:
+      - id
+      - device_name
+      - platform
+      - created_at
+      - last_active_at
+      - expires_at
+      title: UserSessionOut
     ValidationError:
       properties:
         loc:
@@ -7482,577 +8787,6 @@ components:
       - health_status
       - created_at
       title: WorkspaceWorkflowRunResponse
-    AgentModelProfile:
-      properties:
-        source:
-          default: agenthub_default
-          enum:
-          - agenthub_default
-          - user_account
-          title: Source
-          type: string
-        account_id:
-          anyOf:
-          - format: uuid
-            type: string
-          - type: 'null'
-          default: null
-          title: Account Id
-        provider:
-          anyOf:
-          - maxLength: 32
-            type: string
-          - type: 'null'
-          default: null
-          title: Provider
-        model:
-          anyOf:
-          - maxLength: 160
-            type: string
-          - type: 'null'
-          default: null
-          title: Model
-      title: AgentModelProfile
-      type: object
-    AgentConfig:
-      additionalProperties: true
-      properties:
-        model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for builtin agents.
-          title: Model Backend
-        model_profile:
-          anyOf:
-          - $ref: '#/components/schemas/AgentModelProfile'
-          - type: 'null'
-          default: null
-          description: User-facing model selection for builtin custom agents.
-        answer_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for orchestrator direct answers.
-          title: Answer Model Backend
-        planner_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for orchestrator LLM planning.
-          title: Planner Model Backend
-        context_max_tokens:
-          anyOf:
-          - maximum: 200000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          description: Maximum conversation context tokens passed to this agent.
-          title: Context Max Tokens
-          minimum: 1
-          maximum: 200000
-        orchestrator_context_max_tokens:
-          anyOf:
-          - maximum: 200000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          description: Maximum context tokens used by the Orchestrator main flow.
-          title: Orchestrator Context Max Tokens
-          minimum: 1
-          maximum: 200000
-        orchestrator_subagent_context_max_tokens:
-          anyOf:
-          - maximum: 200000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          description: Maximum context tokens passed from Orchestrator to sub-agents.
-          title: Orchestrator Subagent Context Max Tokens
-          minimum: 1
-          maximum: 200000
-        llm_planning:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Llm Planning
-        planner_fallback_to_template:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Planner Fallback To Template
-        available_agents_authoritative:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Available Agents Authoritative
-        orchestrator_llm_config:
-          anyOf:
-          - additionalProperties: true
-            type: object
-          - type: 'null'
-          default: null
-          title: Orchestrator Llm Config
-        max_iterations:
-          anyOf:
-          - maximum: 50
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Max Iterations
-          minimum: 1
-          maximum: 50
-        react_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: React Enabled
-        react_trace_visible:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: React Trace Visible
-        react_decision_max_tokens:
-          anyOf:
-          - maximum: 4096
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: React Decision Max Tokens
-          minimum: 1
-          maximum: 4096
-        mcp_servers:
-          anyOf:
-          - items:
-              additionalProperties: true
-              type: object
-            type: array
-          - type: 'null'
-          default: null
-          title: Mcp Servers
-        allowed_tools:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          description: Maximum builtin native/MCP tools this agent may receive. Omit
-            to keep legacy behavior; [] means no tools.
-          title: Allowed Tools
-        builder_profile:
-          anyOf:
-          - $ref: '#/components/schemas/AgentBuilderProfile'
-          - type: 'null'
-          default: null
-        permissions:
-          anyOf:
-          - $ref: '#/components/schemas/AgentPermissions'
-          - type: 'null'
-          default: null
-        memory_policy:
-          anyOf:
-          - enum:
-            - none
-            - conversation
-            - project
-            - user
-            type: string
-          - type: 'null'
-          default: null
-          title: Memory Policy
-        command:
-          anyOf:
-          - type: string
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Command
-        args:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Args
-        timeout_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Timeout Seconds
-          minimum: 1
-          maximum: 3600
-        max_runtime_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Max Runtime Seconds
-          minimum: 1
-          maximum: 3600
-        idle_timeout_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Idle Timeout Seconds
-          minimum: 1
-          maximum: 3600
-        heartbeat_interval_seconds:
-          anyOf:
-          - maximum: 3600
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Heartbeat Interval Seconds
-          minimum: 1
-          maximum: 3600
-        qa_short_circuit_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Qa Short Circuit Enabled
-        qa_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for external direct chat.
-          title: Qa Model Backend
-        qa_model:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Qa Model
-        qa_classifier_model:
-          anyOf:
-          - type: string
-          - type: 'null'
-          default: null
-          title: Qa Classifier Model
-        qa_max_tokens:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Qa Max Tokens
-          minimum: 1
-          maximum: 32000
-        qa_classifier_max_tokens:
-          anyOf:
-          - maximum: 1024
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Qa Classifier Max Tokens
-          minimum: 1
-          maximum: 1024
-        qa_temperature:
-          anyOf:
-          - maximum: 2
-            minimum: 0
-            type: number
-          - type: 'null'
-          default: null
-          title: Qa Temperature
-          minimum: 0
-          maximum: 2
-        qa_request_timeout_seconds:
-          anyOf:
-          - maximum: 120
-            minimum: 1
-            type: number
-          - type: 'null'
-          default: null
-          title: Qa Request Timeout Seconds
-          minimum: 1
-          maximum: 120
-        task_fallback_agent_ids:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Task Fallback Agent Ids
-        max_task_attempts:
-          anyOf:
-          - maximum: 3
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Max Task Attempts
-          minimum: 1
-          maximum: 3
-        task_result_context_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Task Result Context Max Chars
-          minimum: 1
-          maximum: 32000
-        task_result_item_max_chars:
-          anyOf:
-          - maximum: 8000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Task Result Item Max Chars
-          minimum: 1
-          maximum: 8000
-        orchestrator_memory_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Enabled
-        orchestrator_memory_recent_runs:
-          anyOf:
-          - maximum: 10
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Recent Runs
-          minimum: 1
-          maximum: 10
-        orchestrator_memory_context_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Memory Context Max Chars
-          minimum: 1
-          maximum: 32000
-        orchestrator_tool_calling_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Calling Enabled
-        orchestrator_tool_trace_visible:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Trace Visible
-        orchestrator_tool_max_iterations:
-          anyOf:
-          - maximum: 50
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Max Iterations
-          minimum: 1
-          maximum: 50
-        orchestrator_tool_max_tokens:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Max Tokens
-          minimum: 1
-          maximum: 32000
-        orchestrator_tool_result_max_chars:
-          anyOf:
-          - maximum: 32000
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Result Max Chars
-          minimum: 1
-          maximum: 32000
-        orchestrator_tool_read_max_bytes:
-          anyOf:
-          - maximum: 1048576
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Tool Read Max Bytes
-          minimum: 1
-          maximum: 1048576
-        orchestrator_group_messages_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Group Messages Enabled
-        orchestrator_process_block_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Process Block Enabled
-        orchestrator_response_polish_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Response Polish Enabled
-        clarification_gate_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Clarification Gate Enabled
-        auto_clarification_max_questions:
-          anyOf:
-          - maximum: 8
-            minimum: 0
-            type: integer
-          - type: 'null'
-          default: null
-          title: Auto Clarification Max Questions
-          minimum: 0
-          maximum: 8
-        requirement_alignment_llm_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Requirement Alignment Llm Enabled
-        grill_max_questions:
-          anyOf:
-          - maximum: 12
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Grill Max Questions
-          minimum: 1
-          maximum: 12
-        workspace_docs_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Workspace Docs Enabled
-        orchestrator_response_polish_model_backend:
-          anyOf:
-          - enum:
-            - claude
-            - deepseek
-            - openai
-            type: string
-          - type: 'null'
-          default: null
-          description: ModelGateway backend for Orchestrator final response polish.
-          title: Orchestrator Response Polish Model Backend
-        orchestrator_response_polish_max_tokens:
-          anyOf:
-          - maximum: 4096
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Response Polish Max Tokens
-          minimum: 1
-          maximum: 4096
-        orchestrator_parallel_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Parallel Enabled
-        orchestrator_parallel_max_concurrency:
-          anyOf:
-          - maximum: 10
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Parallel Max Concurrency
-          minimum: 1
-          maximum: 10
-        orchestrator_evaluation_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Evaluation Enabled
-        orchestrator_evaluation_read_max_bytes:
-          anyOf:
-          - maximum: 1048576
-            minimum: 1
-            type: integer
-          - type: 'null'
-          default: null
-          title: Orchestrator Evaluation Read Max Bytes
-          minimum: 1
-          maximum: 1048576
-        orchestrator_test_runner_enabled:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          default: null
-          title: Orchestrator Test Runner Enabled
-        orchestrator_test_command_allowlist:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          default: null
-          title: Orchestrator Test Command Allowlist
-      title: AgentConfig
-      type: object
   securitySchemes:
     HTTPBearer:
       type: http

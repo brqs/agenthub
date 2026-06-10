@@ -193,6 +193,10 @@ function invalidateConversationQueries(
   void queryClient.invalidateQueries({ queryKey: queryKeys.messages(userId, conversationId) });
   invalidateWorkspaceQueries(queryClient, conversationId);
   void queryClient.invalidateQueries({ queryKey: ['workspace-deployments', conversationId] });
+  void queryClient.invalidateQueries({
+    queryKey: ['conversation-memory-hub', conversationId],
+  });
+  void queryClient.invalidateQueries({ queryKey: ['memory-mounts', conversationId] });
 }
 
 function invalidateWorkspaceQueries(

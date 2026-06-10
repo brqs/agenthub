@@ -1,4 +1,5 @@
 mod deep_link;
+mod connector;
 mod diagnostics;
 mod environment;
 mod error;
@@ -76,6 +77,9 @@ pub fn run() {
             release::desktop_install_update,
             release::desktop_open_release_page,
             release::desktop_collect_crash_report,
+            connector::desktop_probe_local_runtime_connector,
+            connector::desktop_start_local_runtime_connector,
+            connector::desktop_stop_local_runtime_connector,
         ])
         .run(tauri::generate_context!())
         .expect("error while running AgentHub Desktop");

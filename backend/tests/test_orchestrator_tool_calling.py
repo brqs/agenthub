@@ -197,8 +197,9 @@ class FakePlatformExecutor:
             status="ok",
             output=(
                 '{"status":"ok","agent":{"id":"custom-1","name":"LiveCopywriter",'
-                '"provider":"builtin","capabilities":["copywriting","review"],'
-                '"allowed_tools":[],"is_builtin":false},"added_to_conversation":true}'
+                '"provider":"opencode","capabilities":["copywriting","review"],'
+                '"base_agent_id":"opencode-helper","is_builtin":false},'
+                '"added_to_conversation":true}'
             ),
         )
 
@@ -230,9 +231,10 @@ async def test_conversational_custom_agent_uses_platform_tool_without_tool_loop(
             ChatMessage(
                 role="user",
                 content=(
-                    "@orchestrator 请创建一个新的自建 Agent，名字为 LiveCopywriter，"
-                    "provider 使用 builtin，system_prompt 为“你是中文文案 Agent”，"
-                    "capabilities 设置为 copywriting、review，并把它加入当前群聊。"
+                    "@orchestrator create a custom Agent; name: LiveCopywriter; "
+                    "base_agent_id: opencode-helper; "
+                    "system_prompt: \"You are a Chinese copywriting Agent\"; "
+                    "capabilities: copywriting, review; add to current group."
                 ),
             )
         ],
@@ -247,10 +249,24 @@ async def test_conversational_custom_agent_uses_platform_tool_without_tool_loop(
             "create_custom_agent",
             {
                 "name": "LiveCopywriter",
-                "provider": "builtin",
-                "system_prompt": "你是中文文案 Agent",
+                "provider": "opencode",
+                "system_prompt": "You are a Chinese copywriting Agent",
                 "capabilities": ["copywriting", "review"],
-                "config": {},
+                "config": {
+                    "custom_agent_mode": "server_agent_wrapper",
+                    "base_agent_id": "opencode-helper",
+                    "wrapper_profile": {
+                        "role": "You are a Chinese copywriting Agent",
+                        "purpose": "You are a Chinese copywriting Agent",
+                        "planning_profile": "You are a Chinese copywriting Agent",
+                        "planning_strengths": [],
+                        "planning_weaknesses": [],
+                        "preferred_task_types": [],
+                        "capabilities": ["copywriting", "review"],
+                        "output_style": "",
+                        "boundaries": [],
+                    },
+                },
                 "add_to_conversation": True,
             },
         )
@@ -266,7 +282,7 @@ async def test_conversational_custom_agent_uses_platform_tool_without_tool_loop(
     assert chunks[-1].event_type == "done"
 
 
-async def test_conversational_custom_agent_forwards_allowed_tools() -> None:
+async def test_conversational_custom_agent_forwards_wrapper_profile_fields() -> None:
     executor = FakePlatformExecutor()
     orchestrator = OrchestratorAdapter(agent_id="orchestrator")
 
@@ -276,9 +292,11 @@ async def test_conversational_custom_agent_forwards_allowed_tools() -> None:
             ChatMessage(
                 role="user",
                 content=(
-                    "@orchestrator 请创建一个新的自建 Agent，名字为 ReaderAgent，"
-                    "provider 使用 builtin，system_prompt 为“你是阅读 Agent”，"
-                    "工具白名单设置为 read_file、write_file，并把它加入当前群聊。"
+                    "@orchestrator create a custom Agent; name: ReaderAgent; "
+                    "base_agent_id: opencode-helper; "
+                    "system_prompt: \"You are a reading Agent\"; "
+                    "capabilities: reading, review; planning_strengths: reading; "
+                    "add to current group."
                 ),
             )
         ],
@@ -288,7 +306,14 @@ async def test_conversational_custom_agent_forwards_allowed_tools() -> None:
         },
     )
 
-    assert executor.calls[0][1]["allowed_tools"] == ["read_file", "write_file"]
+    arguments = executor.calls[0][1]
+    assert arguments["provider"] == "opencode"
+    assert arguments["config"]["base_agent_id"] == "opencode-helper"
+    assert arguments["config"]["wrapper_profile"]["capabilities"] == [
+        "reading",
+        "review",
+    ]
+    assert arguments["config"]["wrapper_profile"]["planning_strengths"] == ["reading"]
 
 
 def _tool_call(

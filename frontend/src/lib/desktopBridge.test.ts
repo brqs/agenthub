@@ -2,6 +2,7 @@ import {
   checkDesktopBackendHealth,
   DEFAULT_DESKTOP_BACKEND_URL,
   getStoredDesktopBackendUrl,
+  isDesktopBackendIdentityCompatible,
   isDesktopRuntime,
   normalizeBackendUrl,
   parseDesktopDeepLink,
@@ -91,6 +92,100 @@ describe('desktopBridge', () => {
     expect(health.version).toBe('0.1.0');
   });
 
+  it('loads AgentHub server identity when the endpoint is available', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/server-info')) {
+          return new Response(
+            JSON.stringify({
+              server_id: 'public-agenthub',
+              version: '0.1.0',
+              deployment_mode: 'hosted',
+              features: {
+                uploads: true,
+                workspace: true,
+                orchestrator: true,
+                desktop_local_stack: false,
+              },
+              auth: { type: 'jwt' },
+              limits: { max_upload_mb: 100 },
+            }),
+          );
+        }
+        return new Response(JSON.stringify({ status: 'ok', version: '0.1.0' }));
+      }),
+    );
+
+    const health = await checkDesktopBackendHealth('https://agenthub.example.com');
+
+    expect(health.serverInfo?.server_id).toBe('public-agenthub');
+    expect(health.serverInfo?.deployment_mode).toBe('hosted');
+  });
+
+  it('rejects insecure public backends before sending a request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const health = await checkDesktopBackendHealth('http://agenthub.example.com');
+
+    expect(health.status).toBe('unreachable');
+    expect(health.error).toBe('公网后端必须使用 HTTPS。');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a changed server identity for a saved backend profile', () => {
+    expect(
+      isDesktopBackendIdentityCompatible(
+        {
+          id: 'public',
+          name: 'Public AgentHub',
+          url: 'https://agenthub.example.com',
+          mode: 'remote',
+          serverId: 'server-a',
+        },
+        {
+          url: 'https://agenthub.example.com',
+          reachable: true,
+          status: 'ready',
+          serverInfo: {
+            server_id: 'server-b',
+            version: '0.1.0',
+            deployment_mode: 'hosted',
+            features: {
+              uploads: true,
+              workspace: true,
+              orchestrator: true,
+              desktop_local_stack: false,
+            },
+            auth: { type: 'jwt' },
+            limits: { max_upload_mb: 100 },
+          },
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it('requires server identity discovery after a profile has been pinned', () => {
+    expect(
+      isDesktopBackendIdentityCompatible(
+        {
+          id: 'public',
+          name: 'Public AgentHub',
+          url: 'https://agenthub.example.com',
+          mode: 'remote',
+          serverId: 'server-a',
+        },
+        {
+          url: 'https://agenthub.example.com',
+          reachable: true,
+          status: 'ready',
+        },
+      ),
+    ).toBe(false);
+  });
+
   it('maps unreachable health responses', async () => {
     vi.stubGlobal(
       'fetch',
@@ -101,6 +196,34 @@ describe('desktopBridge', () => {
 
     expect(health.status).toBe('unreachable');
     expect(health.error).toContain('HTTP 503');
+  });
+
+  it('bounds remote backend health checks with a timeout', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Aborted', 'AbortError')),
+              { once: true },
+            );
+          }),
+      ),
+    );
+
+    try {
+      const pending = checkDesktopBackendHealth('https://agenthub.example.com');
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(pending).resolves.toMatchObject({
+        status: 'unreachable',
+        error: '连接 AgentHub 后端超时，请检查服务器地址和网络。',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reads only files selected by the desktop dialog', async () => {

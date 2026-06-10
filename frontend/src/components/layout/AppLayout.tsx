@@ -6,6 +6,7 @@ import { OfflineBanner } from './OfflineBanner';
 import { StreamSupervisor } from '@/components/chat/StreamSupervisor';
 import { MobileBottomNav } from '@/components/mobile/MobileBottomNav';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useRealtimeEvents } from '@/hooks/useRealtimeEvents';
 import { useStreamRecovery } from '@/hooks/useStreamRecovery';
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight';
 import { usePwaUpdate } from '@/lib/pwa';
@@ -17,6 +18,7 @@ import { useUiStore } from '@/stores/uiStore';
 export function AppLayout() {
   useVisualViewportHeight();
   useStreamRecovery();
+  useRealtimeEvents();
   const isOnline = useNetworkStatus();
   const { updateAvailable, applyUpdate } = usePwaUpdate();
   const user = useAuthStore((s) => s.user);

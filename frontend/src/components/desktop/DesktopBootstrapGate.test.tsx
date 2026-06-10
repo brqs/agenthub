@@ -19,6 +19,8 @@ describe('DesktopBootstrapGate', () => {
     checkState: 'idle',
     environment: null,
     preferences: null,
+    backendProfiles: [],
+    activeBackendProfileId: null,
     releaseInfo: null,
     updateCheck: null,
     updateState: 'idle',
@@ -28,6 +30,9 @@ describe('DesktopBootstrapGate', () => {
     desktopError: null,
     operationPending: false,
     setBackendUrl: vi.fn(),
+    saveBackendProfile: vi.fn(async () => null),
+    activateBackendProfile: vi.fn(async () => false),
+    deleteBackendProfile: vi.fn(async () => false),
     checkBackend: vi.fn(async () => ({
       url: 'http://localhost:8000',
       reachable: false,
@@ -120,6 +125,15 @@ describe('DesktopBootstrapGate', () => {
       checkState: 'unreachable',
       preferences: {
         backendUrl: 'http://localhost:8000',
+        backendProfiles: [
+          {
+            id: 'default',
+            name: '本地 AgentHub',
+            url: 'http://localhost:8000',
+            mode: 'local',
+          },
+        ],
+        activeBackendProfileId: 'default',
         autoStartLocalStack: true,
         notificationsEnabled: false,
         autoCheckUpdates: true,

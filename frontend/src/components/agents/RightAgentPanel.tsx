@@ -41,8 +41,8 @@ import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
 import { useCreateDeployment } from '@/hooks/useDeployments';
 import {
   useConversationMemoryMounts,
+  useConversationMemoryHub,
   useForgetMemory,
-  useMemories,
   useUpdateMemory,
 } from '@/hooks/useMemories';
 import {
@@ -978,13 +978,17 @@ function isHtmlPath(path: string): boolean {
 }
 
 function MemoryPanel({ conversationId }: { conversationId: string }) {
-  const activeMemories = useMemories('active');
-  const candidateMemories = useMemories('candidate');
+  const memoryHub = useConversationMemoryHub(conversationId);
   const mounts = useConversationMemoryMounts(conversationId);
-  const updateMemory = useUpdateMemory();
-  const forgetMemory = useForgetMemory();
+  const updateMemory = useUpdateMemory(conversationId);
+  const forgetMemory = useForgetMemory(conversationId);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [showGlobalMemories, setShowGlobalMemories] = useState(false);
+  const scopedActive = memoryHub.data?.scoped_active ?? [];
+  const scopedCandidates = memoryHub.data?.scoped_candidates ?? [];
+  const userActive = memoryHub.data?.user_active ?? [];
+  const userCandidates = memoryHub.data?.user_candidates ?? [];
 
   function startEdit(memory: Memory) {
     setEditingId(memory.id);
@@ -1011,16 +1015,16 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
         <PanelHeader
           icon={Brain}
           title="MemoryHub"
-          meta={`${activeMemories.data?.total ?? 0} active`}
+          meta={`${scopedActive.length} 条当前记忆`}
         />
         <p className="mb-3 text-xs leading-5 text-slate-500">
-          重要记忆会长期保留；动态挂载只在当前回复中临时进入上下文。
+          当前会话事实优先；跨会话偏好会单独标识，不与任务记忆混排。
         </p>
         <MemoryListSection
-          title="重要记忆"
-          isLoading={activeMemories.isLoading}
-          memories={activeMemories.data?.items ?? []}
-          emptyText="暂无重要记忆。"
+          title="当前会话记忆"
+          isLoading={memoryHub.isLoading}
+          memories={scopedActive}
+          emptyText="当前会话暂无重要记忆。"
           editingId={editingId}
           draft={draft}
           onDraftChange={setDraft}
@@ -1032,8 +1036,8 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
 
       <MemoryListSection
         title="候选记忆"
-        isLoading={candidateMemories.isLoading}
-        memories={candidateMemories.data?.items ?? []}
+        isLoading={memoryHub.isLoading}
+        memories={scopedCandidates}
         emptyText="暂无候选记忆。"
         editingId={editingId}
         draft={draft}
@@ -1053,7 +1057,14 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
       />
 
       <section>
-        <PanelHeader icon={Activity} title="动态挂载" meta={`${mounts.data?.total ?? 0} mounts`} />
+        <PanelHeader
+          icon={Activity}
+          title="本会话已注入记录"
+          meta={`${mounts.data?.total ?? 0} 条`}
+        />
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          这里记录实际进入回复上下文的记忆，不代表全部可用记忆。
+        </p>
         {mounts.isLoading ? (
           <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">
             正在加载挂载记录...
@@ -1077,7 +1088,71 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
           </div>
         ) : (
           <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm text-slate-500">
-            当前会话暂无动态挂载记录。
+            {mounts.data?.recall_state === 'no_match'
+              ? '已构建回复上下文，但本轮没有匹配到需要注入的记忆。'
+              : mounts.data?.recall_state === 'not_attempted'
+                ? '当前会话还没有 Agent 回复，尚未尝试记忆召回。'
+                : '当前会话暂无已注入记录。'}
+          </div>
+        )}
+        {mounts.data?.latest_agent_message_id && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            最近回复：{mounts.data.latest_agent_id ?? 'Agent'} ·{' '}
+            {mounts.data.latest_agent_status ?? 'unknown'}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <button
+          type="button"
+          onClick={() => setShowGlobalMemories((value) => !value)}
+          className="flex w-full items-center justify-between rounded-md border border-slate-800 px-3 py-2 text-left text-xs font-semibold text-slate-300 transition hover:bg-slate-900"
+        >
+          <span>全局用户记忆</span>
+          <span className="flex items-center gap-2 text-[11px] font-normal text-slate-500">
+            {userActive.length + userCandidates.length}{' '}
+            条
+            <ChevronRight
+              className={cn(
+                'h-3.5 w-3.5 transition-transform',
+                showGlobalMemories && 'rotate-90',
+              )}
+            />
+          </span>
+        </button>
+        {showGlobalMemories && (
+          <div className="mt-3 space-y-5">
+            <MemoryListSection
+              title="全局偏好"
+              isLoading={memoryHub.isLoading}
+              memories={userActive}
+              emptyText="暂无全局偏好。"
+              editingId={editingId}
+              draft={draft}
+              onDraftChange={setDraft}
+              onEdit={startEdit}
+              onSave={saveEdit}
+              onForget={(memory) => forgetMemory.mutate(memory.id)}
+            />
+            <MemoryListSection
+              title="全局候选"
+              isLoading={memoryHub.isLoading}
+              memories={userCandidates}
+              emptyText="暂无全局候选记忆。"
+              editingId={editingId}
+              draft={draft}
+              onDraftChange={setDraft}
+              onEdit={startEdit}
+              onSave={saveEdit}
+              onPromote={(memory) =>
+                updateMemory.mutate({
+                  memoryId: memory.id,
+                  payload: { status: 'active' },
+                })
+              }
+              onForget={(memory) => forgetMemory.mutate(memory.id)}
+            />
           </div>
         )}
       </section>

@@ -15,6 +15,7 @@ from app.core.database import Base, SessionFactory, engine
 from app.models.agent import Agent
 from app.models.conversation import Conversation
 from app.models.user import User
+from app.seeds.seed_agents import BUILTIN_AGENTS
 from app.services.orchestrator_platform_tools import OrchestratorPlatformToolExecutor
 from app.services.workspace_service import WorkspaceService
 
@@ -49,7 +50,47 @@ async def _conversation() -> Conversation:
         return conversation
 
 
+async def _ensure_builtin_agent(agent_id: str) -> None:
+    seed = next(agent for agent in BUILTIN_AGENTS if agent["id"] == agent_id)
+    async with SessionFactory() as db:
+        existing = await db.get(Agent, agent_id)
+        if existing is None:
+            db.add(Agent(is_builtin=True, **seed))
+        else:
+            existing.provider = seed["provider"]
+            existing.name = seed["name"]
+            existing.avatar_url = seed["avatar_url"]
+            existing.capabilities = seed["capabilities"]
+            existing.system_prompt = seed["system_prompt"]
+            existing.config = seed["config"]
+            existing.is_builtin = True
+        await db.commit()
+
+
+def _wrapper_config(
+    base_agent_id: str = "opencode-helper",
+    *,
+    purpose: str = "Build static web artifacts.",
+) -> dict[str, object]:
+    return {
+        "custom_agent_mode": "server_agent_wrapper",
+        "base_agent_id": base_agent_id,
+        "wrapper_profile": {
+            "role": "Implementation helper",
+            "purpose": purpose,
+            "planning_profile": "Use for focused implementation tasks.",
+            "planning_strengths": ["implementation"],
+            "planning_weaknesses": ["product_strategy"],
+            "preferred_task_types": ["implementation"],
+            "capabilities": ["frontend"],
+            "output_style": "Summarize changed files.",
+            "boundaries": ["Do not deploy without confirmation"],
+        },
+    }
+
+
 async def test_create_custom_agent_tool_creates_agent_and_adds_to_group() -> None:
+    await _ensure_builtin_agent("opencode-helper")
     conversation = await _conversation()
     async with SessionFactory() as db:
         executor = OrchestratorPlatformToolExecutor(
@@ -61,10 +102,10 @@ async def test_create_custom_agent_tool_creates_agent_and_adds_to_group() -> Non
             "create_custom_agent",
             {
                 "name": "Copy Agent",
-                "provider": "builtin",
+                "provider": "opencode",
                 "system_prompt": "You write concise product copy.",
                 "capabilities": ["writing", "copy"],
-                "config": {"model_backend": "claude", "mcp_servers": []},
+                "config": _wrapper_config(),
                 "add_to_conversation": True,
             },
         )
@@ -78,15 +119,18 @@ async def test_create_custom_agent_tool_creates_agent_and_adds_to_group() -> Non
 
         assert agent is not None
         assert agent.user_id == conversation.user_id
-        assert agent.provider == "builtin"
+        assert agent.provider == "opencode"
         assert agent.system_prompt == "You write concise product copy."
-        assert agent.config["allowed_tools"] == []
-        assert payload["agent"]["allowed_tools"] == []
+        assert agent.config["custom_agent_mode"] == "server_agent_wrapper"
+        assert agent.config["base_agent_id"] == "opencode-helper"
+        assert agent.config["wrapper_profile"]["purpose"] == "Build static web artifacts."
+        assert payload["agent"]["base_agent_id"] == "opencode-helper"
         assert updated_conversation is not None
         assert agent_id in updated_conversation.agent_ids
 
 
-async def test_create_custom_agent_tool_persists_allowed_tools() -> None:
+async def test_create_custom_agent_tool_copies_base_runtime_defaults() -> None:
+    await _ensure_builtin_agent("opencode-helper")
     conversation = await _conversation()
     async with SessionFactory() as db:
         executor = OrchestratorPlatformToolExecutor(
@@ -98,10 +142,9 @@ async def test_create_custom_agent_tool_persists_allowed_tools() -> None:
             "create_custom_agent",
             {
                 "name": "Reader Agent",
-                "provider": "builtin",
+                "provider": "opencode",
                 "system_prompt": "You read workspace files.",
-                "allowed_tools": ["read_file", "write_file"],
-                "config": {"model_backend": "claude", "mcp_servers": []},
+                "config": _wrapper_config(purpose="Read and update static files."),
                 "add_to_conversation": True,
             },
         )
@@ -111,8 +154,11 @@ async def test_create_custom_agent_tool_persists_allowed_tools() -> None:
         payload = json.loads(result.output)
         agent = await db.get(Agent, payload["agent"]["id"])
         assert agent is not None
-        assert agent.config["allowed_tools"] == ["read_file", "write_file"]
-        assert payload["agent"]["allowed_tools"] == ["read_file", "write_file"]
+        base_agent = await db.get(Agent, "opencode-helper")
+        assert base_agent is not None
+        assert agent.config["command"] == base_agent.config["command"]
+        assert agent.config["args"] == base_agent.config["args"]
+        assert agent.config["wrapper_profile"]["purpose"] == "Read and update static files."
 
 
 async def test_create_custom_agent_tool_requires_key_fields() -> None:
@@ -125,7 +171,11 @@ async def test_create_custom_agent_tool_requires_key_fields() -> None:
 
         result = await executor(
             "create_custom_agent",
-            {"name": "Incomplete Agent", "provider": "builtin"},
+            {
+                "name": "Incomplete Agent",
+                "provider": "opencode",
+                "config": _wrapper_config(),
+            },
         )
 
         assert result.status == "error"
@@ -167,14 +217,17 @@ async def test_create_custom_agent_tool_rejects_invalid_config() -> None:
             "create_custom_agent",
             {
                 "name": "Bad Agent",
-                "provider": "builtin",
+                "provider": "opencode",
                 "system_prompt": "bad config",
-                "config": {"model_backend": "local"},
+                "config": {
+                    **_wrapper_config(),
+                    "model_profile": {"source": "user_account"},
+                },
             },
         )
 
         assert result.status == "error"
-        assert result.error_code == "INVALID_MODEL_BACKEND"
+        assert result.error_code == "invalid_agent_config"
 
 
 async def test_create_custom_agent_tool_does_not_create_on_error() -> None:
@@ -187,7 +240,11 @@ async def test_create_custom_agent_tool_does_not_create_on_error() -> None:
 
         await executor(
             "create_custom_agent",
-            {"name": "No Prompt", "provider": "builtin"},
+            {
+                "name": "No Prompt",
+                "provider": "opencode",
+                "config": _wrapper_config(),
+            },
         )
         count = (
             await db.execute(
@@ -201,7 +258,7 @@ async def test_create_custom_agent_tool_does_not_create_on_error() -> None:
         assert count == []
 
 
-async def test_create_custom_agent_tool_rejects_invalid_allowed_tools() -> None:
+async def test_create_custom_agent_tool_rejects_runtime_field_overrides() -> None:
     conversation = await _conversation()
     async with SessionFactory() as db:
         executor = OrchestratorPlatformToolExecutor(
@@ -213,9 +270,9 @@ async def test_create_custom_agent_tool_rejects_invalid_allowed_tools() -> None:
             "create_custom_agent",
             {
                 "name": "Bad Tools",
-                "provider": "builtin",
+                "provider": "opencode",
                 "system_prompt": "bad tools",
-                "allowed_tools": ["read_file", "delete_file"],
+                "config": {**_wrapper_config(), "command": "rm"},
             },
         )
         await db.commit()
@@ -229,7 +286,7 @@ async def test_create_custom_agent_tool_rejects_invalid_allowed_tools() -> None:
         ).scalars().all()
 
         assert result.status == "error"
-        assert result.error_code == "INVALID_AGENT_CONFIG"
+        assert result.error_code == "invalid_agent_config"
         assert count == []
 
 

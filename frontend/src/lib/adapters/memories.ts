@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import type {
   Memory,
+  ConversationMemoryHub,
   MemoryList,
   MemoryMountList,
   UpdateMemoryRequest,
@@ -46,6 +47,15 @@ export async function listConversationMemoryMounts(
   const { data } = await api.get<MemoryMountList>(
     `/api/v1/conversations/${conversationId}/memory-mounts`,
     { params: { limit } },
+  );
+  return data;
+}
+
+export async function getConversationMemoryHub(
+  conversationId: string,
+): Promise<ConversationMemoryHub> {
+  const { data } = await api.get<ConversationMemoryHub>(
+    `/api/v1/conversations/${conversationId}/memory-hub`,
   );
   return data;
 }
