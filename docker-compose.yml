@@ -49,6 +49,7 @@ services:
       DEPLOYMENT_CONTAINER_PUBLIC_BASE_URL: ${DEPLOYMENT_CONTAINER_PUBLIC_BASE_URL:-http://localhost}
       DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL: ${DEPLOYMENT_CONTAINER_HEALTHCHECK_BASE_URL:-http://host.docker.internal}
       AGENTHUB_CLAUDE_AUTH_DIR: /root/.agenthub/claude-auth
+      CODEX_HOME: /root/.codex
       AGENTHUB_OPENCODE_AUTH_DIR: /root/.local/share/opencode
       UPLOAD_STORAGE_DIR: ${UPLOAD_STORAGE_DIR:-/app/data/uploads}
     ports:
@@ -62,6 +63,7 @@ services:
       - ./shared:/shared:ro
       - ./workspaces:/workspaces
       - uploads-data:/app/data/uploads
+      - ${USERPROFILE}/.codex:/root/.codex:ro
       - claude-state:/root/.agenthub/claude-auth
       - opencode-state:/root/.local/share/opencode
       # Trusted local deployment mode: let backend run Docker containers via host Docker.
