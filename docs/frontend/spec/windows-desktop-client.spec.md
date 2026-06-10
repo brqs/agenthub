@@ -7,7 +7,7 @@
 
 ## 1. Summary
 
-AgentHub Windows 桌面客户端第一版采用 **Tauri + WebView2 网页套壳**。客户端复用现有 React Web 产品面，不重写聊天、Workspace、Agent Builder、SSE、Orchestrator、模型背包或文件上传业务逻辑。
+AgentHub Windows 桌面客户端第一版采用 **Tauri + WebView2 网页套壳**。客户端复用现有 React Web 产品面，不重写聊天、Workspace、服务器 Agent 套壳构建器、SSE、Orchestrator 或文件上传业务逻辑。
 
 桌面壳的职责是：
 
@@ -71,7 +71,7 @@ flowchart LR
 
 | Layer | 职责 | 不应该做 |
 |---|---|---|
-| React SPA | 聊天、Agent Builder、Workspace、模型背包、设置页、SSE 客户端 | 直接执行本机命令 |
+| React SPA | 聊天、服务器 Agent 套壳构建器、Workspace、设置页、SSE 客户端 | 直接执行本机命令 |
 | Tauri Shell | 窗口、菜单、通知、桥接命令、启动体验 | 复制 React 业务状态 |
 | B1 Backend | API、会话、消息、Workspace、权限、DB、Stream lifecycle | 相信前端传来的权限判断 |
 | B2 Runtime | Adapter、模型网关、Orchestrator、MCP、external runtime | 读取壳层本地状态作为事实源 |
@@ -164,7 +164,7 @@ flowchart LR
 - 通知开关；
 - 诊断包导出。
 
-语言设置、模型背包、自定义 Agent 仍使用现有 Web 设置，不因为桌面壳另起一套。
+语言设置、自定义 Agent 套壳与 Skills 管理仍使用现有 Web 设置，不因为桌面壳另起一套。
 
 ### 5.3 Workspace
 
@@ -328,6 +328,17 @@ MVP 目标：
 - [windows-desktop-host-bridge.spec.md](windows-desktop-host-bridge.spec.md)
 - [windows-desktop-implementation-plan.md](windows-desktop-implementation-plan.md)
 - [windows-desktop-test-plan.md](windows-desktop-test-plan.md)
+- [../../architecture/remote-backend-shared-sessions-roadmap.md](../../architecture/remote-backend-shared-sessions-roadmap.md)
 - [frontend-capacitor-shell.spec.md](frontend-capacitor-shell.spec.md)
 - [frontend-file-upload.spec.md](frontend-file-upload.spec.md)
 - [../../tech-architecture.md](../../tech-architecture.md)
+
+## 12. Remote Backend Profiles
+
+- Desktop 可以保存多个本地或远程 AgentHub 连接档案。
+- 非回环远程地址必须使用 HTTPS。
+- 每个后端拥有独立的 JWT 本地存储分区。
+- 切换档案时必须先清理 Query、Chat、Agent 和 active stream，再恢复目标后端登录态。
+- `/health` 用于就绪探测，`/api/v1/server-info` 用于读取服务端身份、部署模式与能力。
+- 同一账号连接同一公网后端时，共享会话来自同一服务端数据库，不由桌面客户端执行点对点同步。
+- Remote 模式下本地 Docker 管理和打开本机 Workspace 文件夹不可用；Agent runtime 使用远程后端环境。

@@ -8,11 +8,32 @@ pub struct DesktopEnvironment {
     pub app_data_dir: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendProfileMode {
+    Local,
+    Remote,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendProfile {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub mode: BackendProfileMode,
+    pub server_id: Option<String>,
+    pub last_connected_at: Option<String>,
+    pub last_health: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(default)]
 pub struct DesktopPreferences {
     pub backend_url: String,
+    pub backend_profiles: Vec<BackendProfile>,
+    pub active_backend_profile_id: Option<String>,
     pub auto_start_local_stack: bool,
     pub notifications_enabled: bool,
     #[serde(default = "default_auto_check_updates")]
@@ -28,6 +49,8 @@ pub struct DesktopPreferences {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopPreferencesPatch {
     pub backend_url: Option<String>,
+    pub backend_profiles: Option<Vec<BackendProfile>>,
+    pub active_backend_profile_id: Option<String>,
     pub auto_start_local_stack: Option<bool>,
     pub notifications_enabled: Option<bool>,
     pub auto_check_updates: Option<bool>,
@@ -253,6 +276,21 @@ pub struct DesktopCrashReport {
     pub exists: bool,
     pub lines: Vec<String>,
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRuntimeConnectorProbe {
+    pub available: bool,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalRuntimeConnectorState {
+    pub running: bool,
+    pub endpoint_url: Option<String>,
+    pub runtime_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

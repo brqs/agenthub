@@ -14,6 +14,8 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.agents.builtin.mcp.client import MCPClient
 from app.agents.config_validation import (
+    WRAPPER_BASE_PROVIDERS,
+    WRAPPER_MODE,
     AgentConfigValidationError,
     merge_agent_config,
     validate_agent_config,
@@ -30,7 +32,7 @@ from app.schemas.agent import (
     AgentAssetHistoryOut,
     AgentAssetsOut,
     AgentAssetUsageListOut,
-    AgentBuilderProfile,
+    AgentConfig,
     AgentKnowledgeOut,
     AgentKnowledgeUsage,
     AgentList,
@@ -38,11 +40,8 @@ from app.schemas.agent import (
     AgentMCPServerHealthOut,
     AgentMCPToolOut,
     AgentOut,
-    AgentPermissions,
     AgentProvider,
     AgentSkillOut,
-    AgentTemplateListOut,
-    AgentTemplateOut,
     AgentTestRunOut,
     AgentTestRunRequest,
     CreateAgentRequest,
@@ -51,109 +50,8 @@ from app.schemas.agent import (
     UpdateAgentSkillRequest,
 )
 from app.services.agent_asset_service import agent_asset_service
-from app.services.model_accounts import model_profile_for_default
 
 router = APIRouter()
-
-
-CUSTOM_AGENT_TEMPLATES: tuple[AgentTemplateOut, ...] = (
-    AgentTemplateOut(
-        id="paper-research-assistant",
-        name="Paper Research Assistant",
-        description="Organizes papers, notes, and reading summaries with a careful tone.",
-        category="research",
-        capabilities=["research", "summarization", "writing"],
-        builder_profile=AgentBuilderProfile(
-            role="A patient research assistant for collecting and organizing paper notes.",
-            purpose="Help the user read, compare, and summarize academic materials.",
-            goals=[
-                "Extract key claims and terminology from uploaded notes.",
-                "Keep source wording separate from generated summaries.",
-                "Ask before changing the user's original text.",
-            ],
-            tone="warm, precise, and teacher-like",
-            do_not_do=["Do not invent citations.", "Do not rewrite source text without asking."],
-            clarification_policy="ask_first",
-            output_style="Use short sections and clearly mark unknowns.",
-            starters=[
-                "Summarize this paper note.",
-                "Compare these two arguments.",
-                "Turn this outline into a reading brief.",
-            ],
-        ),
-        permissions=AgentPermissions(workspace_read=True),
-    ),
-    AgentTemplateOut(
-        id="frontend-designer",
-        name="Frontend Designer",
-        description="Designs and edits polished web UI inside the conversation workspace.",
-        category="frontend",
-        capabilities=["frontend", "ui", "workspace"],
-        builder_profile=AgentBuilderProfile(
-            role="A frontend design agent focused on usable, polished web interfaces.",
-            purpose="Create and refine static frontend artifacts in the workspace.",
-            goals=[
-                "Produce clear HTML/CSS/JS artifacts when asked.",
-                "Keep layouts responsive across desktop and mobile.",
-                "Explain tradeoffs briefly when design choices matter.",
-            ],
-            tone="direct, collaborative, and design-focused",
-            do_not_do=["Do not deploy without confirmation."],
-            clarification_policy="balanced",
-            output_style="Prefer concise progress notes and concrete file outputs.",
-            starters=[
-                "Create a landing page mockup.",
-                "Improve this component layout.",
-                "Make this page mobile-friendly.",
-            ],
-        ),
-        permissions=AgentPermissions(workspace_read=True, workspace_write=True),
-    ),
-    AgentTemplateOut(
-        id="code-reviewer",
-        name="Code Reviewer",
-        description="Reviews changed files for bugs, risks, and missing tests.",
-        category="engineering",
-        capabilities=["review", "testing", "quality"],
-        builder_profile=AgentBuilderProfile(
-            role="A code review agent that prioritizes correctness and regressions.",
-            purpose="Review code changes and point out actionable issues.",
-            goals=[
-                "Lead with concrete findings.",
-                "Reference files and scenarios.",
-                "Avoid speculative or stylistic feedback.",
-            ],
-            tone="concise and senior-engineering focused",
-            do_not_do=["Do not rewrite code unless asked."],
-            clarification_policy="balanced",
-            output_style="Findings first, then residual risk.",
-            starters=["Review the current change.", "Check this component for regressions."],
-        ),
-        permissions=AgentPermissions(workspace_read=True),
-    ),
-    AgentTemplateOut(
-        id="deployment-helper",
-        name="Deployment Helper",
-        description="Prepares release notes, checks artifacts, and guides deployment steps.",
-        category="deployment",
-        capabilities=["deployment", "release", "diagnostics"],
-        builder_profile=AgentBuilderProfile(
-            role="A deployment assistant for release preparation and diagnostics.",
-            purpose="Help package, verify, and explain deployment readiness.",
-            goals=[
-                "Check required artifacts before publishing.",
-                "Explain failed deployment states clearly.",
-                "Ask before starting destructive or external actions.",
-            ],
-            tone="calm and operational",
-            do_not_do=["Do not deploy or stop services without explicit confirmation."],
-            clarification_policy="ask_first",
-            output_style="Use short checklists and exact command summaries.",
-            starters=["Check whether this workspace can be deployed.", "Prepare release notes."],
-        ),
-        permissions=AgentPermissions(workspace_read=True, deploy="ask"),
-    ),
-)
 
 
 def _format_validation_error(exc: AgentConfigValidationError) -> dict[str, Any]:
@@ -166,15 +64,76 @@ def _format_validation_error(exc: AgentConfigValidationError) -> dict[str, Any]:
     }
 
 
-def _config_with_user_agent_defaults(provider: str, config: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(config)
-    if provider == "builtin":
-        normalized.setdefault("model_backend", "deepseek")
-        normalized.setdefault("model_profile", model_profile_for_default())
-        normalized.setdefault("max_iterations", 10)
-        normalized.setdefault("mcp_servers", [])
-        normalized.setdefault("allowed_tools", [])
+WRAPPER_USER_CONFIG_KEYS = {"custom_agent_mode", "base_agent_id", "wrapper_profile"}
+
+
+def _config_payload_to_dict(config: AgentConfig | dict[str, Any] | None) -> dict[str, Any]:
+    if config is None:
+        return {}
+    if isinstance(config, AgentConfig):
+        return config.model_dump(exclude_none=True)
+    return dict(config)
+
+
+def _reject_config_error(message: str, *, field: str, value: Any = None) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "error": {
+                "code": "INVALID_AGENT_CONFIG",
+                "message": message,
+                "details": {"field": field, "value": value},
+            }
+        },
+    )
+
+
+def _assert_wrapper_create_config(provider: str, config: dict[str, Any]) -> None:
+    unknown = sorted(set(config) - WRAPPER_USER_CONFIG_KEYS)
+    if unknown:
+        raise _reject_config_error(
+            "Custom Agent wrappers may only configure base_agent_id and wrapper_profile",
+            field=f"config.{unknown[0]}",
+            value=config.get(unknown[0]),
+        )
+    if config.get("custom_agent_mode") != WRAPPER_MODE:
+        raise _reject_config_error(
+            "custom_agent_mode is required and must be 'server_agent_wrapper'",
+            field="config.custom_agent_mode",
+            value=config.get("custom_agent_mode"),
+        )
+    base_agent_id = config.get("base_agent_id")
+    expected_provider = WRAPPER_BASE_PROVIDERS.get(str(base_agent_id))
+    if expected_provider != provider:
+        raise _reject_config_error(
+            "base_agent_id does not match provider",
+            field="config.base_agent_id",
+            value=base_agent_id,
+        )
+
+
+def _wrapper_config_from_base(base_agent: Agent, config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(base_agent.config or {})
+    normalized["custom_agent_mode"] = WRAPPER_MODE
+    normalized["base_agent_id"] = base_agent.id
+    normalized["wrapper_profile"] = config.get("wrapper_profile") or {}
+    _sync_wrapper_planning_fields(normalized)
     return normalized
+
+
+def _sync_wrapper_planning_fields(config: dict[str, Any]) -> None:
+    profile = config.get("wrapper_profile")
+    if not isinstance(profile, dict):
+        return
+    for key in (
+        "planning_profile",
+        "planning_strengths",
+        "planning_weaknesses",
+        "preferred_task_types",
+    ):
+        value = profile.get(key)
+        if value:
+            config[key] = value
 
 
 async def _visible_agent(db: DbSession, user: User, agent_id: str) -> Agent:
@@ -273,20 +232,27 @@ async def list_agents(
     )
 
 
-@router.get("/templates", response_model=AgentTemplateListOut)
-async def list_agent_templates(
-    _user: Annotated[User, Depends(get_current_user)],
-) -> AgentTemplateListOut:
-    return AgentTemplateListOut(items=list(CUSTOM_AGENT_TEMPLATES))
-
-
 @router.post("", response_model=AgentOut, status_code=201)
 async def create_agent(
     payload: CreateAgentRequest,
     db: DbSession,
     user: Annotated[User, Depends(get_current_user)],
 ) -> AgentOut:
-    config = _config_with_user_agent_defaults(payload.provider, payload.config)
+    payload_config = _config_payload_to_dict(payload.config)
+    _assert_wrapper_create_config(payload.provider, payload_config)
+    base_agent_id = str(payload_config["base_agent_id"])
+    base_agent = await db.get(Agent, base_agent_id)
+    if (
+        base_agent is None
+        or not base_agent.is_builtin
+        or base_agent.provider != payload.provider
+    ):
+        raise _reject_config_error(
+            "base_agent_id must reference a matching built-in server Agent",
+            field="config.base_agent_id",
+            value=base_agent_id,
+        )
+    config = _wrapper_config_from_base(base_agent, payload_config)
     try:
         normalized_config = validate_agent_config(
             provider=payload.provider,
@@ -420,7 +386,9 @@ async def update_agent(
     if agent.user_id != user.id:
         raise HTTPException(403, detail={"error": {"code": "FORBIDDEN", "message": "Forbidden"}})
 
-    updates = payload.model_dump(exclude_unset=True)
+    updates = payload.model_dump(exclude_unset=True, exclude_none=True)
+    if "config" in updates:
+        updates["config"] = _config_payload_to_dict(payload.config)
 
     # Re-validate whenever config or system_prompt is being updated
     if "config" in updates or "system_prompt" in updates:
@@ -435,9 +403,20 @@ async def update_agent(
                     }
                 },
             )
+        if "config" in updates and (agent.config or {}).get("custom_agent_mode") == WRAPPER_MODE:
+            patch_keys = set(patch_config or {})
+            if patch_keys - {"wrapper_profile"}:
+                first_key = sorted(patch_keys - {"wrapper_profile"})[0]
+                raise _reject_config_error(
+                    "Only wrapper_profile can be updated for server Agent wrappers",
+                    field=f"config.{first_key}",
+                    value=(patch_config or {}).get(first_key),
+                )
         merged_config = merge_agent_config(
             agent.config, patch_config if patch_config is not None else {}
         )
+        if merged_config.get("custom_agent_mode") == WRAPPER_MODE:
+            _sync_wrapper_planning_fields(merged_config)
         effective_system_prompt = updates.get("system_prompt", agent.system_prompt)
         try:
             normalized_config = validate_agent_config(

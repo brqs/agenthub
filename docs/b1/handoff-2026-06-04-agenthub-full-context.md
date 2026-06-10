@@ -888,6 +888,32 @@ Auto clarification remains the intended behavior for broad artifact/build reques
 - A clearly different artifact/build request during pending clarification should route to topic confirmation, so the user can continue the current clarification, switch to the new request, or use it as reference.
 - Identical clarification cards in separate conversations are deterministic template behavior, not evidence of cross-conversation message or SSE stream leakage. Each response must still have its own conversation/message/run identity.
 
+## 2026-06-10 Handoff Addendum: Custom Agent Server Wrapper Refactor
+
+The previous custom Agent direction has been replaced. Current custom Agents are **server Agent wrappers**, not from-scratch builtin Agents.
+
+- User-created Agents must choose a server base Agent: `claude-code`, `codex-helper`, or `opencode-helper`.
+- `POST /api/v1/agents` now accepts creatable providers only for those wrapper paths: `claude_code | codex | opencode`.
+- Wrapper config requires:
+  - `custom_agent_mode="server_agent_wrapper"`
+  - `base_agent_id`
+  - `wrapper_profile`
+- Wrapper profile carries the transfer fields used by Orchestrator: role, purpose, planning profile, strengths, weaknesses, preferred task types, capabilities, output style, and boundaries.
+- Backend copies runtime defaults from the base Agent and rejects user-supplied runtime fields such as command, args, sandbox mode, model profile, API key, secret, token, auth, and MCP config.
+- Registry resolves wrappers to the base adapter while keeping the custom Agent id/name for attribution and asset injection.
+- Skills remain supported and are injected via the existing `agent_asset_service`.
+- Knowledge upload endpoints may remain for compatibility, but the active create/detail UI is Skills-only.
+- Model backpack APIs are removed from routing; `user_model_accounts` is cleared by migration and no longer has frontend entry points.
+- Migration `e2f3a4b5c6d7_reset_custom_agents_for_wrappers` intentionally deletes old `is_builtin=false` custom Agents, related asset bindings/versions/usage events, removes their ids from conversations, and clears model accounts.
+- Orchestrator group-scoped dispatch is unchanged: a wrapper Agent can only be called after it is added to the current conversation.
+
+Current source of truth:
+
+```text
+docs/spec/custom-agent-assets.spec.md
+docs/spec/custom-agent-model-backpack.spec.md  # deprecated notice
+```
+
 ## 2026-06-07 Handoff Addendum: Queued Next Turn Phase 1
 
 Running-time submit is now implemented as a persisted same-conversation queue.
@@ -953,6 +979,15 @@ AgentHub now has a local Supermemory-style MemoryHub layer.
 - Mounted context is headed `MemoryHub mounted context:` and is recorded in `memory_mounts` when an `agent_message_id` exists.
 - Terminal agent messages may extract deterministic memory candidates/active memories. The first implementation is conservative: it focuses on explicit user preferences, constraints, decisions, and stable facts; it filters credential-like content and marks temporary facts with expiry.
 - Orchestrator run/task/attempt/event records remain authoritative execution facts. MemoryHub must not override group-scoped dispatch, runtime availability, queue/interrupt state, retry state, or workspace audit data.
+
+## 2026-06-10 Handoff Addendum: Follow-up Continuity And Memory Scope
+
+- Orchestrator now resolves terse modifications against the latest successful, modifiable output in the same conversation. It does not search another conversation for “刚刚那个”.
+- Planner access remains bounded through `Previous output follow-up context:` (12,000 characters maximum); full structured run memory is still not a planner input.
+- The conversation Memory UI uses `GET /api/v1/conversations/{conversation_id}/memory-hub`, which returns scoped active/candidate memory separately from user active/candidate memory.
+- Memory mounts now expose `recall_state = not_attempted | no_match | mounted` plus latest Agent message metadata. This is an audit of context actually injected into a reply.
+- Rules extraction only reads the parent user message. Explicit durable preferences/constraints can become active; ordinary requests and stable facts remain excluded or candidate-only.
+- Migration `f3a4b5c6d7e8` archives deterministic `rules-v1` pollution with cleanup metadata. It does not hard-delete memories or modify manual memories.
 - Frontend right panel has a new `Memory` tab for active memories, candidate memories, and recent dynamic mounts. Users can confirm candidates, edit memory content, or forget memories.
 
 Validation run for this slice:

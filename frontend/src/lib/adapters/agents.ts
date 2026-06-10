@@ -5,19 +5,12 @@ import type {
   AgentAssetsResponse,
   AgentAssetUsageResponse,
   AgentMcpHealth,
-  CreateModelAccountRequest,
   AgentKnowledgeRef,
   AgentKnowledgeUsage,
   AgentSkillRef,
-  AgentTemplateList,
   AgentTestRunResponse,
   AgentList,
-  ModelAccount,
-  ModelAccountList,
-  ModelAccountVerifyResponse,
-  ModelProviderList,
   CreateAgentRequest,
-  UpdateModelAccountRequest,
   UpdateAgentRequest,
 } from '@/lib/types';
 import { normalizeAgent } from './normalizers';
@@ -41,49 +34,13 @@ export async function listAgents(params: ListAgentsParams = {}): Promise<Agent[]
   return data.items.map(normalizeAgent);
 }
 
-export async function listAgentTemplates(): Promise<AgentTemplateList> {
-  const { data } = await api.get<AgentTemplateList>('/api/v1/agents/templates');
-  return data;
-}
-
-export async function listModelProviders(): Promise<ModelProviderList> {
-  const { data } = await api.get<ModelProviderList>('/api/v1/model-providers');
-  return data;
-}
-
-export async function listModelAccounts(): Promise<ModelAccountList> {
-  const { data } = await api.get<ModelAccountList>('/api/v1/model-accounts');
-  return data;
-}
-
-export async function createModelAccount(input: CreateModelAccountRequest): Promise<ModelAccount> {
-  const { data } = await api.post<ModelAccount>('/api/v1/model-accounts', input);
-  return data;
-}
-
-export async function updateModelAccount(
-  accountId: string,
-  input: UpdateModelAccountRequest,
-): Promise<ModelAccount> {
-  const { data } = await api.patch<ModelAccount>(`/api/v1/model-accounts/${accountId}`, input);
-  return data;
-}
-
-export async function deleteModelAccount(accountId: string): Promise<void> {
-  await api.delete(`/api/v1/model-accounts/${accountId}`);
-}
-
-export async function verifyModelAccount(
-  accountId: string,
-): Promise<ModelAccountVerifyResponse> {
-  const { data } = await api.post<ModelAccountVerifyResponse>(
-    `/api/v1/model-accounts/${accountId}/verify`,
-  );
-  return data;
-}
-
 export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
   const { data } = await api.post<Agent>('/api/v1/agents', input);
+  return normalizeAgent(data);
+}
+
+export async function getAgent(agentId: string): Promise<Agent> {
+  const { data } = await api.get<Agent>(`/api/v1/agents/${agentId}`);
   return normalizeAgent(data);
 }
 

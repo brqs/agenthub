@@ -20,6 +20,7 @@ UploadPurpose = Literal[
 UploadStatus = Literal["ready", "processing", "failed", "deleted"]
 UploadSafetyStatus = Literal["pending", "passed", "blocked", "manual_review_required"]
 UploadPreviewKind = Literal["image", "archive", "document", "text", "code", "unknown"]
+ClientPlatform = Literal["web", "desktop", "ios", "android"]
 
 
 class AttachmentPreview(BaseModel):
@@ -43,8 +44,47 @@ class UploadOut(BaseModel):
     sha256: str
     purpose: UploadPurpose
     status: UploadStatus
+    client_platform: ClientPlatform = "web"
     safety_status: UploadSafetyStatus
     preview: AttachmentPreview | None = None
     error_code: str | None = None
     error_message: str | None = None
     created_at: datetime
+
+
+class CreateUploadSessionRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(default="application/octet-stream", max_length=255)
+    total_size_bytes: int = Field(gt=0)
+    purpose: UploadPurpose = "message_attachment"
+    conversation_id: UUID | None = None
+    expected_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    client_platform: ClientPlatform = "web"
+    part_size_bytes: int = Field(default=5_000_000, ge=256_000, le=20_000_000)
+
+
+class UploadSessionOut(BaseModel):
+    id: UUID
+    filename: str
+    content_type: str
+    total_size_bytes: int
+    expected_sha256: str | None = None
+    client_platform: ClientPlatform
+    part_size_bytes: int
+    received_parts: list[int] = Field(default_factory=list)
+    status: Literal["open", "completed", "cancelled", "failed", "expired"]
+    upload_id: UUID | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime
+
+
+class CompleteUploadSessionRequest(BaseModel):
+    sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+class CompleteUploadSessionResponse(BaseModel):
+    session: UploadSessionOut
+    upload: UploadOut

@@ -161,6 +161,8 @@ async def resolve_tasks(
     system_prompt: str | None,
 ) -> list[SubTask]:
     raw_tasks = config.get("tasks")
+    if isinstance(raw_tasks, list) and not raw_tasks:
+        raw_tasks = None
     if raw_tasks is None:
         user_request = latest_user_request(messages)
         scoped_ids = scoped_runnable_agent_ids(config)
@@ -189,7 +191,9 @@ async def resolve_tasks(
             except ValueError as exc:
                 if planner_fallback_to_template(
                     config
-                ) or should_fallback_to_template_after_planner_failure(user_request):
+                ) or should_fallback_to_template_after_planner_failure(
+                    user_request
+                ) or _is_empty_task_list_error(exc):
                     tasks = _derive_tasks(config, messages)
                     tasks = balance_requested_multi_agent_plan(
                         tasks,
@@ -221,6 +225,10 @@ def should_direct_answer_after_planner_error(
 def _is_planner_protocol_error(exc: ValueError) -> bool:
     message = str(exc)
     return any(marker in message for marker in PLANNER_PROTOCOL_ERROR_MARKERS)
+
+
+def _is_empty_task_list_error(exc: ValueError) -> bool:
+    return "config.tasks must be a non-empty list" in str(exc)
 
 
 def planner_fallback_to_template(config: Mapping[str, Any]) -> bool:

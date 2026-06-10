@@ -372,6 +372,60 @@ class TestValidConfigs:
 
         assert result == config
 
+    def test_valid_server_agent_wrapper_config(self) -> None:
+        config = {
+            "custom_agent_mode": "server_agent_wrapper",
+            "base_agent_id": "opencode-helper",
+            "wrapper_profile": {
+                "role": "Frontend implementer",
+                "purpose": "Build static web artifacts.",
+                "planning_profile": "Use for HTML/CSS/JS implementation tasks.",
+                "planning_strengths": ["implementation", "verification"],
+                "planning_weaknesses": ["product strategy"],
+                "preferred_task_types": ["implementation"],
+                "capabilities": ["frontend", "static_site"],
+                "output_style": "Summarize changed files.",
+                "boundaries": ["Do not deploy without confirmation"],
+            },
+        }
+
+        result = validate_agent_config(
+            provider="opencode",
+            config=config,
+            system_prompt=None,
+        )
+
+        assert result == config
+
+    def test_server_agent_wrapper_requires_matching_base_provider(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="codex",
+                config={
+                    "custom_agent_mode": "server_agent_wrapper",
+                    "base_agent_id": "opencode-helper",
+                    "wrapper_profile": {"purpose": "Build web pages"},
+                },
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "does not match the selected provider" in exc_info.value.message
+
+    def test_server_agent_wrapper_requires_profile(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="opencode",
+                config={
+                    "custom_agent_mode": "server_agent_wrapper",
+                    "base_agent_id": "opencode-helper",
+                },
+                system_prompt=None,
+        )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "'wrapper_profile' must be an object" in exc_info.value.message
+
 
 class TestLegacyProviderRules:
     @pytest.mark.parametrize("provider", ["claude", "openai", "deepseek", "custom"])
@@ -401,12 +455,7 @@ class TestModelValidation:
                 provider="builtin",
                 config={
                     "model_backend": "deepseek",
-                    "model_profile": {
-                        "source": "agenthub_default",
-                        "provider": "deepseek",
-                        "model": "deepseek-v4-flash",
-                        "api_key": "sk-should-not-be-here",
-                    },
+                    "api_key": "sk-should-not-be-here",
                 },
                 system_prompt=None,
             )
@@ -1078,6 +1127,17 @@ class TestCreateAgentRequestSchema:
                 }
             )
 
+    def test_create_request_rejects_builtin_provider(self) -> None:
+        with pytest.raises(ValidationError):
+            CreateAgentRequest.model_validate(
+                {
+                    "name": "agent",
+                    "provider": "builtin",
+                    "capabilities": ["testing"],
+                    "config": {},
+                }
+            )
+
     def test_agent_out_accepts_mock_provider(self) -> None:
         agent = AgentOut.model_validate(
             {
@@ -1151,5 +1211,9 @@ class TestOpenAPIContract:
 
         for key, field in NUMERIC_CONFIG_FIELDS.items():
             property_schema = properties[key]
+            if "anyOf" in property_schema:
+                property_schema = next(
+                    item for item in property_schema["anyOf"] if item.get("type") != "null"
+                )
             assert property_schema["minimum"] == field.minimum
             assert property_schema["maximum"] == field.maximum

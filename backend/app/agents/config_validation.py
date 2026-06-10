@@ -32,8 +32,25 @@ FORBIDDEN_SECRET_CONFIG_KEYS = {
     "access_token",
     "authorization",
 }
-MODEL_PROFILE_SOURCES = {"agenthub_default", "user_account"}
-MODEL_PROFILE_PROVIDERS = {"deepseek", "openai", "anthropic", "openai_compatible"}
+WRAPPER_MODE = "server_agent_wrapper"
+WRAPPER_BASE_PROVIDERS = {
+    "claude-code": "claude_code",
+    "codex-helper": "codex",
+    "opencode-helper": "opencode",
+}
+WRAPPER_PROFILE_STRING_FIELDS = {
+    "role",
+    "purpose",
+    "planning_profile",
+    "output_style",
+}
+WRAPPER_PROFILE_LIST_FIELDS = {
+    "planning_strengths",
+    "planning_weaknesses",
+    "preferred_task_types",
+    "capabilities",
+    "boundaries",
+}
 
 
 class AgentConfigValidationError(ValueError):
@@ -274,6 +291,62 @@ def _validate_memory_policy(config: dict[str, Any]) -> None:
         )
 
 
+def _validate_wrapper_profile(config: dict[str, Any], *, provider: str) -> None:
+    mode = config.get("custom_agent_mode")
+    if mode is None:
+        return
+    if mode != WRAPPER_MODE:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'custom_agent_mode' must be 'server_agent_wrapper'",
+            details={"field": "custom_agent_mode", "value": mode},
+        )
+    base_agent_id = config.get("base_agent_id")
+    if base_agent_id not in WRAPPER_BASE_PROVIDERS:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'base_agent_id' must reference a supported server Agent",
+            details={"field": "base_agent_id", "value": base_agent_id},
+        )
+    expected_provider = WRAPPER_BASE_PROVIDERS[str(base_agent_id)]
+    if provider != expected_provider:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'base_agent_id' does not match the selected provider",
+            details={
+                "field": "base_agent_id",
+                "value": base_agent_id,
+                "provider": provider,
+                "expected_provider": expected_provider,
+            },
+        )
+    profile = config.get("wrapper_profile")
+    if not isinstance(profile, dict):
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message="'wrapper_profile' must be an object",
+            details={"field": "wrapper_profile", "value": profile},
+        )
+    for key in WRAPPER_PROFILE_STRING_FIELDS:
+        value = profile.get(key)
+        if value is not None and not isinstance(value, str):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=f"'wrapper_profile.{key}' must be a string",
+                details={"field": f"wrapper_profile.{key}", "value": value},
+            )
+    for key in WRAPPER_PROFILE_LIST_FIELDS:
+        value = profile.get(key)
+        if value is not None and (
+            not isinstance(value, list) or not all(isinstance(item, str) for item in value)
+        ):
+            raise AgentConfigValidationError(
+                code="INVALID_AGENT_CONFIG",
+                message=f"'wrapper_profile.{key}' must be a list of strings",
+                details={"field": f"wrapper_profile.{key}", "value": value},
+            )
+
+
 def _validate_no_inline_secrets(value: Any, path: str = "config") -> None:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -291,56 +364,8 @@ def _validate_no_inline_secrets(value: Any, path: str = "config") -> None:
             _validate_no_inline_secrets(child, f"{path}[{index}]")
 
 
-def _validate_model_profile(config: dict[str, Any]) -> None:
-    value = config.get("model_profile")
-    if value is None:
-        return
-    if not isinstance(value, dict):
-        raise AgentConfigValidationError(
-            code="INVALID_AGENT_CONFIG",
-            message="'model_profile' must be an object",
-            details={"field": "model_profile", "value": value},
-        )
-    source = value.get("source", "agenthub_default")
-    if not isinstance(source, str) or source not in MODEL_PROFILE_SOURCES:
-        raise AgentConfigValidationError(
-            code="INVALID_AGENT_CONFIG",
-            message="'model_profile.source' is not supported",
-            details={"field": "model_profile.source", "value": source},
-        )
-    account_id = value.get("account_id")
-    if source == "user_account":
-        if not isinstance(account_id, str) or not account_id.strip():
-            raise AgentConfigValidationError(
-                code="INVALID_AGENT_CONFIG",
-                message="'model_profile.account_id' is required for user model accounts",
-                details={"field": "model_profile.account_id", "value": account_id},
-            )
-    elif account_id is not None:
-        raise AgentConfigValidationError(
-            code="INVALID_AGENT_CONFIG",
-            message="'model_profile.account_id' is only allowed for user model accounts",
-            details={"field": "model_profile.account_id", "value": account_id},
-        )
-    provider = value.get("provider")
-    if provider is not None and (
-        not isinstance(provider, str) or provider not in MODEL_PROFILE_PROVIDERS
-    ):
-        raise AgentConfigValidationError(
-            code="INVALID_AGENT_CONFIG",
-            message="'model_profile.provider' is not supported",
-            details={"field": "model_profile.provider", "value": provider},
-        )
-    model = value.get("model")
-    if model is not None and (not isinstance(model, str) or not model.strip()):
-        raise AgentConfigValidationError(
-            code="INVALID_AGENT_CONFIG",
-            message="'model_profile.model' must be a non-empty string",
-            details={"field": "model_profile.model", "value": model},
-        )
-
-
 def _validate_external_runtime_config(provider: str, config: dict[str, Any]) -> None:
+    _validate_wrapper_profile(config, provider=provider)
     for field in EXTERNAL_RUNTIME_BUDGET_FIELDS:
         _validate_numeric(
             config,
@@ -542,7 +567,6 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_builder_profile(config)
     _validate_permissions(config)
     _validate_memory_policy(config)
-    _validate_model_profile(config)
 
 
 def validate_agent_config(

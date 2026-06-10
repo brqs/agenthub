@@ -12,6 +12,15 @@ function createState(overrides: Partial<DesktopEnvironmentState> = {}): DesktopE
     environment: null,
     preferences: {
       backendUrl: 'http://localhost:8000',
+      backendProfiles: [
+        {
+          id: 'default',
+          name: '本地 AgentHub',
+          url: 'http://localhost:8000',
+          mode: 'local',
+        },
+      ],
+      activeBackendProfileId: 'default',
       autoStartLocalStack: false,
       notificationsEnabled: false,
       autoCheckUpdates: true,
@@ -25,7 +34,19 @@ function createState(overrides: Partial<DesktopEnvironmentState> = {}): DesktopE
     stackProgress: null,
     desktopError: null,
     operationPending: false,
+    backendProfiles: [
+      {
+        id: 'default',
+        name: '本地 AgentHub',
+        url: 'http://localhost:8000',
+        mode: 'local',
+      },
+    ],
+    activeBackendProfileId: 'default',
     setBackendUrl: vi.fn(),
+    saveBackendProfile: vi.fn(async () => null),
+    activateBackendProfile: vi.fn(async () => false),
+    deleteBackendProfile: vi.fn(async () => false),
     checkBackend: vi.fn(),
     refreshLocalStack: vi.fn(async () => null),
     chooseProjectRoot: vi.fn(async () => undefined),

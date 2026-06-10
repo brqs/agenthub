@@ -5,7 +5,7 @@ use std::sync::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 
 use crate::error::{DesktopError, DesktopResult};
-use crate::models::{AuditEntry, DesktopPreferences};
+use crate::models::{AuditEntry, BackendProfile, BackendProfileMode, DesktopPreferences};
 
 pub struct AppState {
     pub app_data_dir: PathBuf,
@@ -94,12 +94,12 @@ impl AppState {
 
 fn load_preferences(path: &Path) -> DesktopResult<DesktopPreferences> {
     if !path.exists() {
-        return Ok(DesktopPreferences {
+        return Ok(normalize_preferences(DesktopPreferences {
             backend_url: "http://localhost:8000".to_string(),
             auto_check_updates: true,
             update_channel: crate::models::UpdateChannel::Stable,
             ..DesktopPreferences::default()
-        });
+        }));
     }
     let bytes = std::fs::read(path)?;
     let mut preferences: DesktopPreferences = serde_json::from_slice(&bytes).map_err(|error| {
@@ -109,9 +109,7 @@ fn load_preferences(path: &Path) -> DesktopResult<DesktopPreferences> {
             error.to_string(),
         )
     })?;
-    if preferences.backend_url.trim().is_empty() {
-        preferences.backend_url = "http://localhost:8000".to_string();
-    }
+    preferences = normalize_preferences(preferences);
     if !matches!(
         preferences.update_channel,
         crate::models::UpdateChannel::Stable
@@ -119,6 +117,66 @@ fn load_preferences(path: &Path) -> DesktopResult<DesktopPreferences> {
         preferences.update_channel = crate::models::UpdateChannel::Stable;
     }
     Ok(preferences)
+}
+
+fn normalize_preferences(mut preferences: DesktopPreferences) -> DesktopPreferences {
+    if preferences.backend_url.trim().is_empty() {
+        preferences.backend_url = "http://localhost:8000".to_string();
+    }
+    if preferences.backend_profiles.is_empty() {
+        let mode = if is_local_backend_url(&preferences.backend_url) {
+            BackendProfileMode::Local
+        } else {
+            BackendProfileMode::Remote
+        };
+        preferences.backend_profiles.push(BackendProfile {
+            id: "default".to_string(),
+            name: if mode == BackendProfileMode::Local {
+                "本地 AgentHub".to_string()
+            } else {
+                "AgentHub 服务器".to_string()
+            },
+            url: preferences.backend_url.clone(),
+            mode,
+            server_id: None,
+            last_connected_at: None,
+            last_health: None,
+        });
+    }
+    let active_id = preferences
+        .active_backend_profile_id
+        .as_deref()
+        .filter(|id| {
+            preferences
+                .backend_profiles
+                .iter()
+                .any(|profile| profile.id == *id)
+        })
+        .map(str::to_string)
+        .or_else(|| {
+            preferences
+                .backend_profiles
+                .iter()
+                .find(|profile| profile.url == preferences.backend_url)
+                .map(|profile| profile.id.clone())
+        })
+        .unwrap_or_else(|| preferences.backend_profiles[0].id.clone());
+    preferences.active_backend_profile_id = Some(active_id.clone());
+    if let Some(active) = preferences
+        .backend_profiles
+        .iter()
+        .find(|profile| profile.id == active_id)
+    {
+        preferences.backend_url = active.url.clone();
+    }
+    preferences
+}
+
+fn is_local_backend_url(input: &str) -> bool {
+    url::Url::parse(input)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1"))
 }
 
 #[cfg(test)]
@@ -134,6 +192,25 @@ mod tests {
         assert!(!prefs.notifications_enabled);
         assert!(prefs.auto_check_updates);
         assert_eq!(prefs.update_channel, crate::models::UpdateChannel::Stable);
+        assert_eq!(prefs.backend_profiles.len(), 1);
+        assert_eq!(prefs.active_backend_profile_id.as_deref(), Some("default"));
+    }
+
+    #[test]
+    fn legacy_backend_url_is_migrated_to_a_profile() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("desktop-preferences.json");
+        std::fs::write(
+            &path,
+            br#"{"backendUrl":"https://agenthub.example.com","autoCheckUpdates":true}"#,
+        )
+        .expect("write preferences");
+
+        let prefs = load_preferences(&path).expect("preferences");
+
+        assert_eq!(prefs.backend_profiles.len(), 1);
+        assert_eq!(prefs.backend_profiles[0].mode, BackendProfileMode::Remote);
+        assert_eq!(prefs.backend_url, "https://agenthub.example.com");
     }
 
     #[test]

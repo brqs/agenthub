@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -28,6 +29,8 @@ class UserOut(BaseModel):
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
     password: str = Field(min_length=8)
+    device_name: str | None = Field(default=None, max_length=160)
+    platform: Literal["web", "desktop", "ios", "android"] = "web"
 
     @field_validator("password")
     @classmethod
@@ -38,6 +41,8 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+    device_name: str | None = Field(default=None, max_length=160)
+    platform: Literal["web", "desktop", "ios", "android"] = "web"
 
     @field_validator("password")
     @classmethod
@@ -47,6 +52,42 @@ class LoginRequest(BaseModel):
 
 class AuthResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_in: int
     user: UserOut
+    session: UserSessionOut | None = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(min_length=32, max_length=512)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = Field(default=None, max_length=512)
+
+
+class UpdateSessionRequest(BaseModel):
+    device_name: str | None = Field(default=None, min_length=1, max_length=160)
+
+
+class UserSessionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    device_name: str
+    platform: str
+    created_at: datetime
+    last_active_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None = None
+    revoked_reason: str | None = None
+    is_current: bool = False
+
+
+class UserSessionList(BaseModel):
+    items: list[UserSessionOut]
+    total: int
+
+
+AuthResponse.model_rebuild()
