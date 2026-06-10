@@ -22,6 +22,7 @@ from app.core.database import Base, SessionFactory, engine
 from app.main import app
 from app.models.agent import Agent
 from app.models.message import Message
+from app.models.orchestrator_memory import OrchestratorRun
 from app.services.model_gateway import CompressionModelGateway
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -685,6 +686,45 @@ async def test_send_message_cleans_stale_stream_before_busy_check(
         assert stale_message is not None
         assert stale_message.status == "error"
         assert stale_message.content[0]["text"].startswith("Agent stream expired")
+
+
+async def test_message_list_reconciles_terminal_orchestrator_parent(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    pair = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(pair["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        message.status = "streaming"
+        message.content = []
+        db.add(
+            OrchestratorRun(
+                conversation_id=UUID(conversation["id"]),
+                agent_message_id=agent_message_id,
+                user_message_id=UUID(pair["user_message"]["id"]),
+                status="done",
+                user_request="Build a demo",
+                plan_source="test",
+                final_summary="Execution summary\n\n- succeeded: @agent - task",
+            )
+        )
+        await db.commit()
+
+    response = await client.get(
+        f"/api/v1/conversations/{conversation['id']}/messages",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    agent_message = next(item for item in items if item["id"] == str(agent_message_id))
+    assert agent_message["status"] == "done"
+    assert "Execution summary" in agent_message["content"][0]["text"]
 
 
 async def test_message_and_conversation_routes_forbid_other_user_resources(
