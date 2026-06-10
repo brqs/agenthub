@@ -705,6 +705,32 @@ class TestOpenCodeAdapterStream:
         assert "SECRET_TOKEN_FULL_VALUE" not in call["env"]
         assert process.stdin.closed is True
 
+    async def test_shared_auth_removes_generic_provider_env_from_runtime(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "deepseek-key")
+        monkeypatch.setenv("OPENCODE_EXPERIMENT", "enabled")
+        source_dir = tmp_path / "opencode-auth"
+        source_dir.mkdir()
+        (source_dir / "auth.json").write_text('{"auth":"test"}', encoding="utf-8")
+        monkeypatch.setattr(opencode_module, "_shared_auth_dir", lambda: source_dir)
+        process = FakeProcess([_json_line({"type": "done"})])
+        factory = _patch_subprocess(monkeypatch, process)
+
+        await _collect(
+            OpenCodeAdapter(agent_id="opencode-test"),
+            tmp_path,
+            config={"command": ["opencode"], "args": ["run", "--jsonl"]},
+        )
+
+        env = factory.calls[0]["env"]
+        assert "OPENAI_API_KEY" not in env
+        assert "DEEPSEEK_API_KEY" not in env
+        assert env["OPENCODE_EXPERIMENT"] == "enabled"
+
     async def test_default_prompt_includes_workspace_rules(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -901,7 +927,7 @@ class TestOpenCodeAdapterErrors:
         assert "/root/.local/share/opencode/auth.json" not in (chunks[-1].error or "")
         assert "[Errno 13]" not in (chunks[-1].error or "")
 
-    async def test_provider_credentials_skip_shared_auth_copy(
+    async def test_provider_credentials_still_copy_shared_auth_into_isolated_home(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -915,8 +941,36 @@ class TestOpenCodeAdapterErrors:
         (source_dir / "auth.json").write_text('{"auth":"test"}', encoding="utf-8")
         monkeypatch.setattr(opencode_module, "_shared_auth_dir", lambda: source_dir)
 
+        copied: list[tuple[Path, Path]] = []
+
+        def fake_copy(source: Path, destination: Path) -> None:
+            copied.append((source, destination))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+        monkeypatch.setattr(opencode_module.shutil, "copy2", fake_copy)
+        _patch_subprocess(monkeypatch, FakeProcess([_json_line({"type": "done"})]))
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        assert [chunk.event_type for chunk in chunks] == ["start", "done"]
+        assert copied
+        assert copied[0][0] == source_dir / "auth.json"
+        assert copied[0][1].name == "auth.json"
+
+    async def test_provider_credentials_allow_shared_auth_copy_failure(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "test-token")
+        source_dir = tmp_path / "opencode-auth"
+        source_dir.mkdir()
+        (source_dir / "auth.json").write_text('{"auth":"test"}', encoding="utf-8")
+        monkeypatch.setattr(opencode_module, "_shared_auth_dir", lambda: source_dir)
+
         def fail_copy(_source: Path, _destination: Path) -> None:
-            pytest.fail("shared auth should not be copied when provider env credentials exist")
+            raise PermissionError("permission denied")
 
         monkeypatch.setattr(opencode_module.shutil, "copy2", fail_copy)
         _patch_subprocess(monkeypatch, FakeProcess([_json_line({"type": "done"})]))
