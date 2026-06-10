@@ -1407,30 +1407,28 @@ async def test_orchestrator_group_stream_persists_child_agent_message(
     assert child.content[0]["default_collapsed"] is False
     assert child.content[0]["presentation"]["role"] == "execution_process"
     assert child.content[0]["steps"][0]["agent_id"] == child_agent_id
-    assert child.content[1:] == [
-        {
-            "type": "text",
-            "agent_id": child_agent_id,
-            "presentation": {
-                "role": "execution_text",
-                "collapsible": True,
-                "group_id": "execution-main",
-            },
-            "text": "child agent built the demo",
+    assert child.content[1] == {
+        "type": "text",
+        "agent_id": child_agent_id,
+        "presentation": {
+            "role": "execution_text",
+            "collapsible": True,
+            "group_id": "execution-main",
         },
-        {
-            "type": "text",
-            "agent_id": child_agent_id,
-            "presentation": {
-                "role": "agent_summary",
-                "collapsible": False,
-                "boundary": "answer_start",
-                "closes_group_id": "execution-main",
-                "label": "阶段总结",
-            },
-            "text": "已完成：Build demo。\n验证：1/1 项通过。\n",
-        }
-    ]
+        "text": "child agent built the demo",
+    }
+    assert child.content[2]["type"] == "text"
+    assert child.content[2]["agent_id"] == child_agent_id
+    assert child.content[2]["presentation"] == {
+        "role": "agent_summary",
+        "collapsible": False,
+        "boundary": "answer_start",
+        "closes_group_id": "execution-main",
+        "label": "阶段总结",
+    }
+    assert "本阶段已完成：Build demo。" in child.content[2]["text"]
+    assert "验证结果：1/1 项通过。" in child.content[2]["text"]
+    assert "artifact_exists: passed" in child.content[2]["text"]
     assert parent.status == "done"
     assert "child agent built the demo" not in str(parent.content)
 

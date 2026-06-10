@@ -343,10 +343,14 @@ def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> st
 
 
 def _agent_summary_text(task: SubTask, attempt: TaskAttempt) -> str:
-    lines = [f"已完成：{task.title}。"]
+    title = task.title.strip() or "本阶段任务"
+    lines = [f"本阶段已完成：{title}。"]
+    if task.expected_output:
+        expected = _single_line(task.expected_output, max_chars=180)
+        if expected:
+            lines.extend(["", f"目标产出：{expected}"])
+
     artifacts = _dedupe_short(attempt.artifact_paths)
-    if artifacts:
-        lines.append("产物：" + "、".join(artifacts[:6]) + "。")
     changes = attempt.file_changes or {}
     changed_files = _dedupe_short(
         [
@@ -354,13 +358,83 @@ def _agent_summary_text(task: SubTask, attempt: TaskAttempt) -> str:
             *changes.get("modified", []),
         ]
     )
-    if changed_files:
-        lines.append("文件：" + "、".join(changed_files[:6]) + "。")
+    if artifacts:
+        lines.extend(["", "主要产物："])
+        lines.extend(_file_summary_lines(artifacts[:6]))
+    elif changed_files:
+        lines.extend(["", "文件变更："])
+        lines.extend(_file_summary_lines(changed_files[:6]))
+
+    deleted_files = _dedupe_short(changes.get("deleted", []))
+    if deleted_files:
+        deleted = "、".join(_display_path(path) for path in deleted_files[:6])
+        lines.append(f"已删除：{deleted}。")
+
     if attempt.evaluation_results:
         passed = sum(1 for item in attempt.evaluation_results if getattr(item, "passed", False))
         total = len(attempt.evaluation_results)
-        lines.append(f"验证：{passed}/{total} 项通过。")
-    return "\n".join(lines) + "\n"
+        lines.extend(["", f"验证结果：{passed}/{total} 项通过。"])
+        for result in attempt.evaluation_results[:4]:
+            evaluator = _single_line(str(getattr(result, "evaluator", "") or "检查"))
+            status = _single_line(str(getattr(result, "status", "") or "done"))
+            checked = _dedupe_short(
+                [str(path) for path in getattr(result, "checked_artifacts", []) if path]
+            )
+            suffix = ""
+            if checked:
+                checked_paths = ", ".join(_display_path(path) for path in checked[:3])
+                suffix = f"（{checked_paths}）"
+            lines.append(f"- {evaluator}: {status}{suffix}")
+
+    attention: list[str] = []
+    if attempt.missing_artifact_paths:
+        missing = "、".join(_display_path(path) for path in attempt.missing_artifact_paths[:5])
+        attention.append(f"仍缺少预期产物：{missing}")
+    if attempt.conflict_paths:
+        conflicts = "、".join(_display_path(path) for path in attempt.conflict_paths[:5])
+        attention.append(f"检测到需要人工留意的 workspace 冲突：{conflicts}")
+    if attention:
+        lines.extend(["", "需要注意：", *[f"- {item}。" for item in attention]])
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def _file_summary_lines(paths: list[str]) -> list[str]:
+    return [f"- {_display_path(path)}：{_file_summary_note(path)}。" for path in paths]
+
+
+def _file_summary_note(path: str) -> str:
+    name = _display_path(path).lower().strip("`")
+    suffix = Path(name).suffix
+    if name.endswith("index.html") or suffix in {".html", ".htm"}:
+        return "页面结构、可见内容或入口文件已生成/更新"
+    if suffix == ".css":
+        return "视觉样式、布局或响应式规则已生成/更新"
+    if suffix in {".js", ".ts", ".tsx", ".jsx"}:
+        return "前端交互、运行逻辑或脚本行为已生成/更新"
+    if suffix in {".md", ".mdx"}:
+        return "文档、计划、审阅或变更说明已生成/更新"
+    if suffix in {".json", ".yaml", ".yml"}:
+        return "结构化配置或工作流定义已生成/更新"
+    if suffix in {".py", ".go", ".java", ".rs", ".c", ".cpp"}:
+        return "代码实现已生成/更新"
+    return "相关产物已生成/更新"
+
+
+def _display_path(path: str) -> str:
+    clean = _single_line(path, max_chars=160).replace("\\", "/")
+    if not clean:
+        return "`unknown`"
+    if clean.startswith("/"):
+        clean = Path(clean).name
+    return f"`{clean}`"
+
+
+def _single_line(value: str, *, max_chars: int = 240) -> str:
+    clean = re.sub(r"\s+", " ", str(value)).strip()
+    if len(clean) <= max_chars:
+        return clean
+    return clean[: max_chars - 1].rstrip() + "…"
 
 
 def _dedupe_short(values: list[str]) -> list[str]:
