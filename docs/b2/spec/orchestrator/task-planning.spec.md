@@ -76,6 +76,24 @@ Orchestrator 必须区分“生成文件/构建产物”和“纯对话群聊”
 - 执行层对 conversation task 不做 artifact missing 检查；子 Agent 文本作为成员发言常显展示，Orchestrator 只做主持/总结。
 - Artifact path 提取必须跳过负向约束句，例如 `Do not create server.js/package.json`、`不要创建 ...`、`不需要生成文件`，不能把这些文件名反向当成 required artifacts。
 
+## 2026-06-09 Update: Agent-to-Agent Turn-Taking
+
+`conversation` task 表示多个 Agent 各自完成独立发言；`dialogue_turn` 表示 Orchestrator
+托管的一轮接力发言。二者必须区分：
+
+- 命中 `轮流`、`一人一句`、`接力`、`展开辩论`、`回应对方`、`反驳对方`、`panel`
+  等 marker 时，应优先生成 `dialogue_turn` 轮次计划。
+- 适用场景包括辩论、圆桌、角色扮演、头脑风暴、观点对比、设计评审、代码 review panel、
+  数据分析 panel 和需求澄清 panel。
+- 用户直接点名某个 Agent 作为第一位发言者时，如果请求同时要求其他 Agent 后续回应，
+  后端仍应进入 Orchestrator 托管 turn-taking，而不是只让被点名 Agent 单独回答。
+- `@agent-id` 出现在子 Agent 输出中只是 handoff hint；实际下一轮发言者由 Orchestrator 的
+  `DialoguePlan.turn_order` 决定。
+- 普通 `@agent 你是什么模型`、单 Agent 私聊、artifact/code/deploy 请求不应被
+  turn-taking 抢占，除非用户明确要求多 Agent 轮流讨论或 panel 评审。
+
+详细契约见 [agent-turn-taking.spec.md](agent-turn-taking.spec.md)。
+
 > 定义 Orchestrator 的任务规划、任务分配和 planner 降级规则。子任务执行流转、事件聚合和失败状态汇总见 [core.spec.md](core.spec.md)。
 >
 > 版本：v1.3

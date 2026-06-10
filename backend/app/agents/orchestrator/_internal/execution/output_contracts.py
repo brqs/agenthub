@@ -62,6 +62,31 @@ REVIEW_MARKERS = (
     "needs_repair",
     "missing",
 )
+RESPONSE_MARKERS = (
+    "回应",
+    "针对",
+    "反驳",
+    "补充",
+    "同意",
+    "不同意",
+    "你提到",
+    "上一轮",
+    "上一位",
+    "对方",
+    "但",
+    "不过",
+    "我认同",
+    "我不同意",
+    "respond",
+    "counter",
+    "agree",
+    "disagree",
+)
+OTHER_SPEAKER_PATTERNS = (
+    r"\n\s*(?:正方|反方|主持人|旁白|Claude(?: Code)?|OpenCode(?: Helper)?|Codex(?: Helper)?)[：:]",
+    r"\n\s*@[\w-]+\s*[：:]",
+    r"\[Agent:\s*[^]]+\]",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +105,7 @@ def validate_task_output(task: SubTask, attempt: TaskAttempt) -> OutputValidatio
         return _validate_implementation(attempt)
     if contract_type == "review":
         return _validate_review(task, attempt)
-    if contract_type in {"conversation", "analysis", "direct_output"}:
+    if contract_type in {"conversation", "dialogue_turn", "analysis", "direct_output"}:
         return _validate_textual(task, attempt, contract_type)
     return _validate_textual(task, attempt, contract_type)
 
@@ -92,6 +117,8 @@ def output_contract_type(task: SubTask, attempt: TaskAttempt | None = None) -> s
     ).lower()
     if task.task_type == "conversation":
         return "conversation"
+    if task.task_type == "dialogue_turn":
+        return "dialogue_turn"
     if task.task_type == "review":
         return "review"
     if task.task_id.startswith("direct-"):
@@ -113,6 +140,8 @@ def correction_task(task: SubTask, validation: OutputValidation) -> SubTask:
         "\n- 直接完成你被分配的角色、分析、实现或审阅。"
         "\n- 不要主持、不要邀请别人登场、不要转述任务、不要只说已完成。"
         "\n- 如果这是对话/辩论/角色扮演任务，必须直接以你的指定身份发言。"
+        "\n- 如果这是接力对话任务，只写你自己的本轮发言；需要回应上一轮时，"
+        "明确回应、补充或反驳前一位观点。不要代写其他 Agent 的完整发言。"
         "\n- 如果这是分析/策略/数据任务，必须给出结论、依据和建议。"
         "\n- 如果这是审阅任务，必须说明 pass/fail、问题或 gaps。"
         "\n- 除非原任务要求生成文件，否则不要创建 workspace 文件。"
@@ -147,7 +176,7 @@ def _validate_textual(
             passed=False,
             reason="输出只是空泛完成语，没有实质内容。",
         )
-    if contract_type == "conversation" and _looks_like_host_only(text):
+    if contract_type in {"conversation", "dialogue_turn"} and _looks_like_host_only(text):
         return OutputValidation(
             contract_type=contract_type,
             passed=False,
@@ -160,12 +189,42 @@ def _validate_textual(
             passed=False,
             reason="输出过短，缺少可验证的实质内容。",
         )
-    if contract_type == "conversation" and not _conversation_role_satisfied(task, text):
+    if _looks_like_assignment_echo(task, text, contract_type):
+        return OutputValidation(
+            contract_type=contract_type,
+            passed=False,
+            reason="输出主要是在复述任务要求，没有完成自己的实质贡献。",
+        )
+    if contract_type == "analysis" and not any(
+        marker in text.lower() for marker in ANALYSIS_MARKERS
+    ):
+        return OutputValidation(
+            contract_type=contract_type,
+            passed=False,
+            reason="分析输出缺少结论、依据或建议。",
+        )
+    if (
+        contract_type in {"conversation", "dialogue_turn"}
+        and not _conversation_role_satisfied(task, text)
+    ):
         return OutputValidation(
             contract_type=contract_type,
             passed=False,
             reason="输出没有体现本任务指定的角色、立场或对话主题。",
         )
+    if contract_type == "dialogue_turn" and _scripts_other_agent_turns(task, text):
+        return OutputValidation(
+            contract_type=contract_type,
+            passed=False,
+            reason="输出包含其他 Agent 的完整发言，未按本轮职责只发表自己的观点。",
+        )
+    if contract_type == "dialogue_turn" and _requires_previous_turn_response(task):
+        if not any(marker in text.lower() for marker in RESPONSE_MARKERS):
+            return OutputValidation(
+                contract_type=contract_type,
+                passed=False,
+                reason="本轮需要回应上一轮，但输出没有体现回应、补充或反驳。",
+            )
     summary_text = _clean_textual_summary(task, text, contract_type)
     summary = truncate_preserving_edges(summary_text, SUMMARY_MAX_CHARS) + "\n"
     return OutputValidation(contract_type=contract_type, passed=True, summary_text=summary)
@@ -213,7 +272,7 @@ def _clean_review_subject(task: SubTask) -> str:
 
 
 def _clean_textual_summary(task: SubTask, text: str, contract_type: str) -> str:
-    if contract_type == "conversation":
+    if contract_type in {"conversation", "dialogue_turn"}:
         return _clean_conversation_summary(text)
     return _strip_prompt_echo(task, text)
 
@@ -306,9 +365,89 @@ def _conversation_role_satisfied(task: SubTask, text: str) -> bool:
         return "利大于弊" in text or "正方" in text
     if has_negative_topic and not has_positive_topic:
         return "弊大于利" in text or "反方" in text
-    if "角色" in haystack:
-        return "我" in text or "角色" in text
+    if "角色扮演" in haystack:
+        return "我" in text or "角色" in text or _has_topic_overlap(task, text)
     return True
+
+
+def _has_topic_overlap(task: SubTask, text: str) -> bool:
+    haystack = f"{task.title} {task.instruction}"
+    tokens = [
+        token
+        for token in re.findall(r"[\u4e00-\u9fff]{2,}|[a-zA-Z][a-zA-Z0-9_-]{2,}", haystack)
+        if token not in {"orchestrator", "agent", "helper", "直接", "输出", "不要", "生成", "文件"}
+    ]
+    if not tokens:
+        return True
+    return sum(1 for token in dict.fromkeys(tokens[:30]) if token in text) >= 2
+
+
+def _looks_like_assignment_echo(
+    task: SubTask,
+    text: str,
+    contract_type: str,
+) -> bool:
+    compact = re.sub(r"\s+", "", text).lower()
+    instruction = re.sub(r"\s+", "", task.instruction).lower()
+    title = re.sub(r"\s+", "", task.title).lower()
+    if not compact:
+        return False
+    assignment_markers = (
+        "请让两个智能体",
+        "请你们两位",
+        "请你们两位分别",
+        "分析要求",
+        "不生成文件",
+        "不需要生成文件",
+        "直接在群聊",
+        "直接回复结论",
+        "原始用户请求",
+        "@orchestrator",
+        "@claude-code",
+        "@opencode-helper",
+    )
+    contribution_markers = (
+        "结论",
+        "依据",
+        "建议",
+        "我认为",
+        "我的",
+        "观点",
+        "理由",
+        "风险",
+        "优先级",
+        "排序",
+        "pass",
+        "fail",
+        "gap",
+        "通过",
+        "未通过",
+        "改进",
+    )
+    if compact.startswith("@") and any(
+        marker in compact for marker in ("请你们两位", "请让两个智能体")
+    ):
+        return True
+    if any(marker in compact for marker in ("请你们两位分别", "请让两个智能体")) and (
+        "不生成文件" in compact or "不需要生成文件" in compact
+    ):
+        return True
+    if any(marker in compact for marker in assignment_markers) and not any(
+        marker in compact for marker in contribution_markers
+    ):
+        return True
+    if len(compact) < 800 and (
+        compact in instruction
+        or compact in title
+        or (len(instruction) > 80 and instruction[: min(len(compact), 240)] in compact)
+    ):
+        return True
+    if contract_type in {"analysis", "conversation", "dialogue_turn"}:
+        request_markers = sum(1 for marker in assignment_markers if marker in compact)
+        contribution_count = sum(1 for marker in contribution_markers if marker in compact)
+        if request_markers >= 2 and contribution_count <= 1:
+            return True
+    return False
 
 
 def _has_substantive_conversation_marker(text: str) -> bool:
@@ -324,6 +463,45 @@ def _has_substantive_conversation_marker(text: str) -> bool:
             "结论是",
         )
     )
+
+
+def _requires_previous_turn_response(task: SubTask) -> bool:
+    haystack = f"{task.title}\n{task.instruction}".lower()
+    return bool(task.depends_on) or any(
+        marker in haystack
+        for marker in (
+            "上一轮",
+            "上一位",
+            "previous turn",
+            "prior turn",
+            "respond to the previous",
+            "回应上一",
+            "补充上一",
+            "反驳上一",
+        )
+    )
+
+
+def _scripts_other_agent_turns(task: SubTask, text: str) -> bool:
+    matches = [
+        match.group(0).strip()
+        for pattern in OTHER_SPEAKER_PATTERNS
+        for match in re.finditer(pattern, f"\n{text}", re.I)
+    ]
+    if len(matches) < 2:
+        return False
+    own_agent = task.agent_id.lower()
+    own_labels = {
+        own_agent,
+        own_agent.replace("-", " "),
+        own_agent.replace("-helper", ""),
+    }
+    foreign = [
+        label
+        for label in matches
+        if not any(own_label and own_label in label.lower() for own_label in own_labels)
+    ]
+    return len(foreign) >= 2
 
 
 def _clean_conversation_summary(text: str) -> str:

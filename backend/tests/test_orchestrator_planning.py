@@ -20,7 +20,7 @@ from app.agents.orchestrator._internal.routing.evidence import (
     is_evidence_followup_request,
 )
 from app.agents.orchestrator.planner import PLANNER_SYSTEM_PROMPT, _planner_messages
-from app.agents.orchestrator.task_planning import has_task_intent
+from app.agents.orchestrator.task_planning import has_task_intent, resolve_tasks
 from app.agents.orchestrator.types import OrchestratorRunContext
 from app.agents.types import ChatMessage, StreamChunk
 from tests.orchestrator_fakes import (
@@ -100,12 +100,41 @@ def test_legacy_template_creates_conversation_tasks_for_debate_request() -> None
         [ChatMessage(role="user", content=request)],
     )
 
-    assert [task.task_id for task in tasks] == ["dialogue-pro", "dialogue-con"]
-    assert {task.task_type for task in tasks} == {"conversation"}
+    assert [task.task_id for task in tasks] == ["dialogue-turn-1", "dialogue-turn-2"]
+    assert [task.task_type for task in tasks] == ["dialogue_turn", "dialogue_turn"]
     assert all(task.expected_output == "" for task in tasks)
     assert [task.agent_id for task in tasks] == ["claude-code", "opencode-helper"]
-    assert tasks[1].depends_on == ("dialogue-pro",)
+    assert tasks[1].depends_on == ("dialogue-turn-1",)
     assert all("Analyze request" not in task.title for task in tasks)
+
+
+def test_legacy_template_creates_dialogue_turn_tasks_for_turn_taking_request() -> None:
+    request = (
+        "@orchestrator 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
+        "利大于弊还是弊大于利？不需要生成文件直接以对话的形式输出。"
+        "由 Claude Code 先开始，一人一句回应对方，结尾可以 @另一个agent。"
+    )
+
+    tasks = derive_tasks(
+        {
+            "managed_agent_ids": [
+                "orchestrator",
+                "codex-helper",
+                "claude-code",
+                "opencode-helper",
+            ]
+        },
+        [ChatMessage(role="user", content=request)],
+    )
+
+    assert [task.task_id for task in tasks] == ["dialogue-turn-1", "dialogue-turn-2"]
+    assert [task.task_type for task in tasks] == ["dialogue_turn", "dialogue_turn"]
+    assert [task.agent_id for task in tasks] == ["claude-code", "opencode-helper"]
+    assert tasks[0].depends_on == ()
+    assert tasks[1].depends_on == ("dialogue-turn-1",)
+    assert all(task.expected_output == "" for task in tasks)
+    assert "不要代写其他 Agent" in tasks[0].instruction
+    assert "必须明确回应" in tasks[1].instruction
 
 
 def test_legacy_template_creates_generic_roundtable_tasks_without_ai_hardcode() -> None:
@@ -120,11 +149,56 @@ def test_legacy_template_creates_generic_roundtable_tasks_without_ai_hardcode() 
     )
 
     assert len(tasks) == 2
-    assert {task.task_type for task in tasks} == {"conversation"}
+    assert [task.task_type for task in tasks] == ["dialogue_turn", "dialogue_turn"]
     assert all(task.expected_output == "" for task in tasks)
     assert all("中小企业是否应该接入 AI 客服" in task.instruction for task in tasks)
     assert all("AI 的快速发展对人类社会" not in task.instruction for task in tasks)
     assert all("不要主持" in task.instruction for task in tasks)
+
+
+def test_legacy_template_creates_dialogue_turn_tasks_for_data_panel() -> None:
+    request = (
+        "@orchestrator 不需要生成文件，请让两个智能体分析这组数据："
+        "渠道 A 转化率 12%、渠道 B 转化率 7%、渠道 C 转化率 15%，预算分别为"
+        " 30/20/10 万。请直接在群聊里给出结论、依据和下一步建议。"
+    )
+
+    tasks = derive_tasks(
+        {"managed_agent_ids": ["orchestrator", "claude-code", "opencode-helper"]},
+        [ChatMessage(role="user", content=request)],
+    )
+
+    assert [task.task_type for task in tasks] == ["dialogue_turn", "dialogue_turn"]
+    assert [task.agent_id for task in tasks] == ["claude-code", "opencode-helper"]
+    assert all(task.expected_output == "" for task in tasks)
+    assert all("渠道 A 转化率" in task.instruction for task in tasks)
+
+
+async def test_turn_taking_request_uses_deterministic_tasks_before_planner() -> None:
+    request = (
+        "@orchestrator 不需要生成文件，请让两个智能体分析这组数据："
+        "渠道 A 转化率 12%、渠道 B 转化率 7%、渠道 C 转化率 15%，预算分别为"
+        " 30/20/10 万。请直接在群聊里给出结论、依据和下一步建议。"
+    )
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+
+    tasks = await resolve_tasks(
+        {
+            "planner_gateway": planner,
+            "managed_agent_ids": ["orchestrator", "claude-code", "opencode-helper"],
+        },
+        [ChatMessage(role="user", content=request)],
+        None,
+    )
+
+    assert planner.calls == []
+    assert [task.task_type for task in tasks] == ["dialogue_turn", "dialogue_turn"]
+    assert [task.agent_id for task in tasks] == ["claude-code", "opencode-helper"]
 
 
 async def test_single_planner_conversation_task_rebalances_to_two_agents() -> None:
@@ -164,8 +238,9 @@ async def test_single_planner_conversation_task_rebalances_to_two_agents() -> No
     opencode = FakeSubAdapter(
         "opencode-helper",
         _text_chunks(
-            "反方：我认为 AI 快速发展弊大于利，因为就业替代、隐私泄露和治理滞后"
-            "可能先于收益集中爆发。社会需要先建立约束，再扩大应用范围。"
+            "针对上一轮正方提到的医疗和教育收益，反方：我认为 AI 快速发展弊大于利，"
+            "因为就业替代、隐私泄露和治理滞后可能先于收益集中爆发。"
+            "社会需要先建立约束，再扩大应用范围。"
         ),
     )
 

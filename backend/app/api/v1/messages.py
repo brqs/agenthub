@@ -16,6 +16,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 
+from app.agents.orchestrator._internal.planning.turn_taking import (
+    should_route_group_turn_taking_to_orchestrator,
+)
+from app.agents.registry import ORCHESTRATOR_AGENT_ID
 from app.api.v1.conversations import _get_owned_conversation, _validate_visible_agent_ids
 from app.core.deps import DbSession, get_current_user
 from app.models.conversation import Conversation
@@ -75,8 +79,19 @@ async def _resolve_target_agent_id(
     user_id: UUID,
     conv: Conversation,
     target_agent_id: str | None,
+    request_text: str | None = None,
 ) -> str:
     resolved_target_agent_id = target_agent_id
+    if (
+        conv.mode == "group"
+        and should_route_group_turn_taking_to_orchestrator(
+            text=request_text or "",
+            conversation_agent_ids=conv.agent_ids,
+            target_agent_id=target_agent_id,
+        )
+    ):
+        await _validate_visible_agent_ids(db, user_id, [ORCHESTRATOR_AGENT_ID])
+        return ORCHESTRATOR_AGENT_ID
     if not resolved_target_agent_id:
         if conv.mode == "single" and len(conv.agent_ids) == 1:
             resolved_target_agent_id = conv.agent_ids[0]
@@ -319,12 +334,14 @@ async def send_message(
     user: Annotated[User, Depends(get_current_user)],
 ) -> SendMessageResponse:
     conv = await _get_owned_conversation(db, user.id, conv_id)
+    request_text = _content_text(payload.content)
 
     target_agent_id = await _resolve_target_agent_id(
         db,
         user.id,
         conv,
         payload.target_agent_id,
+        request_text=request_text,
     )
 
     await cleanup_stale_streaming_messages(db)
@@ -401,11 +418,13 @@ async def queue_message(
     user: Annotated[User, Depends(get_current_user)],
 ) -> QueueMessageResponse:
     conv = await _get_owned_conversation(db, user.id, conv_id)
+    request_text = _content_text(payload.content)
     target_agent_id = await _resolve_target_agent_id(
         db,
         user.id,
         conv,
         payload.target_agent_id,
+        request_text=request_text,
     )
     await cleanup_stale_streaming_messages(db)
     active_message = await _get_active_agent_message(db, conv_id)

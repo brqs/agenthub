@@ -39,10 +39,16 @@ def _task_type(raw: Mapping[str, Any]) -> str:
     if not isinstance(value, str):
         raise ValueError("invalid_task_plan: task.task_type must be a string")
     normalized = value.strip() or "implementation"
-    if normalized not in {"implementation", "review", "repair", "conversation"}:
+    if normalized not in {
+        "implementation",
+        "review",
+        "repair",
+        "conversation",
+        "dialogue_turn",
+    }:
         raise ValueError(
             "invalid_task_plan: task.task_type must be implementation, review, "
-            "repair, or conversation"
+            "repair, conversation, or dialogue_turn"
         )
     return normalized
 

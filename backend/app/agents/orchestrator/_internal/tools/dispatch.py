@@ -112,6 +112,12 @@ def _optional_task_type(value: object) -> str:
     if not isinstance(value, str):
         return "implementation"
     normalized = value.strip() or "implementation"
-    if normalized not in {"implementation", "review", "repair", "conversation"}:
+    if normalized not in {
+        "implementation",
+        "review",
+        "repair",
+        "conversation",
+        "dialogue_turn",
+    }:
         return "implementation"
     return normalized
