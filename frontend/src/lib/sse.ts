@@ -3,7 +3,7 @@
  */
 
 import { fetchEventSource, type EventSourceMessage } from '@microsoft/fetch-event-source';
-import { env } from '@/lib/env';
+import { getApiBaseUrl } from '@/lib/env';
 import { useAuthStore } from '@/stores/authStore';
 import type { StreamEvent } from './types';
 
@@ -68,7 +68,7 @@ export function subscribeMessageStream(
   streamSessions.set(messageId, session);
   const token = useAuthStore.getState().token;
 
-  fetchEventSource(`${env.apiBaseUrl}/api/v1/messages/${messageId}/stream`, {
+  fetchEventSource(`${getApiBaseUrl()}/api/v1/messages/${messageId}/stream`, {
     method: 'GET',
     signal: ctrl.signal,
     headers: {

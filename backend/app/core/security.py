@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -22,15 +24,17 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_access_token(user_id: UUID) -> tuple[str, int]:
+def create_access_token(user_id: UUID, session_id: UUID | None = None) -> tuple[str, int]:
     """Create a JWT and return (token, expires_in_seconds)."""
-    expire_delta = timedelta(days=settings.jwt_expire_days)
+    expire_delta = timedelta(minutes=settings.access_token_expire_minutes)
     expire = datetime.now(UTC) + expire_delta
     payload = {
         "sub": str(user_id),
         "exp": expire,
         "iat": datetime.now(UTC),
     }
+    if session_id is not None:
+        payload["sid"] = str(session_id)
     token = jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
     return token, int(expire_delta.total_seconds())
 
@@ -42,3 +46,18 @@ def decode_access_token(token: str) -> UUID:
     if not isinstance(sub, str):
         raise JWTError("Invalid token: missing sub")
     return UUID(sub)
+
+
+def decode_access_token_payload(token: str) -> dict[str, object]:
+    """Decode a JWT and return the raw payload."""
+    return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+
+
+def create_refresh_token() -> str:
+    """Create an opaque refresh token."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    """Hash refresh tokens before storing them in the database."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

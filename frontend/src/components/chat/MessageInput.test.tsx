@@ -32,6 +32,7 @@ describe('MessageInput', () => {
   beforeEach(() => {
     uploadFileMock.mockReset();
     window.localStorage.clear();
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
   it('sends trimmed text by click', async () => {
@@ -371,6 +372,38 @@ describe('MessageInput', () => {
       expect(onSend).toHaveBeenCalledWith('参考这个图', ['upload-1'], 'off');
     });
     expect(screen.queryByText('mockup.png')).not.toBeInTheDocument();
+  });
+
+  it('marks uploads as desktop when running inside Tauri', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    uploadFileMock.mockResolvedValue({
+      id: 'upload-desktop',
+      filename: 'desktop.txt',
+      content_type: 'text/plain',
+      detected_content_type: 'text/plain',
+      size_bytes: 4,
+      sha256: 'hash',
+      purpose: 'message_attachment',
+      status: 'ready',
+      safety_status: 'passed',
+      preview: { kind: 'text', text_preview: 'demo' },
+    });
+    const { container } = render(
+      <MessageInput conversation={singleConversation} onSend={vi.fn()} />,
+    );
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(['demo'], 'desktop.txt', { type: 'text/plain' })],
+      },
+    });
+
+    await waitFor(() =>
+      expect(uploadFileMock).toHaveBeenCalledWith(
+        expect.objectContaining({ clientPlatform: 'desktop' }),
+      ),
+    );
   });
 
   it('keeps text and blocks send while an attachment upload has failed', async () => {

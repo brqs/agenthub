@@ -1,30 +1,31 @@
 import { create } from 'zustand';
 import type {
   Agent,
-  AgentBuilderProfile,
-  AgentMemoryPolicy,
-  AgentModelProfile,
-  AgentPermissions,
   CreatableAgentProvider,
 } from '@/lib/types';
+
+export type ServerBaseAgentId = 'claude-code' | 'codex-helper' | 'opencode-helper';
+
+export interface AgentWrapperProfile {
+  role?: string | null;
+  purpose?: string | null;
+  planning_profile?: string | null;
+  planning_strengths: string[];
+  planning_weaknesses: string[];
+  preferred_task_types: string[];
+  capabilities: string[];
+  output_style?: string | null;
+  boundaries: string[];
+}
 
 export interface CreateAgentInput {
   name: string;
   provider: CreatableAgentProvider;
-  model: string;
-  command?: string;
-  args?: string[];
-  sdkOptions?: Record<string, unknown>;
-  maxIterations?: number;
-  timeoutSeconds?: number;
+  baseAgentId: ServerBaseAgentId;
   capabilities: string[];
   systemPrompt: string;
-  builderProfile?: AgentBuilderProfile;
-  permissions?: AgentPermissions;
-  memoryPolicy?: AgentMemoryPolicy;
-  mcpServers?: Array<Record<string, unknown>>;
-  allowedTools?: string[];
-  modelProfile?: AgentModelProfile;
+  wrapperProfile: AgentWrapperProfile;
+  skillFiles?: File[];
 }
 
 interface AgentState {

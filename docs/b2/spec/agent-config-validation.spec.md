@@ -65,37 +65,30 @@
 - `opencode.command` 如果存在，必须是字符串或字符串数组。
 - `opencode.args` 如果存在，必须是字符串数组。
 
-### BuiltinAgent 规则
+### BuiltinAgent and server wrapper rules
 
 - 当前内置 Agent 白名单来自 `seed_agents.BUILTIN_AGENTS`，只包含 `orchestrator`、`claude-code`、`codex-helper`、`opencode-helper`。
-- 启动/seed 清理必须删除所有 `is_builtin=True` 且 id 不在当前 `BUILTIN_AGENTS` 白名单内的旧内置残留；不得删除 `is_builtin=False` 的用户自建 Agent。
-- `model_backend` 缺省为 `claude`。
-- `model_backend` 必须是 `claude` / `deepseek` / `openai` 之一。
-- `max_iterations` 如果存在，必须是整数且满足 `1 <= max_iterations <= 50`。
-- `react_decision_max_tokens` 如果存在，必须是整数且满足 `1..4096`。
-- `task_result_context_max_chars` 如果存在，必须是整数且满足 `1..32000`。
-- `task_result_item_max_chars` 如果存在，必须是整数且满足 `1..8000`。
-- `orchestrator_memory_context_max_chars` 如果存在，必须是整数且满足 `1..32000`。
-- `orchestrator_tool_max_tokens` 如果存在，必须是整数且满足 `1..32000`。
-- `orchestrator_tool_result_max_chars` 如果存在，必须是整数且满足 `1..32000`。
-- `orchestrator_tool_read_max_bytes` / `orchestrator_evaluation_read_max_bytes`
-  如果存在，必须是整数且满足 `1..1048576`。
-- `mcp_servers` 如果存在，必须是对象数组。
-- No-code custom Agent Builder stores product-facing settings in
-  `builder_profile`, `permissions`, and `memory_policy`.
-- `builder_profile` must be an object. `role`, `purpose`, `tone`, and
-  `output_style` are strings; `goals`, `do_not_do`, and `starters` are string
-  arrays; `clarification_policy` is `ask_first`, `balanced`, or
-  `decide_with_defaults`.
-- `permissions` must be an object. `workspace_read` and `workspace_write` are
-  booleans; `run_commands` is `never`, `ask`, or `auto_low_risk`; `network` is
-  `never`, `ask`, or `allowlisted`; `deploy` and `external_accounts` are
-  `never` or `ask`.
-- `memory_policy` is `none`, `conversation`, `project`, or `user`. MVP stores
-  all four values but only `none` and `conversation` have runtime behavior.
-- `allowed_tools` remains the final runtime boundary. UI permissions may map
-  into `read_file`, `write_file`, and `bash`, but they must not bypass
-  `allowed_tools`.
+- Seed cleanup must delete stale `is_builtin=True` rows whose ids are no longer in `BUILTIN_AGENTS`; it must not delete `is_builtin=False` user-created Agents except through an explicit one-time migration.
+- `model_backend` defaults to `claude`.
+- `model_backend` must be one of `claude`, `deepseek`, or `openai`.
+- `max_iterations` must be an integer in `1..50` when present.
+- `react_decision_max_tokens` must be an integer in `1..4096` when present.
+- `task_result_context_max_chars`, `task_result_item_max_chars`, `orchestrator_memory_context_max_chars`, `orchestrator_tool_max_tokens`, and `orchestrator_tool_result_max_chars` must stay within their documented bounded ranges when present.
+- `orchestrator_tool_read_max_bytes` and `orchestrator_evaluation_read_max_bytes` must be integers in `1..1048576` when present.
+- `mcp_servers` must be an object array when present.
+- Internal `builtin` provider remains available for Orchestrator / BuiltinAgent runtime; the current user-facing custom Agent creation path must not expose raw `provider="builtin"`.
+- The current user custom Agent path is `server_agent_wrapper`:
+  - `custom_agent_mode` must be `server_agent_wrapper`.
+  - `base_agent_id` must be `claude-code`, `codex-helper`, or `opencode-helper`.
+  - Top-level `provider` must match the base Agent: `claude-code -> claude_code`, `codex-helper -> codex`, `opencode-helper -> opencode`.
+  - `wrapper_profile` must be an object and may store `role`, `purpose`, `planning_profile`, `planning_strengths`, `planning_weaknesses`, `preferred_task_types`, `capabilities`, `output_style`, and `boundaries`.
+- Product-facing no-code settings may be stored in `builder_profile`, `permissions`, and `memory_policy` when supported by the builder flow.
+- `builder_profile` must be an object. `role`, `purpose`, `tone`, and `output_style` are strings; `goals`, `do_not_do`, and `starters` are string arrays; `clarification_policy` is `ask_first`, `balanced`, or `decide_with_defaults`.
+- `permissions` must be an object. `workspace_read` and `workspace_write` are booleans; `run_commands` is `never`, `ask`, or `auto_low_risk`; `network` is `never`, `ask`, or `allowlisted`; `deploy` and `external_accounts` are `never` or `ask`.
+- `memory_policy` is `none`, `conversation`, `project`, or `user`. MVP stores all four values but only `none` and `conversation` have runtime behavior.
+- Wrapper Agent config must not contain `api_key`, `model_profile`, `command`, `args`, `sandbox_mode`, runtime auth, or other bottom-layer fields; those values must come from the base Agent safe defaults.
+- Skills are injected through Agent asset APIs. Knowledge, model backpack, and raw MCP JSON are not part of the current server-wrapper custom Agent main path.
+- `allowed_tools` remains the final runtime permission boundary. UI permissions may map into `read_file`, `write_file`, and `bash`, but they must not bypass `allowed_tools`.
 
 ### Legacy raw provider 规则
 

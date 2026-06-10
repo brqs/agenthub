@@ -1,5 +1,6 @@
 import { subscribeMessageStream } from './sse';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
+import { setRuntimeApiBaseUrl } from './env';
 
 vi.mock('@microsoft/fetch-event-source', () => ({
   fetchEventSource: vi.fn(),
@@ -11,6 +12,7 @@ describe('subscribeMessageStream', () => {
   beforeEach(() => {
     vi.useRealTimers();
     fetchEventSourceMock.mockReset();
+    setRuntimeApiBaseUrl('');
   });
 
   it('treats 409 stream responses as fatal instead of retryable', async () => {
@@ -66,5 +68,23 @@ describe('subscribeMessageStream', () => {
     second.abort();
     third.abort();
     await vi.advanceTimersByTimeAsync(600);
+  });
+
+  it('opens streams against the runtime backend URL', () => {
+    vi.useFakeTimers();
+    setRuntimeApiBaseUrl('http://localhost:8100');
+    fetchEventSourceMock.mockImplementation(async () => {
+      await new Promise(() => undefined);
+    });
+
+    const sub = subscribeMessageStream('message-runtime-url', { onEvent: vi.fn() });
+
+    expect(fetchEventSourceMock).toHaveBeenCalledWith(
+      'http://localhost:8100/api/v1/messages/message-runtime-url/stream',
+      expect.any(Object),
+    );
+
+    sub.abort();
+    vi.advanceTimersByTime(600);
   });
 });

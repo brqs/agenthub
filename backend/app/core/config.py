@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,6 +21,8 @@ class Settings(BaseSettings):
 
     # ─── Server ───
     environment: str = Field(default="development")
+    agenthub_server_id: str = Field(default="agenthub-local")
+    agenthub_deployment_mode: Literal["local", "hosted"] = Field(default="local")
     host: str = Field(default="0.0.0.0")  # noqa: S104 - needed for Docker binding.
     port: int = Field(default=8000)
     log_level: str = Field(default="INFO")
@@ -36,6 +39,8 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="change-me")
     jwt_algorithm: str = Field(default="HS256")
     jwt_expire_days: int = Field(default=7)
+    access_token_expire_minutes: int = Field(default=60)
+    refresh_token_expire_days: int = Field(default=30)
 
     # ─── AI Providers ───
     anthropic_api_key: str = Field(default="")
@@ -44,7 +49,6 @@ class Settings(BaseSettings):
     anthropic_base_url: str = Field(default="")
     deepseek_base_url: str = Field(default="https://api.deepseek.com")
     openai_base_url: str = Field(default="")
-    model_account_encryption_key: str = Field(default="")
     allow_user_stdio_mcp_health_checks: bool = Field(default=False)
 
     # ─── Context Compression ───
@@ -145,11 +149,20 @@ class Settings(BaseSettings):
     agent_stream_hard_timeout_seconds: int = Field(default=900)
 
     # ─── CORS ───
-    cors_origins: str = Field(default="http://localhost:5173")
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173,http://tauri.localhost"
+    )
+    desktop_cors_origins: str = Field(default="http://tauri.localhost")
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        origins: list[str] = []
+        for raw in (self.cors_origins, self.desktop_cors_origins):
+            for origin in raw.split(","):
+                normalized = origin.strip()
+                if normalized and normalized not in origins:
+                    origins.append(normalized)
+        return origins
 
     @property
     def is_development(self) -> bool:

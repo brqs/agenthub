@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import {
   Activity,
   Archive,
@@ -10,6 +16,7 @@ import {
   FileImage,
   FileText,
   Files,
+  FolderOpen,
   GripVertical,
   PanelRight,
   PanelRightClose,
@@ -34,8 +41,8 @@ import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
 import { useCreateDeployment } from '@/hooks/useDeployments';
 import {
   useConversationMemoryMounts,
+  useConversationMemoryHub,
   useForgetMemory,
-  useMemories,
   useUpdateMemory,
 } from '@/hooks/useMemories';
 import {
@@ -47,6 +54,12 @@ import {
 import type { WorkspaceArtifact } from '@/lib/adapters/workspaces';
 import type { Agent, Memory, WorkspaceDeploymentRequest } from '@/lib/types';
 import { extractApiError } from '@/lib/api';
+import { useDesktopEnvironment } from '@/hooks/useDesktopEnvironment';
+import {
+  isLocalBackendUrl,
+  normalizeDesktopError,
+  openDesktopWorkspaceFolder,
+} from '@/lib/desktopBridge';
 import { cn } from '@/lib/utils';
 import { RIGHT_PANEL_DEFAULT_WIDTH } from '@/stores/uiStore';
 
@@ -267,10 +280,12 @@ function PanelHeader({
   icon: Icon,
   title,
   meta,
+  action,
 }: {
   icon: typeof Activity;
   title: string;
   meta?: string;
+  action?: ReactNode;
 }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-2">
@@ -278,11 +293,14 @@ function PanelHeader({
         <Icon className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{title}</span>
       </div>
-      {meta && (
-        <span className="shrink-0 rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-500">
-          {meta}
-        </span>
-      )}
+      <div className="flex shrink-0 items-center gap-1.5">
+        {meta && (
+          <span className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1 text-[11px] text-slate-500">
+            {meta}
+          </span>
+        )}
+        {action}
+      </div>
     </div>
   );
 }
@@ -364,6 +382,10 @@ function WorkspacePanel({
   onRetryWorkspace,
   onRetryArtifact,
   onSaveArtifact,
+  canOpenWorkspace = false,
+  onOpenWorkspace,
+  workspaceOpenPending = false,
+  workspaceOpenError,
   isSavingArtifact = false,
 }: {
   workspace: { root: string; tree: WorkspaceNode[] } | null;
@@ -381,6 +403,10 @@ function WorkspacePanel({
   onRetryWorkspace: () => void;
   onRetryArtifact: () => void;
   onSaveArtifact?: (path: string, content: string | Blob, mimeType: string) => Promise<void> | void;
+  canOpenWorkspace?: boolean;
+  onOpenWorkspace?: () => void;
+  workspaceOpenPending?: boolean;
+  workspaceOpenError?: string | null;
   isSavingArtifact?: boolean;
 }) {
   const createDeployment = useCreateDeployment(conversationId);
@@ -453,7 +479,30 @@ function WorkspacePanel({
   return (
     <section className="space-y-5">
       <div>
-        <PanelHeader icon={Box} title="Workspace" meta={`${touchedFilesCount} outputs`} />
+        <PanelHeader
+          icon={Box}
+          title="Workspace"
+          meta={`${touchedFilesCount} outputs`}
+          action={
+            canOpenWorkspace ? (
+              <button
+                type="button"
+                onClick={onOpenWorkspace}
+                disabled={workspaceOpenPending}
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-800 bg-slate-950 text-slate-400 transition hover:bg-slate-800 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                title="在资源管理器中打开 Workspace"
+                aria-label="在资源管理器中打开 Workspace"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+              </button>
+            ) : null
+          }
+        />
+        {workspaceOpenError && (
+          <p className="mb-3 rounded-md border border-rose-400/30 bg-rose-950/20 px-3 py-2 text-xs leading-5 text-rose-200">
+            {workspaceOpenError}
+          </p>
+        )}
 
         {isLoading && !workspace ? (
           <div className="rounded-md border border-slate-800 p-4 text-sm text-slate-500">
@@ -703,6 +752,7 @@ function RealWorkspacePanel({
   conversationId: string;
   touchedFilesCount: number;
 }) {
+  const desktop = useDesktopEnvironment();
   const workspaceQuery = useWorkspaceTree(conversationId);
   const artifactsQuery = useWorkspaceArtifacts(conversationId, true);
   const workspace = useMemo(() => {
@@ -714,6 +764,8 @@ function RealWorkspacePanel({
     };
   }, [workspaceQuery.data]);
   const [selectedArtifactPath, setSelectedArtifactPath] = useState<string | null>(null);
+  const [workspaceOpenPending, setWorkspaceOpenPending] = useState(false);
+  const [workspaceOpenError, setWorkspaceOpenError] = useState<string | null>(null);
   const workspaceFiles = useMemo(
     () => (workspace ? flattenFiles(workspace.tree) : []),
     [workspace],
@@ -743,7 +795,27 @@ function RealWorkspacePanel({
 
   useEffect(() => {
     setSelectedArtifactPath(null);
+    setWorkspaceOpenError(null);
+    setWorkspaceOpenPending(false);
   }, [conversationId]);
+
+  const canOpenWorkspace =
+    desktop.isDesktop &&
+    Boolean(workspace) &&
+    isLocalBackendUrl(desktop.runtimeApiBaseUrl || desktop.backendUrl);
+
+  async function openWorkspaceFolder() {
+    if (!canOpenWorkspace || workspaceOpenPending) return;
+    setWorkspaceOpenPending(true);
+    setWorkspaceOpenError(null);
+    try {
+      await openDesktopWorkspaceFolder(conversationId);
+    } catch (error) {
+      setWorkspaceOpenError(normalizeDesktopError(error).message);
+    } finally {
+      setWorkspaceOpenPending(false);
+    }
+  }
 
   useEffect(() => {
     if (workspaceFiles.length === 0) {
@@ -779,6 +851,10 @@ function RealWorkspacePanel({
       onSaveArtifact={(path, content, mimeType) =>
         writeWorkspaceFile.mutateAsync({ path, content, mimeType })
       }
+      canOpenWorkspace={canOpenWorkspace}
+      onOpenWorkspace={() => void openWorkspaceFolder()}
+      workspaceOpenPending={workspaceOpenPending}
+      workspaceOpenError={workspaceOpenError}
       isSavingArtifact={writeWorkspaceFile.isPending}
     />
   );
@@ -902,13 +978,17 @@ function isHtmlPath(path: string): boolean {
 }
 
 function MemoryPanel({ conversationId }: { conversationId: string }) {
-  const activeMemories = useMemories('active');
-  const candidateMemories = useMemories('candidate');
+  const memoryHub = useConversationMemoryHub(conversationId);
   const mounts = useConversationMemoryMounts(conversationId);
-  const updateMemory = useUpdateMemory();
-  const forgetMemory = useForgetMemory();
+  const updateMemory = useUpdateMemory(conversationId);
+  const forgetMemory = useForgetMemory(conversationId);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [showGlobalMemories, setShowGlobalMemories] = useState(false);
+  const scopedActive = memoryHub.data?.scoped_active ?? [];
+  const scopedCandidates = memoryHub.data?.scoped_candidates ?? [];
+  const userActive = memoryHub.data?.user_active ?? [];
+  const userCandidates = memoryHub.data?.user_candidates ?? [];
 
   function startEdit(memory: Memory) {
     setEditingId(memory.id);
@@ -935,16 +1015,16 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
         <PanelHeader
           icon={Brain}
           title="MemoryHub"
-          meta={`${activeMemories.data?.total ?? 0} active`}
+          meta={`${scopedActive.length} 条当前记忆`}
         />
         <p className="mb-3 text-xs leading-5 text-slate-500">
-          重要记忆会长期保留；动态挂载只在当前回复中临时进入上下文。
+          当前会话事实优先；跨会话偏好会单独标识，不与任务记忆混排。
         </p>
         <MemoryListSection
-          title="重要记忆"
-          isLoading={activeMemories.isLoading}
-          memories={activeMemories.data?.items ?? []}
-          emptyText="暂无重要记忆。"
+          title="当前会话记忆"
+          isLoading={memoryHub.isLoading}
+          memories={scopedActive}
+          emptyText="当前会话暂无重要记忆。"
           editingId={editingId}
           draft={draft}
           onDraftChange={setDraft}
@@ -956,8 +1036,8 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
 
       <MemoryListSection
         title="候选记忆"
-        isLoading={candidateMemories.isLoading}
-        memories={candidateMemories.data?.items ?? []}
+        isLoading={memoryHub.isLoading}
+        memories={scopedCandidates}
         emptyText="暂无候选记忆。"
         editingId={editingId}
         draft={draft}
@@ -977,7 +1057,14 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
       />
 
       <section>
-        <PanelHeader icon={Activity} title="动态挂载" meta={`${mounts.data?.total ?? 0} mounts`} />
+        <PanelHeader
+          icon={Activity}
+          title="本会话已注入记录"
+          meta={`${mounts.data?.total ?? 0} 条`}
+        />
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          这里记录实际进入回复上下文的记忆，不代表全部可用记忆。
+        </p>
         {mounts.isLoading ? (
           <div className="rounded-md border border-slate-800 p-3 text-xs text-slate-500">
             正在加载挂载记录...
@@ -1001,7 +1088,71 @@ function MemoryPanel({ conversationId }: { conversationId: string }) {
           </div>
         ) : (
           <div className="rounded-md border border-dashed border-slate-800 p-4 text-sm text-slate-500">
-            当前会话暂无动态挂载记录。
+            {mounts.data?.recall_state === 'no_match'
+              ? '已构建回复上下文，但本轮没有匹配到需要注入的记忆。'
+              : mounts.data?.recall_state === 'not_attempted'
+                ? '当前会话还没有 Agent 回复，尚未尝试记忆召回。'
+                : '当前会话暂无已注入记录。'}
+          </div>
+        )}
+        {mounts.data?.latest_agent_message_id && (
+          <div className="mt-2 text-[11px] text-slate-500">
+            最近回复：{mounts.data.latest_agent_id ?? 'Agent'} ·{' '}
+            {mounts.data.latest_agent_status ?? 'unknown'}
+          </div>
+        )}
+      </section>
+
+      <section>
+        <button
+          type="button"
+          onClick={() => setShowGlobalMemories((value) => !value)}
+          className="flex w-full items-center justify-between rounded-md border border-slate-800 px-3 py-2 text-left text-xs font-semibold text-slate-300 transition hover:bg-slate-900"
+        >
+          <span>全局用户记忆</span>
+          <span className="flex items-center gap-2 text-[11px] font-normal text-slate-500">
+            {userActive.length + userCandidates.length}{' '}
+            条
+            <ChevronRight
+              className={cn(
+                'h-3.5 w-3.5 transition-transform',
+                showGlobalMemories && 'rotate-90',
+              )}
+            />
+          </span>
+        </button>
+        {showGlobalMemories && (
+          <div className="mt-3 space-y-5">
+            <MemoryListSection
+              title="全局偏好"
+              isLoading={memoryHub.isLoading}
+              memories={userActive}
+              emptyText="暂无全局偏好。"
+              editingId={editingId}
+              draft={draft}
+              onDraftChange={setDraft}
+              onEdit={startEdit}
+              onSave={saveEdit}
+              onForget={(memory) => forgetMemory.mutate(memory.id)}
+            />
+            <MemoryListSection
+              title="全局候选"
+              isLoading={memoryHub.isLoading}
+              memories={userCandidates}
+              emptyText="暂无全局候选记忆。"
+              editingId={editingId}
+              draft={draft}
+              onDraftChange={setDraft}
+              onEdit={startEdit}
+              onSave={saveEdit}
+              onPromote={(memory) =>
+                updateMemory.mutate({
+                  memoryId: memory.id,
+                  payload: { status: 'active' },
+                })
+              }
+              onForget={(memory) => forgetMemory.mutate(memory.id)}
+            />
           </div>
         )}
       </section>

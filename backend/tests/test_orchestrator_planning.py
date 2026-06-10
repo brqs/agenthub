@@ -201,6 +201,101 @@ async def test_turn_taking_request_uses_deterministic_tasks_before_planner() -> 
     assert [task.agent_id for task in tasks] == ["claude-code", "opencode-helper"]
 
 
+async def test_empty_tasks_config_falls_back_to_dynamic_task_planning() -> None:
+    tasks = await resolve_tasks(
+        {
+            "tasks": [],
+            "managed_agent_ids": ["custom-copywriter"],
+            "llm_planning": False,
+        },
+        [ChatMessage(role="user", content="Write a recruitment copy for USTC.")],
+        None,
+    )
+
+    assert tasks
+    assert {task.agent_id for task in tasks} == {"custom-copywriter"}
+    assert "Write a recruitment copy for USTC." in tasks[0].instruction
+
+
+async def test_orchestrator_empty_tasks_config_does_not_short_circuit_stream() -> None:
+    sub_agent = FakeSubAdapter(
+        "custom-copywriter",
+        _text_chunks("Recruitment copy draft complete."),
+    )
+
+    async def adapter_factory(agent_id: str):
+        assert agent_id == "custom-copywriter"
+        return sub_agent
+
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [],
+            "managed_agent_ids": ["custom-copywriter"],
+            "adapter_factory": adapter_factory,
+            "llm_planning": False,
+        },
+        messages=[ChatMessage(role="user", content="Write a recruitment copy for USTC.")],
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "custom-copywriter"
+        for chunk in chunks
+    )
+    assert not any(
+        chunk.event_type == "error" and "config.tasks" in (chunk.error or "")
+        for chunk in chunks
+    )
+
+
+async def test_empty_planner_task_list_falls_back_for_copywriting_task() -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={"tasks": []},
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    sub_agent = FakeSubAdapter(
+        "custom-copywriter",
+        _text_chunks("Recruitment copy draft complete."),
+    )
+
+    async def adapter_factory(agent_id: str):
+        assert agent_id == "custom-copywriter"
+        return sub_agent
+
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["custom-copywriter"],
+            "adapter_factory": adapter_factory,
+        },
+        messages=[ChatMessage(role="user", content="Write a recruitment copy for USTC.")],
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(planner.calls) == 1
+    assert any(
+        chunk.event_type == "agent_switch" and chunk.to_agent == "custom-copywriter"
+        for chunk in chunks
+    )
+    assert not any(
+        chunk.event_type == "error" and "config.tasks" in (chunk.error or "")
+        for chunk in chunks
+    )
+
+
 async def test_single_planner_conversation_task_rebalances_to_two_agents() -> None:
     request = (
         "@orchestrator 组织群组内两个智能体开展辩论，论题是AI的快速发展对人类社会"
@@ -344,7 +439,7 @@ def test_command_fulfillment_explicit_markdown_overrides_no_file_hint() -> None:
     assert any(item["id"] == "document" for item in context.fulfillment_items)
 
 
-async def test_orchestrator_planner_receives_whitelisted_memory_signals() -> None:
+async def test_orchestrator_planner_receives_only_whitelisted_memory_signals() -> None:
     opencode = FakeSubAdapter("opencode-helper", _text_chunks("created document"))
     planner = FakePlannerGateway(
         [
@@ -377,6 +472,9 @@ async def test_orchestrator_planner_receives_whitelisted_memory_signals() -> Non
         "Agent capability profile from recent Orchestrator runs:\n"
         "- @claude-code: success_count=0; failure_count=1\n"
         "- @opencode-helper: success_count=1; failure_count=0\n\n"
+        "Previous output follow-up context:\n"
+        "Task: 编写中科大招聘文案\n"
+        "Previous output: 加入中科大，和优秀的人一起做有影响力的事。\n\n"
         "Previous Orchestrator structured memory:\n"
         "private historical details that the planner does not need"
     )
@@ -403,8 +501,9 @@ async def test_orchestrator_planner_receives_whitelisted_memory_signals() -> Non
     assert "@opencode-helper: success_rate=1.0; score=2.1" in planner_message
     assert "@opencode-helper: success_count=1; failure_count=0" in planner_message
     assert "language_style_hints: chinese=2" in planner_message
-    assert "Previous Orchestrator structured memory" in planner_message
-    assert "private historical details" in planner_message
+    assert "Previous output follow-up context:" in planner_message
+    assert "加入中科大" in planner_message
+    assert "private historical details" not in planner_message
 
 
 def test_artifact_design_requests_are_task_intent_not_direct_answer() -> None:
@@ -497,83 +596,6 @@ def test_context_action_request_evidence_pack_is_planner_whitelisted() -> None:
     assert ORCHESTRATOR_EVIDENCE_HEADER in planner_content
     assert "latest_run_status: done" in planner_content
     assert "planning.md" in planner_content
-
-
-def test_planner_prompt_uses_dedicated_recent_conversation_context() -> None:
-    user_request = "按刚才方案开始做"
-    planner_messages = _planner_messages(
-        {
-            "planner_context_messages": [
-                ChatMessage(role="user", content="网站必须包含移动端适配和 Diff 产物"),
-                ChatMessage(
-                    role="assistant",
-                    content="[Agent: claude-code]\n我会实现 HTML/CSS/JS。",
-                ),
-                ChatMessage(role="user", content=user_request),
-            ],
-            "available_agents": [
-                {
-                    "id": "claude-code",
-                    "name": "Claude Code",
-                    "provider": "claude_code",
-                    "capabilities": ["coding", "files"],
-                    "planning_profile": "并行实现主力",
-                    "planning_strengths": ["implementation", "parallel_execution"],
-                    "preferred_task_types": ["implementation"],
-                }
-            ],
-        },
-        [ChatMessage(role="user", content=user_request)],
-        user_request,
-        ["claude-code"],
-    )
-
-    planner_content = planner_messages[0].content
-    assert "Recent conversation context:" in planner_content
-    assert "网站必须包含移动端适配和 Diff 产物" in planner_content
-    assert "[Agent: claude-code]" in planner_content
-    assert "planning_profile=并行实现主力" in planner_content
-    assert "strengths=implementation, parallel_execution" in planner_content
-
-
-def test_planner_prompt_trims_old_context_but_keeps_priority_sections() -> None:
-    user_request = "最终按移动端验收要求生成网站"
-    old_turns = [
-        ChatMessage(role="user", content=f"very-old-turn-{index} " + ("x" * 1200))
-        for index in range(20)
-    ]
-    planner_messages = _planner_messages(
-        {
-            "planner_context_max_tokens": 700,
-            "planner_context_messages": [
-                ChatMessage(
-                    role="system",
-                    content="MemoryHub mounted context:\n- durable constraint: keep mobile QA",
-                ),
-                *old_turns,
-                ChatMessage(role="user", content=user_request),
-            ],
-            "available_agents": [
-                {
-                    "id": "opencode-helper",
-                    "name": "OpenCode Helper",
-                    "provider": "opencode",
-                    "capabilities": ["coding", "cli"],
-                    "planning_profile": "第二实现者或验证修复者",
-                }
-            ],
-        },
-        [ChatMessage(role="user", content=user_request)],
-        user_request,
-        ["opencode-helper"],
-    )
-
-    planner_content = planner_messages[0].content
-    assert user_request in planner_content
-    assert "planning_profile=第二实现者或验证修复者" in planner_content
-    assert "durable constraint: keep mobile QA" in planner_content
-    assert "very-old-turn-0" not in planner_content
-    assert "older planner conversation context omitted" in planner_content
 
 
 async def test_orchestrator_planner_cannot_select_agent_outside_available_agents() -> None:

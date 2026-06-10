@@ -5,6 +5,8 @@
 > 状态：v1 implemented / platform tools extended / allowed_tools live E2E passed
 > 最后更新：2026-06-03
 
+> 2026-06-10 update: `create_custom_agent` has been superseded by the server Agent wrapper contract. It now creates wrappers around `claude-code`, `codex-helper`, or `opencode-helper`; it no longer accepts `provider="builtin"`, `allowed_tools`, model accounts, MCP JSON, or runtime command fields. See `docs/spec/custom-agent-assets.spec.md` for the active product contract.
+
 ---
 
 ## 1. 背景

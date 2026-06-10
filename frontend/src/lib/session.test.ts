@@ -1,6 +1,6 @@
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
-import { resetClientSession, startClientSession } from '@/lib/session';
+import { resetClientSession, startClientSession, switchClientBackend } from '@/lib/session';
 import type { User } from '@/lib/types';
 import { useAgentStore } from '@/stores/agentStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -22,10 +22,26 @@ const userB: User = {
 
 describe('session state reset', () => {
   beforeEach(() => {
+    window.localStorage.clear();
     queryClient.clear();
-    useAuthStore.setState({ token: null, user: null });
+    useAuthStore.getState().activateBackend('http://localhost:8000');
     useAgentStore.getState().clearAgents();
     useChatStore.getState().clearChat();
+  });
+
+  it('keeps authentication isolated per backend', () => {
+    switchClientBackend('https://one.agenthub.example', false);
+    startClientSession('token-a', userA);
+
+    switchClientBackend('https://two.agenthub.example', false);
+    expect(useAuthStore.getState()).toMatchObject({ token: null, user: null });
+    startClientSession('token-b', userB);
+
+    switchClientBackend('https://one.agenthub.example', false);
+    expect(useAuthStore.getState()).toMatchObject({ token: 'token-a', user: userA });
+
+    switchClientBackend('https://two.agenthub.example', false);
+    expect(useAuthStore.getState()).toMatchObject({ token: 'token-b', user: userB });
   });
 
   it('scopes query keys by session identity', () => {
