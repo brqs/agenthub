@@ -172,6 +172,14 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
             "/tmp/agenthub_group_substantive_output_matrix_report.json",
             "/tmp/agenthub_group_substantive_output_matrix_sse.jsonl",
         ),
+        "agent_turn_taking_dialogue_repair": (
+            "/tmp/agenthub_agent_turn_taking_dialogue_report.json",
+            "/tmp/agenthub_agent_turn_taking_dialogue_sse.jsonl",
+        ),
+        "agent_turn_taking_matrix": (
+            "/tmp/agenthub_agent_turn_taking_matrix_report.json",
+            "/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl",
+        ),
         "p1_attribution": (
             "/tmp/agenthub_p1_attribution_report.json",
             "/tmp/agenthub_p1_attribution_sse.jsonl",

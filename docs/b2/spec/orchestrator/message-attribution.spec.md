@@ -85,6 +85,10 @@ SSE lifecycle：
 - 子 message 失败时，`message_error.error` 和空 error child fallback text 必须是清洗后的用户可读原因，不暴露本地认证路径、Errno、stderr、stack trace 或 call id。
 - 子 message `status="done"` 不再只代表 runtime stream 正常结束；它还必须代表该 Agent 的输出通过任务类型匹配的实质输出合同。只有 process/tool trace 或空泛完成语不能使 child message 进入 done。
 - 子 Agent 第一次输出不合格时，Orchestrator 可在同一 child message 内追加 `output-correction` process step 并重试一次；仍不合格时该 child message 以清洗后的 `message_error` 结束，后续 fallback Agent 会创建独立 child message。
+- 对 Orchestrator 托管的 `dialogue_turn`，同一 Agent 多轮发言也必须生成多条独立 child messages；不能把同一 Agent 的多轮内容追加进上一轮消息。
+- `dialogue_turn` child message `done` 代表该轮发言通过实质输出合同；子 Agent 输出里的 `@agent-id` 只作为 handoff hint，不改变消息归属。
+
+Agent-to-Agent 接力对话的完整契约见 [agent-turn-taking.spec.md](agent-turn-taking.spec.md)。
 
 关闭 `orchestrator_group_messages_enabled=false` 时，Orchestrator 回到旧模式：所有子 Agent block 仍在父 Orchestrator message 中以 `agent_id` 标记。
 

@@ -29,7 +29,9 @@ def planning_text(tasks: list[SubTask]) -> str:
 
 
 def plan_source(tasks: list[SubTask]) -> str:
-    if tasks and all(task.task_type == "conversation" for task in tasks):
+    if tasks and all(
+        task.task_type in {"conversation", "dialogue_turn"} for task in tasks
+    ):
         return "dialogue template"
     if all(task.task_id.startswith("auto-") for task in tasks):
         return "legacy template"

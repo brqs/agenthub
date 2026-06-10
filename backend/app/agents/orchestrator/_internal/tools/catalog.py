@@ -28,7 +28,13 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                     "include_history": {"type": "boolean"},
                     "task_type": {
                         "type": "string",
-                        "enum": ["implementation", "review", "repair", "conversation"],
+                        "enum": [
+                            "implementation",
+                            "review",
+                            "repair",
+                            "conversation",
+                            "dialogue_turn",
+                        ],
                     },
                 },
                 "required": ["agent_id", "title", "instruction"],

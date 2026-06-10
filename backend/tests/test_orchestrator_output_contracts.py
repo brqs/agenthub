@@ -58,6 +58,52 @@ def test_conversation_contract_rejects_host_only_and_cleans_corrected_summary() 
     assert "正方观点" in passed.summary_text
 
 
+def test_dialogue_turn_contract_requires_own_turn_and_response() -> None:
+    task = SubTask(
+        task_id="turn-2",
+        agent_id="opencode-helper",
+        title="第 2 轮发言：反方",
+        instruction=(
+            "本轮必须明确回应上一轮，不要代写其他 Agent 的完整发言。"
+            "你的角色/立场：反方，主张 AI 快速发展弊大于利。"
+        ),
+        depends_on=("turn-1",),
+        task_type="dialogue_turn",
+    )
+
+    scripted = validate_task_output(
+        task,
+        _attempt(
+            "正方：AI 能提升医疗和教育效率。\n"
+            "反方：我认为风险更大。\n"
+            "主持人：请继续。"
+        ),
+    )
+    assert not scripted.passed
+    assert scripted.contract_type == "dialogue_turn"
+
+    no_response = validate_task_output(
+        task,
+        _attempt(
+            "反方观点：我认为 AI 快速发展弊大于利，因为就业替代、隐私滥用"
+            "和信息信任危机可能先于治理成熟，社会成本会被放大。"
+        ),
+    )
+    assert not no_response.passed
+
+    passed = validate_task_output(
+        task,
+        _attempt(
+            "针对上一轮提到的医疗和教育效率，我同意 AI 有局部收益，"
+            "但我的反方立场是快速发展总体弊大于利。原因是就业替代、"
+            "隐私滥用和信息信任危机可能更早爆发，而治理制度通常滞后。"
+            "如果收益集中在少数平台，普通人承担风险，社会整体会付出更高代价。"
+        ),
+    )
+    assert passed.passed
+    assert "针对上一轮" in passed.summary_text
+
+
 def test_analysis_contract_requires_substantive_text() -> None:
     task = _task(
         title="Analyze onboarding strategy",
@@ -77,6 +123,30 @@ def test_analysis_contract_requires_substantive_text() -> None:
     )
     assert passed.passed
     assert passed.contract_type == "analysis"
+
+
+def test_analysis_contract_rejects_prompt_echo_without_contribution() -> None:
+    task = _task(
+        title="分析渠道数据",
+        instruction=(
+            "@orchestrator 不需要生成文件，请让两个智能体分析这组数据："
+            "渠道 A 转化率 12%、渠道 B 转化率 7%、渠道 C 转化率 15%，预算分别为"
+            " 30/20/10 万。请直接在群聊里给出结论、依据和下一步建议。"
+        ),
+    )
+
+    validation = validate_task_output(
+        task,
+        _attempt(
+            "@claude-code @opencode-helper 请你们两位分别分析以下数据，直接在"
+            "群聊中给出结论、依据和下一步建议：渠道 A 转化率 12%、渠道 B "
+            "转化率 7%、渠道 C 转化率 15%，预算分别为 30/20/10 万。"
+            "不生成文件。"
+        ),
+    )
+
+    assert not validation.passed
+    assert "复述任务" in validation.reason
 
 
 def test_analysis_contract_strips_prompt_echo_from_summary() -> None:
@@ -102,6 +172,30 @@ def test_analysis_contract_strips_prompt_echo_from_summary() -> None:
     assert "请直接输出" not in validation.summary_text
     assert "以下是背景" not in validation.summary_text
     assert "两位智能体的头脑风暴结果汇总如下" in validation.summary_text
+
+
+def test_generic_roundtable_conversation_accepts_substantive_topic_output() -> None:
+    task = _task(
+        task_type="conversation",
+        title="第一位成员发言：中小企业是否应该接入 AI 客服",
+        instruction=(
+            "角色：第一位讨论成员，给出建设性观点、理由和具体建议。"
+            "主题：中小企业是否应该接入 AI 客服。"
+        ),
+    )
+
+    validation = validate_task_output(
+        task,
+        _attempt(
+            "核心观点：中小企业可以先在低风险客服场景接入 AI 客服。"
+            "主要理由是常见问题自动回复能降低等待时间，也能让人工客服集中处理"
+            "复杂投诉。风险在于错误答复和隐私合规，因此建议先限定知识库、"
+            "保留人工转接，并按月复盘误答率。"
+        ),
+    )
+
+    assert validation.passed
+    assert "核心观点" in validation.summary_text
 
 
 def test_artifact_contract_accepts_file_evidence_without_text_summary() -> None:

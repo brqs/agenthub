@@ -614,7 +614,12 @@ def _salvageable_textual_output(
     validation = _validate_task_output(task, attempt)
     if not validation.passed:
         return None
-    if validation.contract_type in {"conversation", "analysis", "direct_output"}:
+    if validation.contract_type in {
+        "conversation",
+        "dialogue_turn",
+        "analysis",
+        "direct_output",
+    }:
         return validation
     if validation.contract_type == "review" and not task.expected_output:
         return validation
@@ -1011,7 +1016,7 @@ async def _run_task(
                         },
                     )
             else:
-                if task.task_type == "conversation":
+                if task.task_type in {"conversation", "dialogue_turn"}:
                     attempt.state = TaskState.SUCCEEDED
                 elif task.task_type == "review":
                     if task.expected_output:
