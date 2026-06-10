@@ -305,6 +305,10 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
             "/tmp/agenthub_p2_agent_capability_profile_v2_report.json",
             "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl",
         ),
+        "one_click_container_deploy_repair_loop": (
+            "/tmp/agenthub_one_click_container_deploy_repair_report.json",
+            "/tmp/agenthub_one_click_container_deploy_repair_sse.jsonl",
+        ),
     }
 
     assert {

@@ -1,3 +1,103 @@
+## 2026-06-10 — Codex 实现一键从零容器部署 + 公网 E2E Repair Loop
+
+### 任务
+实现“无 Dockerfile 时点击容器化部署 -> 后台 Orchestrator 生成 Dockerfile -> 触发容器部署 -> 首次失败后自动 repair/redeploy -> 最终发布”的闭环，并按 `orchestrator-live-e2e-repair-loop` skill 执行公网 API/SSE 验收。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: 一键从零容器部署 + E2E Repair Loop 执行计划
+
+### AI 输出摘要
+1. 新增 `POST /api/v1/workspaces/{conversation_id}/deployments/one-click-container`：
+   - 已有 `Dockerfile` 时直接走现有 container deployment。
+   - 无 `Dockerfile` 时创建 `ui_hidden=true`、`automation_kind="one_click_container_deploy"` 的隐藏 Orchestrator automation。
+2. 隐藏 automation 使用固定 one-click prompt，优先生成静态站点容器入口：`Dockerfile`、`agenthub_container_server.py`、`EXPOSE 8000`、`/health` 返回 `ok`，并由平台 deployment tool 执行部署。
+3. Orchestrator one-click 路径跳过普通浏览器质量门，转入 deployment health loop；首次 deployment health 失败后生成 reflection，调度 repair agent，repair 后再次调用 `create_deployment(kind="container")`。
+4. 前端容器化按钮改为：
+   - 有 `Dockerfile`：保持 direct container deployment。
+   - 无 `Dockerfile`：调用 one-click endpoint，并提示“正在准备 Dockerfile 并部署，可在发布历史查看状态”。
+5. 扩展 live E2E scenario `one_click_container_deploy_repair_loop`，构造无 `Dockerfile` 初始 workspace，并预置坏 `agenthub_container_server.py` 触发首次 health 失败，验证 repair/redeploy 最终 published。
+6. 收口运行中暴露的问题：
+   - stale deployment snapshot cleanup 不再阻断 FastAPI startup。
+   - one-click hidden stream context 使用固定 prepare task 和外部可用 Agent 列表。
+   - deployment repair expected output 改为真实路径，避免把说明性文本误判为缺失文件。
+   - platform `create_deployment` tool 支持 `wait_for_terminal` / timeout，便于 Orchestrator 在同一 run 内观察失败并修复。
+
+### 验证结果
+```text
+backend targeted:
+  AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run python -m pytest \
+    tests/test_workspace_api.py \
+    tests/test_stream_context_budget.py::test_one_click_container_stream_context_uses_fixed_prepare_task \
+    tests/test_orchestrator_quality_gate.py \
+    tests/test_orchestrator_tool_calling.py \
+    tests/test_stream_content_blocks.py \
+    tests/test_orchestrator_live_e2e_script.py -q
+  result: 140 passed
+
+frontend targeted:
+  pnpm test -- --run \
+    src/components/agents/RightAgentPanel.test.tsx \
+    src/components/artifact/DeploymentHistory.test.tsx \
+    src/stores/chatStore.test.ts
+  result: 54 passed
+  pnpm exec tsc --noEmit: passed
+
+ruff: passed
+git diff --check: passed
+mypy app scripts: existing unrelated schema/service/api errors remain; this turn did not introduce new typed surface in those files.
+```
+
+部署状态：
+
+```text
+backend env:
+  DEPLOYMENT_CONTAINER_ENABLED=true
+  DEPLOYMENT_CONTAINER_RUNTIME=podman
+  DEPLOYMENT_CONTAINER_TRUSTED_HOST_MODE=false
+  DEPLOYMENT_CONTAINER_PORT_START=8081
+  DEPLOYMENT_CONTAINER_PORT_END=8085
+
+alembic: g4b5c6d7e8f9 (head)
+backend pid after restart: 142053
+localhost /health: ok
+public /health: ok
+```
+
+公网 E2E：
+
+```text
+scenario: one_click_container_deploy_repair_loop
+base_url: http://111.229.151.159:8000
+report: /tmp/agenthub_one_click_container_deploy_repair_report.json
+sse: /tmp/agenthub_one_click_container_deploy_repair_sse.jsonl
+conversation_id: f5c2de5e-f1c6-4c71-bd00-26cdb51c3a1c
+automation_message_id: 7441aa2f-0166-4d21-bdfa-1b63dd069e37
+passed: true
+
+acceptance:
+  initial_workspace_without_dockerfile: true
+  one_click_mode_orchestrator_prepare: true
+  hidden_automation_message_exists: true
+  hidden_automation_not_listed_by_default: true
+  workspace_has_dockerfile: true
+  workspace_has_container_server: true
+  sse_create_deployment_called: true
+  deployment_initial_failure_or_repair_trigger_seen: true
+  reflection_created: true
+  repair_agent_attempt_exists: true
+  repair_task_id: deployment-repair-1
+  repair_agent_id: opencode-helper
+  redeploy_called: true
+  final_container_deployment_id: d2548f58-1387-4354-be96-9b888d5ceee6
+  container_deployment_published: true
+  container_health_ok: true
+  container_stop_cleanup_ok: true
+  local_deployment_ports_clean: true
+```
+
+### 说明
+本轮 one-click v1 只保证静态站点从零容器部署；Node/FastAPI 等通用项目推断保留为后续扩展。容器部署仍由 AgentHub platform tool 完成，外部 Agent 不直接运行 docker/podman/server 命令。
+
 ## 2026-06-10 — Codex 实现 Orchestrator 动态辩论轮次与胜负判断
 
 ### 任务

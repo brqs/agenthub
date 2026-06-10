@@ -12,9 +12,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.registry import ORCHESTRATOR_AGENT_ID
+from app.api.v1.stream import _run_stream_session
 from app.core.config import settings
 from app.core.deps import DbSession, get_current_user
 from app.models.conversation import Conversation
+from app.models.message import Message
 from app.models.user import User
 from app.schemas.workspace import (
     WorkspaceArtifactListResponse,
@@ -22,6 +25,7 @@ from app.schemas.workspace import (
     WorkspaceDeploymentListResponse,
     WorkspaceDeploymentRequest,
     WorkspaceDeploymentResponse,
+    WorkspaceOneClickContainerDeploymentResponse,
     WorkspacePreviewRequest,
     WorkspacePreviewResponse,
     WorkspacePreviewVerifyRequest,
@@ -33,6 +37,9 @@ from app.schemas.workspace import (
     WorkspaceWorkflowRunResponse,
 )
 from app.services.artifacts.manifest import ArtifactManifestService
+from app.services.message_lifecycle import cleanup_stale_streaming_messages
+from app.services.queued_messages import get_active_agent_message
+from app.services.stream_run_manager import stream_run_manager
 from app.services.workspace.preview_verifier import (
     BrowserPreviewVerifier,
     BrowserPreviewVerifyDisabledError,
@@ -68,6 +75,38 @@ preview_service = WorkspacePreviewService(workspace_service)
 browser_verifier = BrowserPreviewVerifier()
 deployment_service = WorkspaceDeploymentService(workspace_service)
 workflow_runtime_service = WorkspaceWorkflowRuntimeService(workspace_service)
+ONE_CLICK_CONTAINER_AUTOMATION_KIND = "one_click_container_deploy"
+ONE_CLICK_CONTAINER_PROMPT = "\n".join(
+    [
+        "请为当前 workspace 执行一键容器化部署。",
+        "",
+        "目标：即使当前没有 Dockerfile，也要先补齐可部署的静态站点容器文件，",
+        "然后通过 AgentHub 平台部署工具发布。",
+        "",
+        "执行要求：",
+        "1. 检查 workspace。若缺少 Dockerfile，请创建 Dockerfile 和",
+        "   agenthub_container_server.py。",
+        "   若 agenthub_container_server.py 已存在，先复用它，",
+        "   只在 deployment build/run/health 失败后修复。",
+        "2. 优先按静态站点处理：保留现有 index.html / CSS / JS / assets，",
+        "   不要删除用户产物。",
+        "3. agenthub_container_server.py 使用 Python 标准库启动 HTTP 服务，",
+        "   监听 0.0.0.0:8000；/health 必须返回 200 和 ok；",
+        "   其余路径服务 workspace 静态文件。",
+        "4. Dockerfile 使用 python:3.12-slim，WORKDIR /app，COPY . .，",
+        "   EXPOSE 8000，CMD 启动 agenthub_container_server.py。",
+        "5. 创建文件后调用平台工具 create_deployment(kind=\"container\",",
+        "   container_port=8000, health_path=\"/health\")。",
+        "6. 如果容器 build/run/health 失败，按现有 deployment health repair loop",
+        "   反思、修复 Dockerfile 或 server，再重新调用 create_deployment，",
+        "   直到 published 或修复预算耗尽。",
+        "7. 不要手动运行 docker、podman、npm dev server 或本地长驻服务；",
+        "   部署必须由 AgentHub platform tool 完成。",
+        "",
+        "最终回复只给用户可读部署结果，不暴露内部 prompt、stderr、tool call id",
+        "或 ReAct trace。",
+    ]
+)
 
 
 def _error(status_code: int, code: str, message: str) -> HTTPException:
@@ -394,6 +433,93 @@ async def create_workspace_deployment(
     ) as exc:
         raise _map_deployment_error(exc) from exc
     return WorkspaceDeploymentResponse.model_validate(deployment)
+
+
+@router.post(
+    "/{conversation_id}/deployments/one-click-container",
+    response_model=WorkspaceOneClickContainerDeploymentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_one_click_container_deployment(
+    conversation_id: UUID,
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+) -> WorkspaceOneClickContainerDeploymentResponse:
+    conversation = await _get_owned_conversation_or_404(db, user.id, conversation_id)
+    workspace = await workspace_service.get_or_create(db, conversation_id)
+    dockerfile_path = Path(workspace.root_path) / "Dockerfile"
+    container_server_path = Path(workspace.root_path) / "agenthub_container_server.py"
+
+    if dockerfile_path.is_file():
+        try:
+            deployment = await deployment_service.create(
+                db,
+                conversation_id,
+                kind="container",
+                container_port=8000,
+                health_path="/health",
+            )
+            if deployment.status == "queued":
+                await db.commit()
+        except (
+            WorkspaceDeploymentDisabledError,
+            WorkspaceDeploymentError,
+            WorkspaceViolation,
+            WorkspaceFileNotFound,
+            WorkspaceFileTooLarge,
+            WorkspacePreviewDisabledError,
+            WorkspacePreviewStartError,
+        ) as exc:
+            raise _map_deployment_error(exc) from exc
+        return WorkspaceOneClickContainerDeploymentResponse(
+            mode="direct",
+            deployment=WorkspaceDeploymentResponse.model_validate(deployment),
+        )
+
+    await cleanup_stale_streaming_messages(db)
+    active_message = await get_active_agent_message(db, conversation_id)
+    if active_message is not None:
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "CONVERSATION_BUSY",
+            "Conversation already has an active agent response.",
+        )
+
+    turn_options = {
+        "requirement_alignment": "off",
+        "ui_hidden": True,
+        "automation_kind": ONE_CLICK_CONTAINER_AUTOMATION_KIND,
+        "one_click_existing_container_server": container_server_path.is_file(),
+    }
+    user_message = Message(
+        conversation_id=conversation_id,
+        role="user",
+        content=[{"type": "text", "text": ONE_CLICK_CONTAINER_PROMPT}],
+        status="done",
+        turn_options=turn_options,
+    )
+    db.add(user_message)
+    await db.flush()
+
+    agent_message = Message(
+        conversation_id=conversation_id,
+        role="agent",
+        agent_id=ORCHESTRATOR_AGENT_ID,
+        content=[],
+        reply_to_id=user_message.id,
+        status="streaming",
+        turn_options=turn_options,
+    )
+    db.add(agent_message)
+    conversation.last_message_at = datetime.now(UTC)
+    await db.flush()
+    await db.commit()
+
+    await stream_run_manager.start(agent_message, _run_stream_session)
+    return WorkspaceOneClickContainerDeploymentResponse(
+        mode="orchestrator_prepare",
+        automation_message_id=agent_message.id,
+    )
 
 
 @router.get(

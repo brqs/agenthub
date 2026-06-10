@@ -2,8 +2,8 @@
 
 > 目的：根据课程 PDF《AgentHub - 多 Agent 协作平台设计》对照当前 B2 实现，维护 B2 当前完成度、剩余缺口和建议执行顺序。
 >
-> 状态：P1 complete / P2 active backlog / B2-TODO-08 backend E2E passed
-> 最后更新：2026-06-05
+> 状态：P1 complete / P2 active backlog / one-click container repair loop E2E passed
+> 最后更新：2026-06-10
 >
 > Spec 整理入口：当前契约、验证报告和剩余 backlog 见 [README.md](README.md)。
 
@@ -22,7 +22,7 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 - 通用 Evaluation / Reflection MVP。
 - Deployment / Release 演示 MVP：static release、source zip、container deployment、deployment repair/redeploy。
 
-当前最影响课程设计完成度的缺口不再是 P1 三项基础能力，而是后续产品深化。B2-TODO-05 Deployment / Release production hardening 已通过 direct public API E2E 和 Orchestrator API/SSE queued worker 公网回归；B2-TODO-08 Capability Profile v2 / User Preference Memory 后端 MVP、本地验证和公网 API/SSE E2E 已完成，下一步是前端只读展示和 B2 后续扩展。按 B2 owner 口径，优先级收敛为：
+当前最影响课程设计完成度的缺口不再是 P1 三项基础能力，而是后续产品深化。B2-TODO-05 Deployment / Release production hardening 已通过 direct public API E2E、Orchestrator API/SSE queued worker 公网回归，以及 one-click container from-zero repair loop 公网 E2E；B2-TODO-08 Capability Profile v2 / User Preference Memory 后端 MVP、本地验证和公网 API/SSE E2E 已完成，下一步是前端只读展示和 B2 后续扩展。按 B2 owner 口径，优先级收敛为：
 
 1. **P1-B2-02 更多产物类型与预览**：文档、PPT、图片、附件、archive、manifest API 后端 MVP 和公网 API/SSE E2E 已完成；版本历史和局部编辑仍属于前端/后续产品化。
 2. **P1-B2-03 Evaluation / Reflection 深化**：Workflow validation / runtime dry-run、PPT outline、`.pptx` 轻量解析、图片、archive、文档结构质量、`manual_review_required`、deployment health 和 evaluator repair loop 已有 MVP 或公网 E2E 证据；更多 runner、生产 LLM-as-judge 仍待后续扩展。
@@ -64,6 +64,17 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
 
+2026-06-10 一键从零容器部署 repair loop：B2 新增
+`POST /api/v1/workspaces/{conversation_id}/deployments/one-click-container`。已有 `Dockerfile` 时直接走
+container deployment；无 `Dockerfile` 时创建 `ui_hidden=true`、`automation_kind="one_click_container_deploy"`
+的隐藏 Orchestrator automation，自动生成 `Dockerfile` / `agenthub_container_server.py` 并触发容器部署。公网
+E2E `one_click_container_deploy_repair_loop` 已通过：初始 workspace 无 `Dockerfile`，首次 container health
+因预置坏 server 失败，记录 `reflection_created`，`opencode-helper` 执行 repair，第二次
+`create_deployment(kind="container")` 发布成功，health 返回 `ok`，stop cleanup 和 8081-8085 端口残留检查通过。Report
+`/tmp/agenthub_one_click_container_deploy_repair_report.json`，SSE
+`/tmp/agenthub_one_click_container_deploy_repair_sse.jsonl`，conversation
+`f5c2de5e-f1c6-4c71-bd00-26cdb51c3a1c`。
+
 本轮继续按要求暂缓 External runtime 最小权限与 worker 隔离；该项保留为安全 hardening backlog，不进入当前建议执行顺序。
 
 ---
@@ -76,7 +87,7 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 | 2. 主 Agent 协调器 | 任务拆解、DAG 并行、失败降级、冲突检测、summary、Evaluation MVP、Agent-to-Agent Review Thread / repair live E2E 已完成 | 基本达标 | 前端 handoff timeline 已交接给 F |
 | 3. 多 Agent 接入 | Claude Code / Codex / OpenCode 接入；自建 Agent 和 `allowed_tools` MVP 完成 | 基本达标 | external runtime 最小权限暂缓 |
 | 4. 产物预览与编辑 | HTML / Diff / preview / deployment card 强；Workflow card、runtime dry-run、run history / health API MVP 已完成；文档、PPT、图片、archive 后端 MVP 和公网 API/SSE E2E 已完成；版本历史、局部编辑弱 | 部分达标 | 前端产品化 |
-| 5. 部署发布 | static release、source zip、container deployment、status card、repair/redeploy 已完成演示 MVP；生产默认与队列化 worker hardening 已通过公网 direct API E2E | 基本达标 | 后续仅剩更强生产隔离和外部队列 |
+| 5. 部署发布 | static release、source zip、container deployment、status card、repair/redeploy 已完成演示 MVP；生产默认、队列化 worker hardening 和 one-click from-zero container repair loop 均有公网 E2E 证据 | 基本达标 | 后续仅剩更强生产隔离、更多项目类型和外部队列 |
 | 6. 多端支持 | Web 端为主；桌面/移动端非 B2 主责 | 部分达标 | B2 不作为当前主线 |
 
 ---
@@ -570,14 +581,26 @@ followup_attempt_agents: [opencode-helper]
     conversation `ce767e6f-b03c-41fb-af85-fe637983c356`，container `publishing -> published`，
     worker `inproc-container-71038d04c528`，`attempt_count=1`，`state_event_count=12`，
     healthcheck / stop cleanup 均通过。
-- 可选 repair/redeploy confirmation 本轮记录为未通过：`/tmp/agenthub_b2_todo_05_orch_repair_report.json`
-  观察到 `build_failed` / `container_build_failed`，但未触发 `reflection_created` 和 redeploy；不作为本轮主验收阻断。
+- 2026-06-10 one-click container from-zero repair loop 已通过公网 E2E：
+  - Report：`/tmp/agenthub_one_click_container_deploy_repair_report.json`，SSE
+    `/tmp/agenthub_one_click_container_deploy_repair_sse.jsonl`。
+  - conversation `f5c2de5e-f1c6-4c71-bd00-26cdb51c3a1c`，automation message
+    `7441aa2f-0166-4d21-bdfa-1b63dd069e37`。
+  - 初始 workspace 无 `Dockerfile`，one-click endpoint 返回 `mode="orchestrator_prepare"`；隐藏 automation
+    不进入默认 message list。
+  - 首次 container health 失败后产生 `reflection_created`，`opencode-helper` repair task
+    `deployment-repair-1` 修复 server，第二次 `create_deployment(kind="container")` 发布成功。
+  - final deployment `d2548f58-1387-4354-be96-9b888d5ceee6` 为 `published`，health 返回 `ok`，
+    stop cleanup 和 8081-8085 端口残留检查通过。
+- 历史可选 repair/redeploy confirmation `/tmp/agenthub_b2_todo_05_orch_repair_report.json` 曾记录为未通过；
+  新的 one-click from-zero repair loop 已补齐同类 `failed -> reflection -> repair -> redeploy -> published`
+  公网证据。
 
 长期 follow-up：
 
 - Rootless Podman 生产部署实机验证。
 - 外部队列 worker（Redis/Celery/RQ 等）替换当前 in-process MVP。
-- Orchestrator repair/redeploy 在 queued worker 新语义下的稳定复验。
+- 更多非静态站点项目类型的一键容器部署 / repair 复验。
 - 更强宿主隔离。
 - 前端部署历史 / 状态卡的更细粒度 repair 展示。
 
@@ -699,7 +722,7 @@ git diff --check
 
 4. B2-TODO-05 Deployment / Release 生产 hardening 长期 follow-up
 
-   当前 production-default 和 trusted Docker demo override direct public API E2E 已通过；后续只保留 Rootless Podman 实机验证、外部队列 worker、更强宿主隔离和前端部署历史/状态卡增强。
+   当前 production-default、trusted Docker demo override、Orchestrator queued worker 和 one-click from-zero repair loop 公网 E2E 已通过；后续只保留 Rootless Podman 实机验证、外部队列 worker、更强宿主隔离、更多项目类型和前端部署历史/状态卡增强。
 
 暂缓：B2-DEFER-01 External Runtime 最小权限与 Worker 隔离。
 
@@ -721,8 +744,8 @@ git diff --check
 | 部署状态卡片 | 可以 | 已达演示 MVP |
 | Static release | 可以 | 已达演示 MVP |
 | Source zip 下载 | 可以 | 已达演示 MVP |
-| Container deployment | 可以 | production-default / demo override direct API E2E 已通过，后续生产隔离/外部队列 |
-| Deployment repair/redeploy | 可以 | 已达演示 MVP，历史 API/SSE E2E 已过 |
+| Container deployment | 可以 | production-default / demo override / one-click from-zero API/SSE E2E 已通过，后续生产隔离/外部队列 |
+| Deployment repair/redeploy | 可以 | 已达演示 MVP，one-click repair/redeploy 公网 E2E 已过 |
 | Orchestrator 子 Agent 分段显示 | 可以 | 保持 attribution / grouped rendering 回归测试 |
 | Workflow 产物 | artifact / preview / runtime dry-run MVP 可以 | 后续按需扩展外部 step / 平台 tool step |
 | Agent-to-Agent review | 可以 | 后端 repair live E2E 已过，前端 timeline 已交接给 F |

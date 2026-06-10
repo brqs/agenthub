@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import re
+import socket
 import stat
 import time
 import zipfile
@@ -75,6 +76,9 @@ P1_SCENARIO = (
 P2_SCENARIO = P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
 FULLSTACK_SCENARIO = SCENARIO == "fullstack"
 DEPLOYMENT_REPAIR_SCENARIO = SCENARIO == "deployment_repair"
+ONE_CLICK_CONTAINER_DEPLOY_REPAIR_LOOP_SCENARIO = (
+    SCENARIO == "one_click_container_deploy_repair_loop"
+)
 CUSTOM_AGENT_TOOLS_SCENARIO = SCENARIO == "custom_agent_tools"
 DEPLOYMENT_SCENARIO = SCENARIO in {"deployment", "deployment_repair"}
 EXPECT_CONTAINER_STATUS = SETTINGS.expect_container_status
@@ -275,6 +279,11 @@ DEPLOYMENT_REPAIR_PROMPT = (
     "再由 reflection/repair agent 根据 deployment logs 修复 Dockerfile 或应用健康检查路由，"
     "然后重新调用 create_deployment(kind=container)，直到返回 published 的容器 URL。"
     "不要手动运行 Docker 或启动长驻服务。"
+)
+ONE_CLICK_CONTAINER_DEPLOY_REPAIR_PROMPT = (
+    "POST /api/v1/workspaces/{conversation_id}/deployments/one-click-container: "
+    "无 Dockerfile 初始 workspace，一键触发隐藏 Orchestrator 生成 Dockerfile、"
+    "容器部署、deployment health repair loop、redeploy、published 和 stop cleanup。"
 )
 CUSTOM_AGENT_TOOLS_PROMPT = (
     "@orchestrator 请创建一个新的自建 Agent，名字为 LiveReader-{timestamp}，"
@@ -559,6 +568,8 @@ PROMPT = SETTINGS.prompt_override or (
     if FULLSTACK_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
     if CUSTOM_AGENT_TOOLS_SCENARIO
+    else ONE_CLICK_CONTAINER_DEPLOY_REPAIR_PROMPT
+    if ONE_CLICK_CONTAINER_DEPLOY_REPAIR_LOOP_SCENARIO
     else DEPLOYMENT_REPAIR_PROMPT
     if DEPLOYMENT_REPAIR_SCENARIO
     else DEPLOYMENT_PROMPT
@@ -1036,6 +1047,14 @@ def is_url_unavailable(url: Any) -> bool:
     except httpx.HTTPError:
         return True
     return response.status_code in {404, 410}
+
+
+def is_local_port_closed(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return False
+    except OSError:
+        return True
 
 
 def list_workflow_runs(
@@ -4403,6 +4422,352 @@ def maybe_run_frontend_ui_smoke(report: dict[str, Any]) -> None:
         write_json(FRONTEND_HANDOFF_REPORT_PATH, handoff)
 
 
+def run_one_click_container_deploy_repair_loop_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"One Click Container Deploy Repair {int(started_at)}",
+            "mode": "group",
+            "agent_ids": AGENT_IDS,
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+
+    put_workspace_file(
+        client,
+        conv_id,
+        headers,
+        "index.html",
+        (
+            "<!doctype html><html><head><meta charset='utf-8'>"
+            "<link rel='stylesheet' href='styles.css'></head>"
+            "<body><main><h1>One Click Container Deploy</h1>"
+            "<section>任务 代码 Diff 预览</section>"
+            "<button id='launch'>Launch</button></main>"
+            "<script src='app.js'></script></body></html>"
+        ),
+    )
+    put_workspace_file(
+        client,
+        conv_id,
+        headers,
+        "styles.css",
+        "body{font-family:sans-serif;margin:2rem}button{padding:.75rem 1rem}",
+    )
+    put_workspace_file(
+        client,
+        conv_id,
+        headers,
+        "app.js",
+        "document.getElementById('launch').addEventListener('click',()=>{})",
+    )
+    put_workspace_file(
+        client,
+        conv_id,
+        headers,
+        "agenthub_container_server.py",
+        "definitely not valid python\n",
+    )
+
+    initial_tree = client.get(f"/api/v1/workspaces/{conv_id}/tree", headers=headers)
+    initial_tree.raise_for_status()
+    initial_files = flatten_tree(initial_tree.json()["tree"])
+    initial_paths = {str(item.get("path")) for item in initial_files}
+    report["initial_workspace_files"] = sorted(initial_paths)
+    report["checks"]["initial_workspace_without_dockerfile"] = "Dockerfile" not in initial_paths
+
+    one_click = client.post(
+        f"/api/v1/workspaces/{conv_id}/deployments/one-click-container",
+        headers=headers,
+    )
+    report["one_click_status_code"] = one_click.status_code
+    report["one_click_response"] = (
+        one_click.json()
+        if one_click.headers.get("content-type", "").startswith("application/json")
+        else {"text": one_click.text}
+    )
+    one_click.raise_for_status()
+    one_click_body = report["one_click_response"]
+    automation_message_id = one_click_body.get("automation_message_id")
+    report["automation_message_id"] = automation_message_id
+    report["checks"]["one_click_mode_orchestrator_prepare"] = (
+        one_click_body.get("mode") == "orchestrator_prepare"
+        and isinstance(automation_message_id, str)
+    )
+
+    default_messages = client.get(
+        f"/api/v1/conversations/{conv_id}/messages",
+        headers=headers,
+    )
+    default_messages.raise_for_status()
+    default_items = default_messages.json().get("items", [])
+    report["default_message_ids"] = [
+        item.get("id") for item in default_items if isinstance(item, dict)
+    ]
+    report["checks"]["hidden_automation_not_listed_by_default"] = (
+        automation_message_id not in report["default_message_ids"]
+    )
+
+    hidden_messages = client.get(
+        f"/api/v1/conversations/{conv_id}/messages",
+        headers=headers,
+        params={"include_hidden": True},
+    )
+    hidden_messages.raise_for_status()
+    hidden_items = hidden_messages.json().get("items", [])
+    hidden_target = next(
+        (
+            item
+            for item in hidden_items
+            if isinstance(item, dict) and item.get("id") == automation_message_id
+        ),
+        None,
+    )
+    report["hidden_automation_message_initial"] = hidden_target
+    report["checks"]["hidden_automation_message_exists"] = bool(
+        hidden_target
+        and ((hidden_target.get("turn_options") or {}).get("ui_hidden") is True)
+        and (hidden_target.get("turn_options") or {}).get("automation_kind")
+        == "one_click_container_deploy"
+    )
+
+    events: list[dict[str, Any]] = []
+    if isinstance(automation_message_id, str):
+        try:
+            with client.stream(
+                "GET",
+                f"/api/v1/messages/{automation_message_id}/stream",
+                headers=headers,
+            ) as stream:
+                report["stream_status_code"] = stream.status_code
+                stream.raise_for_status()
+                events = parse_sse(stream, started_at)
+        except httpx.HTTPError as exc:
+            report["stream_exception"] = {
+                "type": type(exc).__name__,
+                "message": str(exc),
+            }
+            report["warnings"].append("automation_stream_closed_before_complete")
+    report["stream_event_count"] = len(events)
+    tool_results = tool_results_by_name(events)
+    create_deployment_events = [
+        event
+        for event in events
+        if event.get("event") == "tool_call"
+        and isinstance(event.get("data"), dict)
+        and event["data"].get("tool_name") == "create_deployment"
+    ]
+    report["create_deployment_event_count"] = len(create_deployment_events)
+    report["checks"]["sse_create_deployment_called"] = bool(create_deployment_events)
+
+    messages_after = client.get(
+        f"/api/v1/conversations/{conv_id}/messages",
+        headers=headers,
+        params={"include_hidden": True},
+    )
+    messages_after.raise_for_status()
+    items_after = messages_after.json().get("items", [])
+    automation_message = next(
+        (
+            item
+            for item in items_after
+            if isinstance(item, dict) and item.get("id") == automation_message_id
+        ),
+        None,
+    )
+    report["automation_message"] = automation_message
+    report["checks"]["automation_message_done"] = bool(
+        automation_message and automation_message.get("status") == "done"
+    )
+
+    final_tree = client.get(f"/api/v1/workspaces/{conv_id}/tree", headers=headers)
+    final_tree.raise_for_status()
+    final_files = flatten_tree(final_tree.json()["tree"])
+    final_paths = {str(item.get("path")) for item in final_files}
+    report["workspace_files"] = sorted(final_paths)
+    report["checks"]["workspace_has_dockerfile"] = "Dockerfile" in final_paths
+    report["checks"]["workspace_has_container_server"] = (
+        "agenthub_container_server.py" in final_paths
+    )
+
+    runs = client.get(f"/api/v1/conversations/{conv_id}/orchestrator-runs", headers=headers)
+    if runs.status_code == 200:
+        run_items = runs.json().get("items", [])
+        report["orchestrator_runs"] = run_items
+        if run_items and isinstance(run_items[0], dict):
+            run_id = run_items[0].get("id")
+            if isinstance(run_id, str):
+                detail = client.get(
+                    f"/api/v1/conversations/{conv_id}/orchestrator-runs/{run_id}",
+                    headers=headers,
+                )
+                report["orchestrator_run_detail_status_code"] = detail.status_code
+                if detail.status_code == 200:
+                    report["orchestrator_run_detail"] = detail.json()
+
+    deployments_response = client.get(
+        f"/api/v1/workspaces/{conv_id}/deployments",
+        headers=headers,
+    )
+    deployments_response.raise_for_status()
+    deployment_items = deployments_response.json().get("items", [])
+    deployment_items = deployment_items if isinstance(deployment_items, list) else []
+    deadline = time.monotonic() + CONTAINER_POLL_TIMEOUT_SECONDS
+    published_container: dict[str, Any] | None = None
+    while time.monotonic() < deadline:
+        refreshed = client.get(
+            f"/api/v1/workspaces/{conv_id}/deployments",
+            headers=headers,
+        )
+        refreshed.raise_for_status()
+        deployment_items = refreshed.json().get("items", [])
+        deployment_items = deployment_items if isinstance(deployment_items, list) else []
+        container_items = [
+            item
+            for item in deployment_items
+            if isinstance(item, dict) and item.get("kind") == "container"
+        ]
+        published_container = next(
+            (item for item in container_items if item.get("status") == "published"),
+            None,
+        )
+        if published_container is not None:
+            break
+        time.sleep(CONTAINER_POLL_INTERVAL_SECONDS)
+    report["deployments"] = deployment_items
+    container_items = [
+        item
+        for item in deployment_items
+        if isinstance(item, dict) and item.get("kind") == "container"
+    ]
+    failed_container_items = [
+        item for item in container_items if item.get("status") == "failed"
+    ]
+    report["container_deployments"] = container_items
+    report["failed_container_deployments"] = failed_container_items
+    report["container_deployment"] = published_container
+    report["checks"]["container_deployment_published"] = bool(published_container)
+
+    health_ok = False
+    url_ok = False
+    stop_cleanup_ok = False
+    if published_container:
+        container_url = published_container.get("url")
+        healthcheck_url = published_container.get("healthcheck_url")
+        report["container_deployment_url"] = container_url
+        report["container_healthcheck_url"] = healthcheck_url
+        if isinstance(container_url, str) and container_url.startswith("http"):
+            response = httpx.get(container_url, timeout=10, trust_env=False)
+            url_ok = response.status_code == 200
+        if isinstance(healthcheck_url, str) and healthcheck_url.startswith("http"):
+            response = httpx.get(healthcheck_url, timeout=10, trust_env=False)
+            report["container_health_response_text"] = response.text[:200]
+            health_ok = response.status_code == 200 and "ok" in response.text.lower()
+        deployment_id = published_container.get("id")
+        if isinstance(deployment_id, str):
+            stopped = client.delete(
+                f"/api/v1/workspaces/{conv_id}/deployments/{deployment_id}",
+                headers=headers,
+            )
+            report["container_stop_status_code"] = stopped.status_code
+            stop_cleanup_ok = stopped.status_code == 200 and is_url_unavailable(container_url)
+    report["checks"]["container_url_200"] = url_ok
+    report["checks"]["container_health_ok"] = health_ok
+    report["checks"]["container_stop_cleanup_ok"] = stop_cleanup_ok
+
+    preview_cleanup = client.delete(
+        f"/api/v1/workspaces/{conv_id}/preview",
+        headers=headers,
+    )
+    report["preview_cleanup_status_code"] = preview_cleanup.status_code
+
+    run_detail = report.get("orchestrator_run_detail")
+    run_events = run_detail.get("events", []) if isinstance(run_detail, dict) else []
+    tasks = run_detail.get("tasks", []) if isinstance(run_detail, dict) else []
+    reflection_events = [
+        event
+        for event in run_events
+        if isinstance(event, dict) and event.get("event_type") == "reflection_created"
+    ]
+    repair_tasks = [
+        task
+        for task in tasks
+        if isinstance(task, dict)
+        and (
+            task.get("task_type") == "repair"
+            or "repair" in str(task.get("task_id") or "").lower()
+            or "修复" in str(task.get("title") or "")
+        )
+    ]
+    deployment_tool_blocks = [
+        block
+        for block in ((automation_message or {}).get("content") or [])
+        if isinstance(block, dict)
+        and block.get("type") == "tool_call"
+        and block.get("tool_name") == "create_deployment"
+    ]
+    report["deployment_reflections"] = reflection_events
+    report["repair_tasks"] = repair_tasks
+    report["deployment_tool_block_count"] = len(deployment_tool_blocks)
+    report["checks"]["deployment_initial_failure_or_repair_trigger_seen"] = bool(
+        failed_container_items or reflection_events
+    )
+    report["checks"]["reflection_created"] = bool(reflection_events)
+    report["checks"]["repair_agent_attempt_exists"] = bool(repair_tasks)
+    report["checks"]["redeploy_called"] = (
+        len(deployment_tool_blocks) >= 2 or len(create_deployment_events) >= 2
+    )
+    report["checks"]["local_deployment_ports_clean"] = all(
+        is_local_port_closed(port) for port in range(8081, 8086)
+    )
+    report["tool_results"] = {name: len(items) for name, items in tool_results.items()}
+
+    acceptance_keys = (
+        "initial_workspace_without_dockerfile",
+        "one_click_mode_orchestrator_prepare",
+        "hidden_automation_message_exists",
+        "hidden_automation_not_listed_by_default",
+        "workspace_has_dockerfile",
+        "workspace_has_container_server",
+        "sse_create_deployment_called",
+        "deployment_initial_failure_or_repair_trigger_seen",
+        "reflection_created",
+        "repair_agent_attempt_exists",
+        "redeploy_called",
+        "container_deployment_published",
+        "container_url_200",
+        "container_health_ok",
+        "container_stop_cleanup_ok",
+        "local_deployment_ports_clean",
+    )
+    report["acceptance"] = {
+        key: bool(report["checks"].get(key, False)) for key in acceptance_keys
+    }
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+    if not report["acceptance"]["passed"]:
+        report["bugs"].append(
+            {
+                "code": "one_click_container_deploy_repair_loop_failed",
+                "symptom": (
+                    "One-click container deployment did not complete the expected "
+                    "prepare -> fail/repair -> redeploy -> published -> cleanup loop."
+                ),
+                "checks": report["acceptance"],
+            }
+        )
+
+
 def main() -> None:
     started_at = time.time()
     SSE_PATH.write_text("", encoding="utf-8")
@@ -4443,6 +4808,21 @@ def main() -> None:
             raise RuntimeError(f"missing target agents: {missing_agents}")
         if CUSTOM_AGENT_TOOLS_SCENARIO:
             run_custom_agent_tools_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if ONE_CLICK_CONTAINER_DEPLOY_REPAIR_LOOP_SCENARIO:
+            run_one_click_container_deploy_repair_loop_case(
+                client,
+                headers,
+                report,
+                started_at,
+            )
             report["finished_at"] = utc_now()
             report["duration_seconds"] = round(time.time() - started_at, 3)
             report["passed"] = bool(report.get("acceptance", {}).get("passed"))
@@ -5524,12 +5904,11 @@ def main() -> None:
             )
 
         if COMMAND_FULFILLMENT_FLOW_SCENARIO:
-            run_detail = (
-                report.get("orchestrator_run_detail")
-                if isinstance(report.get("orchestrator_run_detail"), dict)
-                else {}
+            raw_run_detail = report.get("orchestrator_run_detail")
+            command_run_detail: dict[str, Any] = (
+                raw_run_detail if isinstance(raw_run_detail, dict) else {}
             )
-            fulfillment_statuses = command_fulfillment_statuses(run_detail)
+            fulfillment_statuses = command_fulfillment_statuses(command_run_detail)
             report["command_fulfillment_statuses"] = fulfillment_statuses
             content_blocks = (target or {}).get("content") or []
             deployment_tool_blocks = [
@@ -5567,7 +5946,7 @@ def main() -> None:
                 child_process_delta_count >= 2
             )
             report["checks"]["command_review_independent"] = (
-                command_fulfillment_review_independent(run_detail)
+                command_fulfillment_review_independent(command_run_detail)
             )
             report["checks"]["command_document_file_present"] = any(
                 name.endswith(".md") and ("design" in name or "plan" in name or "文档" in name)
@@ -5613,7 +5992,7 @@ def main() -> None:
             else:
                 report["checks"]["command_static_site_url_200"] = False
             command_parent_visible_text = visible_agent_text(content_blocks)
-            contradictory_terms = []
+            contradictory_terms: list[str] = []
             if fulfillment_statuses.get("deployment") == "satisfied":
                 contradictory_terms.extend(
                     term

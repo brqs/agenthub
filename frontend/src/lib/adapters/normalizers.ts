@@ -31,6 +31,11 @@ export function normalizeMessage(message: Message): Message {
     turn_options: {
       requirement_alignment:
         message.turn_options?.requirement_alignment === 'strict' ? 'strict' : 'off',
+      ui_hidden: message.turn_options?.ui_hidden === true,
+      automation_kind:
+        message.turn_options?.automation_kind === 'one_click_container_deploy'
+          ? 'one_click_container_deploy'
+          : null,
     },
   };
 }

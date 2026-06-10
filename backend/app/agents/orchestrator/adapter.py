@@ -716,7 +716,14 @@ class OrchestratorAdapter(BaseAgentAdapter):
             merged_config.get("orchestrator_parallel_enabled") is True
             and len(tasks) > 1
         )
-        if react_enabled(merged_config) and not use_parallel_static:
+        has_dialogue_tasks = any(
+            task.task_type in {"conversation", "dialogue_turn"} for task in tasks
+        )
+        if (
+            react_enabled(merged_config)
+            and not use_parallel_static
+            and not has_dialogue_tasks
+        ):
             async for chunk, updated_block_index in run_react_loop(
                 merged_config,
                 tasks,

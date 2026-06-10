@@ -19,7 +19,10 @@ from app.agents.orchestrator.artifacts import (
     extract_artifact_paths_from_text,
     finalize_artifact_candidates,
 )
-from app.agents.orchestrator.availability import mark_runtime_cooldown
+from app.agents.orchestrator.availability import (
+    clear_runtime_cooldowns,
+    mark_runtime_cooldown,
+)
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
     SubTask,
@@ -1050,6 +1053,43 @@ async def test_orchestrator_parallel_takes_precedence_over_react_for_multi_task(
     assert started == {"agent-a", "agent-b"}
     assert react_gateway.calls == []
     assert chunks[-1].event_type == "done"
+
+
+async def test_orchestrator_conversation_tasks_bypass_react_loop() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        _text_chunks(
+            "我的观点是这类群聊任务应该直接给出实质发言，而不是创建文件。"
+            "我会围绕主题提出明确立场、理由和回应空间，方便下一位成员接力。"
+        ),
+    )
+    react_gateway = FakePlannerGateway([])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content="组织一次群聊讨论，不需要生成文件。")],
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "orchestrator_response_polish_enabled": False,
+            "tasks": [
+                _task(
+                    "dialogue",
+                    "agent-a",
+                    "群聊发言",
+                    "请在群聊中给出你的实质观点，不要生成文件。",
+                    task_type="conversation",
+                    expected_output="",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a},
+        },
+    )
+
+    assert react_gateway.calls == []
+    assert chunks[-1].event_type == "done"
+    assert "实质发言" in "".join(chunk.text_delta or "" for chunk in chunks)
 
 
 async def test_orchestrator_parallel_skips_failed_dependency() -> None:
@@ -2588,6 +2628,57 @@ async def test_orchestrator_subagent_error_triggers_per_task_fallback() -> None:
     assert "A retry/repair completed successfully." in summary
 
 
+async def test_orchestrator_direct_chat_timeout_does_not_runtime_cooldown_agent() -> None:
+    clear_runtime_cooldowns()
+    adapter_a = SequencedSubAdapter(
+        "agent-a",
+        [
+            [
+                StreamChunk(event_type="start", agent_id="agent-a"),
+                StreamChunk(
+                    event_type="error",
+                    agent_id="agent-a",
+                    error_code="direct_chat_timeout",
+                    error="direct_chat_timeout: qa_stream_idle_timeout_seconds=45",
+                ),
+            ],
+            _text_chunks(
+                "第二轮正常完成：我继续围绕同一主题给出实质观点和补充理由。"
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter(
+        "agent-b",
+        _text_chunks("第一轮由 fallback agent-b 接手完成。"),
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    try:
+        chunks = await _collect(
+            orchestrator,
+            config={
+                "tasks": [
+                    _task("task-a", "agent-a", "Work A", "Do work A"),
+                    _task("task-b", "agent-a", "Work B", "Do work B"),
+                ],
+                "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+                "task_fallback_agent_ids": ["agent-b"],
+                "max_task_attempts": 2,
+            },
+        )
+    finally:
+        clear_runtime_cooldowns()
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b", "agent-a"]
+    assert len(adapter_a.received_messages) == 2
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "第一轮由 fallback agent-b 接手完成" in summary
+    assert "第二轮正常完成" in summary
+
+
 async def test_orchestrator_runtime_failure_falls_back_to_available_agent_without_list() -> None:
     adapter_a = FakeSubAdapter(
         "agent-a",
@@ -2622,6 +2713,7 @@ async def test_orchestrator_runtime_failure_falls_back_to_available_agent_withou
 
 
 async def test_orchestrator_global_cooldown_does_not_exhaust_all_fallbacks() -> None:
+    clear_runtime_cooldowns()
     mark_runtime_cooldown("agent-b", "previous run failed")
     adapter_a = FakeSubAdapter(
         "agent-a",
@@ -2638,15 +2730,18 @@ async def test_orchestrator_global_cooldown_does_not_exhaust_all_fallbacks() -> 
     adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered despite cooldown"))
     orchestrator = OrchestratorAdapter(agent_id="orchestrator")
 
-    chunks = await _collect(
-        orchestrator,
-        config={
-            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
-            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
-            "managed_agent_ids": ["agent-a", "agent-b"],
-            "max_task_attempts": 2,
-        },
-    )
+    try:
+        chunks = await _collect(
+            orchestrator,
+            config={
+                "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+                "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+                "managed_agent_ids": ["agent-a", "agent-b"],
+                "max_task_attempts": 2,
+            },
+        )
+    finally:
+        clear_runtime_cooldowns()
 
     assert chunks[-1].event_type == "done"
     assert [
@@ -4592,6 +4687,74 @@ async def test_orchestrator_dynamic_debate_respects_explicit_one_exchange() -> N
     assert len(opencode.received_messages) == 1
     final_text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert "辩论评判" in final_text
+
+
+async def test_orchestrator_non_debate_dialogue_stops_after_each_participant_once() -> None:
+    request = (
+        "@orchestrator 不需要生成文件，请让两个智能体进行头脑风暴："
+        "为 AgentHub 的新用户 onboarding 提出策略。每个智能体必须直接给出"
+        "具体建议、理由和风险，不要写报告。"
+    )
+    claude = SequencedSubAdapter(
+        "claude-code",
+        [
+            _text_chunks(
+                "我的建议是用角色化 onboarding，让用户先选择 PM、开发或运营身份，"
+                "再展示对应的首个任务模板。这样能降低理解成本，但风险是标签过多"
+                "会拖慢首次启动。@opencode-helper 请补充另一个角度。"
+            ),
+        ],
+    )
+    opencode = SequencedSubAdapter(
+        "opencode-helper",
+        [
+            _text_chunks(
+                "我建议增加一个三分钟沙盒任务，让新用户直接看到多 Agent 协作结果。"
+                "理由是即时反馈比功能讲解更容易建立信任；风险是演示数据若太假，"
+                "用户会怀疑真实效果。@claude-code 你继续。"
+            ),
+        ],
+    )
+
+    chunks = await _collect(
+        OrchestratorAdapter(agent_id="orchestrator"),
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "planner_fallback_to_template": True,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "tasks": [
+                _task(
+                    "dialogue-turn-1",
+                    "claude-code",
+                    "第 1 轮发言：第一位成员",
+                    "你的角色/立场：第一位讨论成员，给出清晰观点、理由和具体建议。",
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+                _task(
+                    "dialogue-turn-2",
+                    "opencode-helper",
+                    "第 2 轮发言：回应成员",
+                    "你的角色/立场：后续讨论成员，从不同角度补充、质疑或提出替代方案。",
+                    depends_on=["dialogue-turn-1"],
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+            ],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert len(claude.received_messages) == 1
+    assert len(opencode.received_messages) >= 1
+    final_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "辩论评判" not in final_text
 
 
 async def test_dialogue_turn_does_not_fallback_to_opposing_participant() -> None:

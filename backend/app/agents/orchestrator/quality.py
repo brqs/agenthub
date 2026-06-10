@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -16,6 +17,9 @@ from app.agents.orchestrator._internal.execution.fulfillment import (
 from app.agents.orchestrator._internal.memory import record_event as _memory_record_event
 from app.agents.orchestrator._internal.presentation_markers import (
     artifact_evidence_presentation as _artifact_evidence_presentation,
+)
+from app.agents.orchestrator._internal.quality.deployment import (
+    CONTAINER_INTENT_RE,
 )
 from app.agents.orchestrator._internal.quality.deployment import (
     deployment_health_result as _deployment_health_result,
@@ -78,6 +82,7 @@ REPAIR_AGENT_MISSING_TEXT = (
     "浏览器级质量验收暂时无法继续自动修复：当前没有可用的质量修复 Agent。"
     "我已经保留了本轮验收证据；请检查可用 Agent 配置，或先补齐静态前端产物后重试。"
 )
+ONE_CLICK_CONTAINER_AUTOMATION_KIND = "one_click_container_deploy"
 
 PositiveIntConfig = Callable[[Mapping[str, Any], str, int], int]
 
@@ -108,6 +113,12 @@ class RunTaskWithPrefix(Protocol):
     ) -> AsyncIterator[tuple[StreamChunk, int]]: ...
 
 
+@dataclass
+class DeploymentRepairState:
+    result: EvaluationResult | None = None
+    repair_rounds: int = 0
+
+
 async def run_quality_gate(
     config: Mapping[str, Any],
     messages: list[ChatMessage],
@@ -123,7 +134,8 @@ async def run_quality_gate(
     """Run the browser_preview_quality evaluator for frontend deploy requests."""
 
     user_request = _latest_user_request(messages)
-    if not _should_run_quality_gate(user_request):
+    is_one_click_container = _is_one_click_container_quality_gate(config)
+    if not is_one_click_container and not _should_run_quality_gate(user_request):
         return
     executor = config.get("orchestrator_platform_tool_executor")
     if executor is None:
@@ -140,13 +152,43 @@ async def run_quality_gate(
         yield _error("workspace_missing", "workspace_path is required"), next_block_index
         return
 
+    max_rounds = _max_repair_rounds(config, positive_int_config)
+    requested_port = _requested_port(user_request)
+    if is_one_click_container:
+        state = DeploymentRepairState()
+        async for chunk, updated_block_index in _run_deployment_repair_loop(
+            config=config,
+            executor=executor,
+            user_request=user_request,
+            entry_path=None,
+            requested_port=requested_port or 8000,
+            next_block_index=next_block_index,
+            run_context=run_context,
+            max_rounds=max_rounds,
+            messages=messages,
+            workspace_path=workspace_path,
+            tool_specs=tool_specs,
+            run_task=run_task,
+            positive_int_config=positive_int_config,
+            state=state,
+        ):
+            next_block_index = updated_block_index
+            yield chunk, updated_block_index
+        for chunk, updated_block_index in text_block_with_next(
+            next_block_index,
+            _quality_passed_text(state.result, state.repair_rounds),
+            presentation=_artifact_evidence_presentation(),
+        ):
+            next_block_index = updated_block_index
+            yield chunk, updated_block_index
+        return
+
     await _record_evaluation_started(
         config,
         run_context,
         "browser_preview_quality",
-        {"requested_port": _requested_port(user_request)},
+        {"requested_port": _requested_preview_port(user_request)},
     )
-    max_rounds = _max_repair_rounds(config, positive_int_config)
     required_text = _required_text(user_request)
     repair_round = 0
     entry_path = _find_preview_entry(workspace_path)
@@ -208,9 +250,9 @@ async def run_quality_gate(
     preview_args: dict[str, Any] = {"mode": "static"}
     if entry_path:
         preview_args["entry_path"] = entry_path
-    requested_port = _requested_port(user_request)
-    if requested_port is not None:
-        preview_args["requested_port"] = requested_port
+    requested_preview_port = _requested_preview_port(user_request)
+    if requested_preview_port is not None:
+        preview_args["requested_port"] = requested_preview_port
 
     yield _tool_call(preview_call_id, "start_workspace_preview", preview_args), next_block_index
     if entry_path is None:
@@ -344,116 +386,28 @@ async def run_quality_gate(
                     ],
                 ),
             )
-            deployment_result: EvaluationResult | None = None
-            deployment_repair_round = 0
-            while True:
-                deployment_tool_results: list[
-                    tuple[str, dict[str, Any], OrchestratorToolResult]
-                ] = []
-                call_id_suffix = (
-                    "" if deployment_repair_round == 0 else f".retry.{deployment_repair_round}"
-                )
-                async for chunk, updated_block_index in _run_deployment_tools(
-                    executor=executor,
-                    user_request=user_request,
-                    entry_path=entry_path,
-                    requested_port=requested_port,
-                    next_block_index=next_block_index,
-                    deployment_tool_results=deployment_tool_results,
-                    call_id_suffix=call_id_suffix,
-                ):
-                    next_block_index = updated_block_index
-                    yield chunk, updated_block_index
-                    if chunk.event_type == "tool_result" and chunk.tool_name:
-                        await _record_fulfillment_tool_result(
-                            config,
-                            run_context,
-                            chunk.call_id,
-                            chunk.tool_name,
-                            OrchestratorToolResult(
-                                status=chunk.tool_status or "error",
-                                output=chunk.tool_output or "",
-                                error_code=chunk.error_code,
-                            ),
-                        )
-                deployment_result = _deployment_health_result(
-                    user_request,
-                    deployment_tool_results,
-                )
-                for tool_name, _arguments, tool_result in deployment_tool_results:
-                    await _record_fulfillment_tool_result(
-                        config,
-                        run_context,
-                        None,
-                        tool_name,
-                        tool_result,
-                    )
-                if deployment_result is None:
-                    break
-                repairable = _deployment_result_repairable(deployment_result)
-                reflection = (
-                    _deployment_reflection(
-                        deployment_result,
-                        deployment_tool_results,
-                        deployment_repair_round,
-                    )
-                    if not deployment_result.passed and repairable
-                    else None
-                )
-                await _record_evaluation_started(
-                    config,
-                    run_context,
-                    "deployment_health",
-                    {
-                        "tool_count": len(deployment_tool_results),
-                        "repair_round": deployment_repair_round,
-                    },
-                )
-                await _record_evaluation_result(
-                    config,
-                    run_context,
-                    deployment_result,
-                    reflection,
-                )
-                if deployment_result.passed or not repairable:
-                    break
-                if deployment_repair_round >= max_rounds:
-                    break
-                repair_agent = _repair_agent(config)
-                if repair_agent is None:
-                    break
-                deployment_repair_round += 1
-                repair_task = SubTask(
-                    task_id=f"deployment-repair-{deployment_repair_round}",
-                    agent_id=repair_agent,
-                    title=f"Repair deployment issues round {deployment_repair_round}",
-                    instruction=(
-                        reflection.repair_instruction
-                        if reflection is not None
-                        else "Repair the workspace deployment artifacts and retry deployment."
-                    ),
-                    expected_output=_deployment_repair_expected_output(
-                        user_request,
-                        entry_path,
-                    ),
-                    include_history=True,
-                    priority=2000 + deployment_repair_round,
-                )
-                async for chunk, updated_block_index in run_task(
-                    config,
-                    repair_task,
-                    messages,
-                    next_block_index,
-                    run_context,
-                    workspace_path,
-                    tool_specs,
-                    call_id_prefix=f"deployment-repair-{deployment_repair_round}",
-                ):
-                    next_block_index = updated_block_index
-                    yield chunk, updated_block_index
+            state = DeploymentRepairState()
+            async for chunk, updated_block_index in _run_deployment_repair_loop(
+                config=config,
+                executor=executor,
+                user_request=user_request,
+                entry_path=entry_path,
+                requested_port=requested_port,
+                next_block_index=next_block_index,
+                run_context=run_context,
+                max_rounds=max_rounds,
+                messages=messages,
+                workspace_path=workspace_path,
+                tool_specs=tool_specs,
+                run_task=run_task,
+                positive_int_config=positive_int_config,
+                state=state,
+            ):
+                next_block_index = updated_block_index
+                yield chunk, updated_block_index
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
-                _quality_passed_text(deployment_result, deployment_repair_round),
+                _quality_passed_text(state.result, state.repair_rounds),
                 presentation=_artifact_evidence_presentation(),
             ):
                 next_block_index = updated_block_index
@@ -522,6 +476,143 @@ async def run_quality_gate(
         preview_refresh_needed = True
 
 
+async def _run_deployment_repair_loop(
+    *,
+    config: Mapping[str, Any],
+    executor: Any,
+    user_request: str,
+    entry_path: str | None,
+    requested_port: int | None,
+    next_block_index: int,
+    run_context: OrchestratorRunContext,
+    max_rounds: int,
+    messages: list[ChatMessage],
+    workspace_path: Path | None,
+    tool_specs: list[ToolSpec] | None,
+    run_task: RunTaskWithPrefix,
+    positive_int_config: PositiveIntConfig,
+    state: DeploymentRepairState,
+) -> AsyncIterator[tuple[StreamChunk, int]]:
+    deployment_result: EvaluationResult | None = None
+    deployment_repair_round = 0
+    while True:
+        deployment_tool_results: list[tuple[str, dict[str, Any], OrchestratorToolResult]] = []
+        call_id_suffix = (
+            "" if deployment_repair_round == 0 else f".retry.{deployment_repair_round}"
+        )
+        async for chunk, updated_block_index in _run_deployment_tools(
+            executor=executor,
+            user_request=user_request,
+            entry_path=entry_path,
+            requested_port=requested_port,
+            next_block_index=next_block_index,
+            wait_for_container_terminal=(
+                config.get("orchestrator_container_deployment_wait_for_terminal") is True
+            ),
+            container_wait_timeout_seconds=_container_wait_timeout_seconds(
+                config,
+                positive_int_config,
+            ),
+            deployment_tool_results=deployment_tool_results,
+            call_id_suffix=call_id_suffix,
+        ):
+            next_block_index = updated_block_index
+            yield chunk, updated_block_index
+            if chunk.event_type == "tool_result" and chunk.tool_name:
+                await _record_fulfillment_tool_result(
+                    config,
+                    run_context,
+                    chunk.call_id,
+                    chunk.tool_name,
+                    OrchestratorToolResult(
+                        status=chunk.tool_status or "error",
+                        output=chunk.tool_output or "",
+                        error_code=chunk.error_code,
+                    ),
+                )
+        deployment_result = _deployment_health_result(
+            user_request,
+            deployment_tool_results,
+        )
+        for tool_name, _arguments, tool_result in deployment_tool_results:
+            await _record_fulfillment_tool_result(
+                config,
+                run_context,
+                None,
+                tool_name,
+                tool_result,
+            )
+        if deployment_result is None:
+            break
+        repairable = _deployment_result_repairable(deployment_result)
+        reflection = (
+            _deployment_reflection(
+                deployment_result,
+                deployment_tool_results,
+                deployment_repair_round,
+            )
+            if not deployment_result.passed and repairable
+            else None
+        )
+        await _record_evaluation_started(
+            config,
+            run_context,
+            "deployment_health",
+            {
+                "tool_count": len(deployment_tool_results),
+                "repair_round": deployment_repair_round,
+            },
+        )
+        await _record_evaluation_result(
+            config,
+            run_context,
+            deployment_result,
+            reflection,
+        )
+        if deployment_result.passed or not repairable:
+            break
+        if deployment_repair_round >= max_rounds:
+            break
+        repair_agent = _repair_agent(config)
+        if repair_agent is None:
+            break
+        deployment_repair_round += 1
+        repair_task = SubTask(
+            task_id=f"deployment-repair-{deployment_repair_round}",
+            agent_id=repair_agent,
+            title=f"Repair deployment issues round {deployment_repair_round}",
+            instruction=(
+                reflection.repair_instruction
+                if reflection is not None
+                else "Repair the workspace deployment artifacts and retry deployment."
+            ),
+            expected_output=_deployment_repair_expected_output(
+                user_request,
+                entry_path,
+            ),
+            include_history=True,
+            priority=2000 + deployment_repair_round,
+        )
+        async for chunk, updated_block_index in run_task(
+            config,
+            repair_task,
+            messages,
+            next_block_index,
+            run_context,
+            workspace_path,
+            tool_specs,
+            call_id_prefix=f"deployment-repair-{deployment_repair_round}",
+        ):
+            next_block_index = updated_block_index
+            yield chunk, updated_block_index
+    state.result = deployment_result
+    state.repair_rounds = deployment_repair_round
+
+
+def _is_one_click_container_quality_gate(config: Mapping[str, Any]) -> bool:
+    return config.get("orchestrator_automation_kind") == ONE_CLICK_CONTAINER_AUTOMATION_KIND
+
+
 def _should_run_quality_gate(user_request: str) -> bool:
     if not user_request:
         return False
@@ -546,6 +637,28 @@ def _requested_port(text: str) -> int | None:
     if 1 <= port <= 65535:
         return port
     return None
+
+
+def _requested_preview_port(text: str) -> int | None:
+    port = _requested_port(text)
+    if port is None:
+        return None
+    if port == 8000 and CONTAINER_INTENT_RE.search(text):
+        return None
+    return port
+
+
+def _container_wait_timeout_seconds(
+    config: Mapping[str, Any],
+    positive_int_config: PositiveIntConfig,
+) -> int | None:
+    if config.get("orchestrator_container_deployment_wait_for_terminal") is not True:
+        return None
+    return positive_int_config(
+        config,
+        "orchestrator_container_deployment_wait_timeout_seconds",
+        180,
+    )
 
 
 async def _record_fulfillment_tool_result(

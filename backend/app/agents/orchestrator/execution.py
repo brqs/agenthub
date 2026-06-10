@@ -423,6 +423,8 @@ def _is_runtime_hard_failure(reason: str | None) -> bool:
     lowered = str(reason or "").lower()
     if not lowered:
         return False
+    if "direct_chat_timeout" in lowered or "qa_stream_idle_timeout" in lowered:
+        return False
     auth_markers = (
         "api key",
         "api_key",
@@ -1387,8 +1389,10 @@ async def _run_task(
                 "changes": attempt.file_changes,
             },
         )
-        if attempt.state != TaskState.SUCCEEDED and _is_runtime_hard_failure(
-            attempt.error
+        if (
+            attempt.state != TaskState.SUCCEEDED
+            and task.task_type not in {"conversation", "dialogue_turn"}
+            and _is_runtime_hard_failure(attempt.error)
         ):
             run_context.mark_runtime_failed(
                 agent_id,

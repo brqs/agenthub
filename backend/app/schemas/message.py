@@ -273,10 +273,13 @@ ContentBlock = Annotated[
 MessageRole = Literal["user", "agent", "system"]
 MessageStatus = Literal["pending", "streaming", "done", "error", "interrupted", "queued"]
 RequirementAlignmentMode = Literal["off", "strict"]
+AutomationKind = Literal["one_click_container_deploy"]
 
 
 class TurnOptions(BaseModel):
     requirement_alignment: RequirementAlignmentMode = "off"
+    ui_hidden: bool = False
+    automation_kind: AutomationKind | None = None
 
 
 class MessageOut(BaseModel):

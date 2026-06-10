@@ -43,6 +43,10 @@ vi.mock('@/lib/adapters/deployments', () => ({
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   }),
+  oneClickContainerDeployment: vi.fn().mockResolvedValue({
+    mode: 'orchestrator_prepare',
+    automation_message_id: 'automation-message-1',
+  }),
   getDeployment: vi.fn(),
   stopDeployment: vi.fn(),
   downloadSourceArchive: vi.fn(),
@@ -146,6 +150,10 @@ describe('RightAgentPanel', () => {
       logs: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+    });
+    vi.mocked(deploymentsAdapter.oneClickContainerDeployment).mockResolvedValue({
+      mode: 'orchestrator_prepare',
+      automation_message_id: 'automation-message-1',
     });
     vi.mocked(memoriesAdapter.getConversationMemoryHub).mockResolvedValue({
       scoped_active: [],
@@ -564,7 +572,7 @@ describe('RightAgentPanel', () => {
     });
   });
 
-  it('allows container deployment requests even before Dockerfile exists', async () => {
+  it('starts one-click container preparation when Dockerfile is missing', async () => {
     renderPanel(
       <RightAgentPanel
         conversation={{ ...conversation, id: 'conv-demo-flow' }}
@@ -577,13 +585,16 @@ describe('RightAgentPanel', () => {
     const containerButton = screen.getByRole('button', { name: actionButtonName('container') });
 
     expect(containerButton).not.toBeDisabled();
-    expect(containerButton).toHaveAttribute('title', '后端将检查 Dockerfile 和容器部署能力');
+    expect(containerButton).toHaveAttribute('title', '将由 Orchestrator 准备 Dockerfile 并部署');
     fireEvent.click(containerButton);
 
     await waitFor(() => {
-      expect(deploymentsAdapter.createDeployment).toHaveBeenCalledWith('conv-demo-flow', {
-        kind: 'container',
-      });
+      expect(deploymentsAdapter.oneClickContainerDeployment).toHaveBeenCalledWith(
+        'conv-demo-flow',
+      );
+    });
+    expect(deploymentsAdapter.createDeployment).not.toHaveBeenCalledWith('conv-demo-flow', {
+      kind: 'container',
     });
   });
 
@@ -619,6 +630,18 @@ describe('RightAgentPanel', () => {
   });
 
   it('shows a readable notice when container deployment is not supported', async () => {
+    vi.mocked(workspacesAdapter.getWorkspaceTree).mockResolvedValue({
+      root: '/workspaces/conv-panel',
+      tree: {
+        type: 'directory',
+        name: 'conv-panel',
+        path: '',
+        children: [
+          { type: 'file', name: 'Dockerfile', path: 'Dockerfile', size: 25, mime_type: 'text/plain' },
+          { type: 'file', name: 'index.html', path: 'index.html', size: 20, mime_type: 'text/html' },
+        ],
+      },
+    });
     vi.mocked(deploymentsAdapter.createDeployment).mockResolvedValueOnce({
       id: 'container-not-supported',
       conversation_id: 'conv-demo-flow',

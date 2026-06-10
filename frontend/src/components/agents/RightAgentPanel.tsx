@@ -38,7 +38,7 @@ import { WorkspaceFileTree, type WorkspaceNode } from '@/components/artifact/Wor
 import { findLatestTaskCard, getOrchestratorSnapshot } from './orchestratorStatus';
 import type { DemoConversation, DemoMessage } from '@/lib/mockData';
 import { getWorkspaceFilesFromMessages } from '@/lib/workspaceFiles';
-import { useCreateDeployment } from '@/hooks/useDeployments';
+import { useCreateDeployment, useOneClickContainerDeployment } from '@/hooks/useDeployments';
 import {
   useConversationMemoryMounts,
   useConversationMemoryHub,
@@ -108,6 +108,7 @@ type DeploymentActionIntent = {
   payload: WorkspaceDeploymentRequest;
   detail: string;
   disabledReason: string | null;
+  requiresPreparation?: boolean;
 };
 type DeploymentActionIntents = Record<DeploymentKind, DeploymentActionIntent>;
 
@@ -410,6 +411,7 @@ function WorkspacePanel({
   isSavingArtifact?: boolean;
 }) {
   const createDeployment = useCreateDeployment(conversationId);
+  const oneClickContainerDeployment = useOneClickContainerDeployment(conversationId);
   const [activeDeploymentKind, setActiveDeploymentKind] = useState<DeploymentKind | null>(null);
   const [deploymentNotice, setDeploymentNotice] = useState<DeploymentNotice | null>(null);
   const actionIntents = useMemo(
@@ -439,8 +441,49 @@ function WorkspacePanel({
       return;
     }
     createDeployment.reset();
+    oneClickContainerDeployment.reset();
     setDeploymentNotice(null);
     setActiveDeploymentKind(kind);
+    if (kind === 'container' && intent.requiresPreparation) {
+      oneClickContainerDeployment.mutate(undefined, {
+        onSuccess: (response) => {
+          if (
+            response.mode === 'direct' &&
+            response.deployment &&
+            (response.deployment.status === 'failed' ||
+              response.deployment.status === 'not_supported')
+          ) {
+            setDeploymentNotice({
+              kind,
+              tone: 'warning',
+              text: `${DEPLOYMENT_KIND_LABELS[kind]}请求已创建，但未发布成功：${
+                response.deployment.error || response.deployment.status
+              }`,
+            });
+            return;
+          }
+          setDeploymentNotice({
+            kind,
+            tone: 'success',
+            text:
+              response.mode === 'orchestrator_prepare'
+                ? '正在准备 Dockerfile 并部署，可在发布历史查看状态'
+                : '容器化部署已提交，可在发布历史查看状态',
+          });
+        },
+        onError: (error) => {
+          setDeploymentNotice({
+            kind,
+            tone: 'error',
+            text: `${DEPLOYMENT_KIND_LABELS[kind]}请求失败：${extractApiError(error)}`,
+          });
+        },
+        onSettled: () => {
+          setActiveDeploymentKind(null);
+        },
+      });
+      return;
+    }
     createDeployment.mutate(intent.payload, {
       onSuccess: (deployment) => {
         if (deployment.status === 'failed' || deployment.status === 'not_supported') {
@@ -952,8 +995,11 @@ function buildDeploymentActionIntents(
     },
     container: {
       payload: { kind: 'container' },
-      detail: dockerfile ? '容器入口：Dockerfile' : '后端将检查 Dockerfile 和容器部署能力',
+      detail: dockerfile
+        ? '容器入口：Dockerfile'
+        : '将由 Orchestrator 准备 Dockerfile 并部署',
       disabledReason: null,
+      requiresPreparation: !dockerfile,
     },
   };
 }
