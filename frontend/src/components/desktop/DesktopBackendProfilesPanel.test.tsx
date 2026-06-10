@@ -27,6 +27,7 @@ describe('DesktopBackendProfilesPanel', () => {
         },
       ],
       activeBackendProfileId: 'default',
+      checkBackend: vi.fn(),
       saveBackendProfile,
       activateBackendProfile,
       deleteBackendProfile: vi.fn(async () => false),
@@ -62,6 +63,7 @@ describe('DesktopBackendProfilesPanel', () => {
         },
       ],
       activeBackendProfileId: 'default',
+      checkBackend: vi.fn(),
       saveBackendProfile: vi.fn(),
       activateBackendProfile: vi.fn(),
       deleteBackendProfile: vi.fn(),
@@ -70,5 +72,35 @@ describe('DesktopBackendProfilesPanel', () => {
     render(<DesktopBackendProfilesPanel />);
 
     expect(screen.getByText(/HTTP 明文连接/)).toBeInTheDocument();
+  });
+
+  it('can test the active backend profile from the profile list', async () => {
+    const checkBackend = vi.fn(async () => ({
+      url: 'http://localhost:8000',
+      reachable: true,
+      status: 'ready' as const,
+    }));
+    useDesktopEnvironmentMock.mockReturnValue({
+      backendProfiles: [
+        {
+          id: 'default',
+          name: '本地 AgentHub',
+          url: 'http://localhost:8000',
+          mode: 'local',
+        },
+      ],
+      activeBackendProfileId: 'default',
+      checkBackend,
+      saveBackendProfile: vi.fn(),
+      activateBackendProfile: vi.fn(),
+      deleteBackendProfile: vi.fn(),
+    } as unknown as DesktopEnvironmentState);
+
+    render(<DesktopBackendProfilesPanel />);
+    fireEvent.click(screen.getByRole('button', { name: '测试' }));
+
+    await waitFor(() => {
+      expect(checkBackend).toHaveBeenCalledWith('http://localhost:8000');
+    });
   });
 });
