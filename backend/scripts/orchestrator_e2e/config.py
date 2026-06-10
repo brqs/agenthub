@@ -24,7 +24,13 @@ DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_p2_agent_capability_profile_v2_sse.jsonl"  # noqa: S108
 )
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
+DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_sse.jsonl"  # noqa: S108
+)
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
+DEFAULT_CYBERPUNK_QUALITY_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_sse.jsonl"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
 DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_SSE_PATH = (  # noqa: S108
@@ -90,7 +96,13 @@ DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_p2_agent_capability_profile_v2_report.json"  # noqa: S108
 )
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
+DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_report.json"  # noqa: S108
+)
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
+DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_report.json"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
 DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_REPORT_PATH = (  # noqa: S108
@@ -144,7 +156,13 @@ DEFAULT_MANUAL_TWO_AGENT_TURN_TAKING_REPORT_PATH = (  # noqa: S108
 )
 
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
+DEFAULT_TASK_MANAGER_PARALLEL_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_browser.json"  # noqa: S108
+)
 DEFAULT_QUALITY_BROWSER_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
+DEFAULT_CYBERPUNK_QUALITY_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_browser.json"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_browser.json"  # noqa: S108
 DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_BROWSER_REPORT_PATH = (  # noqa: S108
@@ -177,6 +195,16 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
         DEFAULT_FULLSTACK_REPORT_PATH,
         DEFAULT_FULLSTACK_SSE_PATH,
         DEFAULT_FULLSTACK_BROWSER_REPORT_PATH,
+    ),
+    "fullstack_task_manager_parallel_repair": ScenarioDefaults(
+        DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH,
+        DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH,
+        DEFAULT_TASK_MANAGER_PARALLEL_BROWSER_REPORT_PATH,
+    ),
+    "cyberpunk_site_quality_repair_8082": ScenarioDefaults(
+        DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH,
+        DEFAULT_CYBERPUNK_QUALITY_SSE_PATH,
+        DEFAULT_CYBERPUNK_QUALITY_BROWSER_REPORT_PATH,
     ),
     "deployment": ScenarioDefaults(
         DEFAULT_DEPLOYMENT_REPORT_PATH,

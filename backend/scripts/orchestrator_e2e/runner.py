@@ -74,7 +74,9 @@ P1_SCENARIO = (
     or P1_AGENT_CAPABILITY_PROFILE_SCENARIO
 )
 P2_SCENARIO = P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
-FULLSTACK_SCENARIO = SCENARIO == "fullstack"
+TASK_MANAGER_PARALLEL_SCENARIO = SCENARIO == "fullstack_task_manager_parallel_repair"
+FULLSTACK_SCENARIO = SCENARIO in {"fullstack", "fullstack_task_manager_parallel_repair"}
+CYBERPUNK_QUALITY_SCENARIO = SCENARIO == "cyberpunk_site_quality_repair_8082"
 DEPLOYMENT_REPAIR_SCENARIO = SCENARIO == "deployment_repair"
 ONE_CLICK_CONTAINER_DEPLOY_REPAIR_LOOP_SCENARIO = (
     SCENARIO == "one_click_container_deploy_repair_loop"
@@ -133,7 +135,13 @@ DEFAULT_PRESENTATION_MARKERS_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_presentation_markers_sse.jsonl"  # noqa: S108
 )
 DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S108
+DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_sse.jsonl"  # noqa: S108
+)
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
+DEFAULT_CYBERPUNK_QUALITY_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_sse.jsonl"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
@@ -189,7 +197,13 @@ DEFAULT_PRESENTATION_MARKERS_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_presentation_markers_report.json"  # noqa: S108
 )
 DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # noqa: S108
+DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_report.json"  # noqa: S108
+)
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
+DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_report.json"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
@@ -200,8 +214,14 @@ DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH = (  # noqa: S108
 DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_fullstack_flow_browser.json"  # noqa: S108
 )
+DEFAULT_TASK_MANAGER_PARALLEL_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_browser.json"  # noqa: S108
+)
 DEFAULT_QUALITY_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
+)
+DEFAULT_CYBERPUNK_QUALITY_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_browser.json"  # noqa: S108
 )
 DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
@@ -262,6 +282,26 @@ FULLSTACK_PROMPT = "\n".join(
         "当前平台不要求启动后端长驻服务；后端交付以 workspace 代码产物、"
         "API 文档和测试说明为准。",
     )
+)
+TASK_MANAGER_PARALLEL_PROMPT = "\n".join(
+    (
+        "@orchestrator 我要做一个前后端完整的任务管理 Demo。",
+        "请先生成 planning.md，然后让两个智能体并行开发：",
+        "一个负责前端静态页面 index.html、styles.css、app.js，",
+        "另一个负责后端设计与代码 backend_app.py、api.md、backend_tests.md。",
+        "最后由第三个智能体审阅所有产物，生成 review.md。",
+        "不要启动本地服务，预览和部署由平台工具完成。",
+        "",
+        "验收要求：前端实现任务和后端实现任务互不依赖，必须作为同一轮 "
+        "DAG 中可并行执行的两个任务；review.md 必须在两者完成后生成。",
+        "本 E2E 场景只验收并行 DAG 和 workspace 代码/文档产物；不要在本场景执行"
+        "平台预览、部署或浏览器级质量验收，第二个 E2E 场景会单独覆盖 8082 质量闭环。",
+    )
+)
+CYBERPUNK_QUALITY_PROMPT = (
+    "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
+    "然后交开发工作，包含代码产物、Diff、按钮交互和移动端适配，"
+    "最后再进行审阅，最后部署在端口8082，并完成浏览器级质量验收。"
 )
 DEPLOYMENT_PROMPT = (
     "@orchestrator 请生成一个“团队 OKR 轻量看板”静态前端产品，包含 "
@@ -564,8 +604,12 @@ PROMPT = SETTINGS.prompt_override or (
     if MANUAL_TWO_AGENT_TURN_TAKING_SCENARIO
     else GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT
     if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO or AGENT_TURN_TAKING_MATRIX_SCENARIO
+    else TASK_MANAGER_PARALLEL_PROMPT
+    if TASK_MANAGER_PARALLEL_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
+    else CYBERPUNK_QUALITY_PROMPT
+    if CYBERPUNK_QUALITY_SCENARIO
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
     if CUSTOM_AGENT_TOOLS_SCENARIO
     else ONE_CLICK_CONTAINER_DEPLOY_REPAIR_PROMPT
@@ -4846,6 +4890,15 @@ def main() -> None:
         report["checks"]["orchestrator_parallel_concurrency_3"] = (
             orchestrator_config.get("orchestrator_parallel_max_concurrency") == 3
         )
+        report["checks"]["planner_context_max_tokens_128k"] = (
+            orchestrator_config.get("planner_context_max_tokens") == 128000
+        )
+        report["checks"]["orchestrator_context_max_tokens_64k"] = (
+            orchestrator_config.get("orchestrator_context_max_tokens") == 64000
+        )
+        report["checks"]["orchestrator_subagent_context_max_tokens_64k"] = (
+            orchestrator_config.get("orchestrator_subagent_context_max_tokens") == 64000
+        )
         if AGENT_FALLBACK_MATRIX_SCENARIO:
             run_agent_fallback_matrix_case(client, headers, report, started_at)
             report["finished_at"] = utc_now()
@@ -4935,8 +4988,12 @@ def main() -> None:
             headers=headers,
             json={
                 "title": (
-                    f"Orchestrator Fullstack Flow {int(started_at)}"
+                    f"Task Manager Parallel E2E {int(started_at)}"
+                    if TASK_MANAGER_PARALLEL_SCENARIO
+                    else f"Orchestrator Fullstack Flow {int(started_at)}"
                     if FULLSTACK_SCENARIO
+                    else f"Cyberpunk Quality 8082 E2E {int(started_at)}"
+                    if CYBERPUNK_QUALITY_SCENARIO
                     else f"Orchestrator Deployment Repair Flow {int(started_at)}"
                     if DEPLOYMENT_REPAIR_SCENARIO
                     else f"Orchestrator Deployment Flow {int(started_at)}"
@@ -5227,6 +5284,24 @@ def main() -> None:
                         "workspace_files": [item.get("path") for item in files],
                     }
                 )
+        if CYBERPUNK_QUALITY_SCENARIO:
+            required_cyberpunk_files = {"planning.md", "diff.md", "review.md"}
+            missing_cyberpunk_files = sorted(required_cyberpunk_files - file_names)
+            report["checks"]["workspace_has_cyberpunk_planning_diff_review"] = (
+                not missing_cyberpunk_files
+            )
+            if missing_cyberpunk_files:
+                report["bugs"].append(
+                    {
+                        "code": "missing_cyberpunk_planning_diff_review_files",
+                        "symptom": (
+                            "Workspace did not contain planning.md, diff.md, and "
+                            "review.md for the cyberpunk quality E2E scenario."
+                        ),
+                        "missing": missing_cyberpunk_files,
+                        "workspace_files": [item.get("path") for item in files],
+                    }
+                )
         entry = first_html(files)
         report["entry_html"] = entry
         report["checks"]["has_html_artifact"] = entry is not None
@@ -5240,26 +5315,44 @@ def main() -> None:
             file_response.raise_for_status()
             html_text = file_response.text
             if FULLSTACK_SCENARIO:
-                report["checks"]["html_has_okr_product"] = bool(
-                    re.search(r"OKR|目标|Objective|Key Result|看板|团队", html_text, re.I)
-                )
+                if TASK_MANAGER_PARALLEL_SCENARIO:
+                    report["checks"]["html_has_task_manager_product"] = bool(
+                        re.search(
+                            r"任务|待办|项目|优先级|状态|task|todo|kanban",
+                            html_text,
+                            re.I,
+                        )
+                    )
+                else:
+                    report["checks"]["html_has_okr_product"] = bool(
+                        re.search(
+                            r"OKR|目标|Objective|Key Result|看板|团队",
+                            html_text,
+                            re.I,
+                        )
+                    )
                 report["checks"]["html_links_css_js"] = (
                     "styles.css" in html_text and "app.js" in html_text
                 )
+                product_check_key = (
+                    "html_has_task_manager_product"
+                    if TASK_MANAGER_PARALLEL_SCENARIO
+                    else "html_has_okr_product"
+                )
                 if not all(
                     report["checks"].get(key, False)
-                    for key in ("html_has_okr_product", "html_links_css_js")
+                    for key in (product_check_key, "html_links_css_js")
                 ):
                     report["bugs"].append(
                         {
                             "code": "frontend_artifact_missing_fullstack_product_markers",
                             "symptom": (
                                 "The entry HTML did not look like the requested "
-                                "team OKR product or did not link CSS/JS artifacts."
+                                "fullstack product or did not link CSS/JS artifacts."
                             ),
                             "checks": {
                                 key: report["checks"].get(key, False)
-                                for key in ("html_has_okr_product", "html_links_css_js")
+                                for key in (product_check_key, "html_links_css_js")
                             },
                             "entry_html": entry["path"],
                         }
@@ -5277,6 +5370,20 @@ def main() -> None:
                 report["checks"]["html_has_preview"] = bool(
                     re.search(r"预览|preview|iframe|viewport|网页", html_text, re.I)
                 )
+                if CYBERPUNK_QUALITY_SCENARIO:
+                    report["checks"]["html_has_cyberpunk_theme"] = bool(
+                        re.search(
+                            r"赛博朋克|cyberpunk|霓虹|neon|未来|矩阵|matrix",
+                            html_text,
+                            re.I,
+                        )
+                    )
+                    report["checks"]["html_mentions_mobile_adaptation"] = bool(
+                        re.search(r"移动端|mobile|responsive|响应式", html_text, re.I)
+                    )
+                    report["checks"]["html_mentions_button_interaction"] = bool(
+                        re.search(r"按钮|button|click|交互", html_text, re.I)
+                    )
                 if not all(
                     report["checks"].get(key, False)
                     for key in (
@@ -5435,7 +5542,10 @@ def main() -> None:
                 "preview_uses_requested_8082",
                 "preview_8082_public_accessible",
             )
-            if not all(report["checks"].get(key, False) for key in preview_checks):
+            if (
+                not TASK_MANAGER_PARALLEL_SCENARIO
+                and not all(report["checks"].get(key, False) for key in preview_checks)
+            ):
                 report["bugs"].append(
                     {
                         "code": "platform_preview_not_auto_started",
@@ -5462,7 +5572,10 @@ def main() -> None:
                 "browser_mobile_no_horizontal_overflow",
                 "browser_button_interaction_ok",
             )
-            if not all(report["checks"].get(key, False) for key in browser_checks):
+            if (
+                not TASK_MANAGER_PARALLEL_SCENARIO
+                and not all(report["checks"].get(key, False) for key in browser_checks)
+            ):
                 report["bugs"].append(
                     {
                         "code": "browser_quality_gate_failed",
@@ -5849,9 +5962,18 @@ def main() -> None:
                 re.search(r"前端|frontend", planning_text, re.I)
                 and re.search(r"后端|backend|API", planning_text, re.I)
             )
-            report["checks"]["api_doc_mentions_okr_api"] = bool(
-                re.search(r"OKR|目标|objective|key result|API|接口", api_text, re.I)
-            )
+            if TASK_MANAGER_PARALLEL_SCENARIO:
+                report["checks"]["api_doc_mentions_task_manager_api"] = bool(
+                    re.search(
+                        r"任务|待办|项目|task|todo|API|接口",
+                        api_text,
+                        re.I,
+                    )
+                )
+            else:
+                report["checks"]["api_doc_mentions_okr_api"] = bool(
+                    re.search(r"OKR|目标|objective|key result|API|接口", api_text, re.I)
+                )
             report["checks"]["backend_tests_has_test_plan"] = bool(
                 re.search(r"测试|test|pytest|验收", backend_tests_text, re.I)
             )
@@ -5872,7 +5994,9 @@ def main() -> None:
             ]
             fullstack_quality_checks = (
                 "planning_mentions_frontend_backend",
-                "api_doc_mentions_okr_api",
+                "api_doc_mentions_task_manager_api"
+                if TASK_MANAGER_PARALLEL_SCENARIO
+                else "api_doc_mentions_okr_api",
                 "backend_tests_has_test_plan",
                 "review_checks_api_consistency",
                 "review_has_test_or_risk",
@@ -6191,8 +6315,49 @@ def main() -> None:
                 False,
             ),
         }
-        if COMMAND_FULFILLMENT_FLOW_SCENARIO:
+        if COMMAND_FULFILLMENT_FLOW_SCENARIO or CYBERPUNK_QUALITY_SCENARIO:
             hard_checks.pop("planner_used_llm", None)
+        if TASK_MANAGER_PARALLEL_SCENARIO:
+            for key in (
+                "preview_8082_public_accessible",
+                "preview_uses_requested_8082",
+                "platform_preview_tool_called",
+                "formal_preview_tool_called",
+                "platform_preview_auto_started",
+                "preview_url_in_agent_message",
+                "browser_verify_tool_called",
+                "formal_browser_verify_tool_called",
+                "browser_verify_tool_succeeded",
+                "browser_verify_passed",
+                "browser_desktop_screenshot_exists",
+                "browser_mobile_screenshot_exists",
+                "browser_no_console_errors",
+                "browser_no_page_errors",
+                "browser_no_failed_requests",
+                "browser_mobile_no_horizontal_overflow",
+                "browser_button_interaction_ok",
+                "browser_repaired_if_needed",
+            ):
+                hard_checks.pop(key, None)
+        if TASK_MANAGER_PARALLEL_SCENARIO or CYBERPUNK_QUALITY_SCENARIO:
+            hard_checks.update(
+                {
+                    "planner_context_max_tokens_128k": report["checks"].get(
+                        "planner_context_max_tokens_128k",
+                        False,
+                    ),
+                    "orchestrator_context_max_tokens_64k": report["checks"].get(
+                        "orchestrator_context_max_tokens_64k",
+                        False,
+                    ),
+                    "orchestrator_subagent_context_max_tokens_64k": report[
+                        "checks"
+                    ].get(
+                        "orchestrator_subagent_context_max_tokens_64k",
+                        False,
+                    ),
+                }
+            )
         if FULLSTACK_SCENARIO:
             hard_checks.update(
                 {
@@ -6200,8 +6365,14 @@ def main() -> None:
                         "workspace_has_required_fullstack_files",
                         False,
                     ),
-                    "html_has_okr_product": report["checks"].get(
-                        "html_has_okr_product",
+                    (
+                        "html_has_task_manager_product"
+                        if TASK_MANAGER_PARALLEL_SCENARIO
+                        else "html_has_okr_product"
+                    ): report["checks"].get(
+                        "html_has_task_manager_product"
+                        if TASK_MANAGER_PARALLEL_SCENARIO
+                        else "html_has_okr_product",
                         False,
                     ),
                     "html_links_css_js": report["checks"].get(
@@ -6212,8 +6383,14 @@ def main() -> None:
                         "planning_mentions_frontend_backend",
                         False,
                     ),
-                    "api_doc_mentions_okr_api": report["checks"].get(
-                        "api_doc_mentions_okr_api",
+                    (
+                        "api_doc_mentions_task_manager_api"
+                        if TASK_MANAGER_PARALLEL_SCENARIO
+                        else "api_doc_mentions_okr_api"
+                    ): report["checks"].get(
+                        "api_doc_mentions_task_manager_api"
+                        if TASK_MANAGER_PARALLEL_SCENARIO
+                        else "api_doc_mentions_okr_api",
                         False,
                     ),
                     "backend_tests_has_test_plan": report["checks"].get(
@@ -6230,6 +6407,38 @@ def main() -> None:
                     ),
                     "fullstack_parallel_dag": report["checks"].get(
                         "fullstack_parallel_dag",
+                        False,
+                    ),
+                }
+            )
+        elif CYBERPUNK_QUALITY_SCENARIO:
+            hard_checks.update(
+                {
+                    "artifact_covers_required_sections": all(
+                        report["checks"].get(key, False)
+                        for key in (
+                            "html_has_task_breakdown",
+                            "html_has_code_artifact",
+                            "html_has_diff",
+                            "html_has_preview",
+                        )
+                    ),
+                    "workspace_has_cyberpunk_planning_diff_review": report[
+                        "checks"
+                    ].get(
+                        "workspace_has_cyberpunk_planning_diff_review",
+                        False,
+                    ),
+                    "html_has_cyberpunk_theme": report["checks"].get(
+                        "html_has_cyberpunk_theme",
+                        False,
+                    ),
+                    "html_mentions_mobile_adaptation": report["checks"].get(
+                        "html_mentions_mobile_adaptation",
+                        False,
+                    ),
+                    "html_mentions_button_interaction": report["checks"].get(
+                        "html_mentions_button_interaction",
                         False,
                     ),
                 }
