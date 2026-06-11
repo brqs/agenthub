@@ -26,6 +26,11 @@ from app.services.workspace_service import (
 DEPLOY_INTENT_RE = re.compile(
     r"(?i)(部署|发布|上线|端口|preview\s+(?:on|at|to)|deploy(?:ed|ment)?|port\s*\d{2,5})"
 )
+NEGATIVE_PREVIEW_INTENT_RE = re.compile(
+    r"(不要|无需|不需要|禁止|避免)\s*(?:预览|部署|发布|上线)|"
+    r"(no|without|skip|avoid|do\s+not|don't)\s+(?:preview|deploy|deployment)",
+    re.I,
+)
 REQUESTED_PORT_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
 SKIP_DIR_NAMES = {".agenthub", ".git", ".venv", "__pycache__", "node_modules"}
 
@@ -188,7 +193,11 @@ async def _latest_user_request(
 
 
 def _wants_platform_preview(text: str) -> bool:
-    return bool(text and DEPLOY_INTENT_RE.search(text))
+    return bool(
+        text
+        and DEPLOY_INTENT_RE.search(text)
+        and not NEGATIVE_PREVIEW_INTENT_RE.search(text)
+    )
 
 
 def _has_platform_preview_tool_call(blocks: list[dict[str, Any]] | None) -> bool:

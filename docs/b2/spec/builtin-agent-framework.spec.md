@@ -348,18 +348,25 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
 
 - Adapter 入口支持通过 `tool_specs` 对 native tools 和 MCP tools 做统一过滤。
 - `Agent.config.allowed_tools` 已作为持久化最大权限集合接入运行时；有该字段时，传入的 `tool_specs` 只能进一步收窄，不能放大。
-- 对话式 `create_custom_agent` 创建 builtin Agent 时默认写入 `allowed_tools=[]`，表示最小权限。
+- 对话式 `create_custom_agent` 创建用户自建 builtin Agent 时默认写入 `allowed_tools=[]`，表示最小权限；当前只允许显式授权
+  `allowed_tools=["read_file"]`。
+- 用户自建 builtin Agent 是 read-only review/reader 能力：不得暴露 `write_file`、`bash` 或 MCP 工具。写文件、命令执行和 MCP
+  工具仍只属于内置/历史 trusted BuiltinAgent 路径或后续单独权限设计。
+- 当配置恰好为 `allowed_tools=["read_file"]` 且用户明确要求读取 workspace 文件时，Adapter 可以走确定性 read route：
+  执行 `read_file` 并返回可见文本，不依赖上游模型完成工具选择。
 - 已有未配置 `allowed_tools` 的历史/内置 Builtin Agent 保持旧行为：未显式传入 `tool_specs` 时会获得全部 native tools 和 MCP tools。
 - 当前 MVP 覆盖 builtin native/MCP tools；external runtime 的 CLI/SDK 权限映射仍属于后续 hardening。
 
-2026-06-03 live E2E 已验证：
+2026-06-03 / 2026-06-11 live E2E 已验证：
 
 - 真实聊天创建 builtin 自建 Agent 时，显式 `allowed_tools=["read_file"]` 持久化到
   `Agent.config.allowed_tools`。
 - 该 Agent 后续会话可使用 `read_file` 读取 workspace 文件。
 - 未授权的 `write_file` / `bash` 不会进入模型 tool list，任务不能通过未授权 tool 完成。
+- `custom_agent_reader_review_repair` 场景中，自建只读 Review Agent 不写 workspace，只输出审阅意见；后续修复由内置可写 Agent 完成。
 
-证据：`/tmp/agenthub_custom_agent_tools_report.json`，`passed=true`。
+证据：`/tmp/agenthub_custom_agent_tools_report.json`、`/tmp/agenthub_custom_agent_reader_review_repair_report.json`，均
+`passed=true`。
 
 ---
 

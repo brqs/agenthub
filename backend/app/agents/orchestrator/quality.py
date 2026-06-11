@@ -77,6 +77,15 @@ FRONTEND_INTENT_RE = re.compile(
 BROWSER_VERIFY_INTENT_RE = re.compile(
     r"(?i)(浏览器|质量验收|移动端|按钮|交互|browser|quality|viewport|mobile)"
 )
+NEGATIVE_PREVIEW_INTENT_RE = re.compile(
+    r"(不要|无需|不需要|禁止|避免)\s*(?:预览|部署|发布|上线)|"
+    r"(no|without|skip|avoid|do\s+not|don't)\s+(?:preview|deploy|deployment)",
+    re.I,
+)
+DEPLOYMENT_REPAIR_WAIT_INTENT_RE = re.compile(
+    r"(?i)(deployment_health|deployment\s+logs|until\s+(?:it\s+)?(?:returns\s+)?published|"
+    r"redeploy|重新调用\s*create_deployment|直到返回\s*published|容器健康|部署日志)"
+)
 REQUESTED_PORT_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
 REPAIR_AGENT_MISSING_TEXT = (
     "浏览器级质量验收暂时无法继续自动修复：当前没有可用的质量修复 Agent。"
@@ -500,18 +509,21 @@ async def _run_deployment_repair_loop(
         call_id_suffix = (
             "" if deployment_repair_round == 0 else f".retry.{deployment_repair_round}"
         )
+        wait_for_container_terminal = _should_wait_for_container_terminal(
+            config,
+            user_request,
+        )
         async for chunk, updated_block_index in _run_deployment_tools(
             executor=executor,
             user_request=user_request,
             entry_path=entry_path,
             requested_port=requested_port,
             next_block_index=next_block_index,
-            wait_for_container_terminal=(
-                config.get("orchestrator_container_deployment_wait_for_terminal") is True
-            ),
+            wait_for_container_terminal=wait_for_container_terminal,
             container_wait_timeout_seconds=_container_wait_timeout_seconds(
                 config,
                 positive_int_config,
+                user_request,
             ),
             deployment_tool_results=deployment_tool_results,
             call_id_suffix=call_id_suffix,
@@ -616,6 +628,8 @@ def _is_one_click_container_quality_gate(config: Mapping[str, Any]) -> bool:
 def _should_run_quality_gate(user_request: str) -> bool:
     if not user_request:
         return False
+    if NEGATIVE_PREVIEW_INTENT_RE.search(user_request):
+        return False
     wants_preview = bool(DEPLOY_INTENT_RE.search(user_request))
     wants_browser = bool(BROWSER_VERIFY_INTENT_RE.search(user_request))
     is_frontend = bool(FRONTEND_INTENT_RE.search(user_request))
@@ -651,14 +665,24 @@ def _requested_preview_port(text: str) -> int | None:
 def _container_wait_timeout_seconds(
     config: Mapping[str, Any],
     positive_int_config: PositiveIntConfig,
+    user_request: str = "",
 ) -> int | None:
-    if config.get("orchestrator_container_deployment_wait_for_terminal") is not True:
+    if not _should_wait_for_container_terminal(config, user_request):
         return None
     return positive_int_config(
         config,
         "orchestrator_container_deployment_wait_timeout_seconds",
         180,
     )
+
+
+def _should_wait_for_container_terminal(
+    config: Mapping[str, Any],
+    user_request: str,
+) -> bool:
+    if config.get("orchestrator_container_deployment_wait_for_terminal") is True:
+        return True
+    return bool(DEPLOYMENT_REPAIR_WAIT_INTENT_RE.search(user_request or ""))
 
 
 async def _record_fulfillment_tool_result(

@@ -24,6 +24,152 @@ def _artifacts(report: dict[str, Any]) -> list[dict[str, Any]]:
     return artifacts if isinstance(artifacts, list) else []
 
 
+def _checks(report: dict[str, Any]) -> dict[str, Any]:
+    checks = report.setdefault("checks", {})
+    return checks if isinstance(checks, dict) else {}
+
+
+def _run_detail(report: dict[str, Any]) -> dict[str, Any]:
+    detail = report.get("orchestrator_run_detail")
+    return detail if isinstance(detail, dict) else {}
+
+
+def _workspace_paths(report: dict[str, Any]) -> set[str]:
+    paths: set[str] = set()
+    for item in report.get("workspace_files") or []:
+        if isinstance(item, dict) and isinstance(item.get("path"), str):
+            paths.add(str(item["path"]).rsplit("/", 1)[-1])
+    for item in _artifacts(report):
+        if isinstance(item.get("path"), str):
+            paths.add(str(item["path"]).rsplit("/", 1)[-1])
+    return paths
+
+
+def evaluate_parallel_dag(report: dict[str, Any]) -> None:
+    parallel = legacy.fullstack_parallel_report(_run_detail(report))
+    report["parallel_tasks"] = parallel
+    _checks(report)["parallel_dag_passed"] = parallel.get("passed") is True
+
+
+def evaluate_group_members_only(
+    report: dict[str, Any],
+    *,
+    allowed_agent_ids: set[str] | None = None,
+) -> None:
+    allowed = allowed_agent_ids or {
+        "orchestrator",
+        "claude-code",
+        "opencode-helper",
+        "codex-helper",
+    }
+    switched = [
+        item
+        for item in report.get("agent_switch_to_agents") or []
+        if isinstance(item, str)
+    ]
+    child_agents = [
+        item.get("agent_id")
+        for item in report.get("child_agent_messages") or []
+        if isinstance(item, dict) and isinstance(item.get("agent_id"), str)
+    ]
+    invalid = sorted(
+        {agent_id for agent_id in [*switched, *child_agents] if agent_id not in allowed}
+    )
+    report["group_member_scope"] = {
+        "allowed_agent_ids": sorted(allowed),
+        "invalid_agent_ids": invalid,
+    }
+    _checks(report)["group_dispatch_only_allowed_members"] = not invalid
+
+
+def evaluate_task_card_agent_attribution(report: dict[str, Any]) -> None:
+    tasks: list[dict[str, Any]] = []
+    for block in _content_blocks(report):
+        if block.get("type") != "task_card":
+            continue
+        raw_tasks = block.get("tasks")
+        if isinstance(raw_tasks, list):
+            tasks.extend(item for item in raw_tasks if isinstance(item, dict))
+    mismatches = [
+        task
+        for task in tasks
+        if task.get("final_agent_id")
+        and task.get("agent_id")
+        and task.get("agent_id") != task.get("final_agent_id")
+    ]
+    fallback_tasks = [
+        task
+        for task in tasks
+        if task.get("planned_agent_id")
+        and task.get("final_agent_id")
+        and task.get("planned_agent_id") != task.get("final_agent_id")
+    ]
+    report["task_card_agent_attribution"] = {
+        "task_count": len(tasks),
+        "fallback_task_count": len(fallback_tasks),
+        "mismatches": mismatches,
+    }
+    checks = _checks(report)
+    checks["task_card_agent_attribution_present"] = bool(tasks)
+    checks["task_card_agent_matches_final_agent"] = not mismatches
+
+
+def evaluate_workspace_artifacts(
+    report: dict[str, Any],
+    *,
+    required_files: set[str],
+) -> None:
+    paths = _workspace_paths(report)
+    missing = sorted(required_files - paths)
+    report["workspace_artifact_check"] = {
+        "required_files": sorted(required_files),
+        "missing_files": missing,
+    }
+    _checks(report)["workspace_required_artifacts_present"] = not missing
+
+
+def evaluate_browser_repair_loop(report: dict[str, Any]) -> None:
+    browser = report.get("browser_verification")
+    browser = browser if isinstance(browser, dict) else report.get("browser_report")
+    browser = browser if isinstance(browser, dict) else {}
+    repair_trace = report.get("repair_trace")
+    repair_trace = repair_trace if isinstance(repair_trace, dict) else {}
+    checks = _checks(report)
+    checks["browser_verify_passed"] = browser.get("passed") is True or bool(
+        checks.get("browser_verify_passed")
+    )
+    checks["browser_repair_trace_present_if_needed"] = bool(
+        checks.get("browser_repaired_if_needed")
+        or repair_trace.get("has_repair_or_fallback")
+        or checks["browser_verify_passed"]
+    )
+
+
+def evaluate_context_continuity(report: dict[str, Any]) -> None:
+    followups = report.get("context_followups")
+    followups = followups if isinstance(followups, list) else []
+    checks = _checks(report)
+    checks["context_followups_present"] = bool(followups)
+    checks["context_followups_all_passed"] = bool(followups) and all(
+        item.get("passed") is True for item in followups if isinstance(item, dict)
+    )
+
+
+def evaluate_sensitive_trace_absent(report: dict[str, Any]) -> None:
+    text = "\n".join(
+        str(value)
+        for value in (
+            report.get("sse_message_error_text"),
+            report.get("dialogue_visible_forbidden_terms"),
+            report.get("presentation_visible_forbidden_terms"),
+        )
+        if value
+    )
+    forbidden = legacy.forbidden_visible_terms(text)
+    report["sensitive_trace_check"] = {"forbidden_terms": forbidden}
+    _checks(report)["visible_text_no_sensitive_trace"] = not forbidden
+
+
 def evaluate_p1_rich_artifacts(report: dict[str, Any]) -> None:
     file_blocks = [block for block in _content_blocks(report) if block.get("type") == "file"]
     artifacts = _artifacts(report)
@@ -180,4 +326,3 @@ def preserve_existing_acceptance(report: dict[str, Any]) -> None:
         acceptance["passed"] = all(
             bool(value) for key, value in acceptance.items() if key != "passed"
         )
-

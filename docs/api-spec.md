@@ -1167,15 +1167,18 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 **请求**：
 ```json
 {
-  "name": "文案专家",
+  "name": "只读审阅 Agent",
   "provider": "builtin",
   "avatar_url": "/avatars/custom-1.png",
-  "capabilities": ["writing", "copywriting"],
-  "system_prompt": "你是一位专业的文案撰稿人，擅长营销文案、社交媒体内容创作...",
+  "capabilities": ["review", "reading"],
+  "system_prompt": "你只负责读取 workspace 文件并输出审阅意见，不修改文件。",
   "config": {
+    "custom_agent_mode": "server_agent_wrapper",
+    "base_agent_id": null,
     "model_backend": "claude",
     "max_iterations": 10,
-    "mcp_servers": []
+    "mcp_servers": [],
+    "allowed_tools": ["read_file"]
   }
 }
 ```
@@ -1187,7 +1190,11 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 | `provider` | `claude_code` / `codex` / `opencode` / `builtin` |
 | `capabilities` | 字符串数组，最多 10 项 |
 | `system_prompt` | 最长 8KB |
+| `config.custom_agent_mode` | 用户自建 wrapper / 只读 builtin Agent 必须为 `server_agent_wrapper` |
+| `config.base_agent_id` | external runtime wrapper 使用 `claude-code` / `codex-helper` / `opencode-helper`；只读 builtin Agent 使用 `null` |
+| `config.wrapper_profile` | external runtime wrapper 的角色、规划画像和边界描述 |
 | `config.model_backend` | 仅 `builtin` 使用，取值 `claude` / `deepseek` / `openai` |
+| `config.allowed_tools` | 用户自建 builtin Agent 只允许 `[]` 或 `["read_file"]` |
 | `config.context_max_tokens` | 通用 agent 会话上下文 token 预算，1 - 200000，默认 64000 |
 | `config.orchestrator_context_max_tokens` | Orchestrator 主流程上下文 token 预算，1 - 200000，默认 64000 |
 | `config.orchestrator_subagent_context_max_tokens` | Orchestrator 分发给子 Agent 的上下文 token 预算，1 - 200000，默认 64000 |
@@ -1201,7 +1208,9 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 | `config.timeout_seconds` | external runtime 可使用 |
 
 **Provider 规则**：
-- `builtin` 使用 `model_backend` 选择内部 ModelGateway backend，raw LLM provider 不再作为顶层 Agent provider。
+- `builtin` 用于受限用户自建只读 Agent 或内部 BuiltinAgent runtime。用户自建 builtin Agent 必须是 read-only，最多只暴露 `read_file`，不能配置 `write_file`、`bash`、MCP 工具、runtime command/env/args/sdk_options/API key。
+- `claude_code` / `codex` / `opencode` 的自定义 Agent 默认是 server Agent wrapper，继承底座 Agent runtime 能力，用户角色描述写入 `config.wrapper_profile`。
+- raw LLM provider 不再作为顶层 Agent provider；`claude` / `deepseek` / `openai` 只作为 `model_backend` 使用。
 - `claude_code` 默认 `runtime=sdk`，可显式 `runtime=cli` 走 `claude` CLI。
 - `codex` 默认 `runtime=cli`，可通过 `command` 指定 Codex CLI 可执行文件。
 - `opencode` 允许 `command` / `args` / `timeout_seconds` 配置 CLI runtime。
@@ -1268,7 +1277,7 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 
 ### 6.6 GET `/api/v1/agents/templates` - Removed
 
-Deprecated. The old no-code builtin Agent Builder template endpoint has been removed from the active product path. Custom Agents are now created as server Agent wrappers around `claude-code`, `codex-helper`, or `opencode-helper`, with transfer fields stored in `config.wrapper_profile` and Skills managed through Agent asset APIs.
+Deprecated. The old no-code builtin Agent Builder template endpoint has been removed from the active product path. Custom Agents are now created either as server Agent wrappers around `claude-code`, `codex-helper`, or `opencode-helper`, with transfer fields stored in `config.wrapper_profile`, or as restricted builtin read-only reader/review agents with `allowed_tools=["read_file"]`. Skills are managed through Agent asset APIs.
 ### 6.7 POST `/api/v1/agents/{id}/mcp/health-check`
 
 Runs a lightweight health check for stdio MCP servers configured on a visible
@@ -1494,6 +1503,8 @@ interface AgentConfig {
   planner_context_max_tokens?: number;
   max_iterations?: number;
   mcp_servers?: object[];
+  // For user-created provider="builtin" Agents this may be [] or ["read_file"] only.
+  // Built-in/trusted historical BuiltinAgents may have broader internal tool access.
   allowed_tools?: string[];
   runtime?: "sdk" | "cli";
   sandbox_mode?: "read-only" | "workspace-write" | "danger-full-access";

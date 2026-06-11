@@ -145,8 +145,8 @@ class Settings(BaseSettings):
         default="/tmp/agenthub_external_runtime"  # noqa: S108 - per-message runtime state.
     )
     agent_stream_stale_seconds: int = Field(default=900)
-    agent_stream_idle_timeout_seconds: int = Field(default=60)
-    agent_stream_hard_timeout_seconds: int = Field(default=900)
+    agent_stream_idle_timeout_seconds: int = Field(default=240)
+    agent_stream_hard_timeout_seconds: int = Field(default=1800)
 
     # ─── CORS ───
     cors_origins: str = Field(
