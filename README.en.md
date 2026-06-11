@@ -35,7 +35,7 @@ AgentHub is an IM-centered multi-agent collaboration platform. Users create task
 
 A typical flow is: user request -> Orchestrator planning -> Claude Code / Codex Helper / OpenCode Helper execution -> workspace files, diffs, and artifact manifests -> platform preview, browser validation, review, and repair -> final summary, release record, or deployment result.
 
-## Assignment Threads and Implementation
+## Product Threads and Implementation
 
 ### IM-Style Multi-Agent Workspace
 
@@ -65,11 +65,10 @@ The web app is the main client today. Desktop uses Tauri to reuse the frontend e
 
 Related material: [frontend README](docs/frontend/README.md), [mobile development spec](docs/frontend/spec/frontend-mobile-development.spec.md), [Capacitor shell spec](docs/frontend/spec/frontend-capacitor-shell.spec.md), [macOS Tauri shell spec](docs/frontend/spec/frontend-macos-tauri-shell.spec.md), [Windows desktop spec](docs/frontend/spec/windows-desktop-client.spec.md).
 
-## Deliverables and Docs
+## Project Docs
 
-| Deliverable / Material | Location |
+| Document / Material | Location |
 | --- | --- |
-| Assignment source | [docs/archive/AgentHub- 多Agent协作平台设计.md](<docs/archive/AgentHub- 多Agent协作平台设计.md>), [PDF](<docs/archive/AgentHub- 多Agent协作平台设计.pdf>) |
 | Full docs index | [docs/README.md](docs/README.md) |
 | Product design document | [docs/product-design.md](docs/product-design.md) |
 | Technical architecture document | [docs/tech-architecture.md](docs/tech-architecture.md) |
@@ -79,6 +78,7 @@ Related material: [frontend README](docs/frontend/README.md), [mobile developmen
 | Live E2E and repair-loop evidence | [docs/b2/spec/orchestrator/live-e2e-report.spec.md](docs/b2/spec/orchestrator/live-e2e-report.spec.md) |
 | Runnable demo | [ag.brqs.link](http://ag.brqs.link/login) |
 | 3-minute demo video | [demo.mp4](demo.mp4) |
+| Original design brief | [docs/archive/AgentHub- 多Agent协作平台设计.md](<docs/archive/AgentHub- 多Agent协作平台设计.md>), [PDF](<docs/archive/AgentHub- 多Agent协作平台设计.pdf>) |
 
 ## Demo
 

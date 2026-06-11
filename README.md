@@ -35,7 +35,7 @@ AgentHub 是一个以 IM 为核心交互的多 Agent 协作平台。用户可以
 
 一条典型链路是：用户发起需求 → Orchestrator 规划任务 → Claude Code / Codex Helper / OpenCode Helper 分工执行 → workspace 生成文件、Diff 和 artifact manifest → 平台启动预览、浏览器验收、审阅与修复 → 输出可读总结、发布记录或部署结果。
 
-## 课题主线与实现
+## 产品主线与实现
 
 ### IM 式多 Agent 工作台
 
@@ -65,11 +65,10 @@ Web 是当前主力端；桌面端通过 Tauri 复用前端体验，移动端通
 
 相关材料：[frontend README](docs/frontend/README.md)、[mobile development spec](docs/frontend/spec/frontend-mobile-development.spec.md)、[Capacitor shell spec](docs/frontend/spec/frontend-capacitor-shell.spec.md)、[macOS Tauri shell spec](docs/frontend/spec/frontend-macos-tauri-shell.spec.md)、[Windows desktop spec](docs/frontend/spec/windows-desktop-client.spec.md)。
 
-## 交付物与文档
+## 项目文档
 
-| 交付物 / 材料 | 位置 |
+| 文档 / 材料 | 位置 |
 | --- | --- |
-| 课题原文 | [docs/archive/AgentHub- 多Agent协作平台设计.md](<docs/archive/AgentHub- 多Agent协作平台设计.md>)、[PDF](<docs/archive/AgentHub- 多Agent协作平台设计.pdf>) |
 | 文档总索引 | [docs/README.md](docs/README.md) |
 | 产品设计文档 | [docs/product-design.md](docs/product-design.md) |
 | 技术架构文档 | [docs/tech-architecture.md](docs/tech-architecture.md) |
@@ -79,6 +78,7 @@ Web 是当前主力端；桌面端通过 Tauri 复用前端体验，移动端通
 | 真实 E2E 与 repair loop 证据 | [docs/b2/spec/orchestrator/live-e2e-report.spec.md](docs/b2/spec/orchestrator/live-e2e-report.spec.md) |
 | 可运行 Demo | [ag.brqs.link](http://ag.brqs.link/login) |
 | 3 分钟 Demo 视频 | [demo.mp4](demo.mp4) |
+| 原始设计资料 | [docs/archive/AgentHub- 多Agent协作平台设计.md](<docs/archive/AgentHub- 多Agent协作平台设计.md>)、[PDF](<docs/archive/AgentHub- 多Agent协作平台设计.pdf>) |
 
 ## 演示
 
