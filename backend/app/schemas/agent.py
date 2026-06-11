@@ -23,7 +23,7 @@ AgentProvider = Literal[
     "openai",
     "custom",
 ]
-CreatableAgentProvider = Literal["claude_code", "codex", "opencode"]
+CreatableAgentProvider = Literal["claude_code", "codex", "opencode", "builtin"]
 ModelBackend = Literal["claude", "deepseek", "openai"]
 AgentKnowledgeUsage = Literal["reference", "policy", "template", "example"]
 AgentAssetKind = Literal["knowledge", "skill"]

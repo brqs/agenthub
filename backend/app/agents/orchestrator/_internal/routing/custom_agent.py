@@ -31,6 +31,21 @@ BASE_AGENT_ALIASES = {
     "opencode-helper": "opencode-helper",
     "opencode helper": "opencode-helper",
 }
+PROVIDER_ALIASES = {
+    "builtin": "builtin",
+    "built-in": "builtin",
+    "内置": "builtin",
+    "claude_code": "claude_code",
+    "claude-code": "claude_code",
+    "claude code": "claude_code",
+    "codex": "codex",
+    "opencode": "opencode",
+}
+MODEL_BACKEND_ALIASES = {
+    "claude": "claude",
+    "deepseek": "deepseek",
+    "openai": "openai",
+}
 
 SMART_AGENT_WORD = "\u667a\u80fd\u4f53"
 AGENT_WORD = "\u4ee3\u7406"
@@ -53,6 +68,7 @@ def custom_agent_tool_arguments(user_request: str) -> dict[str, Any] | None:
             r"[\"'\u201c\u201d\u2018\u2019]?([^,，。；;\n\"'\u201c\u201d\u2018\u2019]+)",
         ),
     )
+    provider_override = _extract_provider(user_request)
     base_agent_id = _extract_base_agent_id(user_request)
     system_prompt = _extract_named_value(
         user_request,
@@ -70,9 +86,14 @@ def custom_agent_tool_arguments(user_request: str) -> dict[str, Any] | None:
             r"(?:is|\u4e3a|\u662f|=|:)\s*([^。；;\n]+)",
         ),
     )
-    if not name or not base_agent_id:
+    if not name:
         return None
-    provider = BASE_AGENT_PROVIDERS[base_agent_id]
+    if provider_override == "builtin":
+        provider = "builtin"
+    elif base_agent_id:
+        provider = BASE_AGENT_PROVIDERS[base_agent_id]
+    else:
+        return None
     role = _extract_named_value(
         user_request,
         (
@@ -140,6 +161,29 @@ def custom_agent_tool_arguments(user_request: str) -> dict[str, Any] | None:
         "boundaries": boundaries,
     }
 
+    if provider == "builtin":
+        allowed_tools = _extract_list_field(
+            user_request,
+            ("allowed_tools", "\u5de5\u5177\u767d\u540d\u5355", "\u5de5\u5177"),
+        )
+        model_backend = _extract_model_backend(user_request) or "deepseek"
+        return {
+            "name": name,
+            "provider": provider,
+            "system_prompt": prompt,
+            "capabilities": capabilities,
+            "config": {
+                "model_backend": model_backend,
+                "allowed_tools": allowed_tools or [],
+                "mcp_servers": [],
+                "planning_profile": wrapper_profile["planning_profile"],
+                "planning_strengths": strengths,
+                "planning_weaknesses": weaknesses,
+                "preferred_task_types": preferred_task_types,
+            },
+            "add_to_conversation": _should_add_to_conversation(user_request),
+        }
+
     return {
         "name": name,
         "provider": provider,
@@ -167,8 +211,13 @@ def custom_agent_result_text(status: str, output: str | None) -> str:
         agent = payload.get("agent")
         if isinstance(agent, Mapping):
             capabilities = ", ".join(str(item) for item in agent.get("capabilities", []))
+            mode = (
+                "\u81ea\u5b9a\u4e49 Agent"
+                if agent.get("provider") == "builtin"
+                else "\u81ea\u5b9a\u4e49 Agent \u5957\u58f3"
+            )
             return (
-                "\u5df2\u521b\u5efa\u81ea\u5b9a\u4e49 Agent \u5957\u58f3\uff0c"
+                f"\u5df2\u521b\u5efa{mode}\uff0c"
                 "\u5e76\u53ef\u52a0\u5165\u5f53\u524d\u7fa4\u804a\u3002\n"
                 f"- id: {agent.get('id')}\n"
                 f"- name: {agent.get('name')}\n"
@@ -221,6 +270,42 @@ def _extract_base_agent_id(text: str) -> str | None:
     return BASE_AGENT_ALIASES.get(normalized) or BASE_AGENT_ALIASES.get(
         normalized.replace("-", " ")
     )
+
+
+def _extract_provider(text: str) -> str | None:
+    raw = _extract_named_value(
+        text,
+        (
+            (
+                r"(?:provider|\u63d0\u4f9b\u5546|\u7c7b\u578b)"
+                r"\s*(?:use|\u4f7f\u7528|\u4e3a|\u662f|=|:)\s*"
+                r"[\"'\u201c\u201d\u2018\u2019]?([A-Za-z0-9 _-]+)"
+            ),
+        ),
+    )
+    if not raw:
+        return None
+    normalized = raw.strip().lower().replace("_", "-")
+    return PROVIDER_ALIASES.get(normalized) or PROVIDER_ALIASES.get(
+        normalized.replace("-", " ")
+    )
+
+
+def _extract_model_backend(text: str) -> str | None:
+    raw = _extract_named_value(
+        text,
+        (
+            (
+                r"(?:model_backend|\u6a21\u578b\u540e\u7aef|\u6a21\u578b)"
+                r"\s*(?:use|\u4f7f\u7528|\u8bbe\u7f6e\u4e3a|\u4e3a|\u662f|=|:)\s*"
+                r"[\"'\u201c\u201d\u2018\u2019]?([A-Za-z0-9 _-]+)"
+            ),
+        ),
+    )
+    if not raw:
+        return None
+    normalized = raw.strip().lower().replace("_", "-")
+    return MODEL_BACKEND_ALIASES.get(normalized)
 
 
 def _extract_named_value(text: str, patterns: tuple[str, ...]) -> str | None:

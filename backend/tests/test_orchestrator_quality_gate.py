@@ -8,9 +8,11 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator.quality import _should_run_quality_gate
 from app.agents.orchestrator.tools import OrchestratorToolResult
 from app.agents.orchestrator.types import SubTask, TaskResult
 from app.agents.types import ChatMessage
+from app.api.v1.stream_preview import _wants_platform_preview
 from tests.orchestrator_fakes import (
     FakeSubAdapter,
     FakeWorkspaceWriterAdapter,
@@ -147,6 +149,18 @@ class FakeDeploymentRepairExecutor(FakePlatformToolExecutor):
             **payload,
         }
         return OrchestratorToolResult(status="ok", output=json.dumps(payload))
+
+
+def test_quality_gate_respects_negative_preview_intent() -> None:
+    assert not _should_run_quality_gate(
+        "请做一个前端网页，用于群聊归因验收，不要预览、不要部署。"
+    )
+
+
+def test_stream_preview_respects_negative_preview_intent() -> None:
+    assert not _wants_platform_preview(
+        "请进行群聊归因验收，不要预览、不要部署，但要总结端口相关风险。"
+    )
 
 
 class FakeMemoryWriter:
@@ -721,6 +735,71 @@ async def test_quality_gate_repairs_failed_deployment_and_redeploys(
         for payload in reflection_payloads
     )
     assert "Deployment repair rounds: 1." in text
+
+
+async def test_quality_gate_waits_for_container_terminal_when_repair_requested(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>任务 代码 Diff 预览 按钮 移动</h1></body></html>",
+    )
+    repair = FakeWorkspaceWriterAdapter(
+        "codex-helper",
+        _text_chunks("Fixed Dockerfile"),
+        "Dockerfile",
+        "FROM python:3.12-slim\nEXPOSE 8000\nCMD [\"python\", \"-m\", \"http.server\", \"8000\"]\n",
+    )
+    executor = FakeDeploymentRepairExecutor()
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 请为静态网站执行 create_deployment(kind=\"container\")。"
+                    "当 deployment_health 失败后，根据 deployment logs 修复并 redeploy，"
+                    "直到返回 published。"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": generator,
+                "codex-helper": repair,
+            },
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_quality_max_repair_rounds": 2,
+        },
+    )
+
+    container_calls = [
+        call
+        for call in executor.calls
+        if call[0] == "create_deployment" and call[1].get("kind") == "container"
+    ]
+
+    assert chunks[-1].event_type == "done"
+    assert len(container_calls) == 2
+    assert container_calls[0][1]["wait_for_terminal"] is True
+    assert container_calls[0][1]["wait_timeout_seconds"] == 180
+    assert repair.received_messages
 
 
 async def test_one_click_container_automation_skips_browser_verify_and_redeploys(

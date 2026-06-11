@@ -6,8 +6,8 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 # Orchestrator Live E2E Repair Loop Skill
 
 > 类型：AI 协作 Skill / 测试修复闭环
-> 适用范围：AgentHub Orchestrator、workspace artifact、preview/browser verify、B2 P0/P1 live E2E
-> 最后更新：2026-06-05
+> 适用范围：AgentHub Orchestrator、workspace artifact、preview/browser verify、B2 P0/P1 live E2E、多场景鲁棒性 E2E + repair loop
+> 最后更新：2026-06-11
 
 ---
 
@@ -55,7 +55,7 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 - 前端：`http://154.44.25.94:1573`
 - 后端公网：`http://111.229.151.159:8000`
 - Preview：`http://111.229.151.159:8082/index.html`
-- 账号：`12345678 / 12345678`
+- 账号密码必须通过 `AGENTHUB_E2E_USERNAME` / `AGENTHUB_E2E_PASSWORD` 环境变量注入，不写入代码、报告或日志。
 - 端口开放: `8081,8082,8083,8084,8085`
 前端未完成或不验收 UI 卡片渲染时，使用后端直连 API/SSE 链路：
 
@@ -63,6 +63,8 @@ description: Use when validating AgentHub Orchestrator real live E2E flows, 8082
 cd /home/ubuntu/agenthub/backend
 uv run python scripts/deployment_release_api_e2e.py
 AGENTHUB_E2E_BASE_URL=http://111.229.151.159:8000 \
+AGENTHUB_E2E_USERNAME="$AGENTHUB_E2E_USERNAME" \
+AGENTHUB_E2E_PASSWORD="$AGENTHUB_E2E_PASSWORD" \
 AGENTHUB_E2E_SCENARIO=deployment \
 uv run python scripts/orchestrator_live_e2e.py
 ```
@@ -73,6 +75,19 @@ uv run python scripts/orchestrator_live_e2e.py
 
 ```text
 orchestrator, claude-code, opencode-helper, codex-helper
+```
+
+2026-06-11 多场景鲁棒性 E2E 场景：
+
+```text
+fullstack_task_manager_parallel_repair_v2
+cyberpunk_site_quality_repair_8082_v2
+im_context_pin_followup_repair
+group_chat_attribution_process_matrix
+custom_agent_reader_review_repair
+static_package_deploy_repair_matrix
+group_member_fallback_repair_visibility
+im_dialogue_no_artifact_turn_taking_v2
 ```
 
 后端部署提醒：

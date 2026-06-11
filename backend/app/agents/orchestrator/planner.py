@@ -11,6 +11,9 @@ from app.agents.model_gateway import ModelGateway
 from app.agents.orchestrator._internal.routing.evidence import (
     ORCHESTRATOR_EVIDENCE_HEADER,
 )
+from app.agents.orchestrator._internal.routing.previous_output_followup import (
+    PREVIOUS_OUTPUT_FOLLOWUP_HEADER,
+)
 from app.agents.orchestrator.availability import (
     is_runnable_agent_context,
     runnable_agent_id,
@@ -42,6 +45,9 @@ PLANNER_MEMORY_SECTION_HEADERS = (
     AGENT_CAPABILITY_PROFILE_V2_HEADER,
     USER_PREFERENCE_MEMORY_HEADER,
     AGENT_CAPABILITY_PROFILE_HEADER,
+    PREVIOUS_OUTPUT_FOLLOWUP_HEADER,
+)
+PLANNER_MEMORY_BOUNDARY_HEADERS = PLANNER_MEMORY_SECTION_HEADERS + (
     ORCHESTRATOR_MEMORY_HEADER,
 )
 
@@ -458,7 +464,7 @@ def _memory_section(content: str, header: str) -> str:
         return ""
     end_candidates = [
         index
-        for candidate in PLANNER_MEMORY_SECTION_HEADERS
+        for candidate in PLANNER_MEMORY_BOUNDARY_HEADERS
         if candidate != header
         for index in [content.find(f"\n\n{candidate}", start + len(header))]
         if index >= 0

@@ -519,7 +519,9 @@ def _compact_status_lines(pack: EvidencePack) -> list[str]:
         lines.append(f"最近任务：{_truncate(pack.run_request, 300)}")
     if pack.tasks:
         lines.append("执行结果：" + "；".join(pack.tasks[:5]) + "。")
-    output_files = _dedupe([*pack.artifacts, *pack.changed_files])
+    output_files = _current_workspace_paths(pack) or _dedupe(
+        [*pack.artifacts, *pack.changed_files]
+    )
     if output_files:
         lines.append("任务产物：" + "、".join(output_files[:10]) + "。")
     if pack.fulfillment:
@@ -590,16 +592,18 @@ def _validation_answer_lines(pack: EvidencePack) -> list[str]:
 
 
 def _file_answer_lines(pack: EvidencePack) -> list[str]:
-    files = _dedupe(
-        [
-            *pack.artifacts,
-            *pack.changed_files,
-            *[item.split(" (", 1)[0] for item in pack.workspace_files],
-        ]
-    )
+    files = _current_workspace_paths(pack) or _dedupe([*pack.artifacts, *pack.changed_files])
     if not files:
         return ["我没有找到当前 workspace 文件记录。", *_compact_status_lines(pack)]
     return ["当前能确认的文件包括：", *[f"- {path}" for path in files[:20]]]
+
+
+def _current_workspace_paths(pack: EvidencePack) -> list[str]:
+    return _dedupe(
+        item.split(" (", 1)[0]
+        for item in pack.workspace_files
+        if isinstance(item, str) and item.strip()
+    )
 
 
 def _looks_generated(pack: EvidencePack) -> bool:

@@ -134,7 +134,7 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                     "name": {"type": "string"},
                     "provider": {
                         "type": "string",
-                        "enum": ["claude_code", "codex", "opencode"],
+                        "enum": ["claude_code", "codex", "opencode", "builtin"],
                     },
                     "system_prompt": {"type": "string"},
                     "capabilities": {
@@ -157,12 +157,18 @@ def orchestrator_tool_specs() -> list[ToolSpec]:
                                 ],
                             },
                             "wrapper_profile": {"type": "object"},
+                            "model_backend": {
+                                "type": "string",
+                                "enum": ["claude", "deepseek", "openai"],
+                            },
+                            "allowed_tools": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["read_file"],
+                                },
+                            },
                         },
-                        "required": [
-                            "custom_agent_mode",
-                            "base_agent_id",
-                            "wrapper_profile",
-                        ],
                     },
                     "add_to_conversation": {"type": "boolean", "default": True},
                 },
