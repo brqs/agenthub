@@ -10,6 +10,7 @@ ARG all_proxy
 ARG NODE_MAJOR=22
 ARG OPENCODE_VERSION=latest
 ARG CLAUDE_CODE_VERSION=latest
+ARG CODEX_VERSION=latest
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -47,8 +48,10 @@ RUN HTTP_PROXY="${HTTP_PROXY:-$http_proxy}" \
     && apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && npm install -g "@openai/codex@${CODEX_VERSION}" \
     && npm install -g "opencode-ai@${OPENCODE_VERSION}" \
     && claude --version \
+    && codex --version \
     && opencode --version \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 
