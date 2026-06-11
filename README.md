@@ -1,76 +1,78 @@
 # AgentHub
 
-> IM-style multi-agent collaboration workspace for building, previewing, reviewing, and deploying real deliverables.
+> 面向真实交付物的 IM 式多 Agent 协作工作台：对话、规划、生成、预览、审阅、修复与部署都在一个界面里完成。
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[简体中文](README.md) | [English](README.en.md)
 
 [![status](https://img.shields.io/badge/status-MVP-yellow)]()
 [![python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![react](https://img.shields.io/badge/react-18-61dafb)]()
 [![fastapi](https://img.shields.io/badge/FastAPI-0.115%2B-009688)]()
 
-AgentHub turns AI collaboration into a chat-native workspace. Users can talk to individual coding agents, create custom agents, ask an Orchestrator to split work across multiple runtimes, and inspect generated files, previews, deployments, tool calls, task cards, memory, and conversation context in one product surface.
+AgentHub 把 AI 协作做成聊天原生的工作空间。用户可以和单个代码 Agent 对话，也可以让 Orchestrator 把任务拆给多个运行时协作执行，并在同一个产品界面里查看生成文件、预览、部署、工具调用、任务卡片、记忆和上下文。
 
-- Demo site: [ag.brqs.link](http://ag.brqs.link/login)
-- Demo video: [demo.mp4](demo.mp4)
-- API contract: [shared/openapi.yaml](shared/openapi.yaml)
-- AI collaboration guide: [AGENTS.md](AGENTS.md)
+- 演示站点：[ag.brqs.link](http://ag.brqs.link/login)
+- 演示视频：[demo.mp4](demo.mp4)
+- API 契约：[shared/openapi.yaml](shared/openapi.yaml)
+- AI 协作指南：[AGENTS.md](AGENTS.md)
 
-## Demo
+## 演示
 
 [![Watch the AgentHub demo](release-assets/demo-cover.png)](demo.mp4)
 
-Watch or download the full demo: [demo.mp4](demo.mp4).
+观看或下载完整演示：[demo.mp4](demo.mp4)。
 
-## Highlights
+## 核心能力
 
-- **Chat-native multi-agent work**: direct chats, group chats, orchestrated plans, task cards, child-agent messages, and handoff timelines.
-- **Real workspace artifacts**: generated files live in a per-conversation workspace with file tree, code preview, diffs, uploads, artifact manifest, and publish history.
-- **Multiple agent runtimes**: built-in Orchestrator plus Claude Code, Codex Helper, OpenCode Helper, external CLI/SDK adapters, and a restricted builtin runtime for read-only custom agents.
-- **Orchestrator planning and repair**: clarification gate, large planner context, DAG execution, parallel task dispatch, fallback visibility, review handoff, evaluation, reflection, and repair loops.
-- **Preview and deployment**: static workspace preview, browser quality checks, static releases, source packages, and controlled container deployment paths.
-- **Contract-driven development**: OpenAPI-first API changes, typed frontend generation, backend adapter contracts, and spec-backed E2E evidence.
+- **聊天原生的多 Agent 协作**：支持单聊、群聊、Orchestrator 调度、任务卡片、子 Agent 独立消息和 handoff 时间线。
+- **真实 workspace 产物**：每个会话都有独立 workspace，支持文件树、代码预览、Diff、上传、artifact manifest 和发布历史。
+- **多运行时接入**：内置 Orchestrator、Claude Code、Codex Helper、OpenCode Helper；支持外部 CLI/SDK adapter，以及受限只读 builtin 自建 Agent。
+- **Orchestrator 规划与修复闭环**：clarification gate、大上下文 Planner、DAG 执行、并行调度、fallback 可见性、审阅交接、evaluation、reflection 和 repair loop。
+- **预览与部署**：支持静态 workspace preview、浏览器级质量验收、静态发布、源码打包和受控容器部署路径。
+- **契约驱动开发**：OpenAPI 优先、前端类型生成、后端 adapter contract、spec 与真实 E2E evidence 同步维护。
 
-## Current Built-in Agents
+## 当前内置 Agent
 
-AgentHub currently seeds four built-in agents:
+当前 seed 的内置 Agent 只有 4 个：
 
-| Agent | Role |
+| Agent | 职责 |
 | --- | --- |
-| `orchestrator` | Coordinates group work, plans tasks, dispatches agents, runs platform tools, and summarizes results. It is not a normal subtask target. |
-| `codex-helper` | Architecture, repository analysis, planning, final review, escalation, and difficult bug fixing. |
-| `claude-code` | Implementation, file editing, code generation, debugging, repair, review, and workspace changes. |
-| `opencode-helper` | CLI-oriented implementation, verification, repair, and parallel execution. |
+| `orchestrator` | 负责群聊协调、任务规划、Agent 调度、平台工具调用和最终总结；不作为普通子任务执行目标。 |
+| `codex-helper` | 适合架构判断、仓库理解、总体规划、最终审阅、疑难 bug 和兜底修复。 |
+| `claude-code` | 适合实现、文件编辑、代码生成、调试、修复、审阅和 workspace 修改。 |
+| `opencode-helper` | 适合 CLI 风格实现、验证、修复和并行执行。 |
 
-Custom agents do not inherit these built-in planning profiles. User-created external wrappers are based on one of the built-in runtime agents. User-created `builtin` agents are restricted read-only reader/review agents and may expose only `read_file`.
+自建 Agent 不会按 provider 自动继承这些内置 planning profile。用户自建 external wrapper 会基于某个内置运行时 Agent；用户自建 `builtin` Agent 是受限只读的 Reader/Review Agent，只能暴露 `read_file`。
 
-## Architecture
+## 技术架构
+
+### 目录结构
 
 ```text
 agenthub/
-├── backend/                 FastAPI backend, async services, Agent runtime layer
-│   ├── app/api/v1/           Auth, conversations, stream, agents, uploads,
-│   │                         memories, workspaces, shares, events
-│   ├── app/agents/           Base adapter contract, external runtimes,
-│   │                         builtin runtime, model gateway, orchestrator
+├── backend/                 FastAPI 后端、异步服务、Agent runtime 层
+│   ├── app/api/v1/           Auth、会话、stream、agents、uploads、
+│   │                         memories、workspaces、shares、events
+│   ├── app/agents/           Base adapter contract、外部运行时、
+│   │                         builtin runtime、model gateway、orchestrator
 │   ├── app/models/           SQLAlchemy models
 │   ├── app/schemas/          Pydantic schemas
-│   ├── app/services/         Workspace, deployment, memory, platform tools
-│   └── alembic/              Database migrations
-├── frontend/                React + Vite client
+│   ├── app/services/         Workspace、部署、记忆、平台工具
+│   └── alembic/              数据库迁移
+├── frontend/                React + Vite 客户端
 │   └── src/
-│       ├── components/       Chat, agents, artifacts, layout, blocks
-│       ├── hooks/            Query and streaming hooks
-│       ├── lib/              API client, generated OpenAPI types, SSE helpers
-│       ├── pages/            Login, chat, agents, archive, share
+│       ├── components/       Chat、agents、artifacts、layout、blocks
+│       ├── hooks/            Query 和 streaming hooks
+│       ├── lib/              API client、OpenAPI 生成类型、SSE helper
+│       ├── pages/            Login、chat、agents、archive、share
 │       └── stores/           Zustand stores
 ├── shared/
-│   └── openapi.yaml          API contract and frontend type source
-├── docs/                     Product, architecture, specs, collaboration logs
-└── docker-compose.yml        Local Postgres, Redis, backend, workspace volumes
+│   └── openapi.yaml          API 契约和前端类型源
+├── docs/                     产品、架构、spec、协作日志
+└── docker-compose.yml        本地 Postgres、Redis、backend、workspace volumes
 ```
 
-Core backend dependency direction:
+### 后端分层
 
 ```text
 API layer -> Service layer -> Models/Schemas/Infrastructure
@@ -79,71 +81,152 @@ API layer -> Service layer -> Models/Schemas/Infrastructure
               Agent registry -> BaseAgentAdapter implementations
 ```
 
-The key boundary is `backend/app/agents/base.py`: application services call agents through the registry and adapter contract. Raw model providers stay behind the ModelGateway layer and are not registered as top-level agents.
+关键边界是 `backend/app/agents/base.py`：业务服务通过 registry 和 adapter contract 调用 Agent。原始模型 provider 被收敛在 ModelGateway 层，不作为顶层 Agent 注册。
 
-## Tech Stack
+后端主要模块：
 
-| Area | Implementation |
+| 模块 | 说明 |
 | --- | --- |
-| Frontend | React 18, Vite, TypeScript, React Router, Tailwind CSS, shadcn-style components, Zustand, TanStack Query |
-| Streaming | Server-Sent Events via `@microsoft/fetch-event-source` |
-| Backend | Python 3.11+, FastAPI, Uvicorn, Pydantic v2, SQLAlchemy 2.0 async |
-| Storage | PostgreSQL 15, Redis 7, local workspace and upload volumes |
-| Agent runtimes | Claude Agent SDK, Codex adapter, OpenCode CLI adapter, Builtin Agent runtime, ModelGateway |
-| Quality | pytest, pytest-asyncio, ruff, mypy, vitest, Testing Library, ESLint, Prettier |
-| Clients | Web app, Tauri desktop hooks, Capacitor mobile build scripts |
+| `app/api/v1` | HTTP API、SSE stream、workspace、agent、auth、upload、memory 等入口。 |
+| `app/services` | 业务逻辑层，包括 workspace 文件、artifact manifest、deployment、memory、平台工具执行器。 |
+| `app/agents` | Agent adapter contract、外部 runtime adapter、builtin runtime、ModelGateway、Orchestrator。 |
+| `app/models` | SQLAlchemy async ORM，覆盖用户、会话、消息、Agent、workspace deployment、orchestrator run 记录等。 |
+| `app/schemas` | Pydantic v2 schema，是 API、OpenAPI 和前端类型生成的核心来源之一。 |
+| `alembic` | 数据库迁移。Compose backend 启动时会执行 `alembic upgrade head`。 |
 
-## Quick Start
+### Orchestrator 执行链路
 
-### Prerequisites
+典型 Orchestrator 请求会经过以下阶段：
 
-- Docker and Docker Compose
+```text
+用户消息
+-> stream 层构造上下文、workspace、available_agents、memory
+-> direct answer / platform facts / clarification gate
+-> LLM Planner 或显式 config.tasks
+-> task graph 校验、agent 白名单过滤、DAG 依赖分析
+-> 并行或顺序调度子 Agent
+-> 收集 TaskResult、artifact、tool evidence、child message
+-> evaluation / reflection / repair loop
+-> preview / browser verify / deployment / source package 等平台工具
+-> 最终 process block + 用户可读总结
+```
+
+重要规则：
+
+- Planner 只能选择当前群聊可用 Agent，除非 E2E/内部任务显式设置 `available_agents_authoritative=false`。
+- Planner 使用专用大上下文路径，默认 `planner_context_max_tokens=128000`，最大可配置到 `1000000`。
+- 普通 Orchestrator 主流程上下文默认 `64000 tokens`，子 Agent 分发上下文默认 `64000 tokens`。
+- Planner prompt 只保留白名单 memory signals、agent profile 和 recent conversation context，不直接暴露 raw structured memory。
+- task card 必须展示实际执行 Agent；发生 fallback 时，run detail/report 保留 `planned/current/final agent` 证据。
+- 子 Agent 不负责启动长驻服务；preview、browser verify、部署、源码打包都通过平台 tool 完成。
+
+### Agent Runtime 层
+
+AgentHub 顶层 Agent provider 与底层模型 provider 是分离的：
+
+| 类型 | 说明 |
+| --- | --- |
+| `claude_code` | Claude Code runtime。默认走 SDK，可配置 CLI fallback。 |
+| `codex` | Codex Helper runtime。默认 CLI，可支持 SDK opt-in。 |
+| `opencode` | OpenCode CLI runtime，支持本地 auth/state 目录。 |
+| `builtin` | 后端内置 AgentLoop + ModelGateway。用户自建 builtin 当前仅允许只读 `read_file`。 |
+| `mock` | 测试和开发路径。 |
+
+`ModelGateway` 负责把 Claude / OpenAI-compatible / DeepSeek 等模型后端收敛为统一 stream 接口。它是 builtin agent、direct answer、planner、evaluation 等路径的底层模型访问层。
+
+### SSE 与 ContentBlock
+
+前后端通过 SSE 传输流式事件。核心事件包括：
+
+- `message_start` / `message_done` / `message_error`
+- `block_start` / `delta` / `block_end`
+- `tool_call` / `tool_result`
+- `agent_switch`
+- `task_card` / process block / deployment status / artifact references
+
+后端会把执行过程和最终回答拆成结构化 ContentBlock，前端按 block 类型渲染任务卡片、代码、Diff、文件、工具调用、部署状态、review timeline 和最终总结。
+
+### Workspace、预览与部署
+
+- 每个 conversation 对应独立 workspace，生成文件、上传文件、artifact manifest 和发布记录都围绕该 workspace 管理。
+- Workspace 文件访问必须经过 path guard，禁止越权读取 `.env`、`.ssh`、secrets、认证目录和平台内部 manifest。
+- 静态 preview 由平台 preview service 管理，默认使用 8082 起的端口区间。
+- 静态发布通过 `/releases/{release_token}` 暴露不可变快照。
+- 源码打包会过滤敏感路径，避免把本地认证状态或密钥打进 zip。
+- 容器部署通过受控 worker 执行，Docker 需要 trusted host mode，Podman 可作为 rootless runtime；LLM 不直接拼接 `docker run`。
+
+### 数据与状态
+
+| 存储 | 内容 |
+| --- | --- |
+| PostgreSQL | 用户、会话、消息、Agent 配置、workspace deployment、orchestrator run/task/attempt/event、memory。 |
+| Redis | 缓存、实时/异步辅助能力预留。 |
+| `workspaces/` | 会话 workspace 文件。 |
+| Docker volumes | Postgres 数据、上传文件、Claude/OpenCode runtime auth state。 |
+
+## 技术栈
+
+| 领域 | 实现 |
+| --- | --- |
+| 前端 | React 18、Vite、TypeScript、React Router、Tailwind CSS、shadcn 风格组件、Zustand、TanStack Query |
+| 流式传输 | 基于 `@microsoft/fetch-event-source` 的 Server-Sent Events |
+| 后端 | Python 3.11+、FastAPI、Uvicorn、Pydantic v2、SQLAlchemy 2.0 async |
+| 存储 | PostgreSQL 15、Redis 7、本地 workspace 和 upload volumes |
+| Agent 运行时 | Claude Agent SDK、Codex adapter、OpenCode CLI adapter、Builtin Agent runtime、ModelGateway |
+| 质量保障 | pytest、pytest-asyncio、ruff、mypy、vitest、Testing Library、ESLint、Prettier |
+| 客户端 | Web app、Tauri 桌面预留、Capacitor 移动端构建脚本 |
+
+## 快速开始
+
+### 前置要求
+
+- Docker 和 Docker Compose
 - Node.js 20+
 - pnpm 9+
-- Optional runtime credentials for Claude Code, Codex, OpenCode, Anthropic/OpenAI-compatible/DeepSeek model backends
+- 可选：Claude Code、Codex、OpenCode、Anthropic / OpenAI-compatible / DeepSeek 后端所需的 runtime 凭据
 
-### 1. Configure Environment
+### 1. 配置环境变量
 
 ```bash
 cp .env.example .env
 ```
 
-For a local smoke run, keep the default Postgres/Redis values and set only the provider keys or runtime auth paths you need. At least one configured provider/runtime is required for non-mock agent execution.
+本地 smoke run 可以保留默认 Postgres/Redis 配置，只填写你需要的 provider key 或 runtime auth 路径。要执行非 mock Agent，至少需要一个可用 provider/runtime。
 
-Important variables:
+常用变量：
 
-| Variable | Purpose |
+| 变量 | 作用 |
 | --- | --- |
-| `JWT_SECRET` | Auth token signing secret. Replace it in any non-local environment. |
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` | Provider credentials used by runtime probes and model backends. |
-| `CORS_ORIGINS` | Allowed frontend origins. Defaults include local Vite and Tauri origins. |
-| `WORKSPACE_BASE_DIR` | Root directory for generated conversation workspaces. |
-| `UPLOAD_STORAGE_DIR` | Persistent upload storage path inside the backend container. |
-| `PREVIEW_*` | Workspace preview controls and public base URL. |
-| `DEPLOYMENT_CONTAINER_*` | Controlled container deployment runtime, ports, and health-check settings. |
-| `VITE_API_BASE_URL` | Frontend API base URL. Defaults to `http://localhost:8000`. |
+| `JWT_SECRET` | 登录 token 签名密钥。任何非本地环境都必须替换。 |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` | runtime 探活和 ModelGateway 后端使用的 provider 凭据。 |
+| `CORS_ORIGINS` | 允许访问后端的前端 origin，默认包含本地 Vite 和 Tauri origin。 |
+| `WORKSPACE_BASE_DIR` | 会话 workspace 根目录。 |
+| `UPLOAD_STORAGE_DIR` | backend 容器内的持久化上传目录。 |
+| `PREVIEW_*` | workspace preview 控制和公网 base URL。 |
+| `DEPLOYMENT_CONTAINER_*` | 受控容器部署 runtime、端口和健康检查配置。 |
+| `VITE_API_BASE_URL` | 前端 API base URL，默认 `http://localhost:8000`。 |
 
-Never commit real `.env`, auth tokens, runtime state, or provider keys.
+不要提交真实 `.env`、auth token、runtime state 或 provider key。
 
-### 2. Start Backend Services
+### 2. 启动后端服务
 
 ```bash
 docker compose up -d
 ```
 
-The backend container runs Alembic migrations on startup. To seed or refresh built-in agents explicitly:
+backend 容器启动时会执行 Alembic migration。需要显式刷新内置 Agent 时：
 
 ```bash
 docker compose exec backend python -m app.seeds.seed_agents
 ```
 
-Useful local endpoints:
+常用本地地址：
 
-- Frontend: <http://localhost:5173>
-- API docs: <http://localhost:8000/docs>
-- Health check: <http://localhost:8000/health>
+- 前端：<http://localhost:5173>
+- API 文档：<http://localhost:8000/docs>
+- 健康检查：<http://localhost:8000/health>
 
-### 3. Start Frontend
+### 3. 启动前端
 
 ```bash
 cd frontend
@@ -151,19 +234,19 @@ pnpm install
 pnpm dev
 ```
 
-Open <http://localhost:5173>.
+打开 <http://localhost:5173>。
 
-The frontend can run against mock data, a local backend, or a remote backend depending on `.env.local`:
+前端可以连接 mock 数据、本地后端或远端后端，取决于 `.env.local`：
 
 ```bash
 cp .env.example .env.local
-# Set VITE_USE_MOCK_API=false to use a real backend.
-# Set VITE_API_BASE_URL or VITE_DEV_PROXY_TARGET as needed.
+# 设置 VITE_USE_MOCK_API=false 可连接真实后端。
+# 按需设置 VITE_API_BASE_URL 或 VITE_DEV_PROXY_TARGET。
 ```
 
-## Runtime Setup Notes
+## Runtime 配置检查
 
-The seeded runtime agents depend on local or container-visible runtime auth:
+seed 的运行时 Agent 依赖容器内可见的 runtime auth：
 
 ```bash
 docker compose exec backend opencode --version
@@ -177,11 +260,11 @@ docker compose exec backend sh -lc 'ls -la $AGENTHUB_CLAUDE_AUTH_DIR'
 docker compose exec backend env | grep -E 'ANTHROPIC|CLAUDE|AGENTHUB_CLAUDE'
 ```
 
-OpenCode login state is persisted in the `opencode-state` Docker volume through `AGENTHUB_OPENCODE_AUTH_DIR`. Claude Code login state is persisted in the `claude-state` Docker volume through `AGENTHUB_CLAUDE_AUTH_DIR`.
+OpenCode 登录状态通过 `AGENTHUB_OPENCODE_AUTH_DIR` 持久化在 `opencode-state` Docker volume 中。Claude Code 登录状态通过 `AGENTHUB_CLAUDE_AUTH_DIR` 持久化在 `claude-state` Docker volume 中。
 
-## Development Commands
+## 开发命令
 
-### Backend
+### 后端
 
 ```bash
 docker compose logs -f backend
@@ -192,7 +275,7 @@ docker compose exec backend ruff check
 docker compose exec backend mypy app
 ```
 
-Local backend-only development is managed from `backend/` with `uv`:
+纯后端本地开发使用 `backend/` 下的 `uv`：
 
 ```bash
 cd backend
@@ -203,14 +286,14 @@ uv run ruff check
 uv run mypy app
 ```
 
-Backend tests intentionally refuse to run against the default development database unless you opt in. Prefer an isolated test database. For a deliberate local one-off run:
+后端测试默认拒绝直接打到开发库。优先使用隔离测试库；如果只是本地一次性确认：
 
 ```bash
 cd backend
 AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run pytest
 ```
 
-### Frontend
+### 前端
 
 ```bash
 cd frontend
@@ -220,9 +303,9 @@ pnpm lint
 pnpm build
 ```
 
-Run `pnpm gen:types` whenever [shared/openapi.yaml](shared/openapi.yaml) changes. Generated API types live in [frontend/src/lib/types.gen.ts](frontend/src/lib/types.gen.ts).
+每次修改 [shared/openapi.yaml](shared/openapi.yaml) 后都要运行 `pnpm gen:types`。生成的类型文件在 [frontend/src/lib/types.gen.ts](frontend/src/lib/types.gen.ts)。
 
-### Desktop and Mobile
+### 桌面与移动端
 
 ```bash
 cd frontend
@@ -231,11 +314,11 @@ pnpm tauri:build
 pnpm cap:sync
 ```
 
-These surfaces depend on local native toolchains in addition to the web app requirements.
+这些端需要额外安装对应的本地 native toolchain。
 
-## Live E2E and Repair Loop
+## Live E2E 与 Repair Loop
 
-The live E2E harness validates real HTTP/SSE flows, preview, deployment, multi-agent planning, fallback, and repair behavior.
+Live E2E harness 用真实 HTTP/SSE 验证 preview、deployment、多 Agent 规划、fallback 和 repair 行为。
 
 ```bash
 cd backend
@@ -246,7 +329,7 @@ AGENTHUB_E2E_SCENARIO=fullstack_task_manager_parallel_repair_v2 \
 uv run python scripts/orchestrator_live_e2e.py
 ```
 
-Recent robustness scenarios include:
+近期鲁棒性场景包括：
 
 - `fullstack_task_manager_parallel_repair_v2`
 - `cyberpunk_site_quality_repair_8082_v2`
@@ -257,56 +340,56 @@ Recent robustness scenarios include:
 - `group_member_fallback_repair_visibility`
 - `im_dialogue_no_artifact_turn_taking_v2`
 
-Credentials must be provided through environment variables. Do not write real accounts, passwords, access tokens, or refresh tokens into source files, reports, or logs.
+测试账号密码必须通过环境变量注入。不要把真实账号、密码、access token 或 refresh token 写入源码、报告或日志。
 
-## API Surface
+## API 范围
 
-The backend mounts API v1 under `/api/v1`:
+后端 API v1 挂载在 `/api/v1`：
 
-| Area | Router |
+| 领域 | Router |
 | --- | --- |
 | Auth | `/api/v1/auth` |
-| Conversations and messages | `/api/v1/conversations`, message routes, `/api/v1/stream` |
+| Conversations 和 messages | `/api/v1/conversations`、message routes、`/api/v1/stream` |
 | Agents | `/api/v1/agents` |
-| Workspaces and artifacts | `/api/v1/workspaces` |
+| Workspaces 和 artifacts | `/api/v1/workspaces` |
 | Uploads | `/api/v1/uploads` |
-| Memories and context compression | `/api/v1/memories`, `/api/v1/context-compression` |
+| Memories 和 context compression | `/api/v1/memories`、`/api/v1/context-compression` |
 | Realtime events | `/api/v1/events` |
 | Local runtime connectors | `/api/v1/local-runtime-connectors` |
-| Shares | `/api/v1/conversations/{conversation_id}/shares`, `/api/v1/conversation-shares/{token}` |
+| Shares | `/api/v1/conversations/{conversation_id}/shares`、`/api/v1/conversation-shares/{token}` |
 | Static releases | `/releases/{release_token}` |
 
-For request/response details, use [shared/openapi.yaml](shared/openapi.yaml) or the local Swagger UI at <http://localhost:8000/docs>.
+请求和响应细节见 [shared/openapi.yaml](shared/openapi.yaml)，或本地 Swagger UI：<http://localhost:8000/docs>。
 
-## Documentation Map
+## 文档索引
 
-| Need | Document |
+| 需求 | 文档 |
 | --- | --- |
-| AI collaboration rules | [AGENTS.md](AGENTS.md) |
-| Product design | [docs/product-design.md](docs/product-design.md) |
-| Technical architecture | [docs/tech-architecture.md](docs/tech-architecture.md) |
-| Team ownership | [docs/team-division.md](docs/team-division.md) |
-| API guide | [docs/api-spec.md](docs/api-spec.md) |
+| AI 协作规则 | [AGENTS.md](AGENTS.md) |
+| 产品设计 | [docs/product-design.md](docs/product-design.md) |
+| 技术架构 | [docs/tech-architecture.md](docs/tech-architecture.md) |
+| 团队分工 | [docs/team-division.md](docs/team-division.md) |
+| API 指南 | [docs/api-spec.md](docs/api-spec.md) |
 | Runtime pivot ADR | [docs/spec/agent-runtime-pivot.adr.md](docs/spec/agent-runtime-pivot.adr.md) |
 | Agent adapter contract | [docs/b2/spec/agent-runtime-adapter.spec.md](docs/b2/spec/agent-runtime-adapter.spec.md) |
 | Builtin Agent framework | [docs/b2/spec/builtin-agent-framework.spec.md](docs/b2/spec/builtin-agent-framework.spec.md) |
 | Orchestrator specs | [docs/b2/spec/orchestrator/README.md](docs/b2/spec/orchestrator/README.md) |
 | Workspace sandbox | [docs/b1/spec/workspace-sandbox.spec.md](docs/b1/spec/workspace-sandbox.spec.md) |
 
-## Collaboration Rules
+## 协作规则
 
-This repository is contract-driven. Before changing code, read [AGENTS.md](AGENTS.md). The short version:
+本仓库是契约驱动的。改代码前请先读 [AGENTS.md](AGENTS.md)。简版规则：
 
-- API changes start in [shared/openapi.yaml](shared/openapi.yaml), then schemas/services/routes/frontend types follow.
-- Backend services use `agents.registry.get_adapter(...)`; they do not import concrete external runtimes directly.
-- Agent adapters implement the BaseAgentAdapter v2 contract and should not access the database.
-- Content block changes must stay aligned across backend schemas, OpenAPI, and frontend renderers.
-- Keep ownership boundaries clear: `frontend/**`, backend core/services/API, and `backend/app/agents/**` have different owners.
+- API 变更从 [shared/openapi.yaml](shared/openapi.yaml) 开始，然后同步 schema、service、route 和前端类型。
+- 后端服务通过 `agents.registry.get_adapter(...)` 调用 Agent，不直接 import 具体外部 runtime。
+- Agent adapter 实现 BaseAgentAdapter v2 contract，不访问数据库。
+- ContentBlock 变更必须同步 backend schema、OpenAPI 和前端渲染器。
+- 保持所有权边界清晰：`frontend/**`、后端 core/services/API、`backend/app/agents/**` 分属不同模块。
 
-## Repository Status
+## 仓库状态
 
-AgentHub is an MVP-stage project with active runtime, workspace, deployment, and orchestration development. Some docs may describe planned or recently pivoted behavior; when in doubt, prefer the current code, [shared/openapi.yaml](shared/openapi.yaml), and [AGENTS.md](AGENTS.md).
+AgentHub 仍处于 MVP 阶段，runtime、workspace、deployment 和 Orchestrator 能力都在快速迭代。部分文档可能描述计划中或刚 pivot 的行为；如果不确定，以当前代码、[shared/openapi.yaml](shared/openapi.yaml) 和 [AGENTS.md](AGENTS.md) 为准。
 
 ## License
 
-No repository license file is currently present.
+当前仓库尚未提供 license 文件。
