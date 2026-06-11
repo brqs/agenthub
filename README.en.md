@@ -18,22 +18,31 @@ AgentHub turns AI collaboration into a chat-native workspace. Users can talk to 
 
 ## Quick Access
 
+This section keeps only the most common entry points. Detailed design, architecture, specs, and E2E evidence live in [Project Docs](#project-docs).
+
 | Need | Entry |
 | --- | --- |
 | Try the demo | [ag.brqs.link](http://ag.brqs.link/login) |
 | Watch the demo video | [demo.mp4](demo.mp4) |
-| Full docs index | [docs/README.md](docs/README.md) |
-| Product design | [docs/product-design.md](docs/product-design.md) |
-| Technical architecture | [docs/tech-architecture.md](docs/tech-architecture.md) |
 | API contract | [shared/openapi.yaml](shared/openapi.yaml), [docs/api-spec.md](docs/api-spec.md) |
-| AI collaboration records | [AGENTS.md](AGENTS.md), [docs/ai-collaboration-log.md](docs/ai-collaboration-log.md), [docs/ai-skills/](docs/ai-skills/) |
-| Orchestrator / Runtime specs | [docs/b2/README.md](docs/b2/README.md), [docs/b2/spec/README.md](docs/b2/spec/README.md) |
+| Docs index | [docs/README.md](docs/README.md) |
+| AI collaboration guide | [AGENTS.md](AGENTS.md) |
 
 ## Project Overview
 
 AgentHub is an IM-centered multi-agent collaboration platform. Users create task conversations like chats, talk to individual agents, or ask the Orchestrator in a group conversation to decompose work and coordinate multiple real Agent runtimes while keeping the process and deliverables in one workspace.
 
 A typical flow is: user request -> Orchestrator planning -> Claude Code / Codex Helper / OpenCode Helper execution -> workspace files, diffs, and artifact manifests -> platform preview, browser validation, review, and repair -> final summary, release record, or deployment result.
+
+## Core Collaboration Flow
+
+The Orchestrator does not send every message straight to the Planner. A group-chat turn first passes through waterfall routing: clarification gates, previous-output follow-up, platform-fact answers, direct answers, custom-agent creation, and platform tool loops can all handle the request before planning starts. Planning itself has multiple routes: explicit `@` mentions can create broadcast tasks, discussion requests use turn-taking, configured `config.tasks` bypass the LLM Planner, and complex delivery requests use the Planner to build a DAG from current group members, agent profiles, conversation context, and workspace state.
+
+Task delegation is bounded by the real members of the current group conversation. The Planner can select only available agents in the conversation, and sees built-in planning profiles plus safe allowlisted custom-agent fields. The generated task graph is validated for agent whitelist, dependencies, and workspace conflicts. Independent tasks can run in parallel; dependent tasks receive previous result summaries, workspace inventory, and the latest user request before being handed to a child agent. During execution, task cards show the actual execution agent, while run details preserve planned/current/final agent evidence. If a target agent is unavailable, fallback is limited to available agents in the group.
+
+Results then continue into review handoff, evaluation/reflection, and repair loops. Child agents generate or modify workspace artifacts; the Orchestrator collects results, decides whether repair is needed, and uses platform tools for preview, browser validation, source packaging, static release, or controlled container deployment. The user sees an inspectable chain rather than a black-box answer: routing -> planning -> delegation -> execution -> validation -> repair -> summary.
+
+Related material: [Orchestrator routing flow](docs/orchestrator-routing-flow.md), [core spec](docs/b2/spec/orchestrator/core.spec.md), [task planning spec](docs/b2/spec/orchestrator/task-planning.spec.md), [message attribution spec](docs/b2/spec/orchestrator/message-attribution.spec.md), [evaluation/reflection spec](docs/b2/spec/orchestrator/evaluation-reflection.spec.md), [live E2E report spec](docs/b2/spec/orchestrator/live-e2e-report.spec.md).
 
 ## Product Threads and Implementation
 
@@ -74,10 +83,9 @@ Related material: [frontend README](docs/frontend/README.md), [mobile developmen
 | Technical architecture document | [docs/tech-architecture.md](docs/tech-architecture.md) |
 | API docs and contract | [docs/api-spec.md](docs/api-spec.md), [shared/openapi.yaml](shared/openapi.yaml) |
 | B1 / B2 / Frontend module docs | [docs/b1/README.md](docs/b1/README.md), [docs/b2/README.md](docs/b2/README.md), [docs/frontend/README.md](docs/frontend/README.md) |
+| Orchestrator routing and task flow | [docs/orchestrator-routing-flow.md](docs/orchestrator-routing-flow.md), [docs/b2/spec/orchestrator/README.md](docs/b2/spec/orchestrator/README.md) |
 | AI collaboration records and rules | [docs/ai-collaboration-log.md](docs/ai-collaboration-log.md), [AGENTS.md](AGENTS.md), [docs/ai-skills/](docs/ai-skills/) |
 | Live E2E and repair-loop evidence | [docs/b2/spec/orchestrator/live-e2e-report.spec.md](docs/b2/spec/orchestrator/live-e2e-report.spec.md) |
-| Runnable demo | [ag.brqs.link](http://ag.brqs.link/login) |
-| 3-minute demo video | [demo.mp4](demo.mp4) |
 | Original design brief | [docs/archive/AgentHub- 多Agent协作平台设计.md](<docs/archive/AgentHub- 多Agent协作平台设计.md>), [PDF](<docs/archive/AgentHub- 多Agent协作平台设计.pdf>) |
 
 ## Demo
