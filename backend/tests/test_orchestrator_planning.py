@@ -10,12 +10,17 @@ from app.agents.orchestrator._internal.planning.routing import (
     is_artifact_build_request,
 )
 from app.agents.orchestrator._internal.planning.templates.legacy import derive_tasks
+from app.agents.orchestrator._internal.routing.custom_agent import (
+    custom_agent_tool_arguments,
+)
 from app.agents.orchestrator._internal.routing.direct_answer import (
     _answer_messages,
     should_direct_answer,
 )
 from app.agents.orchestrator._internal.routing.evidence import (
     ORCHESTRATOR_EVIDENCE_HEADER,
+    EvidencePack,
+    deterministic_evidence_answer,
     is_context_action_request,
     is_evidence_followup_request,
 )
@@ -45,6 +50,55 @@ async def _collect(adapter, config=None, messages=None, workspace_path=None):
         messages=messages,
         workspace_path=workspace_path,
     )
+
+
+async def test_platform_first_deployment_repair_skips_initial_subtasks() -> None:
+    request = (
+        "@orchestrator 当前 workspace 已经有完整可用的 index.html、styles.css、app.js，"
+        "以及一个故意有问题的 Dockerfile。首次容器部署前不要修改任何 workspace 文件，"
+        "也不要让子 Agent 先修复 Dockerfile；请先只在端口8082执行浏览器级质量验收、"
+        "静态发布、源码打包和 create_deployment(kind=container)。当 deployment_health "
+        "失败后，再由 reflection/repair agent 根据 deployment logs 修复 Dockerfile。"
+    )
+
+    tasks = await resolve_tasks(
+        {"managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"]},
+        [ChatMessage(role="user", content=request)],
+        None,
+    )
+
+    assert tasks == []
+
+
+def test_custom_agent_parser_supports_read_only_builtin_agent() -> None:
+    args = custom_agent_tool_arguments(
+        "@orchestrator 请创建一个新的自建 Agent，名字为 LiveReader-1，"
+        "provider 使用 builtin，model_backend 为 deepseek，"
+        "system_prompt 为“你是一个只能读取 workspace 文件的中文检查 Agent”，"
+        "capabilities 设置为 reading、review，工具白名单设置为 read_file，"
+        "并把它加入当前群聊。"
+    )
+
+    assert args is not None
+    assert args["provider"] == "builtin"
+    assert args["config"]["model_backend"] == "deepseek"
+    assert args["config"]["allowed_tools"] == ["read_file"]
+    assert args["add_to_conversation"] is True
+
+
+def test_custom_agent_parser_supports_model_backend_set_to_phrase() -> None:
+    args = custom_agent_tool_arguments(
+        "@orchestrator 请创建一个新的自建 Agent，名字为 LiveReader-2，"
+        "provider 使用 builtin，model_backend 设置为 claude，"
+        "system_prompt 为“你是一个只能读取 workspace 文件的中文检查 Agent”，"
+        "capabilities 设置为 reading、review，工具白名单设置为 read_file，"
+        "并把它加入当前群聊。"
+    )
+
+    assert args is not None
+    assert args["provider"] == "builtin"
+    assert args["config"]["model_backend"] == "claude"
+    assert args["config"]["allowed_tools"] == ["read_file"]
 
 
 class FakeMultiFileWriterAdapter(FakeSubAdapter):
@@ -596,6 +650,29 @@ def test_context_action_request_evidence_pack_is_planner_whitelisted() -> None:
     assert ORCHESTRATOR_EVIDENCE_HEADER in planner_content
     assert "latest_run_status: done" in planner_content
     assert "planning.md" in planner_content
+
+
+def test_evidence_file_answer_prefers_current_workspace_files() -> None:
+    pack = EvidencePack(
+        has_evidence=True,
+        run_status="done",
+        artifacts=["server.js", "e.tar", "index.html"],
+        changed_files=["server.js", "styles.css"],
+        workspace_files=[
+            "README.md (75 B)",
+            "index.html (1024 B)",
+            "styles.css (2048 B)",
+            "app.js (4096 B)",
+        ],
+    )
+
+    answer = deterministic_evidence_answer("改了哪些文件", pack)
+
+    assert "index.html" in answer
+    assert "styles.css" in answer
+    assert "app.js" in answer
+    assert "server.js" not in answer
+    assert "e.tar" not in answer
 
 
 async def test_orchestrator_planner_cannot_select_agent_outside_available_agents() -> None:
@@ -1548,9 +1625,10 @@ async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
 
     assert chunks[-1].event_type == "done"
     assert planner.calls == []
-    assert [
-        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
-    ] == ["codex-helper", "claude-code", "opencode-helper", "codex-helper"]
+    switches = [chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"]
+    assert switches[:3] == ["codex-helper", "claude-code", "opencode-helper"]
+    assert len(switches) == 4
+    assert switches[-1] in {"claude-code", "opencode-helper", "codex-helper"}
     assert any("I'll handle this in 4 step(s)" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Implement frontend artifacts" in (chunk.text_delta or "") for chunk in chunks)
     assert any("Implement backend artifacts" in (chunk.text_delta or "") for chunk in chunks)
@@ -1562,6 +1640,94 @@ async def test_fullstack_delivery_uses_deterministic_parallel_dag() -> None:
         opencode.received_messages[-1].content
     )
     assert "frontend/backend API consistency" in codex.received_messages[-1].content
+
+
+async def test_explicit_agent_artifact_plan_skips_fullstack_template() -> None:
+    claude = FakeSubAdapter("claude-code", _text_chunks("created frontend attribution"))
+    opencode = FakeSubAdapter("opencode-helper", _text_chunks("created backend attribution"))
+    codex = FakeSubAdapter("codex-helper", _text_chunks("created plan or review"))
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "attribution-plan",
+                            "codex-helper",
+                            "Create attribution plan",
+                            "Create attribution-plan.md.",
+                            expected_output="attribution-plan.md",
+                        ),
+                        _task(
+                            "attribution-frontend",
+                            "claude-code",
+                            "Create frontend attribution",
+                            "Create attribution-frontend.md.",
+                            depends_on=["attribution-plan"],
+                            expected_output="attribution-frontend.md",
+                        ),
+                        _task(
+                            "attribution-backend",
+                            "opencode-helper",
+                            "Create backend attribution",
+                            "Create attribution-backend.md.",
+                            depends_on=["attribution-plan"],
+                            expected_output="attribution-backend.md",
+                        ),
+                        _task(
+                            "attribution-review",
+                            "codex-helper",
+                            "Review attribution",
+                            "Create attribution-review.md.",
+                            depends_on=[
+                                "attribution-frontend",
+                                "attribution-backend",
+                            ],
+                            expected_output="attribution-review.md",
+                            task_type="review",
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+    request = (
+        "@orchestrator 请进行群聊归因与 process 鲁棒性验收，不要预览、不要部署。"
+        "只能使用当前群聊成员。请让 codex-helper 创建 attribution-plan.md；"
+        "让 claude-code 创建 attribution-frontend.md；让 opencode-helper 创建 "
+        "attribution-backend.md；最后创建 attribution-review.md。"
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "planner_gateway": planner,
+            "managed_agent_ids": ["claude-code", "opencode-helper", "codex-helper"],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+                "codex-helper": codex,
+            },
+        },
+    )
+
+    planning_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert chunks[-1].event_type == "done"
+    assert planner.calls == []
+    assert "Implement frontend artifacts" not in planning_text
+    assert "backend_app.py" not in planning_text
+    assert "attribution-plan.md" in planning_text
+    switches = [chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"]
+    assert switches[:3] == ["codex-helper", "claude-code", "opencode-helper"]
+    assert len(switches) == 4
+    assert switches[-1] in {"claude-code", "opencode-helper", "codex-helper"}
 
 
 async def test_fullstack_delivery_template_does_not_hardcode_okr_theme() -> None:

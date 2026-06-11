@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any, cast
@@ -78,6 +79,22 @@ ARTIFACT_TASK_MARKERS = (
     "文件",
     "产物",
 )
+CANONICAL_FULLSTACK_DELIVERY_FILES = frozenset(
+    {
+        "planning.md",
+        "index.html",
+        "styles.css",
+        "app.js",
+        "backend_app.py",
+        "api.md",
+        "backend_tests.md",
+        "review.md",
+    }
+)
+EXPLICIT_ARTIFACT_RE = re.compile(
+    r"(?<![\w./-])([\w./-]+\.(?:md|html|css|js|py|ya?ml|json|csv|txt))(?![\w./-])",
+    re.I,
+)
 MULTI_AGENT_DISTRIBUTION_MARKERS = (
     "至少两个智能体",
     "两个智能体",
@@ -149,6 +166,25 @@ IMPLEMENTATION_TASK_MARKERS = (
     "样式",
     "适配",
 )
+PLATFORM_FIRST_DEPLOYMENT_MARKERS = (
+    "首次容器部署前",
+    "first container deployment",
+    "before first container",
+)
+PLATFORM_FIRST_NO_EDIT_MARKERS = (
+    "不要修改",
+    "不要让子 agent 先修复",
+    "不要让子 Agent 先修复",
+    "do not modify",
+    "don't modify",
+    "without modifying",
+)
+PLATFORM_DEPLOYMENT_REPAIR_MARKERS = (
+    "create_deployment(kind=container)",
+    "deployment_health",
+    "container deployment",
+    "容器部署",
+)
 
 
 class PlannerResolutionError(ValueError):
@@ -170,6 +206,8 @@ async def resolve_tasks(
             raise PlannerResolutionError(
                 "no_runnable_agent: no executable agent is available in current conversation"
             )
+        if _platform_first_deployment_repair_request(user_request):
+            return []
         direct_tasks = _direct_tasks_from_request(config, messages)
         if direct_tasks and not turn_taking_requested(user_request):
             return direct_tasks
@@ -182,9 +220,16 @@ async def resolve_tasks(
         conflict_tasks = _workspace_conflict_tasks_from_request(config, messages)
         if conflict_tasks:
             return conflict_tasks
-        fullstack_tasks = _fullstack_delivery_tasks_from_request(config, messages)
-        if fullstack_tasks:
-            return fullstack_tasks
+        explicit_artifact_tasks = _explicit_agent_artifact_tasks_from_request(
+            config,
+            user_request,
+        )
+        if explicit_artifact_tasks:
+            return explicit_artifact_tasks
+        if not _should_skip_fullstack_template(config, user_request):
+            fullstack_tasks = _fullstack_delivery_tasks_from_request(config, messages)
+            if fullstack_tasks:
+                return fullstack_tasks
         if llm_planning_enabled(config):
             try:
                 return await _plan_tasks_with_model(config, messages, system_prompt)
@@ -209,6 +254,15 @@ async def resolve_tasks(
     return _parse_task_list(raw_tasks)
 
 
+def _platform_first_deployment_repair_request(user_request: str) -> bool:
+    normalized = user_request.lower()
+    return (
+        any(marker.lower() in normalized for marker in PLATFORM_FIRST_DEPLOYMENT_MARKERS)
+        and any(marker.lower() in normalized for marker in PLATFORM_FIRST_NO_EDIT_MARKERS)
+        and any(marker.lower() in normalized for marker in PLATFORM_DEPLOYMENT_REPAIR_MARKERS)
+    )
+
+
 def should_direct_answer_after_planner_error(
     config: Mapping[str, Any],
     exc: PlannerResolutionError,
@@ -225,6 +279,148 @@ def should_direct_answer_after_planner_error(
 def _is_planner_protocol_error(exc: ValueError) -> bool:
     message = str(exc)
     return any(marker in message for marker in PLANNER_PROTOCOL_ERROR_MARKERS)
+
+
+def _should_skip_fullstack_template(
+    config: Mapping[str, Any],
+    user_request: str,
+) -> bool:
+    if not llm_planning_enabled(config):
+        return False
+    allowed_agent_ids = _allowed_agent_ids_from_config(config)
+    if len(explicit_agent_mentions(list(allowed_agent_ids), user_request)) < 2:
+        return False
+    explicit_files = _explicit_artifact_filenames(user_request)
+    if len(explicit_files) < 2:
+        return False
+    return bool(explicit_files - CANONICAL_FULLSTACK_DELIVERY_FILES)
+
+
+def _explicit_agent_artifact_tasks_from_request(
+    config: Mapping[str, Any],
+    user_request: str,
+) -> list[SubTask]:
+    allowed_agent_ids = _configured_agent_order(config)
+    if not allowed_agent_ids:
+        return []
+    explicit_files = _explicit_artifact_filenames(user_request)
+    if len(explicit_files) < 2:
+        return []
+    if not explicit_files - CANONICAL_FULLSTACK_DELIVERY_FILES:
+        return []
+
+    assigned: list[tuple[str, str, int]] = []
+    seen_files: set[str] = set()
+    for segment_index, segment in enumerate(_request_segments(user_request)):
+        segment_files = _explicit_artifact_filenames(segment)
+        if not segment_files:
+            continue
+        mentioned_agents = explicit_agent_mentions(allowed_agent_ids, segment)
+        for agent_id in mentioned_agents[:1]:
+            for filename in sorted(segment_files):
+                if filename in seen_files:
+                    continue
+                assigned.append((agent_id, filename, segment_index))
+                seen_files.add(filename)
+
+    if len(assigned) < 2:
+        return []
+
+    review_files = [
+        filename
+        for filename in sorted(explicit_files - seen_files)
+        if "review" in filename or "审阅" in filename or "复核" in filename
+    ]
+    review_agent = _default_review_agent(allowed_agent_ids, assigned)
+    for filename in review_files:
+        assigned.append((review_agent, filename, len(assigned)))
+        seen_files.add(filename)
+
+    tasks: list[SubTask] = []
+    plan_task_ids: list[str] = []
+    for index, (agent_id, filename, _segment_index) in enumerate(
+        sorted(assigned, key=lambda item: item[2])
+    ):
+        task_id = _unique_task_id(tasks, _task_id_from_filename(filename))
+        is_review = _is_review_artifact(filename)
+        is_plan = _is_plan_artifact(filename)
+        depends_on: tuple[str, ...]
+        if is_review:
+            depends_on = tuple(task.task_id for task in tasks)
+        elif plan_task_ids:
+            depends_on = tuple(plan_task_ids)
+        else:
+            depends_on = ()
+        task_type = "review" if is_review else "implementation"
+        tasks.append(
+            SubTask(
+                task_id=task_id,
+                agent_id=agent_id,
+                title=f"Create {filename}",
+                instruction=(
+                    f"Create `{filename}` in the workspace root. Preserve the "
+                    "explicit agent assignment, filename, current group scope, "
+                    "no-preview/no-deploy constraints, attribution evidence, and "
+                    "acceptance requirements from the original user request.\n\n"
+                    f"Original user request:\n{user_request}"
+                ),
+                depends_on=depends_on,
+                priority=index,
+                expected_output=filename,
+                task_type=task_type,
+                review_of=depends_on if is_review else (),
+            )
+        )
+        if is_plan:
+            plan_task_ids.append(task_id)
+    return tasks if len(tasks) >= 2 else []
+
+
+def _explicit_artifact_filenames(text: str) -> set[str]:
+    filenames: set[str] = set()
+    for match in EXPLICIT_ARTIFACT_RE.finditer(text):
+        raw = match.group(1).strip().strip("`'\"，。；;、")
+        if not raw:
+            continue
+        filenames.add(raw.rsplit("/", 1)[-1].lower())
+    return filenames
+
+
+def _request_segments(text: str) -> list[str]:
+    return [
+        segment.strip()
+        for segment in re.split(r"[\n。；;]+", text)
+        if segment.strip()
+    ]
+
+
+def _task_id_from_filename(filename: str) -> str:
+    stem = filename.rsplit(".", 1)[0]
+    normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", stem).strip("-")
+    return normalized or "artifact"
+
+
+def _is_review_artifact(filename: str) -> bool:
+    normalized = filename.lower()
+    return "review" in normalized or "审阅" in normalized or "复核" in normalized
+
+
+def _is_plan_artifact(filename: str) -> bool:
+    normalized = filename.lower()
+    return "plan" in normalized or "planning" in normalized or "方案" in normalized
+
+
+def _default_review_agent(
+    allowed_agent_ids: list[str],
+    assigned: list[tuple[str, str, int]],
+) -> str:
+    if "codex-helper" in allowed_agent_ids:
+        return "codex-helper"
+    assigned_agents = {agent_id for agent_id, _, _ in assigned}
+    return next(
+        (agent_id for agent_id in allowed_agent_ids if agent_id not in assigned_agents),
+        allowed_agent_ids[0],
+    )
 
 
 def _is_empty_task_list_error(exc: ValueError) -> bool:

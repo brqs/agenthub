@@ -166,11 +166,14 @@ def mark_tool_fulfillment(
 def fulfillment_needs_attention(run_context: OrchestratorRunContext) -> list[str]:
     lines: list[str] = []
     for item in run_context.fulfillment_items:
+        item_id = str(item.get("id") or "")
+        if item_id in {"preview", "browser_verify", "deployment", "source_package"}:
+            continue
         status = item.get("status")
         if status not in {"pending", "failed", "skipped"}:
             continue
         label = str(item.get("label") or item.get("id") or "requirement")
-        reason = str(item.get("reason") or _default_reason(str(item.get("id") or "")))
+        reason = str(item.get("reason") or _default_reason(item_id))
         lines.append(f"{label}: {reason}")
     return lines
 

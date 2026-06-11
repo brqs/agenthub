@@ -1,7 +1,7 @@
 # Orchestrator Native Deployment Execution Spec
 
 > 状态：Production hardening + one-click repair loop E2E passed
-> 最后更新：2026-06-10
+> 最后更新：2026-06-11
 > 依据：课程设计第五点“部署发布”，以聊天中直接发送“部署”指令并返回部署状态卡片为产品目标。
 
 ## 1. 背景与重构目标
@@ -409,6 +409,18 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
     执行 `deployment-repair-1`，第二次 `create_deployment(kind="container")` 发布成功。
   - final deployment `d2548f58-1387-4354-be96-9b888d5ceee6` 为 `published`，
     healthcheck URL 返回 `ok`，stop cleanup 和 8081-8085 端口残留检查均通过。
+- 2026-06-11 多场景 deployment/package/browser repair E2E 证据：
+  - `static_package_deploy_repair_matrix`：
+    `/tmp/agenthub_static_package_deploy_repair_matrix_report.json`，`passed=true`。验证静态站点、
+    source package、平台 preview/deploy、部署历史和源码包敏感文件过滤；browser repair 后最终通过。
+  - `cyberpunk_site_quality_repair_8082_v2`：
+    `/tmp/agenthub_cyberpunk_quality_v2_report.json`，`passed=true`。验证 8082 preview、按钮交互、移动端适配、
+    console/page/failed request 清洁和必要 repair loop。
+  - `group_member_fallback_repair_visibility`：
+    `/tmp/agenthub_group_member_fallback_repair_visibility_report.json`，`passed=true`。验证 fallback 后仍继续
+    evaluation/repair，并在 task card/report 中保留 planned/final agent 差异证据。
+- 部署/发布 E2E harness 必须等待平台 tool 的 terminal 状态或明确 timeout，而不是只检查初始
+  `queued/publishing`；如果环境返回 `not_supported`，只能作为平台限制记录，不触发 repair。
 - Orchestrator live E2E 增加 deployment repair 专用场景：首次容器部署失败后必须观察到
   `deployment_health` failure、`reflection_created`、repair agent attempt、第二次 `create_deployment` 和最终
   `published=true`。
@@ -433,8 +445,8 @@ GET    /api/v1/workspaces/{conversation_id}/deployments/{deployment_id}/download
 - 构建超时、运行超时、健康检查失败均写入 error/logs/state_events。
 
 Orchestrator API/SSE queued worker 复验已覆盖 production-default `not_supported`、trusted Docker demo
-override `queued/publishing -> published` 和 one-click from-zero `failed -> reflection -> repair -> published`
-三条聊天编排链路。后续可选补测集中在更多真实项目类型，而不是当前静态站点 one-click MVP。
+override `queued/publishing -> published`、one-click from-zero `failed -> reflection -> repair -> published`、
+静态包发布 repair matrix 和 8082 browser quality repair。后续可选补测集中在更多真实项目类型，而不是当前静态站点 one-click MVP。
 
 ```text
 @orchestrator 请生成一个最小 FastAPI 服务，包含 Dockerfile，

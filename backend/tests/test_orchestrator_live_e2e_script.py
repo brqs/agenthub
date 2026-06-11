@@ -2,6 +2,15 @@ import pytest
 
 from app.agents.orchestrator.availability import scoped_runnable_agent_ids
 from scripts.orchestrator_e2e.config import SCENARIO_DEFAULTS, load_settings
+from scripts.orchestrator_e2e.evaluators import (
+    evaluate_browser_repair_loop,
+    evaluate_context_continuity,
+    evaluate_group_members_only,
+    evaluate_parallel_dag,
+    evaluate_sensitive_trace_absent,
+    evaluate_task_card_agent_attribution,
+    evaluate_workspace_artifacts,
+)
 from scripts.orchestrator_e2e.runner import (
     AGENT_FALLBACK_E2E_FAIL_RUNTIME,
     AGENT_FALLBACK_E2E_WRITE_RUNTIME,
@@ -20,19 +29,33 @@ from scripts.orchestrator_e2e.scenarios import SCENARIOS
 from scripts.orchestrator_live_e2e import (
     AGENT_FALLBACK_MATRIX_PROMPT,
     COMMAND_FULFILLMENT_PROMPT,
+    CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT,
     CYBERPUNK_QUALITY_PROMPT,
+    CYBERPUNK_QUALITY_V2_PROMPT,
     DEFAULT_AGENT_FALLBACK_MATRIX_REPORT_PATH,
     DEFAULT_AGENT_FALLBACK_MATRIX_SSE_PATH,
     DEFAULT_COMMAND_FULFILLMENT_REPORT_PATH,
     DEFAULT_COMMAND_FULFILLMENT_SSE_PATH,
     DEFAULT_CONTEXT_FOLLOWUP_REPORT_PATH,
     DEFAULT_CONTEXT_FOLLOWUP_SSE_PATH,
+    DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_REPORT_PATH,
+    DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_SSE_PATH,
     DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH,
     DEFAULT_CYBERPUNK_QUALITY_SSE_PATH,
+    DEFAULT_CYBERPUNK_QUALITY_V2_REPORT_PATH,
+    DEFAULT_CYBERPUNK_QUALITY_V2_SSE_PATH,
+    DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH,
+    DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_SSE_PATH,
     DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH,
     DEFAULT_GROUP_DIALOGUE_DEBATE_SSE_PATH,
+    DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_REPORT_PATH,
+    DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_SSE_PATH,
     DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_REPORT_PATH,
     DEFAULT_GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SSE_PATH,
+    DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_REPORT_PATH,
+    DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_SSE_PATH,
+    DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH,
+    DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_REPORT_PATH,
     DEFAULT_P1_AGENT_CAPABILITY_PROFILE_SSE_PATH,
     DEFAULT_P1_EVALUATION_REPAIR_REPORT_PATH,
@@ -43,14 +66,21 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
     DEFAULT_PRESENTATION_MARKERS_REPORT_PATH,
     DEFAULT_PRESENTATION_MARKERS_SSE_PATH,
+    DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_REPORT_PATH,
+    DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_SSE_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH,
+    DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH,
+    DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH,
+    GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT,
     GROUP_DIALOGUE_DEBATE_PROMPT,
+    GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT,
     GROUP_PROCESS_DATA_ANALYSIS_PROMPT,
     GROUP_PROCESS_DOCUMENT_STRATEGY_PROMPT,
     GROUP_PROCESS_FAILURE_READABLE_PROMPT,
     GROUP_PROCESS_WORKFLOW_DELIVERY_PROMPT,
     GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT,
+    IM_CONTEXT_PIN_FOLLOWUP_REPAIR_PROMPT,
     P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS,
     P1_AGENT_CAPABILITY_PROFILE_PROMPT,
     P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
@@ -58,7 +88,9 @@ from scripts.orchestrator_live_e2e import (
     P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT,
     PRESENTATION_COLLAPSE_PROMPT,
     SERVER_COMMAND_RE,
+    STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT,
     TASK_MANAGER_PARALLEL_PROMPT,
+    TASK_MANAGER_PARALLEL_V2_PROMPT,
     evaluate_p1_agent_capability_profile,
     evaluate_p1_evaluation_repair,
     evaluate_p1_rich_artifacts,
@@ -211,9 +243,41 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
             "/tmp/agenthub_task_manager_parallel_report.json",
             "/tmp/agenthub_task_manager_parallel_sse.jsonl",
         ),
+        "fullstack_task_manager_parallel_repair_v2": (
+            "/tmp/agenthub_task_manager_parallel_v2_report.json",
+            "/tmp/agenthub_task_manager_parallel_v2_sse.jsonl",
+        ),
         "cyberpunk_site_quality_repair_8082": (
             "/tmp/agenthub_cyberpunk_quality_report.json",
             "/tmp/agenthub_cyberpunk_quality_sse.jsonl",
+        ),
+        "cyberpunk_site_quality_repair_8082_v2": (
+            "/tmp/agenthub_cyberpunk_quality_v2_report.json",
+            "/tmp/agenthub_cyberpunk_quality_v2_sse.jsonl",
+        ),
+        "im_context_pin_followup_repair": (
+            "/tmp/agenthub_im_context_pin_followup_repair_report.json",
+            "/tmp/agenthub_im_context_pin_followup_repair_sse.jsonl",
+        ),
+        "group_chat_attribution_process_matrix": (
+            "/tmp/agenthub_group_chat_attribution_process_matrix_report.json",
+            "/tmp/agenthub_group_chat_attribution_process_matrix_sse.jsonl",
+        ),
+        "custom_agent_reader_review_repair": (
+            "/tmp/agenthub_custom_agent_reader_review_repair_report.json",
+            "/tmp/agenthub_custom_agent_reader_review_repair_sse.jsonl",
+        ),
+        "static_package_deploy_repair_matrix": (
+            "/tmp/agenthub_static_package_deploy_repair_matrix_report.json",
+            "/tmp/agenthub_static_package_deploy_repair_matrix_sse.jsonl",
+        ),
+        "group_member_fallback_repair_visibility": (
+            "/tmp/agenthub_group_member_fallback_repair_visibility_report.json",
+            "/tmp/agenthub_group_member_fallback_repair_visibility_sse.jsonl",
+        ),
+        "im_dialogue_no_artifact_turn_taking_v2": (
+            "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json",
+            "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_sse.jsonl",
         ),
         "deployment": (
             "/tmp/agenthub_deployment_flow_report.json",
@@ -374,6 +438,69 @@ def test_cyberpunk_quality_scenario_defaults_and_prompt_are_registered() -> None
     assert str(spec.default_sse_path) == DEFAULT_CYBERPUNK_QUALITY_SSE_PATH
 
 
+def test_robustness_repair_loop_scenarios_are_registered() -> None:
+    turn_taking_prompt = SCENARIOS["agent_turn_taking_dialogue_repair"].prompt
+    expected = {
+        "fullstack_task_manager_parallel_repair_v2": (
+            DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH,
+            DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH,
+            TASK_MANAGER_PARALLEL_V2_PROMPT,
+            "repair loop",
+        ),
+        "cyberpunk_site_quality_repair_8082_v2": (
+            DEFAULT_CYBERPUNK_QUALITY_V2_REPORT_PATH,
+            DEFAULT_CYBERPUNK_QUALITY_V2_SSE_PATH,
+            CYBERPUNK_QUALITY_V2_PROMPT,
+            "端口8082",
+        ),
+        "im_context_pin_followup_repair": (
+            DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_REPORT_PATH,
+            DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_SSE_PATH,
+            IM_CONTEXT_PIN_FOLLOWUP_REPAIR_PROMPT,
+            "Planner 大上下文",
+        ),
+        "group_chat_attribution_process_matrix": (
+            DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH,
+            DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_SSE_PATH,
+            GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT,
+            "不得调用群聊外 Agent",
+        ),
+        "custom_agent_reader_review_repair": (
+            DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_REPORT_PATH,
+            DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_SSE_PATH,
+            CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT,
+            "read_file",
+        ),
+        "static_package_deploy_repair_matrix": (
+            DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_REPORT_PATH,
+            DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_SSE_PATH,
+            STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT,
+            "源码包必须排除密钥",
+        ),
+        "group_member_fallback_repair_visibility": (
+            DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_REPORT_PATH,
+            DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_SSE_PATH,
+            GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT,
+            "planned agent",
+        ),
+        "im_dialogue_no_artifact_turn_taking_v2": (
+            DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH,
+            DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH,
+            turn_taking_prompt,
+            "不需要生成文件",
+        ),
+    }
+
+    for name, (report_path, sse_path, prompt, marker) in expected.items():
+        spec = SCENARIOS[name]
+        assert str(spec.default_report_path) == report_path
+        assert str(spec.default_sse_path) == sse_path
+        assert spec.prompt == prompt
+        assert marker in prompt
+        assert "writer" not in prompt
+        assert "web-designer" not in prompt
+
+
 def test_group_dialogue_debate_scenario_defaults_are_registered() -> None:
     assert DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH == (
         "/tmp/agenthub_group_dialogue_debate_report.json"
@@ -408,6 +535,13 @@ def test_load_settings_honors_artifact_path_overrides() -> None:
     assert str(settings.report_path) == "/tmp/custom-report.json"
     assert str(settings.sse_path) == "/tmp/custom-sse.jsonl"
     assert str(settings.browser_report_path) == "/tmp/custom-browser.json"
+
+
+def test_load_settings_does_not_embed_real_credentials_by_default() -> None:
+    settings = load_settings({})
+
+    assert settings.username == ""
+    assert settings.password == ""
 
 
 def test_load_settings_uses_temporary_user_for_capability_v2_by_default() -> None:
@@ -1088,3 +1222,115 @@ def test_evaluate_p1_evaluation_repair_reads_event_attempts() -> None:
     assert report["acceptance"]["p1_evaluation_failed_seen"] is True
     assert report["acceptance"]["p1_evaluation_final_passed_or_manual"] is True
     assert report["acceptance"]["passed"] is True
+
+
+def test_shared_robustness_evaluators_accept_good_report() -> None:
+    report = {
+        "checks": {
+            "browser_repaired_if_needed": True,
+        },
+        "agent_switch_to_agents": ["claude-code", "opencode-helper"],
+        "child_agent_messages": [
+            {"agent_id": "claude-code"},
+            {"agent_id": "opencode-helper"},
+        ],
+        "workspace_files": [
+            {"path": "index.html"},
+            {"path": "styles.css"},
+            {"path": "app.js"},
+            {"path": "review.md"},
+        ],
+        "browser_verification": {"passed": True},
+        "context_followups": [{"passed": True}, {"passed": True}],
+        "orchestrator_run_detail": {
+            "tasks": [
+                {"task_id": "frontend_impl", "depends_on": []},
+                {"task_id": "backend_impl", "depends_on": []},
+                {
+                    "task_id": "review",
+                    "depends_on": ["frontend_impl", "backend_impl"],
+                },
+            ],
+            "events": [
+                {"event_type": "task_started", "task_id": "frontend_impl"},
+                {"event_type": "task_started", "task_id": "backend_impl"},
+                {"event_type": "task_result", "task_id": "frontend_impl"},
+                {"event_type": "task_result", "task_id": "backend_impl"},
+                {"event_type": "task_started", "task_id": "review"},
+            ],
+        },
+        "target_agent_message": {
+            "content": [
+                {
+                    "type": "task_card",
+                    "tasks": [
+                        {
+                            "id": "frontend_impl",
+                            "agent_id": "claude-code",
+                            "planned_agent_id": "claude-code",
+                            "final_agent_id": "claude-code",
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+    evaluate_parallel_dag(report)
+    evaluate_group_members_only(report)
+    evaluate_task_card_agent_attribution(report)
+    evaluate_workspace_artifacts(
+        report,
+        required_files={"index.html", "styles.css", "app.js", "review.md"},
+    )
+    evaluate_browser_repair_loop(report)
+    evaluate_context_continuity(report)
+    evaluate_sensitive_trace_absent(report)
+
+    checks = report["checks"]
+    assert checks["parallel_dag_passed"] is True
+    assert checks["group_dispatch_only_allowed_members"] is True
+    assert checks["task_card_agent_matches_final_agent"] is True
+    assert checks["workspace_required_artifacts_present"] is True
+    assert checks["browser_verify_passed"] is True
+    assert checks["context_followups_all_passed"] is True
+    assert checks["visible_text_no_sensitive_trace"] is True
+
+
+def test_shared_robustness_evaluators_reject_bad_report() -> None:
+    report = {
+        "checks": {},
+        "agent_switch_to_agents": ["claude-code", "writer"],
+        "child_agent_messages": [{"agent_id": "web-designer"}],
+        "workspace_files": [{"path": "index.html"}],
+        "sse_message_error_text": "OpenAI Codex external_runtime_error",
+        "target_agent_message": {
+            "content": [
+                {
+                    "type": "task_card",
+                    "tasks": [
+                        {
+                            "id": "fallback-task",
+                            "agent_id": "claude-code",
+                            "planned_agent_id": "claude-code",
+                            "final_agent_id": "opencode-helper",
+                        }
+                    ],
+                }
+            ]
+        },
+    }
+
+    evaluate_group_members_only(report)
+    evaluate_task_card_agent_attribution(report)
+    evaluate_workspace_artifacts(
+        report,
+        required_files={"index.html", "styles.css", "app.js"},
+    )
+    evaluate_sensitive_trace_absent(report)
+
+    checks = report["checks"]
+    assert checks["group_dispatch_only_allowed_members"] is False
+    assert checks["task_card_agent_matches_final_agent"] is False
+    assert checks["workspace_required_artifacts_present"] is False
+    assert checks["visible_text_no_sensitive_trace"] is False

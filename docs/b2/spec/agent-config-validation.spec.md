@@ -76,8 +76,10 @@
 - `task_result_context_max_chars`, `task_result_item_max_chars`, `orchestrator_memory_context_max_chars`, `orchestrator_tool_max_tokens`, and `orchestrator_tool_result_max_chars` must stay within their documented bounded ranges when present.
 - `orchestrator_tool_read_max_bytes` and `orchestrator_evaluation_read_max_bytes` must be integers in `1..1048576` when present.
 - `mcp_servers` must be an object array when present.
-- Internal `builtin` provider remains available for Orchestrator / BuiltinAgent runtime; the current user-facing custom Agent creation path must not expose raw `provider="builtin"`.
-- The current user custom Agent path is `server_agent_wrapper`:
+- Internal `builtin` provider remains available for Orchestrator / BuiltinAgent runtime and for restricted user-created read-only Agents.
+- User-created `provider="builtin"` Agents must be normalized to `custom_agent_mode="server_agent_wrapper"` with `base_agent_id=null`.
+- User-created builtin Agents may only expose `allowed_tools=[]` or `allowed_tools=["read_file"]`; `write_file`, `bash`, MCP tools, command/runtime/env/api key fields, and SDK options must be rejected.
+- The default external-runtime user custom Agent path is `server_agent_wrapper` around a base Agent:
   - `custom_agent_mode` must be `server_agent_wrapper`.
   - `base_agent_id` must be `claude-code`, `codex-helper`, or `opencode-helper`.
   - Top-level `provider` must match the base Agent: `claude-code -> claude_code`, `codex-helper -> codex`, `opencode-helper -> opencode`.
@@ -88,7 +90,7 @@
 - `memory_policy` is `none`, `conversation`, `project`, or `user`. MVP stores all four values but only `none` and `conversation` have runtime behavior.
 - Wrapper Agent config must not contain `api_key`, `model_profile`, `command`, `args`, `sandbox_mode`, runtime auth, or other bottom-layer fields; those values must come from the base Agent safe defaults.
 - Skills are injected through Agent asset APIs. Knowledge, model backpack, and raw MCP JSON are not part of the current server-wrapper custom Agent main path.
-- `allowed_tools` remains the final runtime permission boundary. UI permissions may map into `read_file`, `write_file`, and `bash`, but they must not bypass `allowed_tools`.
+- `allowed_tools` remains the final runtime permission boundary. For user-created builtin Agents, UI permissions may only map into `read_file` until a separate write/command permission design is approved.
 
 ### Legacy raw provider 规则
 
@@ -154,6 +156,7 @@ API 层应将配置校验错误映射为：
 - 创建 Agent 时，legacy raw provider 会返回 `422 INVALID_PROVIDER`。
 - `opencode` 的 `command` / `args` / `timeout_seconds` 校验覆盖成功和失败路径。
 - `builtin` 的 `model_backend` / `max_iterations` / `mcp_servers` 校验覆盖成功和失败路径。
+- 用户自建 `provider="builtin"` 只允许 `allowed_tools=[]` 或 `["read_file"]`；`write_file` / `bash` / MCP 工具和 runtime secret fields 会被拒绝。
 - 更新 Agent 时，`config` 局部合并，不覆盖已有完整配置。
 - 内置 `BUILTIN_AGENTS` 全部通过同一套校验规则。
 - OpenAPI 和 `docs/api-spec.md` 显式记录新 provider 与 `AgentConfig` 字段。

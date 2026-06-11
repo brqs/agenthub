@@ -65,6 +65,7 @@ def _format_validation_error(exc: AgentConfigValidationError) -> dict[str, Any]:
 
 
 WRAPPER_USER_CONFIG_KEYS = {"custom_agent_mode", "base_agent_id", "wrapper_profile"}
+SAFE_BUILTIN_CUSTOM_TOOLS = {"read_file"}
 
 
 def _config_payload_to_dict(config: AgentConfig | dict[str, Any] | None) -> dict[str, Any]:
@@ -110,6 +111,32 @@ def _assert_wrapper_create_config(provider: str, config: dict[str, Any]) -> None
             field="config.base_agent_id",
             value=base_agent_id,
         )
+
+
+def _assert_builtin_create_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(config)
+    allowed_tools = normalized.get("allowed_tools")
+    if allowed_tools is None:
+        normalized["allowed_tools"] = []
+        return normalized
+    if not isinstance(allowed_tools, list) or not all(
+        isinstance(item, str) for item in allowed_tools
+    ):
+        raise _reject_config_error(
+            "allowed_tools must be a list of strings",
+            field="config.allowed_tools",
+            value=allowed_tools,
+        )
+    unsafe = sorted(set(allowed_tools) - SAFE_BUILTIN_CUSTOM_TOOLS)
+    if unsafe:
+        raise _reject_config_error(
+            "User-created builtin Agents may only expose read_file",
+            field="config.allowed_tools",
+            value=unsafe,
+        )
+    normalized["allowed_tools"] = allowed_tools
+    normalized.setdefault("mcp_servers", [])
+    return normalized
 
 
 def _wrapper_config_from_base(base_agent: Agent, config: dict[str, Any]) -> dict[str, Any]:
@@ -239,6 +266,31 @@ async def create_agent(
     user: Annotated[User, Depends(get_current_user)],
 ) -> AgentOut:
     payload_config = _config_payload_to_dict(payload.config)
+    if payload.provider == "builtin":
+        config = _assert_builtin_create_config(payload_config)
+        try:
+            normalized_config = validate_agent_config(
+                provider=payload.provider,
+                config=config,
+                system_prompt=payload.system_prompt,
+            )
+        except AgentConfigValidationError as exc:
+            raise HTTPException(status_code=422, detail=_format_validation_error(exc)) from exc
+        agent = Agent(
+            id=Agent.new_id(),
+            user_id=user.id,
+            name=payload.name,
+            provider=payload.provider,
+            avatar_url=payload.avatar_url,
+            capabilities=payload.capabilities,
+            system_prompt=payload.system_prompt,
+            config=normalized_config,
+            is_builtin=False,
+        )
+        db.add(agent)
+        await db.flush()
+        return AgentOut.model_validate(agent)
+
     _assert_wrapper_create_config(payload.provider, payload_config)
     base_agent_id = str(payload_config["base_agent_id"])
     base_agent = await db.get(Agent, base_agent_id)

@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
 > 状态：Passed
-> 最后更新：2026-06-10
+> 最后更新：2026-06-11
 
 ---
 
@@ -20,7 +20,7 @@
 - 前端入口：`http://154.44.25.94:1573`
 - 后端公网：`http://111.229.151.159:8000`
 - Preview：`http://111.229.151.159:8082/index.html`
-- 真实账号：`12345678 / 12345678`
+- 真实账号：通过 `AGENTHUB_E2E_USERNAME` / `AGENTHUB_E2E_PASSWORD` 环境变量注入，不写入代码、报告或日志。
 
 最终报告：
 
@@ -66,6 +66,14 @@
 - `/tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl`
 - `/tmp/agenthub_agent_turn_taking_matrix_report.json`
 - `/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl`
+- `/tmp/agenthub_task_manager_parallel_v2_report.json`
+- `/tmp/agenthub_cyberpunk_quality_v2_report.json`
+- `/tmp/agenthub_im_context_pin_followup_repair_report.json`
+- `/tmp/agenthub_group_chat_attribution_process_matrix_report.json`
+- `/tmp/agenthub_custom_agent_reader_review_repair_report.json`
+- `/tmp/agenthub_static_package_deploy_repair_matrix_report.json`
+- `/tmp/agenthub_group_member_fallback_repair_visibility_report.json`
+- `/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json`
 
 最终结论：`passed=true`。
 
@@ -125,6 +133,15 @@ OpenCode 通过。Matrix 覆盖 debate、roundtable、roleplay、brainstorm、da
 panel 和 code artifact summary，均无 `artifact_missing`、raw stderr、`call_` 或 workspace
 绝对路径泄露。
 
+2026-06-11 多场景鲁棒性 E2E + repair loop 结论：新增 8 个真实 HTTP/SSE 场景全部
+`passed=true`，并已生成 `/tmp/agenthub_*_report.json` 证据。覆盖任务管理 Demo 并行开发、
+赛博朋克网站质量验收、IM 连续上下文、群聊成员归因、自建只读 Review Agent、静态包发布、
+群聊内 fallback 可见性、纯对话轮流发言。报告统一包含 `planner_evidence`、`task_graph`、
+`repair_trace`、`artifact_list`、`browser_report` 和 `acceptance`。本轮确认 Orchestrator 只能调度当前群聊
+Agent 或显式 E2E escape hatch 中的白名单 Agent；task card 记录 planned/current/final agent 证据；
+deployment/browser repair loop 记录首次失败与最终通过证据；自建 builtin read-only Agent 不继承内置
+planning profile，且只能使用 `read_file`。
+
 ---
 
 ## 2. Case Results
@@ -150,13 +167,54 @@ panel 和 code artifact summary，均无 `artifact_missing`、raw stderr、`call
 | Case 15 - Sub-Agent Substantive Output Matrix | 对话、圆桌、角色扮演、策略头脑风暴、数据分析、代码产物、review/gaps 均要求每个 child message 有实质 `agent_summary` 或可读失败/fallback 证据 | passed |
 | Case 16 - Agent Turn-Taking Runtime Defaults | Claude -> OpenCode 严格接力、OpenCode/Codex 缺省模型使用 runtime default、OpenCode session DB text fallback、turn-taking matrix 泛用性 | passed |
 | Case 17 - One-click Container From Zero Repair Loop | 初始 workspace 无 Dockerfile；one-click endpoint 创建隐藏 Orchestrator automation；生成 Dockerfile，首次 health 失败后 reflection，repair agent 修复，第二次 container deployment published，health/stop cleanup 通过 | passed |
+| Case 18 - Fullstack Task Manager Parallel Repair v2 | 先生成 `planning.md`，再由两个 Agent 并行开发前端与后端，第三个 Agent 审阅；产物包含 `index.html/styles.css/app.js/backend_app.py/api.md/backend_tests.md/review.md`；并行 DAG 与 review 依赖顺序通过 | passed |
+| Case 19 - Cyberpunk Site Quality Repair 8082 v2 | 生成赛博朋克网站文档、代码、diff、交互和移动端适配；预览 URL 可访问；浏览器验收无 console/page/failed request 问题；必要 repair 后通过 | passed |
+| Case 20 - IM Context Pin Follow-up Repair | 多轮“按刚才约束继续/局部修正”能使用 Planner 大上下文保留历史主题和约束，只修改相关产物，不重做整个 workspace | passed |
+| Case 21 - Group Chat Attribution Process Matrix | 群聊协作不调用群聊外 Agent；task card planned/current/final agent 证据一致；timeline 归因正确；可见文本无敏感 trace | passed |
+| Case 22 - Custom Agent Reader Review Repair | 创建用户自建只读 Review Agent，读取 workspace 并输出审阅意见；不写 workspace；修复由内置可写 Agent 完成；`review.md` 与修复产物一致 | passed |
+| Case 23 - Static Package Deploy Repair Matrix | 静态站点、源码包、平台预览/发布链路通过；源码包不包含认证/密钥文件；repair 后浏览器验收通过并有部署历史 | passed |
+| Case 24 - Group Member Fallback Repair Visibility | 目标 Agent 不可用时仅 fallback 到群聊内可用 Agent；task card 展示最终 fallback Agent；planned/final 差异有证据；fallback 后验证通过 | passed |
+| Case 25 - IM Dialogue No Artifact Turn Taking v2 | 纯对话多 Agent 轮流发言，不创建 workspace artifact，不泄露 tool trace，最终总结各方观点 | passed |
+
+2026-06-11 多场景鲁棒性 E2E 报告：
+
+```text
+script: backend/scripts/orchestrator_live_e2e.py
+base_url: http://111.229.151.159:8000
+credentials: AGENTHUB_E2E_USERNAME / AGENTHUB_E2E_PASSWORD
+
+fullstack_task_manager_parallel_repair_v2:
+  report: /tmp/agenthub_task_manager_parallel_v2_report.json
+  passed: true
+cyberpunk_site_quality_repair_8082_v2:
+  report: /tmp/agenthub_cyberpunk_quality_v2_report.json
+  passed: true
+im_context_pin_followup_repair:
+  report: /tmp/agenthub_im_context_pin_followup_repair_report.json
+  passed: true
+group_chat_attribution_process_matrix:
+  report: /tmp/agenthub_group_chat_attribution_process_matrix_report.json
+  passed: true
+custom_agent_reader_review_repair:
+  report: /tmp/agenthub_custom_agent_reader_review_repair_report.json
+  passed: true
+static_package_deploy_repair_matrix:
+  report: /tmp/agenthub_static_package_deploy_repair_matrix_report.json
+  passed: true
+group_member_fallback_repair_visibility:
+  report: /tmp/agenthub_group_member_fallback_repair_visibility_report.json
+  passed: true
+im_dialogue_no_artifact_turn_taking_v2:
+  report: /tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json
+  passed: true
+```
 
 2026-06-10 Case 16 agent turn-taking runtime defaults 证据：
 
 ```text
 script: backend/scripts/orchestrator_live_e2e.py
 base_url: http://111.229.151.159:8000
-username: 12345678
+credentials: AGENTHUB_E2E_USERNAME / AGENTHUB_E2E_PASSWORD
 scenario: manual_two_agent_turn_taking
 report: /tmp/agenthub_manual_two_agent_turn_taking_report.json
 sse: /tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl

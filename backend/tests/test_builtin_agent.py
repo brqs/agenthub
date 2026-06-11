@@ -211,6 +211,45 @@ async def test_configured_allowed_tools_filters_native_tools(tmp_path: Path) -> 
     assert [tool.name for tool in gateway.calls[0]["tools"]] == ["read_file"]
 
 
+async def test_read_only_agent_can_read_file_without_model_gateway(tmp_path: Path) -> None:
+    (tmp_path / "notes.txt").write_text("allowed-tools-live-sentinel", encoding="utf-8")
+    adapter, gateway = _adapter(
+        [_text_stream("should not call model")],
+        default_config={"allowed_tools": ["read_file"]},
+    )
+
+    chunks = [
+        chunk
+        async for chunk in adapter.stream(
+            [
+                ChatMessage(
+                    role="user",
+                    content="请使用 read_file 工具读取 notes.txt，并原样说出其中的 sentinel。",
+                )
+            ],
+            workspace_path=tmp_path,
+            system_prompt="read only",
+        )
+    ]
+
+    assert gateway.calls == []
+    assert [chunk.event_type for chunk in chunks] == [
+        "start",
+        "tool_call",
+        "tool_result",
+        "block_start",
+        "delta",
+        "block_end",
+        "done",
+    ]
+    assert chunks[1].tool_name == "read_file"
+    assert chunks[1].tool_arguments == {"path": "notes.txt"}
+    assert chunks[2].tool_status == "ok"
+    assert chunks[3].block_type == "text"
+    assert chunks[4].block_index == 0
+    assert "allowed-tools-live-sentinel" in (chunks[4].text_delta or "")
+
+
 async def test_tool_specs_cannot_expand_configured_allowed_tools(tmp_path: Path) -> None:
     adapter, gateway = _adapter(
         [_text_stream("hello")],

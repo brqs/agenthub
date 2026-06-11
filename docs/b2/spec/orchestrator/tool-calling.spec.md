@@ -3,9 +3,9 @@
 > 定义将 Orchestrator 从“程序化多 Agent 调度器 + LLM planner/replanner”升级为“具备原生 tool calling 的 autonomous manager agent”的技术设计。
 >
 > 状态：v1 implemented / platform tools extended / allowed_tools live E2E passed
-> 最后更新：2026-06-03
+> 最后更新：2026-06-11
 
-> 2026-06-10 update: `create_custom_agent` has been superseded by the server Agent wrapper contract. It now creates wrappers around `claude-code`, `codex-helper`, or `opencode-helper`; it no longer accepts `provider="builtin"`, `allowed_tools`, model accounts, MCP JSON, or runtime command fields. See `docs/spec/custom-agent-assets.spec.md` for the active product contract.
+> 2026-06-11 update: `create_custom_agent` supports two safe product paths. The default custom Agent path is still a server Agent wrapper around `claude-code`, `codex-helper`, or `opencode-helper`. A restricted `provider="builtin"` path is also allowed for user-created read-only review/reader agents; it may expose only `allowed_tools=["read_file"]` and must not accept runtime command, args, env, API keys, raw MCP account credentials, or write/bash permissions.
 
 ---
 
@@ -427,13 +427,19 @@ Schema：
 - 缺少必要字段时返回 `needs_user_input=true`，不创建半成品。
 - `add_to_conversation=true` 时，将新 Agent id 加入当前 group conversation 的 `agent_ids`。
 - 返回 id、name、provider、capabilities、allowed_tools。
-- `provider="builtin"` 且未提供 `allowed_tools` 时，默认写入 `allowed_tools=[]`，表示最小权限。
-- `allowed_tools` 支持 builtin native tools：`read_file`、`write_file`、`bash`。
-- MCP 工具名使用 `mcp_<server_name>__<tool_name>`，其中 `server_name` 必须存在于同一 config 的 `mcp_servers`。
+- `provider="builtin"` 仅用于受限的用户自建只读 Agent。未提供 `allowed_tools` 时默认写入
+  `allowed_tools=[]`；当前只允许显式授权 `read_file`。
+- 用户自建 builtin Agent 不允许暴露 `write_file`、`bash` 或 MCP 工具。写文件、命令执行和 MCP
+  工具仍只属于内置/历史 trusted BuiltinAgent 路径或后续经过单独权限设计的能力。
+- 非 builtin provider 会创建 server Agent wrapper，继承对应底座 Agent 的 runtime 能力，并把用户可见角色描述写入
+  `config.wrapper_profile`；wrapper 不接受底层 runtime command/env/args/sdk_options/API key。
 
 当前边界：
 
-- 显式 `allowed_tools` MVP 已实现，覆盖 builtin native/MCP tools。
+- 显式 `allowed_tools` MVP 已实现为用户自建 builtin read-only 边界：只允许 `read_file`。
+- BuiltinAgent adapter 针对 `allowed_tools={"read_file"}` 且用户明确要求读取文件的场景，允许走确定性
+  read route：执行平台 `read_file` 并生成可见审阅文本，避免只读 review agent 因上游模型或余额问题阻断
+  E2E。
 - 已有未配置 `allowed_tools` 的历史/内置 Builtin Agent 保持旧行为：未显式传入 `tool_specs` 时仍可获得全部 native tools 和 MCP tools。
 - 外部 runtime 的 CLI/SDK 权限白名单仍属于后续 hardening，不由本字段控制。
 
@@ -455,7 +461,10 @@ Schema：
 - 当前 group conversation 的 `agent_ids` 包含新 Agent id。
 - 缺少 `name/provider/system_prompt` 时返回 `needs_user_input=true`，且数据库中不产生半成品。
 - 非法 provider 或非法 config 返回 tool error。
-- 增加 `allowed_tools` 后，非法工具名必须返回 tool error，未授权工具不得进入 Builtin Agent loop。
+- 增加 `allowed_tools` 后，非法工具名必须返回 tool error；用户自建 builtin Agent 请求
+  `write_file` / `bash` / MCP 工具必须失败，未授权工具不得进入 Builtin Agent loop。
+- `custom_agent_reader_review_repair` live E2E 已验证：只读 Review Agent 可读取 workspace 生成审阅意见，
+  不写 workspace；修复由内置可写 Agent 执行，最终产物通过。
 
 ### 5.8 `create_deployment`
 
@@ -956,6 +965,9 @@ uv run python -m mypy app/agents app/schemas/agent.py
 - `create_custom_agent.allowed_tools` 作为正式 schema 字段通过 live E2E：创建 builtin
   `LiveReader-{timestamp}` 时 `allowed_tools=["read_file"]` 持久化，后续运行可读文件，未授权
   `write_file` / `bash` 不进入模型 tool list。
+- 2026-06-11 `custom_agent_reader_review_repair` 通过真实 HTTP/SSE：自建只读 Review Agent 读取
+  workspace 生成审阅意见，不写文件；后续修复由内置可写 Agent 执行，report
+  `/tmp/agenthub_custom_agent_reader_review_repair_report.json`。
 - `create_deployment(container)` 失败后通过 `deployment_health` reflection 调度 repair agent，
   repair 后第二次调用 deployment tool 并最终 `published=true`。
 
