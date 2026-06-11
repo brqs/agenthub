@@ -16,6 +16,49 @@ AgentHub turns AI collaboration into a chat-native workspace. Users can talk to 
 - API contract: [shared/openapi.yaml](shared/openapi.yaml)
 - AI collaboration guide: [AGENTS.md](AGENTS.md)
 
+## Project Highlights and Reading Path
+
+For a quick sense of what AgentHub delivers, start with the threads below. Each one links to supporting material, so you can read the product story first and then drill into implementation details and validation records.
+
+### AI Collaboration Is Captured as Practice
+
+AgentHub does not treat AI as a one-off code generator. It captures collaboration habits as reusable rules, specs, skills, and logs. Task decomposition, context passing, fallback behavior, repair-loop convergence, and E2E evidence are reflected in project documentation and implementation paths.
+
+Related material: [AGENTS.md](AGENTS.md), [AI collaboration log](docs/ai-collaboration-log.md), [B2 collaboration skill](docs/ai-skills/b2-ai-collaboration/SKILL.md), [Orchestrator E2E repair loop skill](docs/ai-skills/orchestrator-live-e2e-repair-loop/SKILL.md), [live E2E report spec](docs/b2/spec/orchestrator/live-e2e-report.spec.md).
+
+### From One Message to a Deliverable Workspace
+
+The experience starts from IM: users can chat directly, work in group conversations, mention agents, or let the Orchestrator decompose work across Claude Code, Codex Helper, and OpenCode Helper. One request can turn into task cards, child-agent outputs, workspace files, artifact manifests, previews, reviews, repairs, releases, or deployment records.
+
+Related material: [product design](docs/product-design.md), [API docs](docs/api-spec.md), [Orchestrator specs](docs/b2/spec/orchestrator/README.md), [workspace preview spec](docs/b2/spec/workspace-artifact-preview.spec.md), and the Highlights / Orchestrator flow sections below.
+
+### Outputs Can Be Previewed, Checked, and Repaired
+
+Generated results are not left as plain chat text. They become workspace files, diffs, preview cards, review timelines, and deployment records. Browser-level quality checks, mobile adaptation checks, artifact manifests, evaluation/reflection, and repair loops are wired into the flow so failures can be recorded, fixed, and verified again.
+
+Related material: [demo.mp4](demo.mp4), [preview spec](docs/b2/spec/workspace-artifact-preview.spec.md), [evaluation/reflection spec](docs/b2/spec/orchestrator/evaluation-reflection.spec.md), [deployment release spec](docs/b2/spec/deployment-release-backend.execution.spec.md), [live E2E report spec](docs/b2/spec/orchestrator/live-e2e-report.spec.md).
+
+### The Architecture Has a Clear Explanation Path
+
+The system is split across frontend, backend services, Agent runtimes, ModelGateway, workspace management, SSE ContentBlocks, and persisted state. The backend uses a unified adapter contract for Agent runtimes, while the frontend uses generated OpenAPI types and SSE events to render structured process blocks, making it easier to explain how messages enter the system, how tasks are assigned, how artifacts are written, and how state streams back to the UI.
+
+Related material: the Technical Architecture, Agent Runtime, SSE and ContentBlock, and Data/State sections below, plus the [OpenAPI contract](shared/openapi.yaml), [API docs](docs/api-spec.md), and [B2 spec index](docs/b2/spec/README.md).
+
+### The Product Feel Comes from Visible Process
+
+AgentHub packages multi-agent collaboration as a chat-native workspace rather than a collection of command-line scripts. In one interface, users can inspect context, task ownership, agent handoffs, generated files, previews, deployments, and repair history. Large-context planning, parallel DAG scheduling, handoff timelines, task-card attribution, and fallback display make complex AI work easier to understand and take over.
+
+Related material: [task planning spec](docs/b2/spec/orchestrator/task-planning.spec.md), [message attribution spec](docs/b2/spec/orchestrator/message-attribution.spec.md), [process block spec](docs/b2/spec/orchestrator/process-block.spec.md), [deployment handoff spec](docs/frontend/spec/deployment-release-handoff.spec.md), [product design](docs/product-design.md).
+
+### Deliverable Index
+
+- Assignment source: [AgentHub multi-agent collaboration platform design](<docs/archive/AgentHub- 多Agent协作平台设计.md>)
+- Product design document: [docs/product-design.md](docs/product-design.md)
+- Technical and API documents: [docs/api-spec.md](docs/api-spec.md), [docs/b2/spec/README.md](docs/b2/spec/README.md), [shared/openapi.yaml](shared/openapi.yaml)
+- Runnable demo: [ag.brqs.link](http://ag.brqs.link/login)
+- AI collaboration records: [docs/ai-collaboration-log.md](docs/ai-collaboration-log.md), [AGENTS.md](AGENTS.md)
+- 3-minute demo video: [demo.mp4](demo.mp4)
+
 ## Demo
 
 [![Watch the AgentHub demo](release-assets/demo-cover.png)](demo.mp4)
