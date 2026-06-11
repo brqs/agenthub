@@ -161,6 +161,68 @@ async def test_create_custom_agent_tool_copies_base_runtime_defaults() -> None:
         assert agent.config["wrapper_profile"]["purpose"] == "Read and update static files."
 
 
+async def test_create_custom_agent_tool_creates_read_only_builtin_agent() -> None:
+    conversation = await _conversation()
+    async with SessionFactory() as db:
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+        )
+
+        result = await executor(
+            "create_custom_agent",
+            {
+                "name": "Reader Agent",
+                "provider": "builtin",
+                "system_prompt": "You may only read files and review them.",
+                "capabilities": ["reading", "review"],
+                "config": {
+                    "model_backend": "deepseek",
+                    "allowed_tools": ["read_file"],
+                    "mcp_servers": [],
+                    "planning_profile": "Read-only reviewer.",
+                },
+                "add_to_conversation": True,
+            },
+        )
+        await db.commit()
+
+        assert result.status == "ok"
+        payload = json.loads(result.output)
+        agent = await db.get(Agent, payload["agent"]["id"])
+        updated_conversation = await db.get(Conversation, conversation.id)
+
+        assert agent is not None
+        assert agent.provider == "builtin"
+        assert agent.is_builtin is False
+        assert agent.config["allowed_tools"] == ["read_file"]
+        assert payload["agent"]["base_agent_id"] is None
+        assert updated_conversation is not None
+        assert agent.id in updated_conversation.agent_ids
+
+
+async def test_create_custom_agent_tool_rejects_unsafe_builtin_tools() -> None:
+    conversation = await _conversation()
+    async with SessionFactory() as db:
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+        )
+
+        result = await executor(
+            "create_custom_agent",
+            {
+                "name": "Unsafe Agent",
+                "provider": "builtin",
+                "system_prompt": "nope",
+                "config": {"allowed_tools": ["write_file"]},
+            },
+        )
+
+        assert result.status == "error"
+        assert result.error_code == "invalid_agent_config"
+
+
 async def test_create_custom_agent_tool_requires_key_fields() -> None:
     conversation = await _conversation()
     async with SessionFactory() as db:

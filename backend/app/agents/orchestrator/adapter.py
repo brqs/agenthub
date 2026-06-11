@@ -279,11 +279,42 @@ class OrchestratorAdapter(BaseAgentAdapter):
             if clarification.continue_messages is not None:
                 messages = clarification.continue_messages
         else:
-            followup = await _resolve_previous_output_followup(
+            action_answer = await _context_action_answer_text(
                 merged_config,
-                messages,
-                next_block_index,
+                _latest_user_request(messages),
                 workspace_path,
+            )
+            if action_answer is not None:
+                for chunk, updated_block_index in _route_process_chunks(
+                    merged_config,
+                    next_block_index,
+                    messages,
+                    "direct_answer",
+                ):
+                    next_block_index = updated_block_index
+                    yield chunk
+                for chunk in _text_block(
+                    next_block_index,
+                    action_answer,
+                    presentation=_final_answer_presentation(),
+                ):
+                    yield chunk
+                next_block_index += 1
+                yield StreamChunk(
+                    event_type="done",
+                    agent_id=self.agent_id,
+                    total_blocks=next_block_index,
+                )
+                return
+            followup = (
+                None
+                if merged_config.get("tasks") is not None
+                else await _resolve_previous_output_followup(
+                    merged_config,
+                    messages,
+                    next_block_index,
+                    workspace_path,
+                )
             )
             if followup is not None:
                 for chunk in followup.chunks:

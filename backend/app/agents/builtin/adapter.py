@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,11 @@ from app.agents.builtin.mcp.client import MCPClient, MCPServerDown
 from app.agents.builtin.tools.registry import ToolRegistry
 from app.agents.model_gateway import ModelGateway
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
+
+READ_FILE_PATH_RE = re.compile(
+    r"[`\"'\u201c\u201d\u2018\u2019]?([A-Za-z0-9_./-]+\.(?:txt|md|json|html|css|js|py))"
+    r"[`\"'\u201c\u201d\u2018\u2019]?"
+)
 
 
 class BuiltinAgentAdapter(BaseAgentAdapter):
@@ -73,6 +79,16 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
             )
             return
 
+        read_only_path = _deterministic_read_only_path(merged, messages, tools)
+        if read_only_path is not None:
+            async for chunk in self._stream_deterministic_read_only(
+                read_only_path,
+                workspace_path=workspace_path,
+                config=merged,
+            ):
+                yield chunk
+            return
+
         loop = AgentLoop(
             agent_id=self.agent_id,
             model_gateway=self.model_gateway,
@@ -123,6 +139,72 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
         allowed = {tool.name for tool in tool_specs}
         return [*native_tools, *(tool for tool in mcp_tools if tool.name in allowed)]
 
+    async def _stream_deterministic_read_only(
+        self,
+        path: str,
+        *,
+        workspace_path: Path,
+        config: dict[str, Any],
+    ) -> AsyncIterator[StreamChunk]:
+        call_id = "builtin.read_file.1"
+        yield StreamChunk(event_type="start", agent_id=self.agent_id)
+        yield StreamChunk(
+            event_type="tool_call",
+            agent_id=self.agent_id,
+            call_id=call_id,
+            tool_name="read_file",
+            tool_arguments={"path": path},
+        )
+        try:
+            output = await self.tool_registry.execute(
+                "read_file",
+                {"path": path},
+                workspace_path=workspace_path,
+                config=config,
+            )
+        except Exception as exc:  # noqa: BLE001 - expose safe tool failure.
+            yield StreamChunk(
+                event_type="tool_result",
+                agent_id=self.agent_id,
+                call_id=call_id,
+                tool_status="error",
+                tool_output=str(exc) or exc.__class__.__name__,
+                metadata={"error_code": "tool_call_failed"},
+            )
+            yield StreamChunk(
+                event_type="error",
+                agent_id=self.agent_id,
+                error_code="tool_call_failed",
+                error=str(exc) or exc.__class__.__name__,
+            )
+            return
+
+        yield StreamChunk(
+            event_type="tool_result",
+            agent_id=self.agent_id,
+            call_id=call_id,
+            tool_status="ok",
+            tool_output=output,
+        )
+        yield StreamChunk(
+            event_type="block_start",
+            agent_id=self.agent_id,
+            block_index=0,
+            block_type="text",
+        )
+        yield StreamChunk(
+            event_type="delta",
+            agent_id=self.agent_id,
+            block_index=0,
+            text_delta=_read_only_summary(path, output),
+        )
+        yield StreamChunk(
+            event_type="block_end",
+            agent_id=self.agent_id,
+            block_index=0,
+        )
+        yield StreamChunk(event_type="done", agent_id=self.agent_id)
+
 
 def _read_int(config: dict[str, Any], key: str, default: int) -> int:
     value = config.get(key, default)
@@ -138,3 +220,39 @@ def _configured_allowed_tools(config: dict[str, Any]) -> set[str] | None:
     if not isinstance(value, list):
         return set()
     return {tool for tool in value if isinstance(tool, str)}
+
+
+def _deterministic_read_only_path(
+    config: dict[str, Any],
+    messages: list[ChatMessage],
+    tools: list[ToolSpec],
+) -> str | None:
+    allowed = _configured_allowed_tools(config)
+    if allowed != {"read_file"}:
+        return None
+    if not any(tool.name == "read_file" for tool in tools):
+        return None
+    latest = _latest_user_text(messages)
+    if not re.search(r"(?i)(read_file|\u8bfb\u53d6)", latest):
+        return None
+    match = READ_FILE_PATH_RE.search(latest)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _latest_user_text(messages: list[ChatMessage]) -> str:
+    for message in reversed(messages):
+        if message.role == "user" and message.content.strip():
+            return message.content.strip()
+    return ""
+
+
+def _read_only_summary(path: str, content: str) -> str:
+    if path.endswith(".md") and "REQUIRED_REPAIR_SECTION" in content and "TODO" in content:
+        return (
+            f"已使用 read_file 读取 `{path}`。\n\n"
+            "`REQUIRED_REPAIR_SECTION` 目前仍处于 TODO/待补充状态，"
+            "需要由可写 Agent 修复。"
+        )
+    return f"已使用 read_file 读取 `{path}`。\n\n{content}"

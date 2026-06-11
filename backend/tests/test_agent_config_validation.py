@@ -1142,16 +1142,18 @@ class TestCreateAgentRequestSchema:
                 }
             )
 
-    def test_create_request_rejects_builtin_provider(self) -> None:
-        with pytest.raises(ValidationError):
-            CreateAgentRequest.model_validate(
-                {
-                    "name": "agent",
-                    "provider": "builtin",
-                    "capabilities": ["testing"],
-                    "config": {},
-                }
-            )
+    def test_create_request_accepts_builtin_provider(self) -> None:
+        request = CreateAgentRequest.model_validate(
+            {
+                "name": "agent",
+                "provider": "builtin",
+                "capabilities": ["reading"],
+                "config": {"allowed_tools": ["read_file"]},
+            }
+        )
+
+        assert request.provider == "builtin"
+        assert request.config.allowed_tools == ["read_file"]
 
     def test_agent_out_accepts_mock_provider(self) -> None:
         agent = AgentOut.model_validate(

@@ -47,15 +47,25 @@ GENERIC_GROUP_PROCESS_SCENARIOS = {
     "group_process_data_analysis",
     "group_process_workflow_delivery",
     "group_process_failure_readable",
+    "group_chat_attribution_process_matrix",
 }
 GENERIC_GROUP_PROCESS_SCENARIO = SCENARIO in GENERIC_GROUP_PROCESS_SCENARIOS
 GROUP_PROCESS_FRONTEND_PREVIEW_SCENARIO = SCENARIO == "group_process_frontend_preview"
-AGENT_FALLBACK_MATRIX_SCENARIO = SCENARIO == "agent_fallback_matrix"
-CONTEXT_FOLLOWUP_SCENARIO = SCENARIO == "orchestrator_context_followup_repair"
+AGENT_FALLBACK_MATRIX_SCENARIO = SCENARIO in {
+    "agent_fallback_matrix",
+    "group_member_fallback_repair_visibility",
+}
+CONTEXT_FOLLOWUP_SCENARIO = SCENARIO in {
+    "orchestrator_context_followup_repair",
+    "im_context_pin_followup_repair",
+}
 PRESENTATION_COLLAPSE_SCENARIO = SCENARIO == "presentation_collapse_markers_smoke"
 GROUP_DIALOGUE_DEBATE_SCENARIO = SCENARIO == "group_dialogue_debate_no_artifacts"
 GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO = SCENARIO == "group_substantive_output_matrix"
-AGENT_TURN_TAKING_DIALOGUE_SCENARIO = SCENARIO == "agent_turn_taking_dialogue_repair"
+AGENT_TURN_TAKING_DIALOGUE_SCENARIO = SCENARIO in {
+    "agent_turn_taking_dialogue_repair",
+    "im_dialogue_no_artifact_turn_taking_v2",
+}
 AGENT_TURN_TAKING_MATRIX_SCENARIO = SCENARIO == "agent_turn_taking_matrix"
 MANUAL_TWO_AGENT_TURN_TAKING_SCENARIO = SCENARIO == "manual_two_agent_turn_taking"
 COMMAND_FULFILLMENT_SCENARIO = (
@@ -74,15 +84,35 @@ P1_SCENARIO = (
     or P1_AGENT_CAPABILITY_PROFILE_SCENARIO
 )
 P2_SCENARIO = P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO
-TASK_MANAGER_PARALLEL_SCENARIO = SCENARIO == "fullstack_task_manager_parallel_repair"
-FULLSTACK_SCENARIO = SCENARIO in {"fullstack", "fullstack_task_manager_parallel_repair"}
-CYBERPUNK_QUALITY_SCENARIO = SCENARIO == "cyberpunk_site_quality_repair_8082"
-DEPLOYMENT_REPAIR_SCENARIO = SCENARIO == "deployment_repair"
+TASK_MANAGER_PARALLEL_SCENARIO = SCENARIO in {
+    "fullstack_task_manager_parallel_repair",
+    "fullstack_task_manager_parallel_repair_v2",
+}
+FULLSTACK_SCENARIO = SCENARIO in {
+    "fullstack",
+    "fullstack_task_manager_parallel_repair",
+    "fullstack_task_manager_parallel_repair_v2",
+}
+CYBERPUNK_QUALITY_SCENARIO = SCENARIO in {
+    "cyberpunk_site_quality_repair_8082",
+    "cyberpunk_site_quality_repair_8082_v2",
+}
+DEPLOYMENT_REPAIR_SCENARIO = SCENARIO in {
+    "deployment_repair",
+    "static_package_deploy_repair_matrix",
+}
 ONE_CLICK_CONTAINER_DEPLOY_REPAIR_LOOP_SCENARIO = (
     SCENARIO == "one_click_container_deploy_repair_loop"
 )
-CUSTOM_AGENT_TOOLS_SCENARIO = SCENARIO == "custom_agent_tools"
-DEPLOYMENT_SCENARIO = SCENARIO in {"deployment", "deployment_repair"}
+CUSTOM_AGENT_TOOLS_SCENARIO = SCENARIO in {
+    "custom_agent_tools",
+    "custom_agent_reader_review_repair",
+}
+DEPLOYMENT_SCENARIO = SCENARIO in {
+    "deployment",
+    "deployment_repair",
+    "static_package_deploy_repair_matrix",
+}
 EXPECT_CONTAINER_STATUS = SETTINGS.expect_container_status
 CONTAINER_TERMINAL_STATUSES = {"published", "failed", "stopped", "not_supported"}
 CONTAINER_POLL_TIMEOUT_SECONDS = SETTINGS.container_poll_timeout_seconds
@@ -298,10 +328,76 @@ TASK_MANAGER_PARALLEL_PROMPT = "\n".join(
         "平台预览、部署或浏览器级质量验收，第二个 E2E 场景会单独覆盖 8082 质量闭环。",
     )
 )
+TASK_MANAGER_PARALLEL_V2_PROMPT = "\n".join(
+    (
+        "@orchestrator 我要做一个前后端完整的任务管理 Demo，用来做鲁棒性 E2E repair loop 验收。",
+        "请先生成 planning.md，然后让两个智能体并行开发：",
+        "一个负责前端静态页面 index.html、styles.css、app.js，",
+        "另一个负责后端设计与代码 backend_app.py、api.md、backend_tests.md。",
+        "最后由第三个智能体审阅所有产物，生成 review.md。",
+        "不要启动本地服务，预览和部署由平台工具完成。",
+        "",
+        "强验收要求：前端实现任务和后端实现任务互不依赖，必须作为同一轮 DAG 中"
+        "可并行执行的两个任务；review.md 必须在两者完成后生成；review.md 必须检查"
+        "前端 app.js 使用的 API 路径与 api.md/backend_app.py 是否一致，并写明通过、"
+        "需修复或已修复。若发现接口命名、字段或状态流不一致，必须触发 repair 并最终"
+        "让 workspace 文件保持一致。",
+        "本场景只验收并行 DAG、代码/文档产物、审阅证据和 repair 轨迹；不要执行平台预览、"
+        "部署或浏览器级质量验收。",
+    )
+)
 CYBERPUNK_QUALITY_PROMPT = (
     "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
     "然后交开发工作，包含代码产物、Diff、按钮交互和移动端适配，"
     "最后再进行审阅，最后部署在端口8082，并完成浏览器级质量验收。"
+)
+CYBERPUNK_QUALITY_V2_PROMPT = (
+    "@orchestrator 我要做一个网站，主题是赛博朋克风，用来做 8082 浏览器级质量 "
+    "repair loop 验收。先生成 planning.md，然后交开发工作，必须包含 index.html、"
+    "styles.css、app.js、diff.md、review.md，页面要有清晰代码产物、Diff、按钮交互、"
+    "移动端适配、霓虹赛博朋克视觉。最后部署在端口8082，并完成浏览器级质量验收。"
+    "如果首次浏览器验收发现 console error、page error、failed request、移动端横向溢出"
+    "或按钮不可点击，必须让可用 Agent 修复后重新验收，最终报告保留首次失败和最终通过证据。"
+)
+IM_CONTEXT_PIN_FOLLOWUP_REPAIR_PROMPT = (
+    "@orchestrator 请做一个 IM 连续上下文鲁棒性验收。第一轮请完成赛博朋克任务看板网站："
+    "生成 planning.md、index.html、styles.css、app.js、diff.md、review.md，并部署在端口8082，"
+    "完成浏览器级质量验收。请在 planning.md 中明确约束：中文界面、霓虹赛博朋克、移动端适配、"
+    "按钮交互、不要启动本地长驻服务。后续我会只说“按刚才约束继续”，你必须依赖当前 conversation "
+    "上下文和 Planner 大上下文保持这些约束。"
+)
+GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT = (
+    "@orchestrator 请进行群聊归因与 process 鲁棒性验收，不要预览、不要部署。"
+    "只能使用当前群聊成员，不得调用群聊外 Agent。请让 codex-helper 创建 "
+    "attribution-plan.md，说明任务拆解和真实 Agent 分工；让 claude-code 创建 "
+    "attribution-frontend.md，写出前端交付建议；让 opencode-helper 创建 "
+    "attribution-backend.md，写出后端/验证交付建议；最后由可用 Agent 创建 "
+    "attribution-review.md，检查三份产物、归因、风险和 repair 建议。每个参与 Agent "
+    "都必须在自己的独立消息中展示公开过程，最终由 Orchestrator 总结真实 task card "
+    "planned/current/final agent 证据。"
+)
+CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT = (
+    "@orchestrator 请创建一个新的自建 Agent，名字为 LiveReader-{timestamp}，provider 使用 "
+    "builtin，system_prompt 为“你是一个只能读取 workspace 文件的中文检查 Agent；需要文件内容时"
+    "必须使用 read_file 工具；不能写文件或运行命令”；model_backend 设置为 claude；"
+    "capabilities 设置为 reading、review；工具白名单设置为 read_file，并把它加入当前群聊。"
+    "随后请让这个只读 Agent 审阅 draft.md，"
+    "指出缺失的 REQUIRED_REPAIR_SECTION；再由内置可写 Agent 修复 draft.md 并生成 review.md。"
+)
+STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT = (
+    "@orchestrator 当前 workspace 已经有完整可用的 index.html、styles.css、app.js，以及一个"
+    "故意有问题的 Dockerfile。首次容器部署前不要修改任何 workspace 文件，也不要让子 Agent "
+    "先修复 Dockerfile；请先只在端口8082执行浏览器级质量验收、静态发布、源码打包和 "
+    "create_deployment(kind=container)。当 deployment_health 失败后，再由 reflection/repair "
+    "agent 根据 deployment logs 修复 Dockerfile 或应用健康检查路由，然后重新调用 "
+    "create_deployment(kind=container)，直到返回 published 的容器 URL。源码包必须排除密钥、"
+    ".git、.env、node_modules、.venv 和本地认证文件。"
+)
+GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT = (
+    "@orchestrator 请执行群聊成员 fallback 可见性验收。首选 Agent 会被测试脚本设置为不可用；"
+    "如果它失败，只能 fallback 到当前群聊内其他可用 Agent，继续创建指定 markdown 文件。"
+    "最终 task card 必须展示 planned agent、实际 current/final agent 和 fallback 归属。"
+    "不要预览、不要部署。"
 )
 DEPLOYMENT_PROMPT = (
     "@orchestrator 请生成一个“团队 OKR 轻量看板”静态前端产品，包含 "
@@ -329,7 +425,8 @@ CUSTOM_AGENT_TOOLS_PROMPT = (
     "@orchestrator 请创建一个新的自建 Agent，名字为 LiveReader-{timestamp}，"
     "provider 使用 builtin，system_prompt 为“你是一个只能读取 workspace 文件的中文"
     "检查 Agent；需要文件内容时必须使用 read_file 工具；不能写文件或运行命令”，"
-    "capabilities 设置为 reading、review，工具白名单设置为 read_file，并把它加入当前群聊。"
+    "model_backend 设置为 claude；capabilities 设置为 reading、review；"
+    "工具白名单设置为 read_file，并把它加入当前群聊。"
 )
 P1_ATTRIBUTION_PROMPT = (
     "@orchestrator 请进行 P1-1 合流消息归属验收。请只做 markdown 协作记录。"
@@ -590,10 +687,16 @@ PROMPT = SETTINGS.prompt_override or (
     if SCENARIO == "group_process_workflow_delivery"
     else GROUP_PROCESS_FAILURE_READABLE_PROMPT
     if SCENARIO == "group_process_failure_readable"
+    else GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT
+    if SCENARIO == "group_chat_attribution_process_matrix"
     else AGENT_FALLBACK_MATRIX_PROMPT
-    if AGENT_FALLBACK_MATRIX_SCENARIO
+    if SCENARIO == "agent_fallback_matrix"
+    else GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT
+    if SCENARIO == "group_member_fallback_repair_visibility"
     else COMMAND_FULFILLMENT_PROMPT
-    if COMMAND_FULFILLMENT_FLOW_SCENARIO
+    if COMMAND_FULFILLMENT_SCENARIO or SCENARIO == "orchestrator_context_followup_repair"
+    else IM_CONTEXT_PIN_FOLLOWUP_REPAIR_PROMPT
+    if SCENARIO == "im_context_pin_followup_repair"
     else PRESENTATION_COLLAPSE_PROMPT
     if PRESENTATION_COLLAPSE_SCENARIO
     else GROUP_DIALOGUE_DEBATE_PROMPT
@@ -604,16 +707,24 @@ PROMPT = SETTINGS.prompt_override or (
     if MANUAL_TWO_AGENT_TURN_TAKING_SCENARIO
     else GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT
     if GROUP_SUBSTANTIVE_OUTPUT_MATRIX_SCENARIO or AGENT_TURN_TAKING_MATRIX_SCENARIO
+    else TASK_MANAGER_PARALLEL_V2_PROMPT
+    if SCENARIO == "fullstack_task_manager_parallel_repair_v2"
     else TASK_MANAGER_PARALLEL_PROMPT
     if TASK_MANAGER_PARALLEL_SCENARIO
     else FULLSTACK_PROMPT
     if FULLSTACK_SCENARIO
+    else CYBERPUNK_QUALITY_V2_PROMPT
+    if SCENARIO == "cyberpunk_site_quality_repair_8082_v2"
     else CYBERPUNK_QUALITY_PROMPT
     if CYBERPUNK_QUALITY_SCENARIO
+    else CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT.format(timestamp=int(time.time()))
+    if SCENARIO == "custom_agent_reader_review_repair"
     else CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(time.time()))
-    if CUSTOM_AGENT_TOOLS_SCENARIO
+    if SCENARIO == "custom_agent_tools"
     else ONE_CLICK_CONTAINER_DEPLOY_REPAIR_PROMPT
     if ONE_CLICK_CONTAINER_DEPLOY_REPAIR_LOOP_SCENARIO
+    else STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT
+    if SCENARIO == "static_package_deploy_repair_matrix"
     else DEPLOYMENT_REPAIR_PROMPT
     if DEPLOYMENT_REPAIR_SCENARIO
     else DEPLOYMENT_PROMPT
@@ -677,6 +788,21 @@ GENERIC_GROUP_PROCESS_CASES: dict[str, dict[str, Any]] = {
         "required_child_agents": {"claude-code", "opencode-helper"},
         "allow_child_error": True,
         "require_failure_text": True,
+    },
+    "group_chat_attribution_process_matrix": {
+        "required_files": {
+            "attribution-plan.md",
+            "attribution-frontend.md",
+            "attribution-backend.md",
+            "attribution-review.md",
+        },
+        "min_child_messages": 3,
+        "required_child_agents": {
+            "codex-helper",
+            "claude-code",
+            "opencode-helper",
+        },
+        "require_group_member_scope": True,
     },
 }
 AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
@@ -757,7 +883,86 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _attach_standard_e2e_report_sections(report: dict[str, Any]) -> None:
+    if "scenario" not in report or "checks" not in report:
+        return
+    checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
+    run_items = report.get("orchestrator_runs")
+    first_run = run_items[0] if isinstance(run_items, list) and run_items else {}
+    run_detail = report.get("orchestrator_run_detail")
+    run_detail = run_detail if isinstance(run_detail, dict) else {}
+    tasks = run_detail.get("tasks") if isinstance(run_detail.get("tasks"), list) else []
+    attempts = _attempts_from_run_detail(run_detail)
+    events = run_detail.get("events") if isinstance(run_detail.get("events"), list) else []
+    repair_event_types = {
+        "reflection_created",
+        "agent_review_repair_scheduled",
+        "repair_dispatched",
+        "fallback_dispatched",
+    }
+    repair_events = [
+        event
+        for event in events
+        if isinstance(event, dict)
+        and (
+            event.get("event_type") in repair_event_types
+            or "repair" in str(event.get("event_type") or "").lower()
+            or "fallback" in str(event.get("event_type") or "").lower()
+        )
+    ]
+    failed_attempts = [
+        attempt
+        for attempt in attempts
+        if str(attempt.get("state") or attempt.get("final_state") or "").lower()
+        in {"failed", "evaluation_failed", "error"}
+    ]
+    final_attempts = [
+        attempt
+        for attempt in attempts
+        if str(attempt.get("state") or attempt.get("final_state") or "").lower()
+        in {"succeeded", "done", "manual_review_required"}
+    ]
+    workspace_files = report.get("workspace_files")
+    workspace_files = workspace_files if isinstance(workspace_files, list) else []
+    workspace_artifacts = report.get("workspace_artifacts_api")
+    workspace_artifacts = (
+        workspace_artifacts if isinstance(workspace_artifacts, list) else []
+    )
+    report["planner_evidence"] = {
+        "plan_source": first_run.get("plan_source") if isinstance(first_run, dict) else None,
+        "llm_planning_enabled": checks.get("orchestrator_llm_planning_enabled"),
+        "planner_used_llm": checks.get("planner_used_llm"),
+        "planner_context_max_tokens_128k": checks.get("planner_context_max_tokens_128k"),
+    }
+    report["task_graph"] = {
+        "tasks": tasks,
+        "attempts": attempts,
+        "parallel_tasks": report.get("parallel_tasks"),
+        "agent_switch_to_agents": report.get("agent_switch_to_agents", []),
+    }
+    report["repair_trace"] = {
+        "failed_attempts": failed_attempts,
+        "final_attempts": final_attempts,
+        "repair_events": repair_events,
+        "has_repair_or_fallback": bool(failed_attempts and final_attempts)
+        or bool(repair_events),
+    }
+    report["artifact_list"] = workspace_artifacts or [
+        {
+            "path": item.get("path"),
+            "size": item.get("size"),
+            "kind": item.get("type"),
+        }
+        for item in workspace_files
+        if isinstance(item, dict)
+    ]
+    if isinstance(report.get("browser_verification"), dict):
+        report["browser_report"] = report["browser_verification"]
+
+
 def write_json(path: Path, value: Any) -> None:
+    if isinstance(value, dict):
+        _attach_standard_e2e_report_sections(value)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -3039,6 +3244,12 @@ def evaluate_generic_group_process(
         if required_child_agents
         else len(child_process_agent_set) >= min_child_messages
     )
+    switched_agents = [
+        str(agent_id)
+        for agent_id in report.get("agent_switch_to_agents", [])
+        if isinstance(agent_id, str)
+    ]
+    group_agent_ids = set(report.get("conversation", {}).get("agent_ids") or AGENT_IDS)
 
     checks = report["checks"]
     checks["generic_group_message_done"] = target.get("status") == "done"
@@ -3063,6 +3274,10 @@ def evaluate_generic_group_process(
         "artifact_missing" not in final_summary_from_report(report)
         and "\n- pending:" not in final_summary_from_report(report)
     )
+    if case.get("require_group_member_scope"):
+        checks["generic_group_dispatch_only_group_members"] = all(
+            agent_id in group_agent_ids for agent_id in switched_agents
+        )
     if case.get("require_failure_text"):
         checks["generic_group_failure_text_readable"] = bool(
             re.search(r"失败|无法|不能|安全|限制|workspace|路径|重试", visible_text, re.I)
@@ -3103,6 +3318,8 @@ def evaluate_generic_group_process(
     ]
     if case.get("require_failure_text"):
         acceptance_keys.append("generic_group_failure_text_readable")
+    if case.get("require_group_member_scope"):
+        acceptance_keys.append("generic_group_dispatch_only_group_members")
     if case.get("require_workflow"):
         acceptance_keys.extend(
             [
@@ -4258,12 +4475,24 @@ def run_custom_agent_tools_case(
         "notes.txt",
         "allowed-tools-live-sentinel",
     )
+    if SCENARIO == "custom_agent_reader_review_repair":
+        put_workspace_file(
+            client,
+            conv_id,
+            headers,
+            "draft.md",
+            "# Draft\n\nTODO: add REQUIRED_REPAIR_SECTION.\n",
+        )
+
+    create_prompt = PROMPT
+    if SCENARIO == "custom_agent_reader_review_repair":
+        create_prompt = CUSTOM_AGENT_TOOLS_PROMPT.format(timestamp=int(started_at))
 
     _, create_events, create_target = send_message_and_stream(
         client,
         headers,
         conv_id,
-        content=PROMPT,
+        content=create_prompt,
         target_agent_id="orchestrator",
         started_at=started_at,
     )
@@ -4277,14 +4506,18 @@ def run_custom_agent_tools_case(
     agents.raise_for_status()
     agent_items = agents.json().get("items", [])
     created_agent = next(
-        (
-            item
-            for item in agent_items
-            if item.get("id") == agent_id
-            or str(item.get("name", "")).startswith("LiveReader-")
-        ),
+        (item for item in agent_items if item.get("id") == agent_id),
         None,
     )
+    if created_agent is None:
+        created_agent = next(
+            (
+                item
+                for item in agent_items
+                if str(item.get("name", "")).startswith("LiveReader-")
+            ),
+            None,
+        )
     if not isinstance(agent_id, str) and created_agent:
         agent_id = created_agent.get("id")
     report["created_custom_agent"] = created_agent
@@ -4299,8 +4532,12 @@ def run_custom_agent_tools_case(
 
     read_events: list[dict[str, Any]] = []
     write_events: list[dict[str, Any]] = []
+    review_events: list[dict[str, Any]] = []
+    repair_events: list[dict[str, Any]] = []
     read_target: dict[str, Any] | None = None
     write_target: dict[str, Any] | None = None
+    review_target: dict[str, Any] | None = None
+    repair_target: dict[str, Any] | None = None
     if isinstance(agent_id, str) and agent_id:
         _, read_events, read_target = send_message_and_stream(
             client,
@@ -4323,8 +4560,35 @@ def run_custom_agent_tools_case(
             target_agent_id=agent_id,
             started_at=started_at,
         )
+        if SCENARIO == "custom_agent_reader_review_repair":
+            _, review_events, review_target = send_message_and_stream(
+                client,
+                headers,
+                conv_id,
+                content=(
+                    "请只使用 read_file 读取 draft.md，审阅是否缺少 "
+                    "REQUIRED_REPAIR_SECTION。不要写文件，不要运行命令。"
+                ),
+                target_agent_id=agent_id,
+                started_at=started_at,
+            )
+            _, repair_events, repair_target = send_message_and_stream(
+                client,
+                headers,
+                conv_id,
+                content=(
+                    "@orchestrator 请根据只读 Agent 的审阅结果修复 draft.md，"
+                    "补充 REQUIRED_REPAIR_SECTION，并生成 review.md。"
+                    "只能由 claude-code、opencode-helper 或 codex-helper 写文件；"
+                    "LiveReader 自建 Agent 只能读文件和审阅，不能写。"
+                ),
+                target_agent_id="orchestrator",
+                started_at=started_at,
+            )
     report["custom_agent_read_message"] = read_target
     report["custom_agent_write_message"] = write_target
+    report["custom_agent_review_message"] = review_target
+    report["custom_agent_repair_message"] = repair_target
     read_tool_calls = [
         event.get("data", {}).get("tool_name")
         for event in read_events
@@ -4335,10 +4599,22 @@ def run_custom_agent_tools_case(
         for event in write_events
         if event.get("event") == "tool_call"
     ]
+    review_tool_calls = [
+        event.get("data", {}).get("tool_name")
+        for event in review_events
+        if event.get("event") == "tool_call"
+    ]
+    repair_switches = [
+        event_data(event).get("to_agent")
+        for event in repair_events
+        if event.get("event") == "agent_switch"
+    ]
     read_text = visible_agent_text((read_target or {}).get("content") or [])
+    review_text = visible_agent_text((review_target or {}).get("content") or [])
     report["custom_agent_tool_calls"] = {
         "read": read_tool_calls,
         "write": write_tool_calls,
+        "review": review_tool_calls,
     }
     report["checks"]["custom_agent_created"] = isinstance(agent_id, str) and bool(agent_id)
     report["checks"]["custom_agent_allowed_tools_persisted"] = allowed_tools == ["read_file"]
@@ -4352,6 +4628,45 @@ def run_custom_agent_tools_case(
     report["checks"]["custom_agent_unauthorized_tools_blocked"] = not any(
         tool_name in {"write_file", "bash"} for tool_name in write_tool_calls
     )
+    if SCENARIO == "custom_agent_reader_review_repair":
+        files = fetch_workspace_evidence(client, headers, conv_id, report)
+        files_by_name = file_by_basename(files)
+        draft_text = (
+            read_workspace_file(client, conv_id, headers, str(files_by_name["draft.md"]["path"]))
+            if "draft.md" in files_by_name
+            else ""
+        )
+        repair_review_text = (
+            read_workspace_file(client, conv_id, headers, str(files_by_name["review.md"]["path"]))
+            if "review.md" in files_by_name
+            else ""
+        )
+        report["custom_agent_reader_review_repair"] = {
+            "repair_switches": repair_switches,
+            "draft_preview": draft_text[:2000],
+            "review_preview": repair_review_text[:2000],
+        }
+        report["checks"]["custom_agent_review_used_read_only"] = (
+            "read_file" in review_tool_calls
+            and not any(tool_name in {"write_file", "bash"} for tool_name in review_tool_calls)
+        )
+        report["checks"]["custom_agent_review_detected_gap"] = (
+            "REQUIRED_REPAIR_SECTION" in review_text
+            and re.search(r"缺少|missing|需要|需修复", review_text, re.I) is not None
+        )
+        report["checks"]["custom_agent_repair_by_builtin_agent"] = any(
+            agent_id in BUILTIN_SUB_AGENT_IDS for agent_id in repair_switches
+        )
+        report["checks"]["custom_agent_repair_files_present"] = {
+            "draft.md",
+            "review.md",
+        }.issubset(files_by_name)
+        report["checks"]["custom_agent_draft_repaired"] = (
+            "REQUIRED_REPAIR_SECTION" in draft_text and "TODO" not in draft_text
+        )
+        report["checks"]["custom_agent_review_artifact_mentions_repair"] = bool(
+            re.search(r"修复|repair|REQUIRED_REPAIR_SECTION", repair_review_text, re.I)
+        )
     acceptance = {
         key: report["checks"].get(key, False)
         for key in (
@@ -4362,6 +4677,20 @@ def run_custom_agent_tools_case(
             "custom_agent_unauthorized_tools_blocked",
         )
     }
+    if SCENARIO == "custom_agent_reader_review_repair":
+        acceptance.update(
+            {
+                key: report["checks"].get(key, False)
+                for key in (
+                    "custom_agent_review_used_read_only",
+                    "custom_agent_review_detected_gap",
+                    "custom_agent_repair_by_builtin_agent",
+                    "custom_agent_repair_files_present",
+                    "custom_agent_draft_repaired",
+                    "custom_agent_review_artifact_mentions_repair",
+                )
+            }
+        )
     report["acceptance"] = {**acceptance, "passed": all(acceptance.values())}
 
 
@@ -6315,7 +6644,11 @@ def main() -> None:
                 False,
             ),
         }
-        if COMMAND_FULFILLMENT_FLOW_SCENARIO or CYBERPUNK_QUALITY_SCENARIO:
+        if (
+            COMMAND_FULFILLMENT_FLOW_SCENARIO
+            or CYBERPUNK_QUALITY_SCENARIO
+            or DEPLOYMENT_REPAIR_SCENARIO
+        ):
             hard_checks.pop("planner_used_llm", None)
         if TASK_MANAGER_PARALLEL_SCENARIO:
             for key in (

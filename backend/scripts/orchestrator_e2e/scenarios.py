@@ -144,10 +144,50 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         runner.TASK_MANAGER_PARALLEL_PROMPT,
         runner.main,
     ),
+    "fullstack_task_manager_parallel_repair_v2": _spec(
+        "fullstack_task_manager_parallel_repair_v2",
+        runner.TASK_MANAGER_PARALLEL_V2_PROMPT,
+        runner.main,
+    ),
     "cyberpunk_site_quality_repair_8082": _spec(
         "cyberpunk_site_quality_repair_8082",
         runner.CYBERPUNK_QUALITY_PROMPT,
         runner.main,
+    ),
+    "cyberpunk_site_quality_repair_8082_v2": _spec(
+        "cyberpunk_site_quality_repair_8082_v2",
+        runner.CYBERPUNK_QUALITY_V2_PROMPT,
+        runner.main,
+    ),
+    "im_context_pin_followup_repair": _spec(
+        "im_context_pin_followup_repair",
+        runner.IM_CONTEXT_PIN_FOLLOWUP_REPAIR_PROMPT,
+        runner.main,
+    ),
+    "group_chat_attribution_process_matrix": _spec(
+        "group_chat_attribution_process_matrix",
+        runner.GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT,
+        runner.run_generic_group_process_case,
+    ),
+    "custom_agent_reader_review_repair": _spec(
+        "custom_agent_reader_review_repair",
+        runner.CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT,
+        runner.run_custom_agent_tools_case,
+    ),
+    "static_package_deploy_repair_matrix": _spec(
+        "static_package_deploy_repair_matrix",
+        runner.STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT,
+        runner.main,
+    ),
+    "group_member_fallback_repair_visibility": _spec(
+        "group_member_fallback_repair_visibility",
+        runner.GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT,
+        runner.run_agent_fallback_matrix_case,
+    ),
+    "im_dialogue_no_artifact_turn_taking_v2": _spec(
+        "im_dialogue_no_artifact_turn_taking_v2",
+        runner.AGENT_TURN_TAKING_DIALOGUE_PROMPT,
+        runner.run_group_dialogue_debate_case,
     ),
     "deployment": _spec("deployment", runner.DEPLOYMENT_PROMPT, runner.main),
     "deployment_repair": _spec(

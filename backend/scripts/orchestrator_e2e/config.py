@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_BASE_URL = "http://154.44.25.94:1573"
-DEFAULT_USERNAME = "12345678"
-DEFAULT_PASSWORD = "12345678"
+DEFAULT_USERNAME = ""
+DEFAULT_PASSWORD = ""
 DEFAULT_SCENARIO = "quality"
 CONTAINER_STATUS_EXPECTATIONS = frozenset({"not_supported", "published", "any"})
 
@@ -27,9 +27,33 @@ DEFAULT_FULLSTACK_SSE_PATH = "/tmp/agenthub_fullstack_flow_sse.jsonl"  # noqa: S
 DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_task_manager_parallel_sse.jsonl"  # noqa: S108
 )
+DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_v2_sse.jsonl"  # noqa: S108
+)
 DEFAULT_QUALITY_SSE_PATH = "/tmp/agenthub_orchestrator_quality_sse.jsonl"  # noqa: S108
 DEFAULT_CYBERPUNK_QUALITY_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_cyberpunk_quality_sse.jsonl"  # noqa: S108
+)
+DEFAULT_CYBERPUNK_QUALITY_V2_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_v2_sse.jsonl"  # noqa: S108
+)
+DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_im_context_pin_followup_repair_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_chat_attribution_process_matrix_sse.jsonl"  # noqa: S108
+)
+DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_custom_agent_reader_review_repair_sse.jsonl"  # noqa: S108
+)
+DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_static_package_deploy_repair_matrix_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_member_fallback_repair_visibility_sse.jsonl"  # noqa: S108
+)
+DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_sse.jsonl"  # noqa: S108
 )
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
@@ -99,9 +123,33 @@ DEFAULT_FULLSTACK_REPORT_PATH = "/tmp/agenthub_fullstack_flow_report.json"  # no
 DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_task_manager_parallel_report.json"  # noqa: S108
 )
+DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_v2_report.json"  # noqa: S108
+)
 DEFAULT_QUALITY_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_report.json"  # noqa: S108
 DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_cyberpunk_quality_report.json"  # noqa: S108
+)
+DEFAULT_CYBERPUNK_QUALITY_V2_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_v2_report.json"  # noqa: S108
+)
+DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_im_context_pin_followup_repair_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_chat_attribution_process_matrix_report.json"  # noqa: S108
+)
+DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_custom_agent_reader_review_repair_report.json"  # noqa: S108
+)
+DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_static_package_deploy_repair_matrix_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_member_fallback_repair_visibility_report.json"  # noqa: S108
+)
+DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json"  # noqa: S108
 )
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
@@ -159,9 +207,33 @@ DEFAULT_FULLSTACK_BROWSER_REPORT_PATH = "/tmp/agenthub_fullstack_flow_browser.js
 DEFAULT_TASK_MANAGER_PARALLEL_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_task_manager_parallel_browser.json"  # noqa: S108
 )
+DEFAULT_TASK_MANAGER_PARALLEL_V2_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_task_manager_parallel_v2_browser.json"  # noqa: S108
+)
 DEFAULT_QUALITY_BROWSER_REPORT_PATH = "/tmp/agenthub_orchestrator_quality_browser.json"  # noqa: S108
 DEFAULT_CYBERPUNK_QUALITY_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_cyberpunk_quality_browser.json"  # noqa: S108
+)
+DEFAULT_CYBERPUNK_QUALITY_V2_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_cyberpunk_quality_v2_browser.json"  # noqa: S108
+)
+DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_im_context_pin_followup_repair_browser.json"  # noqa: S108
+)
+DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_chat_attribution_process_matrix_browser.json"  # noqa: S108
+)
+DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_custom_agent_reader_review_repair_browser.json"  # noqa: S108
+)
+DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_static_package_deploy_repair_matrix_browser.json"  # noqa: S108
+)
+DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_member_fallback_repair_visibility_browser.json"  # noqa: S108
+)
+DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_browser.json"  # noqa: S108
 )
 DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_browser.json"  # noqa: S108
@@ -201,10 +273,50 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
         DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH,
         DEFAULT_TASK_MANAGER_PARALLEL_BROWSER_REPORT_PATH,
     ),
+    "fullstack_task_manager_parallel_repair_v2": ScenarioDefaults(
+        DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH,
+        DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH,
+        DEFAULT_TASK_MANAGER_PARALLEL_V2_BROWSER_REPORT_PATH,
+    ),
     "cyberpunk_site_quality_repair_8082": ScenarioDefaults(
         DEFAULT_CYBERPUNK_QUALITY_REPORT_PATH,
         DEFAULT_CYBERPUNK_QUALITY_SSE_PATH,
         DEFAULT_CYBERPUNK_QUALITY_BROWSER_REPORT_PATH,
+    ),
+    "cyberpunk_site_quality_repair_8082_v2": ScenarioDefaults(
+        DEFAULT_CYBERPUNK_QUALITY_V2_REPORT_PATH,
+        DEFAULT_CYBERPUNK_QUALITY_V2_SSE_PATH,
+        DEFAULT_CYBERPUNK_QUALITY_V2_BROWSER_REPORT_PATH,
+    ),
+    "im_context_pin_followup_repair": ScenarioDefaults(
+        DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_REPORT_PATH,
+        DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_SSE_PATH,
+        DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_BROWSER_REPORT_PATH,
+    ),
+    "group_chat_attribution_process_matrix": ScenarioDefaults(
+        DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH,
+        DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_SSE_PATH,
+        DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_BROWSER_REPORT_PATH,
+    ),
+    "custom_agent_reader_review_repair": ScenarioDefaults(
+        DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_REPORT_PATH,
+        DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_SSE_PATH,
+        DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_BROWSER_REPORT_PATH,
+    ),
+    "static_package_deploy_repair_matrix": ScenarioDefaults(
+        DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_REPORT_PATH,
+        DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_SSE_PATH,
+        DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_BROWSER_REPORT_PATH,
+    ),
+    "group_member_fallback_repair_visibility": ScenarioDefaults(
+        DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_REPORT_PATH,
+        DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_SSE_PATH,
+        DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_BROWSER_REPORT_PATH,
+    ),
+    "im_dialogue_no_artifact_turn_taking_v2": ScenarioDefaults(
+        DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH,
+        DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH,
+        DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_BROWSER_REPORT_PATH,
     ),
     "deployment": ScenarioDefaults(
         DEFAULT_DEPLOYMENT_REPORT_PATH,

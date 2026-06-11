@@ -139,7 +139,33 @@ async def test_pending_tasks_make_visible_summary_partial() -> None:
     assert "was not run before orchestration stopped" in text
 
 
-async def test_fulfillment_pending_makes_visible_summary_partial() -> None:
+async def test_non_platform_fulfillment_pending_makes_visible_summary_partial() -> None:
+    tasks, states, context = _context()
+    context.fulfillment_items = [
+        {
+            "id": "review",
+            "label": "审阅/复核",
+            "status": "pending",
+            "evidence": [],
+            "reason": "没有确认独立审阅完成。",
+        }
+    ]
+
+    text = await presented_response_text(
+        {},
+        [ChatMessage(role="user", content="Create and review a report")],
+        tasks,
+        states,
+        context,
+        "Execution summary\n- succeeded: @agent-a - Write report\n",
+    )
+
+    assert "Done. I completed the requested work." not in text
+    assert "I completed the parts that could be finished" in text
+    assert "审阅/复核: 没有确认独立审阅完成。" in text
+
+
+async def test_platform_fulfillment_pending_does_not_contradict_later_tools() -> None:
     tasks, states, context = _context()
     context.fulfillment_items = [
         {
@@ -148,6 +174,13 @@ async def test_fulfillment_pending_makes_visible_summary_partial() -> None:
             "status": "pending",
             "evidence": [],
             "reason": "尚未完成平台部署。",
+        },
+        {
+            "id": "browser_verify",
+            "label": "浏览器质量验收",
+            "status": "pending",
+            "evidence": [],
+            "reason": "尚未完成浏览器级验收。",
         }
     ]
 
@@ -160,9 +193,9 @@ async def test_fulfillment_pending_makes_visible_summary_partial() -> None:
         "Execution summary\n- succeeded: @agent-a - Write report\n",
     )
 
-    assert "Done. I completed the requested work." not in text
-    assert "I completed the parts that could be finished" in text
-    assert "部署/发布: 尚未完成平台部署。" in text
+    assert "Done. I completed the requested work." in text
+    assert "尚未完成平台部署" not in text
+    assert "尚未完成浏览器级验收" not in text
 
 
 async def test_polish_success_uses_model_output() -> None:
