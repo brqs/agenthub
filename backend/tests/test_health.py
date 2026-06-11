@@ -65,6 +65,28 @@ def test_desktop_cors_is_appended_when_cors_origins_are_overridden() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cors_preflight_allows_desktop_cache_control_header() -> None:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.options(
+            "/api/v1/server-info",
+            headers={
+                "Origin": "http://tauri.localhost",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": (
+                    "authorization,accept,cache-control,last-event-id"
+                ),
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://tauri.localhost"
+    allowed_headers = resp.headers["access-control-allow-headers"].lower()
+    assert "cache-control" in allowed_headers
+    assert "last-event-id" in allowed_headers
+
+
+@pytest.mark.asyncio
 async def test_lifespan_emits_structured_startup_logs(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,

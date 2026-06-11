@@ -57,7 +57,13 @@ export function setRuntimeApiBaseUrl(
   options: { persistDesktop?: boolean } = {},
 ): string {
   const normalized = normalizeOptionalApiBaseUrl(url);
-  if (isDesktopRuntime() && normalized && !isAllowedDesktopApiUrl(normalized)) {
+  if (
+    isDesktopRuntime() &&
+    normalized &&
+    !isAllowedDesktopApiUrl(normalized, {
+      allowExplicitInsecure: options.persistDesktop === true,
+    })
+  ) {
     throw new Error('桌面客户端连接远程后端时必须使用 HTTPS。');
   }
   runtimeApiBaseUrl = normalized;
@@ -89,10 +95,13 @@ function normalizeOptionalApiBaseUrl(url: string): string {
   return normalizeBackendUrl(raw);
 }
 
-function isAllowedDesktopApiUrl(url: string): boolean {
+function isAllowedDesktopApiUrl(
+  url: string,
+  options: { allowExplicitInsecure?: boolean } = {},
+): boolean {
   if (url.startsWith('https://')) return true;
   if (!url.startsWith('http://')) return false;
-  if (allowInsecureDesktopApi) return true;
+  if (allowInsecureDesktopApi || options.allowExplicitInsecure) return true;
   try {
     const host = new URL(url).hostname.toLowerCase();
     return host === 'localhost' || host === '127.0.0.1' || host === '::1';
