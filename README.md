@@ -1,13 +1,15 @@
 # AgentHub
 
-> IM-style multi-agent collaboration workspace for building, previewing, and iterating on real deliverables.
+> IM-style multi-agent collaboration workspace for building, previewing, reviewing, and deploying real deliverables.
+
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 [![status](https://img.shields.io/badge/status-MVP-yellow)]()
 [![python](https://img.shields.io/badge/python-3.11%2B-blue)]()
 [![react](https://img.shields.io/badge/react-18-61dafb)]()
 [![fastapi](https://img.shields.io/badge/FastAPI-0.115%2B-009688)]()
 
-AgentHub turns AI collaboration into a chat-native workspace. Users can talk to coding agents, create custom agents, let an Orchestrator split work across specialist runtimes, and inspect generated files, previews, deployments, tool calls, and conversation context in one product surface.
+AgentHub turns AI collaboration into a chat-native workspace. Users can talk to individual coding agents, create custom agents, ask an Orchestrator to split work across multiple runtimes, and inspect generated files, previews, deployments, tool calls, task cards, memory, and conversation context in one product surface.
 
 - Demo site: [ag.brqs.link](http://ag.brqs.link/login)
 - Demo video: [demo.mp4](demo.mp4)
@@ -20,42 +22,44 @@ AgentHub turns AI collaboration into a chat-native workspace. Users can talk to 
 
 Watch or download the full demo: [demo.mp4](demo.mp4).
 
-## What It Does
+## Highlights
 
-AgentHub is built around three product loops:
+- **Chat-native multi-agent work**: direct chats, group chats, orchestrated plans, task cards, child-agent messages, and handoff timelines.
+- **Real workspace artifacts**: generated files live in a per-conversation workspace with file tree, code preview, diffs, uploads, artifact manifest, and publish history.
+- **Multiple agent runtimes**: built-in Orchestrator plus Claude Code, Codex Helper, OpenCode Helper, external CLI/SDK adapters, and a restricted builtin runtime for read-only custom agents.
+- **Orchestrator planning and repair**: clarification gate, large planner context, DAG execution, parallel task dispatch, fallback visibility, review handoff, evaluation, reflection, and repair loops.
+- **Preview and deployment**: static workspace preview, browser quality checks, static releases, source packages, and controlled container deployment paths.
+- **Contract-driven development**: OpenAPI-first API changes, typed frontend generation, backend adapter contracts, and spec-backed E2E evidence.
 
-1. **Chat with agents**
-   - Direct or orchestrated conversations with built-in and custom agents.
-   - SSE streaming for text, tool activity, task progress, and rich content blocks.
-   - Message controls for interruption, regeneration, queuing, archives, and share links.
+## Current Built-in Agents
 
-2. **Generate real artifacts**
-   - Per-conversation workspace sandbox for generated files.
-   - Inline rendering for text, code, diffs, files, web previews, task cards, workflow/process states, deployment status, and tool calls.
-   - Workspace file tree, code preview, upload support, static preview, and deployment history surfaces.
+AgentHub currently seeds four built-in agents:
 
-3. **Coordinate multiple runtimes**
-   - Built-in agents seeded from backend code: `Claude Code`, `Codex Helper`, `OpenCode Helper`, and `Orchestrator`.
-   - External runtime adapters for Claude Code, Codex CLI by default with SDK opt-in, and OpenCode CLI.
-   - Builtin Agent runtime backed by the ModelGateway layer for Claude, OpenAI-compatible, and DeepSeek-style model backends.
-   - Orchestrator planning with clarification gate, task execution, memory/context support, and managed sub-agent dispatch.
+| Agent | Role |
+| --- | --- |
+| `orchestrator` | Coordinates group work, plans tasks, dispatches agents, runs platform tools, and summarizes results. It is not a normal subtask target. |
+| `codex-helper` | Architecture, repository analysis, planning, final review, escalation, and difficult bug fixing. |
+| `claude-code` | Implementation, file editing, code generation, debugging, repair, review, and workspace changes. |
+| `opencode-helper` | CLI-oriented implementation, verification, repair, and parallel execution. |
+
+Custom agents do not inherit these built-in planning profiles. User-created external wrappers are based on one of the built-in runtime agents. User-created `builtin` agents are restricted read-only reader/review agents and may expose only `read_file`.
 
 ## Architecture
 
 ```text
 agenthub/
 ├── backend/                 FastAPI backend, async services, Agent runtime layer
-│   ├── app/api/v1/           Auth, conversations, messages, stream, agents,
-│   │                         uploads, memories, workspaces, shares, events
+│   ├── app/api/v1/           Auth, conversations, stream, agents, uploads,
+│   │                         memories, workspaces, shares, events
 │   ├── app/agents/           Base adapter contract, external runtimes,
 │   │                         builtin runtime, model gateway, orchestrator
 │   ├── app/models/           SQLAlchemy models
 │   ├── app/schemas/          Pydantic schemas
-│   ├── app/services/         Business logic, workspace, deployment, memory
+│   ├── app/services/         Workspace, deployment, memory, platform tools
 │   └── alembic/              Database migrations
 ├── frontend/                React + Vite client
 │   └── src/
-│       ├── components/       Chat, agents, artifact, desktop, layout, blocks
+│       ├── components/       Chat, agents, artifacts, layout, blocks
 │       ├── hooks/            Query and streaming hooks
 │       ├── lib/              API client, generated OpenAPI types, SSE helpers
 │       ├── pages/            Login, chat, agents, archive, share
@@ -75,7 +79,7 @@ API layer -> Service layer -> Models/Schemas/Infrastructure
               Agent registry -> BaseAgentAdapter implementations
 ```
 
-The important boundary is `backend/app/agents/base.py`: application services call agents through the registry and adapter contract. Raw model providers are kept behind the ModelGateway layer and are not registered as top-level agents.
+The key boundary is `backend/app/agents/base.py`: application services call agents through the registry and adapter contract. Raw model providers stay behind the ModelGateway layer and are not registered as top-level agents.
 
 ## Tech Stack
 
@@ -83,7 +87,7 @@ The important boundary is `backend/app/agents/base.py`: application services cal
 | --- | --- |
 | Frontend | React 18, Vite, TypeScript, React Router, Tailwind CSS, shadcn-style components, Zustand, TanStack Query |
 | Streaming | Server-Sent Events via `@microsoft/fetch-event-source` |
-| Backend | Python 3.11, FastAPI, Uvicorn, Pydantic v2, SQLAlchemy 2.0 async |
+| Backend | Python 3.11+, FastAPI, Uvicorn, Pydantic v2, SQLAlchemy 2.0 async |
 | Storage | PostgreSQL 15, Redis 7, local workspace and upload volumes |
 | Agent runtimes | Claude Agent SDK, Codex adapter, OpenCode CLI adapter, Builtin Agent runtime, ModelGateway |
 | Quality | pytest, pytest-asyncio, ruff, mypy, vitest, Testing Library, ESLint, Prettier |
@@ -104,19 +108,22 @@ The important boundary is `backend/app/agents/base.py`: application services cal
 cp .env.example .env
 ```
 
-For a local smoke run, keep the default Postgres/Redis values and set only the provider keys you need. At least one configured provider/runtime is required for non-mock agent execution.
+For a local smoke run, keep the default Postgres/Redis values and set only the provider keys or runtime auth paths you need. At least one configured provider/runtime is required for non-mock agent execution.
 
-Common variables:
+Important variables:
 
 | Variable | Purpose |
 | --- | --- |
-| `JWT_SECRET` | Auth token signing secret. Replace in any non-local environment. |
+| `JWT_SECRET` | Auth token signing secret. Replace it in any non-local environment. |
 | `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY` | Provider credentials used by runtime probes and model backends. |
 | `CORS_ORIGINS` | Allowed frontend origins. Defaults include local Vite and Tauri origins. |
 | `WORKSPACE_BASE_DIR` | Root directory for generated conversation workspaces. |
 | `UPLOAD_STORAGE_DIR` | Persistent upload storage path inside the backend container. |
-| `PREVIEW_*`, `DEPLOYMENT_CONTAINER_*` | Workspace preview and container deployment controls. |
+| `PREVIEW_*` | Workspace preview controls and public base URL. |
+| `DEPLOYMENT_CONTAINER_*` | Controlled container deployment runtime, ports, and health-check settings. |
 | `VITE_API_BASE_URL` | Frontend API base URL. Defaults to `http://localhost:8000`. |
+
+Never commit real `.env`, auth tokens, runtime state, or provider keys.
 
 ### 2. Start Backend Services
 
@@ -146,9 +153,17 @@ pnpm dev
 
 Open <http://localhost:5173>.
 
-## Runtime Checks
+The frontend can run against mock data, a local backend, or a remote backend depending on `.env.local`:
 
-These commands verify that the backend container can see the external runtime surfaces used by the seeded agents.
+```bash
+cp .env.example .env.local
+# Set VITE_USE_MOCK_API=false to use a real backend.
+# Set VITE_API_BASE_URL or VITE_DEV_PROXY_TARGET as needed.
+```
+
+## Runtime Setup Notes
+
+The seeded runtime agents depend on local or container-visible runtime auth:
 
 ```bash
 docker compose exec backend opencode --version
@@ -162,7 +177,7 @@ docker compose exec backend sh -lc 'ls -la $AGENTHUB_CLAUDE_AUTH_DIR'
 docker compose exec backend env | grep -E 'ANTHROPIC|CLAUDE|AGENTHUB_CLAUDE'
 ```
 
-OpenCode login state is persisted in the `opencode-state` Docker volume. Claude Code login state is persisted in the `claude-state` Docker volume through `AGENTHUB_CLAUDE_AUTH_DIR`.
+OpenCode login state is persisted in the `opencode-state` Docker volume through `AGENTHUB_OPENCODE_AUTH_DIR`. Claude Code login state is persisted in the `claude-state` Docker volume through `AGENTHUB_CLAUDE_AUTH_DIR`.
 
 ## Development Commands
 
@@ -171,6 +186,7 @@ OpenCode login state is persisted in the `opencode-state` Docker volume. Claude 
 ```bash
 docker compose logs -f backend
 docker compose exec backend alembic upgrade head
+docker compose exec backend python -m app.seeds.seed_agents
 docker compose exec backend pytest
 docker compose exec backend ruff check
 docker compose exec backend mypy app
@@ -180,9 +196,18 @@ Local backend-only development is managed from `backend/` with `uv`:
 
 ```bash
 cd backend
+uv venv
+uv pip install -e ".[dev]"
 uv run pytest
 uv run ruff check
 uv run mypy app
+```
+
+Backend tests intentionally refuse to run against the default development database unless you opt in. Prefer an isolated test database. For a deliberate local one-off run:
+
+```bash
+cd backend
+AGENTHUB_ALLOW_DEV_DB_TESTS=1 uv run pytest
 ```
 
 ### Frontend
@@ -199,8 +224,6 @@ Run `pnpm gen:types` whenever [shared/openapi.yaml](shared/openapi.yaml) changes
 
 ### Desktop and Mobile
 
-The frontend includes Tauri and Capacitor scripts:
-
 ```bash
 cd frontend
 pnpm desktop:dev
@@ -209,6 +232,32 @@ pnpm cap:sync
 ```
 
 These surfaces depend on local native toolchains in addition to the web app requirements.
+
+## Live E2E and Repair Loop
+
+The live E2E harness validates real HTTP/SSE flows, preview, deployment, multi-agent planning, fallback, and repair behavior.
+
+```bash
+cd backend
+AGENTHUB_E2E_BASE_URL=http://111.229.151.159:8000 \
+AGENTHUB_E2E_USERNAME="$AGENTHUB_E2E_USERNAME" \
+AGENTHUB_E2E_PASSWORD="$AGENTHUB_E2E_PASSWORD" \
+AGENTHUB_E2E_SCENARIO=fullstack_task_manager_parallel_repair_v2 \
+uv run python scripts/orchestrator_live_e2e.py
+```
+
+Recent robustness scenarios include:
+
+- `fullstack_task_manager_parallel_repair_v2`
+- `cyberpunk_site_quality_repair_8082_v2`
+- `im_context_pin_followup_repair`
+- `group_chat_attribution_process_matrix`
+- `custom_agent_reader_review_repair`
+- `static_package_deploy_repair_matrix`
+- `group_member_fallback_repair_visibility`
+- `im_dialogue_no_artifact_turn_taking_v2`
+
+Credentials must be provided through environment variables. Do not write real accounts, passwords, access tokens, or refresh tokens into source files, reports, or logs.
 
 ## API Surface
 
@@ -229,16 +278,6 @@ The backend mounts API v1 under `/api/v1`:
 
 For request/response details, use [shared/openapi.yaml](shared/openapi.yaml) or the local Swagger UI at <http://localhost:8000/docs>.
 
-## Collaboration Rules
-
-This repository is contract-driven. Before changing code, read [AGENTS.md](AGENTS.md). The short version:
-
-- API changes start in [shared/openapi.yaml](shared/openapi.yaml), then schemas/services/routes/frontend types follow.
-- Backend services use `agents.registry.get_adapter(...)`; they do not import concrete external runtimes directly.
-- Agent adapters implement the BaseAgentAdapter v2 contract and should not access the database.
-- Content block changes must stay aligned across backend schemas, OpenAPI, and frontend renderers.
-- Keep ownership boundaries clear: `frontend/**`, backend core/services/API, and `backend/app/agents/**` have different owners.
-
 ## Documentation Map
 
 | Need | Document |
@@ -251,12 +290,23 @@ This repository is contract-driven. Before changing code, read [AGENTS.md](AGENT
 | Runtime pivot ADR | [docs/spec/agent-runtime-pivot.adr.md](docs/spec/agent-runtime-pivot.adr.md) |
 | Agent adapter contract | [docs/b2/spec/agent-runtime-adapter.spec.md](docs/b2/spec/agent-runtime-adapter.spec.md) |
 | Builtin Agent framework | [docs/b2/spec/builtin-agent-framework.spec.md](docs/b2/spec/builtin-agent-framework.spec.md) |
+| Orchestrator specs | [docs/b2/spec/orchestrator/README.md](docs/b2/spec/orchestrator/README.md) |
 | Workspace sandbox | [docs/b1/spec/workspace-sandbox.spec.md](docs/b1/spec/workspace-sandbox.spec.md) |
+
+## Collaboration Rules
+
+This repository is contract-driven. Before changing code, read [AGENTS.md](AGENTS.md). The short version:
+
+- API changes start in [shared/openapi.yaml](shared/openapi.yaml), then schemas/services/routes/frontend types follow.
+- Backend services use `agents.registry.get_adapter(...)`; they do not import concrete external runtimes directly.
+- Agent adapters implement the BaseAgentAdapter v2 contract and should not access the database.
+- Content block changes must stay aligned across backend schemas, OpenAPI, and frontend renderers.
+- Keep ownership boundaries clear: `frontend/**`, backend core/services/API, and `backend/app/agents/**` have different owners.
 
 ## Repository Status
 
-AgentHub is an MVP-stage project with active runtime, workspace, and orchestration development. Some docs may describe planned or recently pivoted behavior; when in doubt, prefer the current code, [shared/openapi.yaml](shared/openapi.yaml), and [AGENTS.md](AGENTS.md).
+AgentHub is an MVP-stage project with active runtime, workspace, deployment, and orchestration development. Some docs may describe planned or recently pivoted behavior; when in doubt, prefer the current code, [shared/openapi.yaml](shared/openapi.yaml), and [AGENTS.md](AGENTS.md).
 
 ## License
 
-No license file is currently included. Add a project license before public redistribution.
+No repository license file is currently present.
