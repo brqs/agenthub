@@ -36,7 +36,7 @@ AgentHub 是一个以 IM 为核心交互的多 Agent 协作平台。用户可以
 
 ## 核心协作流转
 
-Orchestrator 不是简单地把所有消息都丢给 Planner。一次群聊消息会先经过瀑布式路由：澄清门控、上一轮产物跟进、平台事实问答、直接回答、自定义 Agent 创建和平台工具循环都有机会先处理；只有这些路径都不命中时，才进入任务规划。规划也不只有一种方式：显式 `@` 多 Agent 会走广播任务，讨论类请求会走 turn-taking，配置好的 `config.tasks` 会跳过 LLM Planner，复杂交付任务则由 Planner 根据当前群聊成员、agent profile、上下文和 workspace 状态生成 DAG。
+Orchestrator 不是简单地把所有消息都丢给 Planner。一次群聊消息会先经过瀑布式路由：澄清门控、上一轮产物跟进、平台事实问答、直接回答、自定义 Agent 创建和平台工具循环都有机会先处理；只有这些路径都不命中时，才进入任务规划。规划也不只有一种方式：显式 `@` 多 Agent 会走广播任务，纯对话 / 辩论 / 圆桌类请求会由 Orchestrator LLM 控场生成发言角色、顺序、续轮决策和最终裁判，配置好的 `config.tasks` 会跳过 LLM Planner，复杂交付任务则由 Planner 根据当前群聊成员、agent profile、上下文和 workspace 状态生成 DAG。
 
 任务委派以“当前群聊真实成员”为边界。Planner 只能选择当前会话可用的 Agent，并看到内置 Agent 的 planning profile 与自建 Agent 的安全白名单信息。生成的 task graph 会经过 agent 白名单、依赖关系和 workspace 冲突校验；没有依赖的任务可以并行执行，有依赖的任务会注入前序结果摘要、workspace inventory 和最新用户请求再交给子 Agent。执行过程中 task card 展示实际执行 Agent，run detail 保留 planned/current/final agent 证据；如果目标 Agent 不可用，fallback 只会在群聊可用 Agent 中发生。
 
@@ -99,7 +99,7 @@ Web 是当前主力端；桌面端通过 Tauri 复用前端体验，移动端通
 - **聊天原生的多 Agent 协作**：支持单聊、群聊、Orchestrator 调度、任务卡片、子 Agent 独立消息和 handoff 时间线。
 - **真实 workspace 产物**：每个会话都有独立 workspace，支持文件树、代码预览、Diff、上传、artifact manifest 和发布历史。
 - **多运行时接入**：内置 Orchestrator、Claude Code、Codex Helper、OpenCode Helper；支持外部 CLI/SDK adapter，以及受限只读 builtin 自建 Agent。
-- **Orchestrator 规划与修复闭环**：clarification gate、大上下文 Planner、DAG 执行、并行调度、fallback 可见性、审阅交接、evaluation、reflection 和 repair loop。
+- **Orchestrator 规划与修复闭环**：clarification gate、大上下文 Planner、纯对话 LLM 控场、DAG 执行、并行调度、fallback 可见性、审阅交接、evaluation、reflection 和 repair loop。
 - **预览与部署**：支持静态 workspace preview、浏览器级质量验收、静态发布、源码打包和受控容器部署路径。
 - **契约驱动开发**：OpenAPI 优先、前端类型生成、后端 adapter contract、spec 与真实 E2E evidence 同步维护。
 
@@ -186,6 +186,8 @@ API layer -> Service layer -> Models/Schemas/Infrastructure
 重要规则：
 
 - Planner 只能选择当前群聊可用 Agent，除非 E2E/内部任务显式设置 `available_agents_authoritative=false`。
+- 普通群聊的 `planning_agent_ids` 来自当前会话 runnable 子 Agent；不会因为 seed 里存在某个内置 Agent 就自动加入调度边界。
+- 如果 Planner 输出群聊外 Agent，后端会先进行一次 LLM retry；retry 仍非法时会 remap 到当前群聊内可执行 Agent，或在没有可执行子 Agent 时返回可读降级错误。
 - Planner 使用专用大上下文路径，默认 `planner_context_max_tokens=128000`，最大可配置到 `1000000`。
 - 普通 Orchestrator 主流程上下文默认 `64000 tokens`，子 Agent 分发上下文默认 `64000 tokens`。
 - Planner prompt 只保留白名单 memory signals、agent profile 和 recent conversation context，不直接暴露 raw structured memory。
@@ -411,6 +413,22 @@ uv run python scripts/orchestrator_live_e2e.py
 - `static_package_deploy_repair_matrix`
 - `group_member_fallback_repair_visibility`
 - `im_dialogue_no_artifact_turn_taking_v2`
+- `dialogue_ai_benefits_risks_llm_moderated`
+
+群聊边界鲁棒性场景用于验证缺少某个内置 Agent 时不会误选群聊外 Agent：
+
+- `group_scope_missing_opencode_dialogue_repair`
+- `group_scope_missing_codex_review_repair`
+- `group_scope_missing_claude_parallel_repair`
+- `group_scope_single_subagent_degraded`
+- `group_scope_react_replanner_no_external_agent`
+- `group_scope_tool_dispatch_no_external_agent`
+- `group_scope_fallback_no_external_agent`
+- `group_scope_memory_mentions_external_agent`
+
+这些 report 会记录 `conversation_agent_ids`、`available_agent_ids`、`planning_agent_ids`、
+`observed_agent_ids`、`illegal_agent_ids` 和是否出现 raw unknown-agent 错误，但不会保存完整 prompt、
+账号、token、env 或 runtime stderr。
 
 测试账号密码必须通过环境变量注入。不要把真实账号、密码、access token 或 refresh token 写入源码、报告或日志。
 

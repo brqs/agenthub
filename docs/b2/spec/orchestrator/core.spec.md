@@ -2,8 +2,8 @@
 
 > 定义 AgentHub 多 Agent 编排器的当前行为契约，包括任务规划、任务分配、子任务流转、事件聚合和失败处理。
 >
-> 版本：v1.6
-> 最后更新：2026-06-07
+> 版本：v1.7
+> 最后更新：2026-06-12
 
 ---
 
@@ -42,6 +42,7 @@ Orchestrator 不负责：
 - DAG 并行属于 Orchestrator 静态任务执行器能力，不是 platform tool。
 - `dispatch_agent` 是 tool calling 模式下的单个子 Agent 调度工具；当前默认主链仍是 LLM planning + 静态 DAG executor。
 - Workspace conflict detection 的详细规则拆分到 [workspace-conflict.spec.md](workspace-conflict.spec.md)。
+- LLM-first 控制面详见 [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md)。该模式下模板不再是复杂任务主路径，而是 Planner 失败后的兼容 fallback。
 
 ---
 
@@ -83,6 +84,7 @@ async def stream(
 | `available_agents` | `list[dict]` | planner 可用 Agent 描述；优先于 `managed_agent_ids` 用于 LLM planner。 |
 | `available_agents_authoritative` | `bool` | 为 `true` 时，`available_agents` 是 planner / fallback / execution 的强边界；显式 `false` 允许内部静态任务使用 `managed_agent_ids` / `task_fallback_agent_ids`。 |
 | `conversation_scoped_agents` | `bool` | 为 `true` 时，当前群聊成员 scope 是调度边界；生产群聊默认开启。 |
+| `orchestrator_control_mode` | `"auto" | "llm_first"` | 通用控制模式；内置 Orchestrator 默认 `llm_first`，复杂任务优先由 LLM 控制面规划和流转；`auto` 保留旧兼容顺序。 |
 | `llm_planning` | `bool` | 为 `true` 时启用 LLM planner。 |
 | `planner_gateway` | object | 注入式 planner gateway；存在时启用 LLM planner。 |
 | `orchestrator_llm_config` | `dict` | planner 模型参数；存在且为 object 时启用 LLM planner。 |
@@ -94,6 +96,8 @@ async def stream(
 | `fallback_agent_id` | `str` | fallback 展示用 agent id，默认 `fallback`。 |
 | `answer_gateway` | object | direct answer 使用的注入式 gateway。 |
 | `answer_model_backend` | `str` | direct answer 使用的 ModelGateway backend；默认回退到 `model_backend`，再回退到 `claude`。 |
+| `dialogue_model_backend` | `str` | 纯对话主持、续轮和裁判使用的 ModelGateway backend；默认 `deepseek`。 |
+| `orchestrator_dialogue_llm_control_enabled` | `bool` | 纯对话 / 辩论是否由 Orchestrator LLM 控场；默认 `true`，确定性规则只做 fallback。 |
 | `orchestrator_answer_config` | `dict` | direct answer 模型参数。 |
 | `task_fallback_agent_ids` | `list[str]` | 子任务失败、artifact 缺失或 evaluation 失败时可尝试的 fallback Agent 列表；默认空。 |
 | `sub_agent_config_overrides` | `dict[str, dict]` | 执行子 Agent attempt 时叠加的 per-agent runtime config；用于 E2E/内部静态任务，不改变 Agent 表中的持久配置。 |

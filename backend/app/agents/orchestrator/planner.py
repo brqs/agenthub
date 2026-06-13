@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.agents.model_gateway import ModelGateway
+from app.agents.orchestrator._internal.llm_control import (
+    append_pending_llm_control_point,
+    model_backend_for_phase,
+)
 from app.agents.orchestrator._internal.routing.evidence import (
     ORCHESTRATOR_EVIDENCE_HEADER,
 )
@@ -55,6 +59,9 @@ PLANNER_SYSTEM_PROMPT = """You are AgentHub's Orchestrator planner.
 Create a concise task plan for the available agents only.
 You must call submit_task_plan exactly once when the tool is available.
 If tools are unavailable, output only JSON in the same shape as the tool input.
+For task, artifact, review, repair, preview, deploy, or verification requests,
+never return an empty tasks list. Create at least one concrete task for an
+available agent, preserving the user's explicit deliverables and acceptance checks.
 Each task must target exactly one available agent_id. Do not assign tasks to agent ids
 outside the available agents list, even if memory mentions them.
 When assigning tasks, prefer agents whose user-scope v2 capability profile shows
@@ -90,13 +97,16 @@ servers, Vite/Next dev servers, or server dependencies just to satisfy preview/d
 If the user asks for preview/deploy on a port, plan only file generation and content
 verification. Put any preview/deploy handling in the final platform explanation, not
 as a sub-agent execution task.
-If the user asks for a debate, role-play, roundtable, panel, or group dialogue and
-explicitly says not to create files/artifacts, create conversation tasks with empty
-expected_output. If the user asks agents to take turns, respond to each other, or
-handoff between agents, create dialogue_turn tasks: one task per turn, each assigned
-to exactly the speaker for that turn, with depends_on pointing to the previous turn.
-Each dialogue_turn instruction must tell that agent to speak only for itself, respond
-to prior turns when applicable, and not script another agent's full reply.
+If the user asks to start, host, or organize a debate, pros/cons discussion, role-play,
+roundtable, panel, or group dialogue and does not ask for files/artifacts, treat it as
+an Orchestrator-moderated no-artifact dialogue. Create dialogue_turn tasks with empty
+expected_output; do not create implementation, review, repair, file, preview, deploy,
+or report tasks. Use at least two available agents when possible. Assign explicit
+roles/stances, speaking order, and the first exchange. For debate/pros-cons requests,
+assign opposing positions such as pro/con or benefits/risks. Each dialogue_turn
+instruction must tell that agent to speak only for itself, respond to prior turns when
+applicable, and not script another agent's full reply. The Orchestrator will dynamically
+decide later turns and final judgement after the initial planned exchange.
 """
 
 
@@ -127,15 +137,52 @@ async def plan_task_payload(
         )
 
     planner_gateway = _planner_gateway(config, system_prompt)
-    payload = await _collect_planner_payload(
-        planner_gateway,
+    try:
+        payload = await _collect_planner_payload(
+            planner_gateway,
+            config,
+            messages,
+            system_prompt,
+            user_request,
+            allowed_agent_ids,
+        )
+    except Exception as exc:
+        append_pending_llm_control_point(
+            config,
+            phase="planner",
+            status="failed",
+            used_llm=True,
+            model_backend=model_backend_for_phase(config, "planner"),
+            fallback_reason=str(exc),
+            decision_summary="Planner failed before producing a valid task graph.",
+        )
+        raise
+    task_count = _payload_task_count(payload)
+    if task_count <= 0:
+        append_pending_llm_control_point(
+            config,
+            phase="planner",
+            status="failed",
+            used_llm=True,
+            model_backend=model_backend_for_phase(config, "planner"),
+            fallback_reason="empty_planner_tasks",
+            decision_summary="Planner returned no executable tasks.",
+        )
+        return PlannerOutput(payload=payload, allowed_agent_ids=set(allowed_agent_ids))
+    append_pending_llm_control_point(
         config,
-        messages,
-        system_prompt,
-        user_request,
-        allowed_agent_ids,
+        phase="planner",
+        status="succeeded",
+        used_llm=True,
+        model_backend=model_backend_for_phase(config, "planner"),
+        decision_summary=f"Planner produced {task_count} task(s).",
     )
     return PlannerOutput(payload=payload, allowed_agent_ids=set(allowed_agent_ids))
+
+
+def _payload_task_count(payload: Any) -> int:
+    raw_tasks = payload.get("tasks") if isinstance(payload, Mapping) else payload
+    return len(raw_tasks) if isinstance(raw_tasks, list) else 0
 
 
 async def _collect_planner_payload(
@@ -528,6 +575,9 @@ def _available_agent_ids(config: Mapping[str, Any]) -> list[str]:
     scoped_ids = scoped_runnable_agent_ids(config)
     if scoped_ids is not None:
         return scoped_ids
+    planning_agent_ids = _agent_id_list(config.get("planning_agent_ids"))
+    if planning_agent_ids:
+        return planning_agent_ids
     return _agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))
 
 
@@ -555,11 +605,40 @@ def _available_agents_description(
     config: Mapping[str, Any],
     allowed_agent_ids: list[str],
 ) -> str:
+    lines: list[str] = []
+    described_ids: set[str] = set()
     available_agents = config.get("available_agents")
     if isinstance(available_agents, list):
         lines = _available_agent_lines(available_agents)
-        if lines:
-            return "\n".join(lines)
+        described_ids = set(_agent_ids_from_available_agents(available_agents))
+    scoped_ids = scoped_runnable_agent_ids(config)
+    planning_ids = (
+        set(scoped_ids)
+        if scoped_ids is not None
+        else set(_agent_id_list(config.get("planning_agent_ids")))
+    )
+    conversation_agents = config.get("conversation_agents")
+    if planning_ids and isinstance(conversation_agents, list):
+        for item in conversation_agents:
+            if not isinstance(item, Mapping):
+                continue
+            raw_agent_id = item.get("agent_id", item.get("id"))
+            if not isinstance(raw_agent_id, str):
+                continue
+            agent_id = raw_agent_id.strip()
+            if (
+                not agent_id
+                or agent_id == "orchestrator"
+                or agent_id not in planning_ids
+                or agent_id in described_ids
+            ):
+                continue
+            line = _available_agent_line(agent_id, item)
+            if line:
+                lines.append(f"{line} | currently_runnable=false")
+                described_ids.add(agent_id)
+    if lines:
+        return "\n".join(lines)
     return "\n".join(f"- {agent_id}" for agent_id in allowed_agent_ids)
 
 
@@ -598,6 +677,9 @@ def _available_agent_line(agent_id: str, item: Mapping[str, Any]) -> str | None:
     _append_list_part(parts, item, "preferred_task_types", "preferred_task_types")
     _append_list_part(parts, item, "allowed_tools", "tools")
     _append_text_part(parts, item, "system_prompt_summary")
+    runtime_status = item.get("runtime_status")
+    if isinstance(runtime_status, str) and runtime_status.strip() and runtime_status != "ready":
+        parts.append(f"runtime_status={runtime_status.strip()}")
     return " | ".join(parts)
 
 

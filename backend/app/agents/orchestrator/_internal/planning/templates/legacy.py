@@ -20,6 +20,7 @@ from app.agents.orchestrator._internal.planning.templates.delivery import (
     derive_fullstack_delivery_tasks,
 )
 from app.agents.orchestrator._internal.planning.turn_taking import (
+    pure_dialogue_requested,
     turn_taking_requested,
 )
 from app.agents.orchestrator.types import SubTask
@@ -159,7 +160,8 @@ def _template_agent_ids(config: Mapping[str, Any], user_request: str) -> list[st
 def _dialogue_template_requested(user_request: str) -> bool:
     normalized = user_request.lower()
     return bool(
-        turn_taking_requested(user_request)
+        pure_dialogue_requested(user_request)
+        or turn_taking_requested(user_request)
         or (
             _has_any(normalized, DIALOGUE_REQUEST_MARKERS)
             and _has_any(normalized, NO_ARTIFACT_DIALOGUE_MARKERS)
@@ -264,10 +266,7 @@ def _has_any(normalized: str, markers: tuple[str, ...]) -> bool:
 
 def _dialogue_tasks(agent_ids: list[str], user_request: str) -> list[SubTask]:
     normalized = user_request.lower()
-    if not (
-        _has_any(normalized, DIALOGUE_REQUEST_MARKERS)
-        and _has_any(normalized, NO_ARTIFACT_DIALOGUE_MARKERS)
-    ):
+    if not _dialogue_template_requested(user_request):
         return []
     ordered = _dialogue_agent_order(agent_ids, user_request)
     if not ordered:

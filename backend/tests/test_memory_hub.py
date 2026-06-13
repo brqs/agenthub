@@ -614,6 +614,34 @@ async def test_previous_output_followup_binds_current_conversation_run(tmp_path)
     assert "修改上一轮任务“编写中科大招聘文案”" in outcome.messages[-1].content
 
 
+async def test_previous_output_followup_ignores_fresh_dialogue_request(
+    tmp_path,
+) -> None:
+    _, conversation = await _create_conversation()
+    async with SessionFactory() as db:
+        outcome = await resolve_previous_output_followup(
+            {
+                "orchestrator_db_session": db,
+                "conversation_id": conversation.id,
+                "available_agents": [],
+            },
+            [
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "@orchestrator 请你开始一场有关 AI 发展的弊处和利处的辩论。"
+                        "请由 Orchestrator 组织开场、分配正反方角色、决定是否需要追问或继续，"
+                        "最后由 Orchestrator 进行最终裁判和审阅。"
+                    ),
+                )
+            ],
+            0,
+            tmp_path,
+        )
+
+    assert outcome is None
+
+
 async def test_previous_output_followup_resumes_after_candidate_selection(
     tmp_path,
 ) -> None:

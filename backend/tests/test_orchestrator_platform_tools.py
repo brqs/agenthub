@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import zipfile
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -87,6 +88,65 @@ def _wrapper_config(
             "boundaries": ["Do not deploy without confirmation"],
         },
     }
+
+
+class RecordingBrowserVerifier:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    async def verify(self, **kwargs: Any) -> dict[str, Any]:
+        self.urls.append(str(kwargs["url"]))
+        return {
+            "passed": True,
+            "checks": {"desktop_http_ok": True},
+            "issues": [],
+            "screenshots": {},
+            "console_errors": [],
+            "page_errors": [],
+            "failed_requests": [],
+            "duration_ms": 1,
+            "report_path": None,
+        }
+
+
+async def test_verify_preview_tool_uses_loopback_url_for_browser_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.core.config import settings
+
+    conversation = await _conversation()
+    preview_port = _free_port()
+    monkeypatch.setattr(settings, "workspace_base_dir", str(tmp_path / "workspaces"))
+    monkeypatch.setattr(settings, "preview_port_start", preview_port)
+    monkeypatch.setattr(settings, "preview_port_end", preview_port)
+    monkeypatch.setattr(settings, "preview_public_base_url", "http://203.0.113.10")
+    verifier = RecordingBrowserVerifier()
+    async with SessionFactory() as db:
+        workspace = await WorkspaceService().get_or_create(db, conversation.id)
+        WorkspaceService().write_file(
+            workspace,
+            "index.html",
+            b"<!doctype html><html><body>Preview verify</body></html>",
+        )
+        executor = OrchestratorPlatformToolExecutor(
+            db=db,
+            conversation_id=conversation.id,
+            browser_verifier=verifier,  # type: ignore[arg-type]
+        )
+
+        start_result = await executor(
+            "start_workspace_preview",
+            {"entry_path": "index.html", "requested_port": preview_port},
+        )
+        verify_result = await executor("verify_web_preview", {})
+
+        assert start_result.status == "ok", start_result.output
+        assert verify_result.status == "ok", verify_result.output
+        assert verifier.urls == [f"http://127.0.0.1:{preview_port}/index.html"]
+        payload = json.loads(verify_result.output)
+        assert payload["public_url"] == f"http://203.0.113.10:{preview_port}/index.html"
+        assert payload["verified_url"] == verifier.urls[0]
 
 
 async def test_create_custom_agent_tool_creates_agent_and_adds_to_group() -> None:

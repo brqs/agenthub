@@ -343,10 +343,11 @@ async def verify_workspace_preview(
             "workspace_preview_not_running",
             "workspace preview session is not running",
         )
+    verify_url = preview_service.local_url(session.port, session.entry_path)
     try:
         result = await browser_verifier.verify(
             conversation_id=conversation_id,
-            url=session.url,
+            url=verify_url,
             required_text=payload.required_text,
             viewports=[str(item) for item in payload.viewports],
             click_buttons=payload.click_buttons,
@@ -354,6 +355,12 @@ async def verify_workspace_preview(
         )
     except (BrowserPreviewVerifyDisabledError, BrowserPreviewVerifyError) as exc:
         raise _map_browser_verify_error(exc) from exc
+    if verify_url != session.url:
+        result = {
+            **result,
+            "public_url": session.url,
+            "verified_url": verify_url,
+        }
     return WorkspacePreviewVerifyResponse.model_validate(result)
 
 

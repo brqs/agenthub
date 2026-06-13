@@ -171,6 +171,7 @@ class OrchestratorRunContext:
     runtime_agent_failure_reasons: dict[str, str] = field(default_factory=dict)
     runtime_agent_skip_reasons: dict[str, dict[str, str]] = field(default_factory=dict)
     debate_judgement: dict[str, Any] | None = None
+    llm_control_points: list[dict[str, Any]] = field(default_factory=list)
 
     def record(self, result: TaskResult) -> None:
         if result.task_id not in self.results:

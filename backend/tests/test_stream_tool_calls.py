@@ -775,6 +775,7 @@ async def test_orchestrator_context_skips_unauthenticated_claude_code(
     assert status_code == 200
     assert captured["config"]["available_agents"] == []
     assert captured["config"]["managed_agent_ids"] == []
+    assert captured["config"]["planning_agent_ids"] == ["claude-code"]
     assert captured["config"]["available_agents_authoritative"] is True
     assert captured["config"]["conversation_scoped_agents"] is True
     claude_context = captured["config"]["conversation_agents"][1]

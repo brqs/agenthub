@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -364,11 +365,57 @@ def _accumulate_failure_reason(
     profile: _AgentCapabilityAccumulator,
     reason: str | None,
 ) -> None:
+    reason = safe_failure_reason_summary(reason)
     if not reason or reason in profile.recent_failure_reasons:
         return
     if len(profile.recent_failure_reasons) >= MAX_AGENT_FAILURE_REASONS:
         return
     profile.recent_failure_reasons.append(reason)
+
+
+_RUNTIME_TRACE_MARKERS = (
+    "OpenAI Codex",
+    "Codex CLI exited",
+    "workdir:",
+    "approval:",
+    "sandbox:",
+    "System: AgentHub workspace rules",
+    "Reading additional input from stdin",
+    "/workspaces/",
+)
+
+_SENSITIVE_MARKERS = (
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "api_key",
+    "bearer ",
+    "authorization:",
+)
+
+
+def safe_failure_reason_summary(reason: str | None) -> str | None:
+    """Return a bounded failure signal safe for model context."""
+    if not reason:
+        return None
+    clean = _single_line(reason, 240)
+    lowered = clean.lower()
+    if "insufficient balance" in lowered or "error code: 402" in lowered:
+        return "upstream_error: insufficient_balance"
+    if "runtime_idle_timeout" in lowered or "idle_timeout_seconds" in lowered:
+        return "runtime_timeout: idle_timeout"
+    if "runtime_hard_timeout" in lowered or "max_runtime_seconds" in lowered:
+        return "runtime_timeout: hard_timeout"
+    if "deterministic evaluation failed" in lowered:
+        return "repair_attempt_after_evaluation_failed"
+    if any(marker.lower() in lowered for marker in _RUNTIME_TRACE_MARKERS):
+        code_match = re.search(r"\bcode\s+(-?\d+)\b", clean, flags=re.IGNORECASE)
+        if code_match:
+            return f"external_runtime_error: exit_code_{code_match.group(1)}"
+        return "external_runtime_error"
+    if any(marker in lowered for marker in _SENSITIVE_MARKERS):
+        return "external_runtime_error"
+    return _single_line(clean, 160)
 
 
 def _finalize_profile(

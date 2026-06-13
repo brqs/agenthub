@@ -104,6 +104,32 @@ def test_dialogue_turn_contract_requires_own_turn_and_response() -> None:
     assert "针对上一轮" in passed.summary_text
 
 
+def test_dialogue_opening_turn_does_not_require_previous_response_guard() -> None:
+    task = SubTask(
+        task_id="turn-1",
+        agent_id="claude-code",
+        title="辩论开场：正方立场 - AI快速发展利大于弊",
+        instruction=(
+            "请发表你的开场陈述，阐述你的核心论点。"
+            "No-artifact dialogue guard: speak only for yourself in the assigned role, "
+            "respond to prior turns when relevant, and do not script another Agent's full reply."
+        ),
+        task_type="dialogue_turn",
+    )
+
+    validation = validate_task_output(
+        task,
+        _attempt(
+            "正方观点：我认为 AI 快速发展利大于弊，因为它正在提升医疗诊断、"
+            "药物研发和灾害预警效率。以 AlphaFold 为例，蛋白质结构预测"
+            "明显加速了生命科学研究，这类公共价值可以通过治理继续放大。"
+        ),
+    )
+
+    assert validation.passed
+    assert "正方观点" in validation.summary_text
+
+
 def test_dialogue_turn_accepts_clear_negative_stance_without_fixed_phrase() -> None:
     task = SubTask(
         task_id="turn-2",

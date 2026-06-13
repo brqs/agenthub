@@ -1,3 +1,75 @@
+## 2026-06-13 — Codex 同步 LLM-first 与 Timeline 文档
+
+### 任务
+根据当前 Orchestrator LLM-first、`llm_control_points`、多场景 E2E harness 和 Review / Handoff Timeline 排序修复，补齐相关文档，避免把历史 E2E 证据误写成新的 LLM-first 通过证据。
+
+### AI 输出摘要
+1. 更新 `live-e2e-report.spec.md`：将状态调整为“历史 passed evidence / LLM-first refresh pending”，明确 2026-06-11 的 8 个鲁棒性 report 是历史功能证据，不满足新的 `llm_control_points` 硬验收。
+2. 在 live E2E 文档新增 `dialogue_ai_benefits_risks_llm_moderated` pending 场景、fresh report 路径、重跑命令模板和 smoke 优先级。
+3. 更新 `llm-orchestrated-flow.spec.md`：补当前已接入的 `planner`、`react_replanner`、`dialogue_controller`、`tool_loop`、`response_polish` 控制点状态，并说明 `clarification` 暂不强制改造成 LLM。
+4. 更新 `tool-calling.spec.md`：补 tool loop 作为 LLM control point 的事件格式、安全摘要和 E2E 聚合要求。
+5. 更新 `agent-review-thread.spec.md` 与前端 handoff：明确 Review / Handoff Timeline 必须按 `depends_on` / `review_of` 拓扑顺序展示，不能因 priority 或数组顺序倒序。
+6. 更新 `api-spec.md`：补 `orchestrator_response_polish_enabled`、`orchestrator_response_polish_model_backend`、`orchestrator_response_polish_max_tokens`。
+7. 更新 E2E repair loop skill：后续真实跑测必须以 `llm_control_points` 为准。
+
+### 验证结果
+```text
+文档更新，无真实 HTTP/SSE E2E 执行。
+待后续测试执行者重跑 fresh LLM-first E2E report。
+```
+
+## 2026-06-11 — Codex 实现纯对话 / 辩论 Orchestrator LLM 控场
+
+### 任务
+把纯对话、辩论、圆桌和角色扮演类请求从模板/规则主导升级为 Orchestrator LLM 主控：LLM 负责开场组织、角色分配、续轮判断和最终裁判；子 Agent 只负责按分配角色发言，不生成 workspace 产物。
+
+### 关键 Prompt
+> PLEASE IMPLEMENT THIS PLAN: 纯对话 / 辩论场景 Orchestrator 全 LLM 控场计划
+
+### AI 输出摘要
+1. 新增纯对话识别 `pure_dialogue_requested()`：支持“请你开始一场有关 AI 发展的弊处和利处”等无产物自然语言请求，同时避免带“文档 / 代码 / 网站 / 部署”等产物意图的任务被误判为纯对话。
+2. 规划层在 `orchestrator_dialogue_llm_control_enabled=true` 时优先调用 LLM planner 生成 `dialogue_turn`，并对 planner 输出做当前群聊 Agent 白名单和 no-artifact guard 规范化。
+3. 新增 execution dialogue LLM controller：
+   - `dialogue_decision`：每轮子 Agent 发言完成后决定继续、换人或总结。
+   - `dialogue_judgement`：对辩论输出胜负/平局与理由，对圆桌输出共识、分歧和建议。
+4. 旧 deterministic 动态轮次和 `debate_judgement` 保留为 LLM 不可用或输出无效时的 fallback。
+5. 新增 live E2E scenario `dialogue_ai_benefits_risks_llm_moderated`，要求无 artifact、无 workspace 文件、报告包含 planner evidence、dialogue decisions 和 final judgement。
+6. 同步更新 config/schema/OpenAPI/frontend generated types、Orchestrator specs、README、路由说明、B2 gap/todo 和 E2E repair loop skill。
+
+### 验证结果
+```text
+py_compile: passed
+ruff: passed
+git diff --check: passed
+
+pytest:
+  DATABASE_URL=postgresql+asyncpg://agenthub:agenthub_dev_pw@localhost:5432/agenthub_test \
+    backend/.venv/bin/python -m pytest \
+      backend/tests/test_orchestrator_planning.py \
+      backend/tests/test_agent_config_validation.py \
+      backend/tests/test_orchestrator_live_e2e_script.py -q
+  result: 202 passed
+
+  DATABASE_URL=postgresql+asyncpg://agenthub:agenthub_dev_pw@localhost:5432/agenthub_test \
+    backend/.venv/bin/python -m pytest \
+      backend/tests/test_orchestrator.py::test_orchestrator_dynamic_debate_continues_after_handoff \
+      backend/tests/test_orchestrator.py::test_orchestrator_dynamic_debate_respects_explicit_one_exchange \
+      backend/tests/test_orchestrator.py::test_orchestrator_dialogue_llm_controls_next_turn_and_final_judgement \
+      backend/tests/test_orchestrator.py::test_orchestrator_non_debate_dialogue_stops_after_each_participant_once \
+      backend/tests/test_orchestrator.py::test_dialogue_turn_does_not_fallback_to_opposing_participant -q
+  result: 5 passed
+
+  DATABASE_URL=postgresql+asyncpg://agenthub:agenthub_dev_pw@localhost:5432/agenthub_test \
+    backend/.venv/bin/python -m pytest \
+      backend/tests/test_stream_content_blocks.py::test_orchestrator_group_dialogue_tasks_finish_without_artifacts \
+      backend/tests/test_stream_content_blocks.py::test_turn_taking_direct_agent_target_routes_to_orchestrator \
+      backend/tests/test_stream_content_blocks.py::test_orchestrator_dialogue_turns_auto_schedule_next_agent -q
+  result: 3 passed
+```
+
+### 备注
+本轮没有把 `dialogue_ai_benefits_risks_llm_moderated` 写入公网 live E2E passed evidence；该场景已注册，需后续真实部署重启后使用真实账号跑出 `/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json` 再补充 live report。
+
 ## 2026-06-10 — Codex 实现一键从零容器部署 + 公网 E2E Repair Loop
 
 ### 任务

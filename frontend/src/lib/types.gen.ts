@@ -1648,6 +1648,11 @@ export interface components {
              */
             planner_model_backend?: ("claude" | "deepseek" | "openai") | null;
             /**
+             * Dialogue Model Backend
+             * @description ModelGateway backend for Orchestrator dialogue moderation.
+             */
+            dialogue_model_backend?: ("claude" | "deepseek" | "openai") | null;
+            /**
              * Context Max Tokens
              * @description Maximum conversation context tokens passed to this agent.
              */
@@ -1667,8 +1672,15 @@ export interface components {
              * @description Maximum input context tokens used by the Orchestrator Planner.
              */
             planner_context_max_tokens?: number | null;
+            /**
+             * Orchestrator Control Mode
+             * @description Orchestrator control mode. llm_first routes complex tasks through LLM control points before legacy templates; auto keeps compatibility.
+             */
+            orchestrator_control_mode?: 'auto' | 'llm_first' | null;
             /** Llm Planning */
             llm_planning?: boolean | null;
+            /** Orchestrator Dialogue Llm Control Enabled */
+            orchestrator_dialogue_llm_control_enabled?: boolean | null;
             /** Planner Fallback To Template */
             planner_fallback_to_template?: boolean | null;
             /** Available Agents Authoritative */

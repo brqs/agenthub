@@ -88,7 +88,20 @@ custom_agent_reader_review_repair
 static_package_deploy_repair_matrix
 group_member_fallback_repair_visibility
 im_dialogue_no_artifact_turn_taking_v2
+dialogue_ai_benefits_risks_llm_moderated
 ```
+
+2026-06-13 LLM-first 验收口径：
+
+- 不再只看旧字段 `planner_used_llm`；它只能作为兼容诊断项。
+- report 必须从 run detail events 聚合 `llm_control_points`。
+- 复杂 artifact/task 场景必须出现 `phase="planner"` 且 `used_llm=true`。
+- repair/fallback/browser 场景必须出现 `phase="react_replanner"` 或等价 LLM repair decision。
+- 纯对话场景必须出现 `phase="dialogue_controller"` 或 LLM 生成的 `dialogue_turn` 证据。
+- 进入 tool loop 的场景应出现 `phase="tool_loop"`；启用最终模型润色时应出现
+  `phase="response_polish"`。
+- 2026-06-11 的 8 个鲁棒性 report 是历史功能证据，不能直接作为 LLM-first passed evidence；
+  需要重跑 fresh `/tmp/agenthub_*_report.json` 与 SSE jsonl。
 
 后端部署提醒：
 
@@ -431,6 +444,10 @@ uv run python scripts/orchestrator_live_e2e.py
 3. runner 负责发请求并把补充证据写入 report；evaluator 不发 live API 请求。
 4. 在 `tests/test_orchestrator_live_e2e_script.py` 补 registry/default/prompt/evaluator 测试。
 5. 不向兼容入口 `orchestrator_live_e2e.py` 堆 scenario 实现。
+6. 如果场景用于验证群聊边界，必须显式设置 `agent_ids`，让缺失的内置 Agent
+   真的不在 conversation 中；report 至少记录 `conversation_agent_ids`、
+   `available_agent_ids`、`planning_agent_ids`、`observed_agent_ids`、
+   `illegal_agent_ids` 和 raw unknown-agent 错误是否泄露。
 
 ---
 

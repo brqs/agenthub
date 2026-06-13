@@ -3,7 +3,7 @@
 > 目的：作为 Orchestrator 相关 spec 的包级入口，区分当前契约和当前验证报告。
 >
 > 状态：Current package index
-> 最后更新：2026-06-10
+> 最后更新：2026-06-12
 
 ---
 
@@ -13,6 +13,7 @@
 |---|---|---|
 | [core.spec.md](core.spec.md) | Current contract | Orchestrator 主行为契约：调度、DAG 并行、summary、失败处理、preview 边界 |
 | [task-planning.spec.md](task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、legacy fallback、DAG 依赖语义 |
+| [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md) | Current contract | LLM-first 控制面、控制点观测、legacy template fallback 与 E2E 报告口径 |
 | [command-fulfillment.spec.md](command-fulfillment.spec.md) | Backend MVP implemented | 显式命令逐项履约、平台 preview/verify/deploy 闭环和 final summary 不误报 |
 | [context-routing.spec.md](context-routing.spec.md) | Backend hardening implemented + Live E2E Passed | 多轮追问、workspace/run evidence answer 和继续/修复命令 evidence pack 注入 |
 | [clarification-gate.spec.md](clarification-gate.spec.md) | Implemented MVP | Orchestrator 进入任务规划和子 Agent 调度前的结构化需求澄清闸门 |
@@ -36,11 +37,12 @@
 修改 Orchestrator 主执行流：
 
 1. [core.spec.md](core.spec.md)
-2. [task-planning.spec.md](task-planning.spec.md)
-3. [command-fulfillment.spec.md](command-fulfillment.spec.md)
-4. [clarification-gate.spec.md](clarification-gate.spec.md)
-5. [workspace-conflict.spec.md](workspace-conflict.spec.md)
-6. [live-e2e-report.spec.md](live-e2e-report.spec.md)
+2. [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md)
+3. [task-planning.spec.md](task-planning.spec.md)
+4. [command-fulfillment.spec.md](command-fulfillment.spec.md)
+5. [clarification-gate.spec.md](clarification-gate.spec.md)
+6. [workspace-conflict.spec.md](workspace-conflict.spec.md)
+7. [live-e2e-report.spec.md](live-e2e-report.spec.md)
 
 修改 Orchestrator 需求澄清 / 代码前追问：
 
@@ -121,7 +123,11 @@
 - Orchestrator pure dialogue handling 已实现：群聊辩论、角色扮演、圆桌讨论等明确“不需要生成文件 / 直接对话输出”的请求会生成 `conversation` tasks，不触发 artifact missing 检查，也不会从负向约束句中提取 `server.js/package.json` 等 required artifacts。
 - Orchestrator 子 Agent 实质输出合同已实现：child message `done` 必须代表该 Agent 对应任务类型的实质贡献通过 deterministic contract；纯过程块、主持式发言、转述任务或空泛完成语会先触发同 Agent `output-correction`，仍不合格再 fallback 到其他可用 Agent。该机制覆盖对话、角色扮演、头脑风暴、策略/数据分析、代码/文档产物、review 和平台动作。
 - Orchestrator Agent-to-Agent turn-taking 已完成后端实现与公网 E2E：对“轮流 / 一人一句 / 接力 / 展开辩论 / panel review”等请求，后端由 Orchestrator 托管轮次计划，每一轮创建独立 child message；子 Agent 输出中的 `@agent-id` 只是 handoff hint，不能作为直接调度 API。
-- 2026-06-10 动态辩论轮次已接入执行层：初始 plan 可只包含双方最小轮次，每轮完成后 Orchestrator 根据 handoff hint、攻防是否完整、短答约束和 max turns 决定是否追加下一轮；辩论 final answer 会包含 deterministic `debate_judgement`，非辩论 panel 不输出胜负判断。
+- 2026-06-11 纯对话 / 辩论默认进入 Orchestrator LLM 控场：初始 plan 优先由 LLM 生成
+  `dialogue_turn` 角色、立场和顺序；每轮完成后 Orchestrator 调 LLM 生成
+  `dialogue_decision` 决定继续、换人或总结；结束时调 LLM 生成 `dialogue_judgement`。
+  2026-06-10 的确定性动态轮次和 `debate_judgement` 保留为 LLM 不可用或输出无效时的安全 fallback。
+  全程必须通过当前群聊 Agent 白名单与 no-artifact guard，不创建 workspace 文件、preview、deploy 或工具任务。
 - 2026-06-10 `manual_two_agent_turn_taking` 与 `agent_turn_taking_matrix` 公网 E2E 已通过：report `/tmp/agenthub_manual_two_agent_turn_taking_report.json`、`/tmp/agenthub_agent_turn_taking_matrix_report.json`，SSE `/tmp/agenthub_manual_two_agent_turn_taking_sse.jsonl`、`/tmp/agenthub_agent_turn_taking_matrix_sse.jsonl`，`passed=true`；覆盖 Claude -> OpenCode 接力、debate、roundtable、roleplay、brainstorm、data panel、review panel 和 code artifact summary。
 - OpenCode / Codex adapter 不再硬编码默认模型：缺省 `config.model` 时不传 `--model` / `-m` / SDK `model`，由各自 CLI/SDK runtime 使用本地默认；显式配置模型时才传递。OpenCode 1.16.x stdout JSON 无 assistant text 但有 `sessionID` 时，adapter 会按 session 从本地 SQLite store 只补读 assistant text part，不读取 reasoning、user prompt 或 auth/account 文件。
 - 2026-06-07 command fulfillment 公网 repair loop 已通过：`/tmp/agenthub_command_fulfillment_report.json`、`/tmp/agenthub_command_fulfillment_sse.jsonl`、`/tmp/agenthub_command_fulfillment_browser.json`，conversation `25ff9e75-7776-46b2-8549-babb78555177`，`passed=true`；覆盖 Codex/OpenCode runtime failure 后 fallback/repair、Orchestrator coordination review fallback 生成 `review.md`、8082 preview、browser verify 和 static release deployment。

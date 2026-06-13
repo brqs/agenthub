@@ -55,6 +55,36 @@ DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_SSE_PATH = (  # noqa: S108
 DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_sse.jsonl"  # noqa: S108
 )
+DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MISSING_OPENCODE_DIALOGUE_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MISSING_CODEX_REVIEW_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_missing_codex_review_repair_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MISSING_CLAUDE_PARALLEL_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_missing_claude_parallel_repair_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_SINGLE_SUBAGENT_DEGRADED_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_single_subagent_degraded_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_react_replanner_no_external_agent_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_FALLBACK_NO_EXTERNAL_AGENT_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_fallback_no_external_agent_sse.jsonl"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MEMORY_MENTIONS_EXTERNAL_AGENT_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_memory_mentions_external_agent_sse.jsonl"  # noqa: S108
+)
+DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_pure_dialogue_robustness_matrix_sse.jsonl"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_SSE_PATH = "/tmp/agenthub_deployment_flow_sse.jsonl"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_SSE_PATH = "/tmp/agenthub_deployment_repair_flow_sse.jsonl"  # noqa: S108
 DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_SSE_PATH = (  # noqa: S108
@@ -151,6 +181,36 @@ DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_REPORT_PATH = (  # noqa: S108
 DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json"  # noqa: S108
 )
+DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MISSING_OPENCODE_DIALOGUE_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MISSING_CODEX_REVIEW_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_missing_codex_review_repair_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MISSING_CLAUDE_PARALLEL_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_missing_claude_parallel_repair_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_SINGLE_SUBAGENT_DEGRADED_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_single_subagent_degraded_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_react_replanner_no_external_agent_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_FALLBACK_NO_EXTERNAL_AGENT_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_fallback_no_external_agent_report.json"  # noqa: S108
+)
+DEFAULT_GROUP_SCOPE_MEMORY_MENTIONS_EXTERNAL_AGENT_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_group_scope_memory_mentions_external_agent_report.json"  # noqa: S108
+)
+DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_pure_dialogue_robustness_matrix_report.json"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_REPORT_PATH = "/tmp/agenthub_deployment_flow_report.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_report.json"  # noqa: S108
 DEFAULT_ONE_CLICK_CONTAINER_DEPLOY_REPAIR_REPORT_PATH = (  # noqa: S108
@@ -235,6 +295,12 @@ DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_BROWSER_REPORT_PATH = (  # noqa:
 DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_BROWSER_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_browser.json"  # noqa: S108
 )
+DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_browser.json"  # noqa: S108
+)
+DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_BROWSER_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_pure_dialogue_robustness_matrix_browser.json"  # noqa: S108
+)
 DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_flow_browser.json"  # noqa: S108
 DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = "/tmp/agenthub_deployment_repair_flow_browser.json"  # noqa: S108
 DEFAULT_ARCHITECTED_FRONTEND_GROUP_CHAT_BROWSER_REPORT_PATH = (  # noqa: S108
@@ -317,6 +383,48 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
         DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH,
         DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH,
         DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_BROWSER_REPORT_PATH,
+    ),
+    "dialogue_ai_benefits_risks_llm_moderated": ScenarioDefaults(
+        DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH,
+        DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH,
+        DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_BROWSER_REPORT_PATH,
+    ),
+    "group_scope_missing_opencode_dialogue_repair": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_MISSING_OPENCODE_DIALOGUE_REPAIR_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_MISSING_OPENCODE_DIALOGUE_REPAIR_SSE_PATH,
+    ),
+    "group_scope_missing_codex_review_repair": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_MISSING_CODEX_REVIEW_REPAIR_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_MISSING_CODEX_REVIEW_REPAIR_SSE_PATH,
+    ),
+    "group_scope_missing_claude_parallel_repair": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_MISSING_CLAUDE_PARALLEL_REPAIR_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_MISSING_CLAUDE_PARALLEL_REPAIR_SSE_PATH,
+    ),
+    "group_scope_single_subagent_degraded": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_SINGLE_SUBAGENT_DEGRADED_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_SINGLE_SUBAGENT_DEGRADED_SSE_PATH,
+    ),
+    "group_scope_react_replanner_no_external_agent": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_SSE_PATH,
+    ),
+    "group_scope_tool_dispatch_no_external_agent": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_SSE_PATH,
+    ),
+    "group_scope_fallback_no_external_agent": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_FALLBACK_NO_EXTERNAL_AGENT_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_FALLBACK_NO_EXTERNAL_AGENT_SSE_PATH,
+    ),
+    "group_scope_memory_mentions_external_agent": ScenarioDefaults(
+        DEFAULT_GROUP_SCOPE_MEMORY_MENTIONS_EXTERNAL_AGENT_REPORT_PATH,
+        DEFAULT_GROUP_SCOPE_MEMORY_MENTIONS_EXTERNAL_AGENT_SSE_PATH,
+    ),
+    "pure_dialogue_robustness_matrix": ScenarioDefaults(
+        DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH,
+        DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_SSE_PATH,
+        DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_BROWSER_REPORT_PATH,
     ),
     "deployment": ScenarioDefaults(
         DEFAULT_DEPLOYMENT_REPORT_PATH,

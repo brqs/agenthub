@@ -72,7 +72,11 @@ def accumulate_tool_event(attempt: TaskAttempt, chunk: StreamChunk) -> None:
         summary = tool_result_summary(chunk)
         if summary:
             attempt.tool_summaries.append(summary)
-        if chunk.tool_output:
+        if (
+            chunk.tool_output
+            and chunk.tool_status == "ok"
+            and is_artifact_output_tool(chunk.tool_name)
+        ):
             attempt.artifact_paths.extend(
                 _extract_artifact_paths_from_text(chunk.tool_output)
             )

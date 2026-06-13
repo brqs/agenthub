@@ -28,6 +28,79 @@ TURN_TAKING_MARKERS = (
     "respond to each other",
 )
 
+NO_ARTIFACT_DIALOGUE_MARKERS = (
+    "不需要生成文件",
+    "不要生成文件",
+    "不生成文件",
+    "不要写文件",
+    "无需文件",
+    "直接对话",
+    "对话形式",
+    "群聊发言",
+    "no files",
+    "no artifact",
+    "no artifacts",
+)
+
+ARTIFACT_INTENT_MARKERS = (
+    "生成文件",
+    "创建文件",
+    "写文件",
+    "生成文档",
+    "写文档",
+    "文档",
+    "报告",
+    "代码",
+    "网站",
+    "网页",
+    "前端",
+    "后端",
+    "实现",
+    "开发",
+    "部署",
+    "预览",
+    "文件",
+    "产物",
+    "artifact",
+    "file",
+    "document",
+    "report",
+    "code",
+    "website",
+    "frontend",
+    "backend",
+    "deploy",
+    "preview",
+)
+
+STANDALONE_DIALOGUE_START_MARKERS = (
+    "开始一场",
+    "来一场",
+    "组织一场",
+    "开展一场",
+    "进行一场",
+    "发起一场",
+    "start a",
+    "host a",
+    "run a",
+)
+
+STANDALONE_DIALOGUE_TOPIC_MARKERS = (
+    "辩论",
+    "讨论",
+    "对话",
+    "圆桌",
+    "利弊",
+    "利处",
+    "弊处",
+    "优缺点",
+    "正方",
+    "反方",
+    "pros and cons",
+    "benefits and risks",
+    "advantages and disadvantages",
+)
+
 MULTI_AGENT_DIALOGUE_MARKERS = (
     "两个智能体",
     "两个 agent",
@@ -92,6 +165,30 @@ def turn_taking_requested(text: str) -> bool:
     )
 
 
+def pure_dialogue_requested(text: str) -> bool:
+    """Return True when the request is best handled as no-artifact group dialogue."""
+
+    normalized = text.lower()
+    if not normalized.strip():
+        return False
+    if any(marker in normalized for marker in NO_ARTIFACT_DIALOGUE_MARKERS):
+        return any(
+            marker in normalized
+            for marker in (*DIALOGUE_COLLABORATION_MARKERS, *STANDALONE_DIALOGUE_TOPIC_MARKERS)
+        )
+    if any(marker in normalized for marker in ARTIFACT_INTENT_MARKERS):
+        return False
+    if turn_taking_requested(text):
+        return True
+    has_dialogue_start = any(
+        marker in normalized for marker in STANDALONE_DIALOGUE_START_MARKERS
+    )
+    has_dialogue_topic = any(
+        marker in normalized for marker in STANDALONE_DIALOGUE_TOPIC_MARKERS
+    )
+    return has_dialogue_start and has_dialogue_topic
+
+
 def should_route_group_turn_taking_to_orchestrator(
     *,
     text: str,
@@ -109,4 +206,4 @@ def should_route_group_turn_taking_to_orchestrator(
         return False
     if target_agent_id == "orchestrator":
         return False
-    return turn_taking_requested(text)
+    return pure_dialogue_requested(text)

@@ -19,6 +19,7 @@ from app.agents.orchestrator._internal.execution.process_block import (
     task_result_step,
     task_running_step,
 )
+from app.agents.orchestrator._internal.llm_control import record_llm_control_point
 from app.agents.orchestrator._internal.presentation_markers import (
     final_answer_presentation,
 )
@@ -186,6 +187,14 @@ async def run_react_loop(
                 observation,
                 decision,
             )
+            await record_llm_control_point(
+                config,
+                run_context,
+                phase="react_replanner",
+                status="succeeded",
+                used_llm=True,
+                decision_summary=_public_react_action_summary(decision),
+            )
             decision_chunk = process_step_delta(
                 config,
                 process_block_index,
@@ -212,6 +221,15 @@ async def run_react_loop(
                 f"ReAct replanner unavailable: {exc}; continuing existing task graph"
                 if can_continue
                 else f"ReAct replanner stopped: {exc}"
+            )
+            await record_llm_control_point(
+                config,
+                run_context,
+                phase="react_replanner",
+                status="failed",
+                used_llm=True,
+                fallback_reason=str(exc),
+                decision_summary=finish_reason,
             )
             if react_trace_visible(config):
                 for chunk, updated_block_index in text_block_with_next(

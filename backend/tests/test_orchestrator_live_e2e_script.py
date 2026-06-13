@@ -16,13 +16,23 @@ from scripts.orchestrator_e2e.runner import (
     AGENT_FALLBACK_E2E_WRITE_RUNTIME,
     AGENT_FALLBACK_MATRIX_CASES,
     BUILTIN_SUB_AGENT_IDS,
+    PURE_DIALOGUE_ROBUSTNESS_MATRIX_CASES,
+    _ai_benefits_risks_dialogue_present,
     _child_output_contract,
+    _contains_winner_judgement,
+    _dialogue_final_judgement_visible,
+    _dialogue_llm_final_decision_seen,
+    _dialogue_semantic_checks,
     _looks_generic_completion,
+    _mentions_false_document_requirement,
+    _sanitize_report_for_json,
     _unresolved_missing_artifact_paths,
+    artifact_section_check_keys,
     command_fulfillment_statuses,
     evaluate_fallback_task_card_case,
     fallback_group_agent_ids,
     forbidden_visible_terms,
+    fullstack_parallel_report,
     message_error_text,
 )
 from scripts.orchestrator_e2e.scenarios import SCENARIOS
@@ -44,6 +54,8 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_CYBERPUNK_QUALITY_SSE_PATH,
     DEFAULT_CYBERPUNK_QUALITY_V2_REPORT_PATH,
     DEFAULT_CYBERPUNK_QUALITY_V2_SSE_PATH,
+    DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH,
+    DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH,
     DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH,
     DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_SSE_PATH,
     DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH,
@@ -66,12 +78,15 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
     DEFAULT_PRESENTATION_MARKERS_REPORT_PATH,
     DEFAULT_PRESENTATION_MARKERS_SSE_PATH,
+    DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH,
+    DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_SSE_PATH,
     DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_REPORT_PATH,
     DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_SSE_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_SSE_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH,
+    DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT,
     GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT,
     GROUP_DIALOGUE_DEBATE_PROMPT,
     GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT,
@@ -87,6 +102,7 @@ from scripts.orchestrator_live_e2e import (
     P1_RICH_ARTIFACTS_PROMPT,
     P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT,
     PRESENTATION_COLLAPSE_PROMPT,
+    PURE_DIALOGUE_ROBUSTNESS_MATRIX_PROMPT,
     SERVER_COMMAND_RE,
     STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT,
     TASK_MANAGER_PARALLEL_PROMPT,
@@ -129,6 +145,35 @@ def test_child_output_contract_accepts_concise_artifact_summary() -> None:
     assert contract["substantive_output_passed"] is True
     assert contract["terminal_output_accepted"] is True
     assert contract["failure_reason"] == ""
+
+
+def test_ai_benefits_risks_dialogue_accepts_natural_wording() -> None:
+    text = (
+        "正方认为 AI 能提升生产力、医疗和教育公平。"
+        "反方强调风险、失业、隐私和安全问题，需要更审慎推进。"
+    )
+
+    assert _ai_benefits_risks_dialogue_present(text) is True
+    assert _ai_benefits_risks_dialogue_present("AI 发展值得讨论。") is False
+
+
+def test_dialogue_final_judgement_accepts_natural_orchestrator_review() -> None:
+    parent_text = (
+        "Review：\n"
+        "- 辩论评判：势均力敌（正方 7 / 反方 7）。双方都给出了回应和理由。"
+    )
+    control_points = [
+        {
+            "phase": "dialogue_controller",
+            "used_llm": True,
+            "status": "succeeded",
+            "decision_summary": "Dialogue controller chose to stop.",
+        }
+    ]
+
+    assert _dialogue_final_judgement_visible(parent_text) is True
+    assert _dialogue_llm_final_decision_seen(control_points) is True
+    assert _dialogue_final_judgement_visible("完成内容：正反方都已发言。") is False
 
 
 def test_unresolved_missing_artifact_paths_ignores_recovered_fallback_files() -> None:
@@ -278,6 +323,46 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "im_dialogue_no_artifact_turn_taking_v2": (
             "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json",
             "/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_sse.jsonl",
+        ),
+        "dialogue_ai_benefits_risks_llm_moderated": (
+            "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json",
+            "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_sse.jsonl",
+        ),
+        "group_scope_missing_opencode_dialogue_repair": (
+            "/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_report.json",
+            "/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_sse.jsonl",
+        ),
+        "group_scope_missing_codex_review_repair": (
+            "/tmp/agenthub_group_scope_missing_codex_review_repair_report.json",
+            "/tmp/agenthub_group_scope_missing_codex_review_repair_sse.jsonl",
+        ),
+        "group_scope_missing_claude_parallel_repair": (
+            "/tmp/agenthub_group_scope_missing_claude_parallel_repair_report.json",
+            "/tmp/agenthub_group_scope_missing_claude_parallel_repair_sse.jsonl",
+        ),
+        "group_scope_single_subagent_degraded": (
+            "/tmp/agenthub_group_scope_single_subagent_degraded_report.json",
+            "/tmp/agenthub_group_scope_single_subagent_degraded_sse.jsonl",
+        ),
+        "group_scope_react_replanner_no_external_agent": (
+            "/tmp/agenthub_group_scope_react_replanner_no_external_agent_report.json",
+            "/tmp/agenthub_group_scope_react_replanner_no_external_agent_sse.jsonl",
+        ),
+        "group_scope_tool_dispatch_no_external_agent": (
+            "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json",
+            "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_sse.jsonl",
+        ),
+        "group_scope_fallback_no_external_agent": (
+            "/tmp/agenthub_group_scope_fallback_no_external_agent_report.json",
+            "/tmp/agenthub_group_scope_fallback_no_external_agent_sse.jsonl",
+        ),
+        "group_scope_memory_mentions_external_agent": (
+            "/tmp/agenthub_group_scope_memory_mentions_external_agent_report.json",
+            "/tmp/agenthub_group_scope_memory_mentions_external_agent_sse.jsonl",
+        ),
+        "pure_dialogue_robustness_matrix": (
+            "/tmp/agenthub_pure_dialogue_robustness_matrix_report.json",
+            "/tmp/agenthub_pure_dialogue_robustness_matrix_sse.jsonl",
         ),
         "deployment": (
             "/tmp/agenthub_deployment_flow_report.json",
@@ -445,7 +530,7 @@ def test_robustness_repair_loop_scenarios_are_registered() -> None:
             DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH,
             DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH,
             TASK_MANAGER_PARALLEL_V2_PROMPT,
-            "repair loop",
+            "必要修复",
         ),
         "cyberpunk_site_quality_repair_8082_v2": (
             DEFAULT_CYBERPUNK_QUALITY_V2_REPORT_PATH,
@@ -457,13 +542,13 @@ def test_robustness_repair_loop_scenarios_are_registered() -> None:
             DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_REPORT_PATH,
             DEFAULT_IM_CONTEXT_PIN_FOLLOWUP_REPAIR_SSE_PATH,
             IM_CONTEXT_PIN_FOLLOWUP_REPAIR_PROMPT,
-            "Planner 大上下文",
+            "conversation 上下文",
         ),
         "group_chat_attribution_process_matrix": (
             DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH,
             DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_SSE_PATH,
             GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT,
-            "不得调用群聊外 Agent",
+            "只使用当前群聊成员",
         ),
         "custom_agent_reader_review_repair": (
             DEFAULT_CUSTOM_AGENT_READER_REVIEW_REPAIR_REPORT_PATH,
@@ -481,13 +566,25 @@ def test_robustness_repair_loop_scenarios_are_registered() -> None:
             DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_REPORT_PATH,
             DEFAULT_GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_SSE_PATH,
             GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT,
-            "planned agent",
+            "原计划成员",
         ),
         "im_dialogue_no_artifact_turn_taking_v2": (
             DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH,
             DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH,
             turn_taking_prompt,
             "不需要生成文件",
+        ),
+        "dialogue_ai_benefits_risks_llm_moderated": (
+            DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH,
+            DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH,
+            DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT,
+            "最终裁判",
+        ),
+        "pure_dialogue_robustness_matrix": (
+            DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH,
+            DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_SSE_PATH,
+            PURE_DIALOGUE_ROBUSTNESS_MATRIX_PROMPT,
+            "需求澄清",
         ),
     }
 
@@ -499,6 +596,102 @@ def test_robustness_repair_loop_scenarios_are_registered() -> None:
         assert marker in prompt
         assert "writer" not in prompt
         assert "web-designer" not in prompt
+
+
+def test_pure_dialogue_robustness_matrix_covers_dialogue_shapes() -> None:
+    assert DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH == (
+        "/tmp/agenthub_pure_dialogue_robustness_matrix_report.json"
+    )
+    assert DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_SSE_PATH == (
+        "/tmp/agenthub_pure_dialogue_robustness_matrix_sse.jsonl"
+    )
+    assert "辩论、圆桌、角色扮演、头脑风暴、数据分析、方案评审和需求澄清" in (
+        PURE_DIALOGUE_ROBUSTNESS_MATRIX_PROMPT
+    )
+    spec = SCENARIOS["pure_dialogue_robustness_matrix"]
+    assert spec.prompt == PURE_DIALOGUE_ROBUSTNESS_MATRIX_PROMPT
+    assert str(spec.default_report_path) == (
+        DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH
+    )
+    assert str(spec.default_sse_path) == DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_SSE_PATH
+
+    dialogue_kinds = {
+        str(case["dialogue_kind"]) for case in PURE_DIALOGUE_ROBUSTNESS_MATRIX_CASES
+    }
+    assert dialogue_kinds == {
+        "debate",
+        "roundtable",
+        "roleplay",
+        "brainstorm",
+        "data_panel",
+        "review_panel",
+        "clarification_panel",
+    }
+    no_artifact_markers = ("生成文件", "生成任何文件", "创建文件", "写报告", "写成文档")
+    assert all(
+        any(marker in str(case["prompt"]) for marker in no_artifact_markers)
+        for case in PURE_DIALOGUE_ROBUSTNESS_MATRIX_CASES
+    )
+    assert all(
+        "sentinel" not in str(case["prompt"]).lower()
+        for case in PURE_DIALOGUE_ROBUSTNESS_MATRIX_CASES
+    )
+
+
+def test_group_scope_missing_agent_scenarios_have_scoped_members() -> None:
+    expected_missing_agents = {
+        "group_scope_missing_opencode_dialogue_repair": "opencode-helper",
+        "group_scope_missing_codex_review_repair": "codex-helper",
+        "group_scope_missing_claude_parallel_repair": "claude-code",
+    }
+
+    for scenario, missing_agent_id in expected_missing_agents.items():
+        spec = SCENARIOS[scenario]
+        assert "orchestrator" in spec.agent_ids
+        assert missing_agent_id not in spec.agent_ids
+        assert "当前群聊" in spec.prompt
+        assert (
+            "不要调用" in spec.prompt
+            or "不要选择" in spec.prompt
+            or "只能" in spec.prompt
+        )
+
+    assert SCENARIOS["group_scope_single_subagent_degraded"].agent_ids == (
+        "orchestrator",
+        "claude-code",
+    )
+
+
+def test_dialogue_semantic_helpers_allow_non_debate_summary() -> None:
+    roundtable = _dialogue_semantic_checks(
+        dialogue_kind="roundtable",
+        visible_text="双方围绕增长机会和治理成本展开讨论。",
+        parent_visible_text="共识是可以试点；分歧在默认开启；建议先灰度。",
+    )
+
+    assert all(roundtable.values())
+    assert _contains_winner_judgement("共识、分歧和建议") is False
+    assert _contains_winner_judgement("正方更有说服力") is True
+
+
+def test_false_document_requirement_ignores_negated_summary() -> None:
+    assert _mentions_false_document_requirement("本次未生成文档，只做群聊总结") is False
+    assert _mentions_false_document_requirement("下一步需要生成文档沉淀方案") is True
+
+
+def test_cyberpunk_artifact_sections_do_not_require_task_breakdown() -> None:
+    cyberpunk_keys = artifact_section_check_keys(cyberpunk_quality=True)
+    default_keys = artifact_section_check_keys()
+
+    assert "html_has_task_breakdown" in default_keys
+    assert "html_has_task_breakdown" not in cyberpunk_keys
+    assert {
+        "html_has_code_artifact",
+        "html_has_diff",
+        "html_has_preview",
+        "html_mentions_button_interaction",
+        "html_mentions_mobile_adaptation",
+    } <= set(cyberpunk_keys)
 
 
 def test_group_dialogue_debate_scenario_defaults_are_registered() -> None:
@@ -1297,6 +1490,56 @@ def test_shared_robustness_evaluators_accept_good_report() -> None:
     assert checks["visible_text_no_sensitive_trace"] is True
 
 
+def test_fullstack_parallel_report_ignores_instruction_marker_pollution() -> None:
+    shared_instruction = (
+        "Original request mentions index.html styles.css app.js backend_app.py "
+        "api.md backend_tests.md review.md."
+    )
+    detail = {
+        "tasks": [
+            {
+                "task_id": "t2-frontend",
+                "task_type": "implementation",
+                "title": "前端静态页面实现",
+                "instruction": shared_instruction,
+                "expected_output": "index.html, styles.css, app.js",
+                "depends_on": ["t1-planning"],
+            },
+            {
+                "task_id": "t3-backend",
+                "task_type": "implementation",
+                "title": "后端设计与代码实现",
+                "instruction": shared_instruction,
+                "expected_output": "backend_app.py, api.md, backend_tests.md",
+                "depends_on": ["t1-planning"],
+            },
+            {
+                "task_id": "t4-review",
+                "task_type": "review",
+                "title": "全产物审阅 review.md",
+                "instruction": shared_instruction,
+                "expected_output": "review.md",
+                "depends_on": ["t2-frontend", "t3-backend"],
+            },
+        ],
+        "events": [
+            {"event_type": "task_started", "task_id": "t1-planning"},
+            {"event_type": "task_started", "task_id": "t2-frontend"},
+            {"event_type": "task_started", "task_id": "t3-backend"},
+            {"event_type": "task_result", "task_id": "t2-frontend"},
+            {"event_type": "task_result", "task_id": "t3-backend"},
+            {"event_type": "task_started", "task_id": "t4-review"},
+        ],
+    }
+
+    report = fullstack_parallel_report(detail)
+
+    assert report["frontend_task"]["task_id"] == "t2-frontend"
+    assert report["backend_task"]["task_id"] == "t3-backend"
+    assert report["review_task"]["task_id"] == "t4-review"
+    assert report["passed"] is True
+
+
 def test_shared_robustness_evaluators_reject_bad_report() -> None:
     report = {
         "checks": {},
@@ -1334,3 +1577,63 @@ def test_shared_robustness_evaluators_reject_bad_report() -> None:
     assert checks["task_card_agent_matches_final_agent"] is False
     assert checks["workspace_required_artifacts_present"] is False
     assert checks["visible_text_no_sensitive_trace"] is False
+
+
+def test_e2e_report_sanitizer_redacts_structured_runtime_trace() -> None:
+    raw_error = (
+        "Codex CLI exited with code 1: stderr:\n"
+        "Reading additional input from stdin...\n"
+        "OpenAI Codex v0.137.0\n"
+        "workdir: /workspaces/example\n"
+        "approval: never\n"
+        "sandbox: danger-full-access\n"
+        "session id: abc\n"
+        "user\nSystem: AgentHub workspace rules\n"
+        "access_token=secret"
+    )
+    report = {
+        "repair_trace": {
+            "failed_attempts": [
+                {"task_id": "t1", "agent_id": "codex-helper", "error": raw_error}
+            ]
+        },
+        "orchestrator_run_detail": {
+            "attempts": [{"error": raw_error}],
+            "events": [{"payload": {"error": raw_error}}],
+        },
+        "safe": "browser verification failed",
+    }
+
+    sanitized = _sanitize_report_for_json(report)
+    text = str(sanitized)
+
+    assert sanitized["safe"] == "browser verification failed"
+    assert "[redacted runtime trace:" in text
+    assert "OpenAI Codex" not in text
+    assert "/workspaces/example" not in text
+    assert "approval: never" not in text
+    assert "System: AgentHub workspace rules" not in text
+    assert "access_token" not in text
+
+
+def test_e2e_report_sanitizer_redacts_account_and_hidden_reasoning() -> None:
+    report = {
+        "account": "12345678",
+        "username": "12345678",
+        "password": "12345678",
+        "text": "visible</think>",
+        "nested": {"content": "before <think>hidden chain of thought</think> after"},
+    }
+
+    sanitized = _sanitize_report_for_json(report)
+    text = str(sanitized)
+
+    assert sanitized["account"] == "[redacted]"
+    assert sanitized["username"] == "[redacted]"
+    assert sanitized["password"] == "[redacted]"
+    assert sanitized["text"] == "visible"
+    assert "before [redacted hidden reasoning] after" in text
+    assert "12345678" not in text
+    assert "hidden chain of thought" not in text
+    assert "<think>" not in text
+    assert "</think>" not in text

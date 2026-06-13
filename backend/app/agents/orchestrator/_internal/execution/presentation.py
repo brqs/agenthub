@@ -16,6 +16,7 @@ from app.agents.orchestrator._internal.execution.dialogue import (
 from app.agents.orchestrator._internal.execution.fulfillment import (
     fulfillment_needs_attention as _fulfillment_needs_attention,
 )
+from app.agents.orchestrator._internal.llm_control import record_llm_control_point
 from app.agents.orchestrator.evaluation import evaluation_results_payload
 from app.agents.orchestrator.types import (
     OrchestratorRunContext,
@@ -115,9 +116,50 @@ async def presented_response_text(
     fallback = deterministic_response_text(facts)
     if not _polish_enabled(config):
         return fallback
-    polished = await _polished_response_text(config, facts)
-    if not polished or _contains_forbidden_visible_text(polished):
+    polished, attempted, failure_reason = await _polished_response_text(config, facts)
+    if not attempted:
         return fallback
+    if not polished:
+        await record_llm_control_point(
+            config,
+            run_context,
+            phase="response_polish",
+            status="failed",
+            used_llm=True,
+            fallback_reason=failure_reason or "empty_or_failed_output",
+            decision_summary="Response polish failed, so deterministic final text was used.",
+        )
+        return fallback
+    if _contains_forbidden_visible_text(polished):
+        await record_llm_control_point(
+            config,
+            run_context,
+            phase="response_polish",
+            status="fallback",
+            used_llm=True,
+            fallback_reason="forbidden_visible_text",
+            decision_summary="Response polish output was rejected by presentation safety checks.",
+        )
+        return fallback
+    if _omits_required_review_evidence(polished, facts):
+        await record_llm_control_point(
+            config,
+            run_context,
+            phase="response_polish",
+            status="fallback",
+            used_llm=True,
+            fallback_reason="missing_required_review_evidence",
+            decision_summary="Response polish output omitted required review evidence.",
+        )
+        return fallback
+    await record_llm_control_point(
+        config,
+        run_context,
+        phase="response_polish",
+        status="succeeded",
+        used_llm=True,
+        decision_summary="Response polish produced the final user-facing answer.",
+    )
     return _ensure_trailing_newline(polished.strip())
 
 
@@ -364,10 +406,10 @@ def _tool_attention(tool_results: Sequence[ToolResultFact]) -> list[str]:
 async def _polished_response_text(
     config: Mapping[str, Any],
     facts: ResponseFacts,
-) -> str | None:
+) -> tuple[str | None, bool, str | None]:
     gateway = _polish_gateway(config)
     if gateway is None:
-        return None
+        return None, False, "gateway_unavailable"
     try:
         async with asyncio.timeout(_polish_timeout(config)):
             parts: list[str] = []
@@ -382,13 +424,15 @@ async def _polished_response_text(
                 config=_polish_model_config(config),
             ):
                 if chunk.event_type == "error":
-                    return None
+                    return None, True, chunk.error_code or "model_error"
                 if chunk.text_delta:
                     parts.append(chunk.text_delta)
             text = "".join(parts).strip()
     except Exception:  # noqa: BLE001
-        return None
-    return text or None
+        return None, True, "model_exception"
+    if not text:
+        return None, True, "empty_output"
+    return text, True, None
 
 
 def _facts_prompt(facts: ResponseFacts) -> str:
@@ -545,6 +589,20 @@ def _contains_forbidden_visible_text(text: str) -> bool:
     if LONG_RUNNING_SERVER_COMMAND_RE.search(text):
         return True
     return bool(re.search(r"\borch\.[\w.-]+", text))
+
+
+def _omits_required_review_evidence(text: str, facts: ResponseFacts) -> bool:
+    """Reject polished answers that drop required judgement/review evidence."""
+
+    required_markers: list[str] = []
+    for item in facts.review:
+        if item.startswith("辩论裁判"):
+            required_markers.append("辩论裁判")
+        elif item.startswith("辩论评判"):
+            required_markers.append("辩论评判")
+        elif item.startswith("对话总结"):
+            required_markers.append("对话总结")
+    return any(marker not in text for marker in required_markers)
 
 
 def _raw_summary_is_safe_final_text(facts: ResponseFacts) -> bool:

@@ -6,6 +6,10 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from app.agents.orchestrator._internal.react.types import ReactDecision, ReactDecisionError
+from app.agents.orchestrator.availability import (
+    runnable_agent_ids,
+    scoped_runnable_agent_ids,
+)
 from app.agents.orchestrator.types import SubTask, TaskState
 
 AgentIdList = Callable[[object], list[str]]
@@ -133,7 +137,10 @@ def _validate_task_graph(tasks: list[SubTask], allowed_agent_ids: set[str]) -> N
                 raise ReactDecisionError(f"unknown depends_on task_id {dependency!r}")
 
 def _allowed_agent_ids(config: Mapping[str, Any], agent_id_list: AgentIdList) -> list[str]:
-    ids = _agent_ids_from_available_agents(config.get("available_agents"))
+    scoped_ids = scoped_runnable_agent_ids(config)
+    if scoped_ids is not None:
+        return scoped_ids
+    ids = runnable_agent_ids(config.get("available_agents"))
     if ids:
         return ids
     return agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))

@@ -23,7 +23,7 @@ from app.agents.types import ChatMessage
 
 def planning_text(tasks: list[SubTask]) -> str:
     lines = [f"I'll handle this in {len(tasks)} step(s):"]
-    for index, task in enumerate(tasks, 1):
+    for index, task in enumerate(_display_ordered_tasks(tasks), 1):
         lines.append(f"{index}. {task.title}")
     return "\n".join(lines) + "\n"
 
@@ -42,11 +42,50 @@ def plan_source(tasks: list[SubTask]) -> str:
     return "LLM planner/config"
 
 
+def _display_ordered_tasks(tasks: list[SubTask]) -> list[SubTask]:
+    by_id = {task.task_id: task for task in tasks}
+    remaining = set(by_id)
+    ordered: list[SubTask] = []
+
+    while remaining:
+        ready = [
+            task
+            for task_id in remaining
+            if (task := by_id.get(task_id)) is not None
+            and all(dep not in remaining for dep in _display_dependencies(task, by_id))
+        ]
+        ready.sort(key=lambda task: (task.priority, task.task_id))
+        next_task = ready[0] if ready else by_id[min(remaining)]
+        ordered.append(next_task)
+        remaining.remove(next_task.task_id)
+
+    return ordered
+
+
+def _display_dependencies(task: SubTask, by_id: Mapping[str, SubTask]) -> list[str]:
+    refs = [*task.depends_on, *task.review_of]
+    return [task_id for task_id in refs if task_id in by_id]
+
+
 def fallback_summary_text() -> str:
     return (
         "I could not build a full task plan for this request, so I routed it to "
         "one available agent and returned its result.\n"
     )
+
+
+_VISIBLE_TRACE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("external_runtime_error", "external runtime failure"),
+    ("Traceback (most recent call last)", "runtime traceback omitted"),
+    ("stderr:", "runtime diagnostic omitted:"),
+)
+
+
+def _safe_context_text(value: str) -> str:
+    text = str(value or "")
+    for raw, replacement in _VISIBLE_TRACE_REPLACEMENTS:
+        text = text.replace(raw, replacement)
+    return text
 
 
 def summary_text(
@@ -122,7 +161,7 @@ def summary_text(
                     f"@{attempt.agent_id}: {attempt.state.value}"
                 )
                 if attempt.error:
-                    detail += f" - {attempt.error}"
+                    detail += f" - {_safe_context_text(attempt.error)}"
                 elif attempt.missing_artifact_paths:
                     detail += f" - missing {', '.join(attempt.missing_artifact_paths)}"
                 if attempt.conflict_paths:
@@ -185,15 +224,18 @@ def format_task_result_context(
         f"- {task_id} @{final_attempt.agent_id} {result.final_state.value}",
     ]
     if final_attempt.text_preview:
-        lines.append(f"  Text: {final_attempt.text_preview}")
+        lines.append(f"  Text: {_safe_context_text(final_attempt.text_preview)}")
     if final_attempt.tool_summaries:
-        lines.append(f"  Tools: {'; '.join(final_attempt.tool_summaries[:4])}")
+        tool_summary = "; ".join(
+            _safe_context_text(summary) for summary in final_attempt.tool_summaries[:4]
+        )
+        lines.append(f"  Tools: {tool_summary}")
     if final_attempt.review_outcome:
         lines.append(f"  Review outcome: {final_attempt.review_outcome}")
     if final_attempt.artifact_paths:
         lines.append(f"  Artifacts: {', '.join(final_attempt.artifact_paths)}")
     if final_attempt.error:
-        lines.append(f"  Error: {final_attempt.error}")
+        lines.append(f"  Error: {_safe_context_text(final_attempt.error)}")
     if final_attempt.missing_artifact_paths:
         lines.append(f"  Missing: {', '.join(final_attempt.missing_artifact_paths)}")
     if final_attempt.conflict_paths:
@@ -217,7 +259,7 @@ def format_attempt_context(attempt: TaskAttempt, max_chars: int) -> str:
         f"{attempt.state.value}"
     )
     if attempt.error:
-        text += f": {attempt.error}"
+        text += f": {_safe_context_text(attempt.error)}"
     elif attempt.missing_artifact_paths:
         text += f": missing {', '.join(attempt.missing_artifact_paths)}"
     if attempt.conflict_paths:

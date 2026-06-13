@@ -79,6 +79,17 @@ EXPLICIT_REFERENCE_MARKERS = (
     "接着",
     "再",
 )
+NEW_DIALOGUE_REQUEST_MARKERS = (
+    "开始一场",
+    "组织",
+    "辩论",
+    "圆桌",
+    "讨论",
+    "头脑风暴",
+    "panel",
+    "review panel",
+    "roleplay",
+)
 PRIMARY_TASK_TYPES = {"implementation", "conversation", "dialogue_turn"}
 TERMINAL_RUN_STATUSES = {"done", "partial", "completed", "success", "succeeded"}
 SUCCESS_TASK_STATES = {"done", "completed", "success", "succeeded"}
@@ -184,8 +195,27 @@ def _looks_like_followup(text: str) -> bool:
         return False
     if not any(marker in normalized for marker in FOLLOWUP_MARKERS):
         return False
+    if _looks_like_new_dialogue_request(normalized):
+        return False
     return len(normalized) <= 48 or any(
         marker in normalized for marker in EXPLICIT_REFERENCE_MARKERS
+    )
+
+
+def _looks_like_new_dialogue_request(normalized: str) -> bool:
+    if not any(marker in normalized for marker in NEW_DIALOGUE_REQUEST_MARKERS):
+        return False
+    return any(
+        marker in normalized
+        for marker in (
+            "最后",
+            "最终",
+            "是否需要",
+            "轮流",
+            "分配",
+            "正反方",
+            "角色",
+        )
     )
 
 

@@ -78,7 +78,8 @@ BROWSER_VERIFY_INTENT_RE = re.compile(
     r"(?i)(浏览器|质量验收|移动端|按钮|交互|browser|quality|viewport|mobile)"
 )
 NEGATIVE_PREVIEW_INTENT_RE = re.compile(
-    r"(不要|无需|不需要|禁止|避免)\s*(?:预览|部署|发布|上线)|"
+    r"(不要|无需|不需要|禁止|避免)\s*(?:调用|执行|使用|进行|触发)?\s*"
+    r"(?:预览|部署|发布|上线)|"
     r"(no|without|skip|avoid|do\s+not|don't)\s+(?:preview|deploy|deployment)",
     re.I,
 )
