@@ -155,11 +155,19 @@ def test_quality_gate_respects_negative_preview_intent() -> None:
     assert not _should_run_quality_gate(
         "请做一个前端网页，用于群聊归因验收，不要预览、不要部署。"
     )
+    assert not _should_run_quality_gate(
+        "请你开始一场有关 AI 发展的弊处和利处的辩论。"
+        "不要生成文件、不要写报告、不要调用预览或部署工具，只在群聊中完成。"
+    )
 
 
 def test_stream_preview_respects_negative_preview_intent() -> None:
     assert not _wants_platform_preview(
         "请进行群聊归因验收，不要预览、不要部署，但要总结端口相关风险。"
+    )
+    assert not _wants_platform_preview(
+        "请你开始一场有关 AI 发展的弊处和利处的辩论。"
+        "不要生成文件、不要写报告、不要调用预览或部署工具，只在群聊中完成。"
     )
 
 

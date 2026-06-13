@@ -18,6 +18,10 @@ MANAGED_BUILTIN_AGENT_IDS = ACTIVE_BUILTIN_AGENT_IDS - {ORCHESTRATOR_AGENT_ID}
 ORCHESTRATOR_CONFIG_UPGRADES = {
     "answer_model_backend": ORCHESTRATOR_DEFAULTS["answer_model_backend"],
     "planner_model_backend": ORCHESTRATOR_DEFAULTS["planner_model_backend"],
+    "orchestrator_control_mode": ORCHESTRATOR_DEFAULTS["orchestrator_control_mode"],
+    "planner_fallback_to_template": ORCHESTRATOR_DEFAULTS[
+        "planner_fallback_to_template"
+    ],
     "react_trace_visible": ORCHESTRATOR_DEFAULTS["react_trace_visible"],
     "available_agents_authoritative": ORCHESTRATOR_DEFAULTS[
         "available_agents_authoritative"

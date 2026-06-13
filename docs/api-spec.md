@@ -1199,6 +1199,12 @@ Legacy raw providers `claude` / `deepseek` / `openai` / `custom` may appear only
 | `config.orchestrator_context_max_tokens` | Orchestrator 主流程上下文 token 预算，1 - 200000，默认 64000 |
 | `config.orchestrator_subagent_context_max_tokens` | Orchestrator 分发给子 Agent 的上下文 token 预算，1 - 200000，默认 64000 |
 | `config.planner_context_max_tokens` | Orchestrator Planner 单次 LLM 输入上下文 token 预算，1 - 1000000，默认 128000 |
+| `config.orchestrator_control_mode` | Orchestrator 通用控制模式，`llm_first` / `auto`；内置默认 `llm_first` |
+| `config.dialogue_model_backend` | Orchestrator 纯对话主持 / 续轮 / 裁判的 ModelGateway backend，默认 `deepseek` |
+| `config.orchestrator_dialogue_llm_control_enabled` | 纯对话 / 辩论场景是否由 Orchestrator LLM 控场，默认 `true` |
+| `config.orchestrator_response_polish_enabled` | Orchestrator 最终回答是否启用模型润色，默认 `true`；只基于结构化事实，不暴露 raw trace |
+| `config.orchestrator_response_polish_model_backend` | Orchestrator 最终回答润色使用的 ModelGateway backend；未设置时回退到 answer/planner/model backend |
+| `config.orchestrator_response_polish_max_tokens` | Orchestrator 最终回答润色输出 token 预算，1 - 8192，默认 2048 |
 | `config.max_iterations` | 仅 `builtin` 使用，1 - 50 |
 | `config.orchestrator_tool_max_tokens` | Orchestrator tool loop 输出 token 预算，1 - 32000，默认 8192 |
 | `config.mcp_servers` | 仅 `builtin` 使用，MCP server 配置数组 |
@@ -1500,7 +1506,13 @@ interface AgentConfig {
   model_backend?: "claude" | "deepseek" | "openai";
   answer_model_backend?: "claude" | "deepseek" | "openai";
   planner_model_backend?: "claude" | "deepseek" | "openai";
+  dialogue_model_backend?: "claude" | "deepseek" | "openai";
   planner_context_max_tokens?: number;
+  orchestrator_control_mode?: "auto" | "llm_first";
+  orchestrator_dialogue_llm_control_enabled?: boolean;
+  orchestrator_response_polish_enabled?: boolean;
+  orchestrator_response_polish_model_backend?: "claude" | "deepseek" | "openai";
+  orchestrator_response_polish_max_tokens?: number;
   max_iterations?: number;
   mcp_servers?: object[];
   // For user-created provider="builtin" Agents this may be [] or ["read_file"] only.

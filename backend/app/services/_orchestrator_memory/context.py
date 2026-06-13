@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.types import ChatMessage
 from app.services._orchestrator_memory.capability_v1 import (
     build_agent_capability_profile,
+    safe_failure_reason_summary,
 )
 from app.services._orchestrator_memory.capability_v2 import (
     build_agent_capability_profile_v2,
@@ -125,10 +126,18 @@ def _format_agent_capability_profile_v2(
             lines.append(f"  task_taxonomy: {_format_counter(item.task_taxonomy)}")
         if item.score_reasons:
             lines.append("  score_reasons: " + " | ".join(item.score_reasons))
-        if item.recent_failure_reasons:
+        safe_reasons = [
+            reason
+            for reason in (
+                safe_failure_reason_summary(reason)
+                for reason in item.recent_failure_reasons
+            )
+            if reason
+        ]
+        if safe_reasons:
             lines.append(
                 "  recent_failure_reasons: "
-                + " | ".join(item.recent_failure_reasons[:MAX_AGENT_FAILURE_REASONS])
+                + " | ".join(safe_reasons[:MAX_AGENT_FAILURE_REASONS])
             )
     return "\n".join(lines)
 
@@ -186,10 +195,18 @@ def _format_agent_capability_profile(
             lines.append(f"  artifact_kinds: {_format_counter(item.artifact_kinds)}")
         if item.review_outcomes:
             lines.append(f"  review_outcomes: {_format_counter(item.review_outcomes)}")
-        if item.recent_failure_reasons:
+        safe_reasons = [
+            reason
+            for reason in (
+                safe_failure_reason_summary(reason)
+                for reason in item.recent_failure_reasons
+            )
+            if reason
+        ]
+        if safe_reasons:
             lines.append(
                 "  recent_failure_reasons: "
-                + " | ".join(item.recent_failure_reasons[:MAX_AGENT_FAILURE_REASONS])
+                + " | ".join(safe_reasons[:MAX_AGENT_FAILURE_REASONS])
             )
     return "\n".join(lines)
 def inject_orchestrator_memory_context(

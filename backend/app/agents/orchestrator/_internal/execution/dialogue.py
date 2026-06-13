@@ -14,14 +14,15 @@ from app.agents.orchestrator.types import (
 )
 from app.agents.types import ChatMessage
 
-DEFAULT_MAX_DIALOGUE_TURNS = 8
+DEFAULT_MAX_DIALOGUE_TURNS = 4
 MIN_DEBATE_ATTACK_DEFENSE_TURNS = 4
 
 _HANDOFF_RE = re.compile(
     r"@[\w-]+|你继续|请(?:你)?回应|请(?:你)?反驳|反驳一下|接招|轮到你|继续辩论|继续回应"
 )
 _EXPLICIT_SHORT_RE = re.compile(
-    r"只要.{0,8}(?:双方|每人|各自|各).{0,4}(?:一句|一轮)|"
+    r"只要.{0,8}(?:双方|每人|一人|各自|各).{0,4}(?:一句|一轮)|"
+    r"(?:双方|每人|一人|各自|各).{0,4}一句回应|"
     r"(?:双方|每人|各自|各).{0,4}(?:一句即可|各说一句|一轮即可)|"
     r"只(?:进行|要).{0,4}一轮|只需.{0,4}一轮"
 )
@@ -95,7 +96,7 @@ def compute_debate_judgement(
     tasks: Sequence[SubTask],
     run_context: OrchestratorRunContext,
 ) -> dict[str, Any] | None:
-    """Score debate sides from public agent summaries/text without an LLM judge."""
+    """Fallback score for debate sides when no LLM judge is available."""
 
     user_request = _latest_user_request(messages)
     dialogue_tasks = [task for task in tasks if task.task_type == "dialogue_turn"]
@@ -147,6 +148,17 @@ def compute_debate_judgement(
 
 
 def debate_judgement_line(judgement: Mapping[str, Any]) -> str:
+    if judgement.get("type") == "llm_dialogue_judgement":
+        mode = str(judgement.get("mode") or "debate")
+        label = str(judgement.get("winner_label") or "").strip()
+        summary = str(judgement.get("summary") or "").strip()
+        reason = str(judgement.get("reason") or "").strip()
+        if mode == "debate":
+            prefix = f"辩论裁判：{label or '已完成裁判'}"
+        else:
+            prefix = f"对话总结：{label or '已完成总结'}"
+        detail = summary or reason
+        return f"{prefix}。{detail}".strip()
     winner = str(judgement.get("winner_label") or "势均力敌")
     reason = str(judgement.get("reason") or "").strip()
     scores = judgement.get("scores")
@@ -289,7 +301,13 @@ def _max_dialogue_turns(user_request: str, participant_count: int) -> int:
 def _explicit_short_dialogue(user_request: str) -> bool:
     if any(
         marker in user_request
-        for marker in ("只要双方各说一句", "双方各说一句", "各说一句", "每人一句即可")
+        for marker in (
+            "只要双方各说一句",
+            "双方各说一句",
+            "各说一句",
+            "每人一句即可",
+            "一人一句",
+        )
     ):
         return True
     return bool(_EXPLICIT_SHORT_RE.search(user_request))

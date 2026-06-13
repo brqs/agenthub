@@ -779,6 +779,35 @@ model tool_call
 
 ---
 
+## 9.1 LLM Control Point 观测
+
+Tool loop 是 Orchestrator LLM-first control plane 的一个独立控制点。只要进入
+`run_orchestrator_tool_loop()` 并真实尝试让模型决策工具调用，就必须向 run detail 记录
+`event_type="llm_control_point"` 的安全摘要：
+
+```json
+{
+  "phase": "tool_loop",
+  "model_backend": "deepseek",
+  "status": "succeeded",
+  "used_llm": true,
+  "fallback_reason": null,
+  "decision_summary": "iteration=2 tool_calls=read_artifact, verify_web_preview"
+}
+```
+
+记录规则：
+
+- 成功生成工具调用时记录 `status="succeeded"`。
+- 模型没有返回工具调用、输出无效、超时或 gateway 失败时记录 `status="failed"` 或
+  `status="fallback"`，并写入短 `fallback_reason`。
+- `decision_summary` 只允许包含工具名、迭代编号和简短结果，不保存完整 prompt、tool
+  arguments、stdout/stderr、token、认证文件、环境变量或 workspace 敏感内容。
+- E2E report 需要从 run events 聚合 `llm_control_points`，tool/browser/deploy 类场景可用
+  `phase="tool_loop"` 证明平台动作顺序由模型参与决策；工具实际执行仍由后端安全白名单完成。
+
+---
+
 ## 10. 实现入口建议
 
 当前实现入口：

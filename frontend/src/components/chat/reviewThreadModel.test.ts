@@ -137,4 +137,49 @@ describe('reviewThreadModel', () => {
   it('returns an empty list without run detail', () => {
     expect(buildReviewThreadItems(null)).toEqual([]);
   });
+
+  it('orders handoff timeline by dependencies before priority', () => {
+    const reversedPriorityDetail: OrchestratorRunDetail = {
+      ...detail,
+      tasks: [
+        {
+          ...detail.tasks[0],
+          task_id: 'planning',
+          title: '规划文档',
+          priority: 10,
+        },
+        {
+          ...detail.tasks[0],
+          id: 'row-frontend',
+          task_id: 'frontend',
+          title: '前端实现',
+          depends_on: ['planning'],
+          priority: 8,
+        },
+        {
+          ...detail.tasks[0],
+          id: 'row-backend',
+          task_id: 'backend',
+          title: '后端实现',
+          depends_on: ['planning'],
+          priority: 8,
+        },
+        {
+          ...detail.tasks[1],
+          task_id: 'review',
+          depends_on: ['frontend', 'backend'],
+          review_of: ['frontend', 'backend'],
+          priority: 9,
+        },
+      ],
+      attempts: [],
+    };
+
+    expect(buildReviewThreadItems(reversedPriorityDetail).map((item) => item.taskId)).toEqual([
+      'planning',
+      'frontend',
+      'backend',
+      'review',
+    ]);
+  });
 });

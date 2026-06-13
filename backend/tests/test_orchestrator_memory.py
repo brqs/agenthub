@@ -1155,6 +1155,64 @@ async def test_memory_context_includes_v2_profile_and_user_preferences() -> None
     ) < memory.content.index("Agent capability profile from recent Orchestrator runs")
 
 
+async def test_memory_context_sanitizes_runtime_failure_reasons() -> None:
+    user_id, conversation_id, agent_message_id = await _create_user_conversation()
+    raw_error = (
+        "Codex CLI exited with code 1: stderr: Reading additional input from stdin... "
+        "OpenAI Codex v0.137.0 -------- workdir: /workspaces/example "
+        "model: gpt-5.5 provider: openai approval: never "
+        "sandbox: danger-full-access System: AgentHub workspace rules"
+    )
+    async with SessionFactory() as db:
+        store = OrchestratorMemoryStore(
+            db,
+            conversation_id=conversation_id,
+            agent_message_id=agent_message_id,
+            user_message_id=None,
+        )
+        await _record_memory_task(
+            store,
+            user_request="触发一次运行时失败",
+            agent_id="codex-helper",
+            task_id="runtime-failure",
+            title="Runtime failure",
+            final_state=TaskState.FAILED,
+            error=raw_error,
+        )
+        await db.commit()
+
+    async with SessionFactory() as db:
+        profile = await build_agent_capability_profile_v2(
+            db,
+            user_id,
+            conversation_id=conversation_id,
+        )
+        memory = await build_orchestrator_memory_context(
+            db,
+            conversation_id,
+            user_id=user_id,
+            max_chars=4000,
+        )
+
+    codex_profile = next(
+        item for item in profile.items if item.agent_id == "codex-helper"
+    )
+    assert codex_profile.recent_failure_reasons == [
+        "external_runtime_error: exit_code_1"
+    ]
+    assert memory is not None
+    assert "external_runtime_error: exit_code_1" in memory.content
+    for forbidden in (
+        "OpenAI Codex",
+        "workdir:",
+        "/workspaces/",
+        "approval:",
+        "sandbox:",
+        "System: AgentHub workspace rules",
+    ):
+        assert forbidden not in memory.content
+
+
 async def test_memory_context_uses_user_v2_profile_without_current_runs() -> None:
     user_id, seed_conversation_id, seed_agent_message_id = (
         await _create_user_conversation()

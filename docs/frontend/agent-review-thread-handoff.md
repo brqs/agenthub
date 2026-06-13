@@ -1,7 +1,7 @@
 # Agent-to-Agent Review Thread 前端交接说明
 
 > 用途：B2 Agent-to-Agent Review Thread 后端 MVP 与前端产品化对接。
-> 最后核对：2026-06-03
+> 最后核对：2026-06-13
 
 ## 当前结论
 
@@ -101,6 +101,18 @@ Review Thread 重点事件：
 - `failed`：失败态，后面应能看到 repair task 或最终失败说明。
 - `unknown`：降级态，不阻断消息渲染。
 
+Timeline 顺序语义：
+
+- Review / Handoff Timeline 必须按任务依赖拓扑顺序展示，而不是按 `priority`、数组原始顺序或
+ 倒序时间简单排序。
+- `depends_on` 和 `review_of` 都应作为边：implementation 在前，review 在被审阅任务之后，
+  repair 在触发它的 review / failed task 之后。
+- 同一层无依赖的并行 implementation 可以按 attempt 创建时间排序；时间缺失时再用 `priority`
+  作为稳定兜底。
+- 如果出现环或缺失 task，UI 应保留可渲染项并用稳定兜底顺序，不应反转整条 timeline。
+- 这样用户看到的是真实工作流：`planning / implementation -> review -> repair`，而不是数据库
+  或 planner priority 的内部排序。
+
 ## 前端实现建议
 
 建议影响文件：
@@ -127,6 +139,7 @@ type ReviewThreadItem =
 - 从 `tasks[]` 按 `task_type` 找出 implementation / review / repair。
 - 用 `review_of` 建立 review -> implementation 和 repair -> review 的关系。
 - 用同 task_id 的最新 attempt 读取 `review_outcome` 和 `text_preview`。
+- 排序时先满足 `depends_on` / `review_of` 依赖，再用 attempt/task 时间和 priority 做同层兜底。
 - 如果缺 run detail，UI 只显示普通分组消息，不报错。
 - 如果同一个 review 后没有 repair，但 outcome 是 `needs_repair` / `failed`，显示“等待修复/未调度”降级状态。
 
@@ -165,7 +178,8 @@ AGENTHUB_E2E_BASE_URL=http://111.229.151.159:8000 AGENTHUB_E2E_SCENARIO=p1_revie
 - Timeline 使用当前群聊 Agent 信息展示名称/头像，未知 Agent 有文本兜底。
 - 缺少 run detail 或 events 时，聊天主消息仍正常展示。
 - 刷新页面后，持久化 message content 和 run detail 仍能重建同一条 timeline。
-- 前端测试至少覆盖 review model 构建、缺字段降级、message block 分组兼容。
+- 前端测试至少覆盖 review model 构建、缺字段降级、message block 分组兼容，以及 priority
+  与依赖冲突时仍按依赖顺序展示。
 
 ## B2 边界
 

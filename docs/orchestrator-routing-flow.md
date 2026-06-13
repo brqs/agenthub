@@ -9,6 +9,36 @@ Orchestrator 是 AgentHub 的核心协调器，负责接收用户消息并将其
 **文件**: `backend/app/agents/orchestrator/adapter.py:246`
 **方法**: `OrchestratorAdapter.stream()`
 
+## 群聊成员上下文与调度边界
+
+一次普通群聊消息开始时，stream 层会先读取当前 `Conversation.agent_ids`，再为
+Orchestrator 注入两类信息：
+
+1. `build_context()` 生成的通用上下文：
+   - Orchestrator system prompt / group observer prompt。
+   - 当前群聊成员列表。
+   - 最新用户消息。
+   - pinned / critical facts / MemoryHub / compressed memory / recent messages。
+   - agent 历史消息会保留 `[Agent: <agent_id>]` 标签，避免把其他 Agent 的话误当成当前 Agent 自己的输出。
+2. `apply_orchestrator_stream_context()` 生成的调度配置：
+   - `conversation_agents`：当前会话里所有 Agent 的安全 profile。
+   - `available_agents`：当前群聊里可运行的非 Orchestrator 子 Agent。
+   - `managed_agent_ids`：从 `available_agents` 推导出的可执行子 Agent id。
+   - `planning_agent_ids`：同样来自当前可执行子 Agent，不再从全局 seed/defaults 补全。
+   - `available_agents_authoritative=true` 与 `conversation_scoped_agents=true`：表示普通群聊必须以当前群成员作为唯一调度边界。
+
+因此，任务开始时传给 Orchestrator / Planner 的核心不是“所有内置 Agent”，而是：
+
+- 系统提示词和 Orchestrator 行为约束。
+- 当前群聊真实成员及其安全 planning profile。
+- 用户本轮提示词。
+- bounded conversation / memory / workspace evidence。
+
+如果当前群聊只有 Orchestrator、Claude Code、Codex Helper，Planner 不应看到或选择
+`opencode-helper`。如果模型仍幻觉输出了群聊外 Agent，后端会先触发一次 planner retry；
+retry 后仍非法时会 remap 到当前群内可执行 Agent，或在没有可执行子 Agent 时返回可读降级错误。
+ReAct replanner、tool loop `dispatch_agent`、fallback 和 dialogue next speaker 使用同一群聊边界。
+
 ## 完整路由链路（按优先级从高到低）
 
 ### ① Clarification Gate（澄清门控）
@@ -213,10 +243,11 @@ Orchestrator 是 AgentHub 的核心协调器，负责接收用户消息并将其
 - 用户提到 2+ agent 名称时
 - 创建直接广播任务，跳过 LLM planner
 
-#### b. Turn-taking 对话任务
-- 包含"轮流"、"debate"、"brainstorm"等标记
-- 创建 `dialogue_turn` 类型任务
-- 带 `depends_on` 链确保顺序执行
+#### b. 纯对话 / Turn-taking 对话任务
+- 包含“开始一场辩论 / 利弊讨论 / 圆桌 / 角色扮演 / 轮流 / debate / brainstorm”等标记，且没有文件、代码、部署等产物意图时，进入纯对话路径。
+- 默认 `orchestrator_dialogue_llm_control_enabled=true` 时，先由 Orchestrator LLM planner 生成 `dialogue_turn` 计划：参与 Agent、角色 / 立场、最小发言顺序和 no-artifact guard。
+- LLM planner 不可用或输出无效时，才回退 legacy dialogue template。
+- `dialogue_turn` 任务带 `depends_on` 链确保初始轮次按顺序执行；后续轮次由执行层 LLM decision 动态追加。
 
 #### c. Workspace冲突任务
 - 检测到 workspace 文件冲突
@@ -352,9 +383,16 @@ def should_direct_answer(config, messages, ...):
 Planner LLM 收到的上下文包括：
 
 1. 用户请求原文
-2. 所有可用 agent 的 `planning_profile`（优势、劣势、擅长任务类型）
+2. 当前群聊内可运行 agent 的 `planning_profile`（优势、劣势、擅长任务类型）
 3. 历史成功/失败记忆
-4. 输出结构化的 `submit_task_plan` 工具调用
+4. recent conversation context（保留 `[Agent: <agent_id>]` 标签）
+5. 输出结构化的 `submit_task_plan` 工具调用
+
+Planner 输出后会经过白名单校验。如果出现群聊外 `agent_id`：
+
+1. Orchestrator 追加一次安全 retry 指令，列出唯一合法 agent ids 和非法 ids。
+2. retry 仍非法时，按任务类型 remap 到当前群聊内最合适的可运行 Agent。
+3. 如果没有可运行子 Agent，返回可读错误，不直接展示 raw `invalid_task_plan`。
 
 ## 群聊特有的路由逻辑
 
@@ -474,30 +512,32 @@ Planner LLM 收到的上下文包括：
 2. 创建直接广播任务，跳过 LLM planner
 3. 每个提及的agent都会收到任务
 
-### Turn-taking 检测与执行
+### 纯对话 / Turn-taking 检测与执行
 
-**触发条件**: 包含"轮流"、"debate"、"brainstorm"等标记时
+**触发条件**: 包含“开始一场辩论 / 利弊讨论 / 圆桌 / 角色扮演 / 轮流 / debate / brainstorm”等标记，且没有文件、代码、部署等产物意图时。
 **处理逻辑**:
-1. 检测是否为对话任务（`turn_taking_requested()`）
-2. 创建 `dialogue_turn` 类型任务
-3. 带 `depends_on` 链确保顺序执行
+1. 检测是否为纯对话任务（`pure_dialogue_requested()`），旧式轮流接力仍会经过 `turn_taking_requested()`。
+2. 默认调用 Orchestrator LLM planner 生成 `dialogue_turn` 初始计划。
+3. LLM 计划会经过当前群聊 Agent 白名单和 no-artifact guard 校验；非法 Agent、文件、preview、deploy、工具任务会被拒绝或规范化。
+4. LLM 不可用或输出无效时，legacy template 生成最小 `dialogue_turn` 兜底计划。
 
-**对话任务执行流程**（`_internal/execution/dialogue.py`）:
+**对话任务执行流程**（`_internal/execution/dialogue_llm.py` + `_internal/execution/dialogue.py`）:
 
 1. **对话检测**:
    - `dialogue_requires_sequential()`: 检测是否为顺序对话
    - 要求所有任务都是 `dialogue_turn` 类型
 
-2. **动态轮次生成**:
-   - `maybe_next_dialogue_turn()`: 创建下一个动态对话轮次
-   - 根据完成的任务决定是否继续
-   - 考虑最大轮次限制（默认8轮）
+2. **LLM 动态轮次生成**:
+   - `maybe_next_dialogue_turn_with_model()`: 每轮 child message 完成后调用 LLM 生成 `dialogue_decision`
+   - LLM 决定继续、下一位 Agent、下一轮焦点或进入总结
+   - 结果写入 run detail `dialogue_decision`
+   - 当前群聊 Agent 白名单、no-artifact guard 和最大轮次限制（默认 8 轮）仍是硬约束
 
-3. **辩论模式**:
-   - `compute_debate_judgement()`: 计算辩论评分
-   - 分为正方（pro）和反方（con）
-   - 使用评分算法判断胜负
-   - 生成辩论总结
+3. **辩论 / 圆桌总结**:
+   - `compute_dialogue_judgement_with_model()`: 对话结束后调用 Orchestrator LLM 生成 `dialogue_judgement`
+   - 辩论输出核心争点、双方最强论据、薄弱点、胜负或平局、裁判理由
+   - 圆桌 / panel 输出共识、分歧和建议，不输出胜负
+   - `compute_debate_judgement()` 仅作为 LLM 不可用或输出无效时的 fallback
 
 4. **对话轮次控制**:
    - 检测是否为简短对话（"只要一轮"等）

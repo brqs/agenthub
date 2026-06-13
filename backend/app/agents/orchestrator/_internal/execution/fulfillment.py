@@ -94,8 +94,10 @@ def mark_task_fulfillment(
     }
     if _has_item(run_context, "document") and _has_any_path(artifacts, (".md", ".doc", ".docx")):
         _satisfy(run_context, "document", "Document artifact was generated.")
-    if _has_item(run_context, "code_artifacts") and (
-        _has_any_path(changed, (".html", ".css", ".js", ".py", ".ts", ".tsx"))
+    code_paths = {*artifacts, *changed}
+    if _has_item(run_context, "code_artifacts") and _has_any_path(
+        code_paths,
+        (".html", ".css", ".js", ".py", ".ts", ".tsx"),
     ):
         _satisfy(run_context, "code_artifacts", "Code artifacts were generated.")
     if _has_item(run_context, "multi_agent") and len(successful_agents) >= 2:

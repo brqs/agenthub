@@ -292,7 +292,16 @@ async def test_orchestrator_react_rejects_add_task_outside_allowed_agents() -> N
             "react_enabled": True,
             "react_gateway": react_gateway,
             "tasks": [_task("verify", "opencode-helper", "Verify", "Verify output")],
-            "managed_agent_ids": ["opencode-helper"],
+            "conversation_scoped_agents": True,
+            "available_agents_authoritative": True,
+            "available_agents": [
+                {
+                    "id": "opencode-helper",
+                    "runtime_available": True,
+                    "runtime_status": "ready",
+                }
+            ],
+            "managed_agent_ids": ["opencode-helper", "outside-agent"],
             "sub_adapters": {"opencode-helper": verify},
         },
     )

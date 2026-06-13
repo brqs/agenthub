@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
-> 状态：Passed
-> 最后更新：2026-06-11
+> 状态：Historical passed evidence / LLM-first refresh pending
+> 最后更新：2026-06-13
 
 ---
 
@@ -74,8 +74,20 @@
 - `/tmp/agenthub_static_package_deploy_repair_matrix_report.json`
 - `/tmp/agenthub_group_member_fallback_repair_visibility_report.json`
 - `/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json`
+- `/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_missing_codex_review_repair_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_missing_claude_parallel_repair_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_single_subagent_degraded_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_react_replanner_no_external_agent_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_fallback_no_external_agent_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_group_scope_memory_mentions_external_agent_report.json`（待真实 HTTP/SSE refresh 后补证据）
 
-最终结论：`passed=true`。
+最终结论：截至 2026-06-11 的历史功能 E2E 为 `passed=true`。2026-06-12 之后的
+LLM-first 控制面新增 `llm_control_points` 验收口径，旧 8 个鲁棒性 report 只能作为功能
+回归证据，不能作为 LLM-first 参与度的最终验收证据；需要重跑 fresh HTTP/SSE E2E 后补充
+`llm_control_points`、planner / react / dialogue / tool / polish 控制点证据。
 
 第五点部署发布后端直连 E2E 结论：`passed=true`。2026-06-03 已补跑 deployment
 repair/redeploy 与自建 builtin Agent `allowed_tools` 白名单 live E2E。前端未完成期间，这些结果只验收
@@ -142,6 +154,11 @@ Agent 或显式 E2E escape hatch 中的白名单 Agent；task card 记录 planne
 deployment/browser repair loop 记录首次失败与最终通过证据；自建 builtin read-only Agent 不继承内置
 planning profile，且只能使用 `read_file`。
 
+重要更新：这批 2026-06-11 report 生成于 LLM-first `llm_control_points` 硬验收之前。
+它们证明多场景功能链路可用，但不能证明新的 Orchestrator LLM control plane 已在关键阶段参与。
+后续重跑时，每个新 report 必须包含 `llm_control_points`，并按场景验证 `planner`、
+`react_replanner`、`dialogue_controller`、`tool_loop` 或 `response_polish` 控制点。
+
 ---
 
 ## 2. Case Results
@@ -175,6 +192,7 @@ planning profile，且只能使用 `read_file`。
 | Case 23 - Static Package Deploy Repair Matrix | 静态站点、源码包、平台预览/发布链路通过；源码包不包含认证/密钥文件；repair 后浏览器验收通过并有部署历史 | passed |
 | Case 24 - Group Member Fallback Repair Visibility | 目标 Agent 不可用时仅 fallback 到群聊内可用 Agent；task card 展示最终 fallback Agent；planned/final 差异有证据；fallback 后验证通过 | passed |
 | Case 25 - IM Dialogue No Artifact Turn Taking v2 | 纯对话多 Agent 轮流发言，不创建 workspace artifact，不泄露 tool trace，最终总结各方观点 | passed |
+| Case 26 - Dialogue AI Benefits/Risks LLM Moderated | “请你开始一场有关 AI 发展的弊处和利处”自然语言纯对话；Planner 生成 `dialogue_turn`；执行层 LLM 生成 `dialogue_decision` / `dialogue_judgement`；无 artifact；report 含 `dialogue_controller` 控制点 | pending fresh live E2E |
 
 2026-06-11 多场景鲁棒性 E2E 报告：
 
@@ -207,6 +225,86 @@ group_member_fallback_repair_visibility:
 im_dialogue_no_artifact_turn_taking_v2:
   report: /tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json
   passed: true
+dialogue_ai_benefits_risks_llm_moderated:
+  report: /tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json
+  sse: /tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_sse.jsonl
+  passed: pending fresh live E2E
+```
+
+2026-06-12 LLM-first E2E 报告要求：
+
+- 新 report 必须从 run detail events 聚合 `llm_control_points`。
+- 复杂 artifact/task 场景必须包含 `phase="planner"` 且 `used_llm=true`。
+- repair 场景必须包含 `phase="react_replanner"` 或等价 LLM repair decision。
+- 对话场景必须包含 `phase="dialogue_controller"` 或 LLM 生成的 `dialogue_turn` 证据。
+- tool/browser/deploy 场景若进入 Orchestrator tool loop，必须记录 `phase="tool_loop"`；
+  最终回答启用模型润色时必须记录 `phase="response_polish"`，失败时也要记录安全摘要。
+- `planner_used_llm=false` 只作为旧诊断项保留，不能再作为唯一判断模型参与度的字段。
+- 2026-06-11 的旧 report 需要保留为历史功能证据，但 LLM-first 验收必须使用重跑后的 fresh report。
+- 本轮实现只准备脚本和报告结构；真实 HTTP/SSE E2E 由测试执行者单独触发。
+
+2026-06-13 group-scope E2E 报告要求：
+
+- 每个普通群聊场景必须以 `conversation.agent_ids` 为唯一调度边界。
+- Planner / ReAct replanner / tool loop / fallback / dialogue controller 都不得输出或调用群聊外 Agent。
+- 如果模型尝试输出群聊外 Agent，产品行为应是 planner retry、合法 remap 或可读降级提示；不得向用户暴露 raw `invalid_task_plan: unknown agent_id ...`。
+- report 必须包含安全摘要：
+  - `planner_evidence.conversation_agent_ids`
+  - `planner_evidence.available_agent_ids`
+  - `planner_evidence.planning_agent_ids`
+  - `planner_evidence.observed_agent_ids`
+  - `planner_evidence.illegal_agent_ids`
+  - `task_graph.external_agent_called`
+  - `repair_trace.unknown_agent_error_seen`
+- report/SSE/browser evidence 不得包含账号密码、token、env、认证文件、runtime stderr 或完整 prompt。
+
+Group-scope smoke 场景：
+
+```text
+group_scope_missing_opencode_dialogue_repair
+group_scope_missing_codex_review_repair
+group_scope_missing_claude_parallel_repair
+```
+
+Group-scope full matrix：
+
+```text
+group_scope_missing_opencode_dialogue_repair
+group_scope_missing_codex_review_repair
+group_scope_missing_claude_parallel_repair
+group_scope_single_subagent_degraded
+group_scope_react_replanner_no_external_agent
+group_scope_tool_dispatch_no_external_agent
+group_scope_fallback_no_external_agent
+group_scope_memory_mentions_external_agent
+```
+
+运行模板：
+
+```bash
+AGENTHUB_E2E_BASE_URL=<真实后端地址> \
+AGENTHUB_E2E_USERNAME=<测试账号> \
+AGENTHUB_E2E_PASSWORD=<测试密码> \
+AGENTHUB_E2E_SCENARIO=group_scope_missing_opencode_dialogue_repair \
+backend/.venv/bin/python backend/scripts/orchestrator_live_e2e.py
+```
+
+推荐重跑命令模板：
+
+```bash
+AGENTHUB_E2E_BASE_URL=<真实后端地址> \
+AGENTHUB_E2E_USERNAME=<测试账号> \
+AGENTHUB_E2E_PASSWORD=<测试密码> \
+AGENTHUB_E2E_SCENARIO=<scenario> \
+backend/.venv/bin/python backend/scripts/orchestrator_live_e2e.py
+```
+
+LLM-first smoke 优先级：
+
+```text
+fullstack_task_manager_parallel_repair_v2
+cyberpunk_site_quality_repair_8082_v2
+dialogue_ai_benefits_risks_llm_moderated
 ```
 
 2026-06-10 Case 16 agent turn-taking runtime defaults 证据：

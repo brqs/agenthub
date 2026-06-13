@@ -52,6 +52,12 @@ from app.agents.orchestrator._internal.execution.dialogue import (
 from app.agents.orchestrator._internal.execution.dialogue import (
     maybe_next_dialogue_turn as _maybe_next_dialogue_turn,
 )
+from app.agents.orchestrator._internal.execution.dialogue_llm import (
+    compute_dialogue_judgement_with_model as _compute_dialogue_judgement_with_model,
+)
+from app.agents.orchestrator._internal.execution.dialogue_llm import (
+    maybe_next_dialogue_turn_with_model as _maybe_next_dialogue_turn_with_model,
+)
 from app.agents.orchestrator._internal.execution.evaluation import (
     run_attempt_evaluation as _run_attempt_evaluation,
 )
@@ -305,7 +311,7 @@ def _task_card_block(
                 "title": task.title,
                 "status": "pending",
             }
-            for task in sorted(tasks, key=lambda item: (item.priority, item.task_id))
+            for task in _display_ordered_tasks(tasks)
         ],
     }
     next_block_index = block_index + 1
@@ -329,6 +335,33 @@ def _task_card_block(
             next_block_index,
         ),
     )
+
+
+def _display_ordered_tasks(tasks: list[SubTask]) -> list[SubTask]:
+    """Order visible task cards by dependency flow before planner priority."""
+
+    by_id = {task.task_id: task for task in tasks}
+    remaining = set(by_id)
+    ordered: list[SubTask] = []
+
+    while remaining:
+        ready = [
+            task
+            for task_id in remaining
+            if (task := by_id.get(task_id)) is not None
+            and all(dep not in remaining for dep in _display_dependencies(task, by_id))
+        ]
+        ready.sort(key=lambda task: (task.priority, task.task_id))
+        next_task = ready[0] if ready else by_id[min(remaining)]
+        ordered.append(next_task)
+        remaining.remove(next_task.task_id)
+
+    return ordered
+
+
+def _display_dependencies(task: SubTask, by_id: Mapping[str, SubTask]) -> list[str]:
+    refs = [*task.depends_on, *task.review_of]
+    return [task_id for task_id in refs if task_id in by_id]
 
 
 def _failure_text(task: SubTask, reason: str, agent_id: str | None = None) -> str:
@@ -822,7 +855,8 @@ async def _run_static_tasks(
             repaired_review_task_ids.add(task.task_id)
             task_sequence.insert(task_index + 1, repair_task)
             task_states[repair_task.task_id] = TaskState.PENDING
-        dialogue_task = _maybe_next_dialogue_turn(
+        dialogue_decision = await _maybe_next_dialogue_turn_with_model(
+            config=config,
             messages=messages,
             task_sequence=task_sequence,
             task_index=task_index,
@@ -830,6 +864,30 @@ async def _run_static_tasks(
             completed_result=task_result,
             run_context=run_context,
         )
+        dialogue_task = None
+        dialogue_reason = "dynamic_turn_taking"
+        if dialogue_decision is not None:
+            dialogue_task = dialogue_decision.task
+            dialogue_reason = str(
+                dialogue_decision.payload.get("reason") or "llm_dialogue_decision"
+            )
+            await _memory_record_event(
+                config,
+                run_context,
+                event_type="dialogue_decision",
+                task_id=task.task_id,
+                agent_id="orchestrator",
+                payload=dialogue_decision.payload,
+            )
+        else:
+            dialogue_task = _maybe_next_dialogue_turn(
+                messages=messages,
+                task_sequence=task_sequence,
+                task_index=task_index,
+                completed_task=task,
+                completed_result=task_result,
+                run_context=run_context,
+            )
         if dialogue_task is not None:
             task_sequence.insert(task_index + 1, dialogue_task)
             task_states[dialogue_task.task_id] = TaskState.PENDING
@@ -844,7 +902,7 @@ async def _run_static_tasks(
                     "turn_number": sum(
                         1 for item in task_sequence if item.task_type == "dialogue_turn"
                     ),
-                    "reason": "dynamic_turn_taking",
+                    "reason": dialogue_reason,
                 },
             )
         await _refresh_and_record_workspace_conflicts(config, run_context)
@@ -852,17 +910,28 @@ async def _run_static_tasks(
 
     refresh_workspace_conflicts(run_context)
     _mark_task_fulfillment(run_context, task_sequence, task_states)
-    judgement = _compute_debate_judgement(
+    judgement = await _compute_dialogue_judgement_with_model(
+        config=config,
         messages=messages,
         tasks=task_sequence,
         run_context=run_context,
     )
+    if judgement is None:
+        judgement = _compute_debate_judgement(
+            messages=messages,
+            tasks=task_sequence,
+            run_context=run_context,
+        )
     if judgement is not None:
         run_context.debate_judgement = judgement
         await _memory_record_event(
             config,
             run_context,
-            event_type="debate_judgement",
+            event_type=(
+                "dialogue_judgement"
+                if judgement.get("type") == "llm_dialogue_judgement"
+                else "debate_judgement"
+            ),
             agent_id="orchestrator",
             payload=judgement,
         )
@@ -1785,12 +1854,15 @@ def _sub_agent_stream_config(
             "agent_id": agent_id,
             "orchestrator_task_id": task.task_id,
             "orchestrator_task_title": task.title,
+            "orchestrator_task_type": task.task_type,
             "orchestrator_attempt_index": str(attempt_index),
         }
     )
     stream_config["runtime_context"] = runtime_context
     if task.task_type in {"conversation", "dialogue_turn"}:
         _apply_dialogue_direct_chat_budget(stream_config)
+    else:
+        stream_config["qa_short_circuit_enabled"] = False
     return stream_config
 
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from app.core.config import settings
 
 SUPPORTED_UPSTREAM_PROVIDERS: set[str] = {"claude", "deepseek", "openai"}
+ORCHESTRATOR_CONTROL_MODES: set[str] = {"auto", "llm_first"}
 TOP_LEVEL_PROVIDERS: set[str] = {
     "claude_code",
     "codex",
@@ -107,7 +108,7 @@ def numeric_field(key: str) -> NumericConfigField:
 
 EXTERNAL_DIRECT_CHAT_DEFAULTS: dict[str, object] = {
     "qa_short_circuit_enabled": True,
-    "qa_model_backend": "deepseek",
+    "qa_model_backend": "openai",
     "qa_max_tokens": 8192,
     "qa_classifier_max_tokens": 128,
     "qa_temperature": 0.2,
@@ -119,13 +120,17 @@ EXTERNAL_DIRECT_CHAT_DEFAULTS: dict[str, object] = {
 
 ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "model_backend": "claude",
-    "answer_model_backend": "deepseek",
-    "planner_model_backend": "deepseek",
+    "answer_model_backend": "openai",
+    "planner_model_backend": "openai",
+    "dialogue_model_backend": "openai",
     "context_max_tokens": 64000,
     "orchestrator_context_max_tokens": 64000,
     "orchestrator_subagent_context_max_tokens": 64000,
     "planner_context_max_tokens": 128000,
+    "orchestrator_control_mode": "llm_first",
     "llm_planning": settings.orchestrator_llm_planning_default,
+    "orchestrator_dialogue_llm_control_enabled": True,
+    "planner_fallback_to_template": False,
     "react_enabled": True,
     "react_decision_max_tokens": 2048,
     "react_trace_visible": False,

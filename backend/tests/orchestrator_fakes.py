@@ -19,6 +19,7 @@ async def _collect(
 ) -> list[StreamChunk]:
     stream_config = dict(config or {})
     stream_config.setdefault("orchestrator_subagent_text_visible", True)
+    stream_config.setdefault("orchestrator_dialogue_llm_control_enabled", False)
     return [
         chunk
         async for chunk in adapter.stream(

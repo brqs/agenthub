@@ -27,7 +27,8 @@ DEPLOY_INTENT_RE = re.compile(
     r"(?i)(部署|发布|上线|端口|preview\s+(?:on|at|to)|deploy(?:ed|ment)?|port\s*\d{2,5})"
 )
 NEGATIVE_PREVIEW_INTENT_RE = re.compile(
-    r"(不要|无需|不需要|禁止|避免)\s*(?:预览|部署|发布|上线)|"
+    r"(不要|无需|不需要|禁止|避免)\s*(?:调用|执行|使用|进行|触发)?\s*"
+    r"(?:预览|部署|发布|上线)|"
     r"(no|without|skip|avoid|do\s+not|don't)\s+(?:preview|deploy|deployment)",
     re.I,
 )

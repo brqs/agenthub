@@ -2,7 +2,7 @@
 
 > 状态：Implemented MVP + Live E2E Passed
 >
-> 最后更新：2026-06-03
+> 最后更新：2026-06-13
 
 ---
 
@@ -72,7 +72,23 @@ review task 指令必须要求 reviewer：
 
 ---
 
-## 6. 当前边界
+## 6. Timeline Ordering Contract
+
+Review / Handoff Timeline 必须表达真实流转顺序，而不是内部数组或 priority 的偶然顺序：
+
+- `implementation` / 被 review 的任务先展示。
+- `review` 必须排在其 `review_of` 和 `depends_on` 指向的任务之后。
+- `repair` 必须排在触发它的 `review` / failed task 之后。
+- 同一层并行任务可按 attempt 创建时间排序；时间缺失时再用 priority 作为稳定兜底。
+- 如果 run detail 中存在 fallback，timeline 展示的 agent 应使用最终执行 / latest attempt agent；
+  planned/current/final agent 差异保留在 run detail 证据中，不应让用户误以为原计划 Agent 完成了任务。
+
+该契约对应前端模型 `reviewThreadModel`：构建 timeline 时同时考虑 `depends_on` 与 `review_of`，
+避免出现 Review / Handoff Timeline 倒序展示。
+
+---
+
+## 7. 当前边界
 
 已完成：
 

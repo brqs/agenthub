@@ -79,7 +79,7 @@ class TestValidConfigs:
             "heartbeat_interval_seconds": 15,
             "context_max_tokens": 64000,
             "qa_short_circuit_enabled": True,
-            "qa_model_backend": "deepseek",
+            "qa_model_backend": "openai",
             "qa_max_tokens": 8192,
             "qa_classifier_max_tokens": 128,
             "qa_temperature": 0.2,
@@ -137,13 +137,16 @@ class TestValidConfigs:
     def test_valid_builtin_config(self) -> None:
         config = {
             "model_backend": "claude",
-            "answer_model_backend": "deepseek",
-            "planner_model_backend": "deepseek",
+            "answer_model_backend": "openai",
+            "planner_model_backend": "openai",
+            "dialogue_model_backend": "openai",
             "context_max_tokens": 64000,
             "orchestrator_context_max_tokens": 64000,
             "orchestrator_subagent_context_max_tokens": 64000,
             "planner_context_max_tokens": 128000,
+            "orchestrator_control_mode": "llm_first",
             "llm_planning": True,
+            "orchestrator_dialogue_llm_control_enabled": True,
             "planner_fallback_to_template": False,
             "orchestrator_llm_config": {"max_tokens": 1024},
             "max_iterations": 10,
@@ -203,8 +206,10 @@ class TestValidConfigs:
             }
         )
 
-        assert result["answer_model_backend"] == "deepseek"
-        assert result["planner_model_backend"] == "deepseek"
+        assert result["answer_model_backend"] == "openai"
+        assert result["planner_model_backend"] == "openai"
+        assert result["orchestrator_control_mode"] == "llm_first"
+        assert result["planner_fallback_to_template"] is False
         assert result["react_trace_visible"] is False
         assert result["managed_agent_ids"] == [
             "claude-code",
@@ -854,6 +859,36 @@ class TestNumericValidation:
             assert exc_info.value.code == "INVALID_AGENT_CONFIG"
             assert "planner_context_max_tokens" in exc_info.value.message
 
+    def test_invalid_orchestrator_control_mode_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_control_mode": "template_first"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "orchestrator_control_mode" in exc_info.value.message
+
+    def test_invalid_dialogue_model_backend_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"dialogue_model_backend": "local"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+        assert "dialogue_model_backend" in exc_info.value.message
+
+    def test_invalid_dialogue_llm_control_flag_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_dialogue_llm_control_enabled": "yes"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
     def test_invalid_orchestrator_memory_enabled_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:
             validate_agent_config(
@@ -1072,6 +1107,8 @@ class TestBuiltinAgents:
         for key, value in ORCHESTRATOR_DEFAULTS.items():
             assert config[key] == value
         assert config["llm_planning"] is True
+        assert config["orchestrator_control_mode"] == "llm_first"
+        assert config["planner_fallback_to_template"] is False
         assert config["react_trace_visible"] is False
         assert config["available_agents_authoritative"] is False
         assert config["orchestrator_response_polish_enabled"] is True

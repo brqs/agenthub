@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import sqlite3
 from collections.abc import AsyncIterator
@@ -80,7 +81,8 @@ AUTH_ERROR_MARKERS = (
     "not configured",
     "unauthorized",
 )
-TEXT_EVENT_TYPES = {"text", "text_delta", "reasoning"}
+TEXT_EVENT_TYPES = {"text", "text_delta"}
+NON_VISIBLE_EVENT_TYPES = {"reasoning"}
 TOOL_CALL_EVENT_TYPES = {"tool_call"}
 TOOL_RESULT_EVENT_TYPES = {"tool_result"}
 TOOL_USE_EVENT_TYPES = {"tool_use"}
@@ -88,6 +90,7 @@ TOOL_EVENT_TYPES = TOOL_CALL_EVENT_TYPES | TOOL_RESULT_EVENT_TYPES | TOOL_USE_EV
 TOOL_USE_OK_STATUSES = {"completed", "done", "success", "ok"}
 TOOL_USE_ERROR_STATUSES = {"error", "failed"}
 TOOL_USE_NON_TERMINAL_STATUSES = {"running", "pending", "started"}
+HIDDEN_REASONING_RE = re.compile(r"(?is)<think>.*?</think>")
 
 
 class SharedOpenCodeAuthError(RuntimeError):
@@ -305,7 +308,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     return_code = await self._wait_process(process, budget)
                     break
 
-                if event_type in {"step_start", "step_finish"}:
+                if event_type in {"step_start", "step_finish"} | NON_VISIBLE_EVENT_TYPES:
                     continue
 
                 if event_type == "error":
@@ -411,6 +414,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
             if not text:
                 return
             text = sanitize_preview_deploy_text(text)
+            text = self._sanitize_visible_text(text)
             if not text:
                 return
             if not text_block_open:
@@ -511,10 +515,15 @@ class OpenCodeAdapter(BaseAgentAdapter):
         if isinstance(text, str):
             return text
         part = event.get("part")
-        if not isinstance(part, dict) or part.get("type") not in {"text", "reasoning"}:
+        if not isinstance(part, dict) or part.get("type") != "text":
             return None
         part_text = part.get("text")
         return part_text if isinstance(part_text, str) else None
+
+    @staticmethod
+    def _sanitize_visible_text(text: str) -> str:
+        text = HIDDEN_REASONING_RE.sub("", text)
+        return text.replace("<think>", "").replace("</think>", "")
 
     def _tool_call_chunk(self, event: dict[Any, Any]) -> StreamChunk:
         return StreamChunk(
@@ -702,6 +711,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
     def _text_chunks(self, text: str, block_index: int) -> list[StreamChunk]:
         text = sanitize_preview_deploy_text(text)
+        text = self._sanitize_visible_text(text)
         if not text:
             return []
         return [
