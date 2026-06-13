@@ -57,6 +57,12 @@ class StreamRunManager:
         message: Message,
         runner: StreamRunner,
     ) -> StreamRunSession:
+        session = await self.prepare(message)
+        await self.start_prepared(session, runner)
+        return session
+
+    async def prepare(self, message: Message) -> StreamRunSession:
+        """Register a stream session before the runtime task is launched."""
         async with self._lock:
             existing = self._sessions.get(message.id)
             if existing is not None:
@@ -65,9 +71,21 @@ class StreamRunManager:
                 message_id=message.id,
                 conversation_id=message.conversation_id,
             )
-            session.task = asyncio.create_task(runner(session))
             self._sessions[message.id] = session
             return session
+
+    async def start_prepared(
+        self,
+        session: StreamRunSession,
+        runner: StreamRunner,
+    ) -> None:
+        """Launch a previously registered session if it has not started yet."""
+        async with self._lock:
+            current = self._sessions.get(session.message_id)
+            if current is not session:
+                return
+            if session.task is None:
+                session.task = asyncio.create_task(runner(session))
 
     async def publish(
         self,

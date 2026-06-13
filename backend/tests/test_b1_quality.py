@@ -554,6 +554,40 @@ async def test_interrupt_pending_agent_message_marks_interrupted_and_releases_bu
     assert next_messages["agent_message"]["status"] == "pending"
 
 
+async def test_interrupt_streaming_message_without_session_marks_interrupted(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    agent_id = await _insert_agent()
+    conversation = await _create_conversation(client, headers, [agent_id])
+    messages = await _send_message(client, headers, conversation["id"], agent_id)
+    agent_message_id = UUID(messages["agent_message"]["id"])
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        message.status = "streaming"
+        message.content = []
+        await db.commit()
+
+    response = await client.post(
+        f"/api/v1/messages/{agent_message_id}/interrupt",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["state"] == "interrupted"
+    assert body["message"]["status"] == "interrupted"
+    assert body["message"]["content"][0]["text"].startswith("已打断")
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, agent_message_id)
+        assert message is not None
+        assert message.status == "interrupted"
+        assert "Agent stream was interrupted before completion" not in str(message.content)
+
+
 async def test_interrupt_streaming_agent_message_stops_runtime_and_preserves_partial_content(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -627,9 +661,13 @@ async def test_interrupt_user_message_is_rejected(client: AsyncClient) -> None:
     assert response.json()["detail"]["error"]["code"] == "NOT_AGENT_MESSAGE"
 
 
-async def test_streaming_message_without_manager_terminalizes_as_error(
+async def test_streaming_message_without_manager_stays_recoverable(
     client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(stream_module, "ORPHANED_STREAM_RECOVERY_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(stream_module, "ORPHANED_STREAM_RECOVERY_POLL_SECONDS", 0.001)
+
     _, headers = await _register(client)
     agent_id = await _insert_agent()
     conversation = await _create_conversation(client, headers, [agent_id])
@@ -649,13 +687,14 @@ async def test_streaming_message_without_manager_terminalizes_as_error(
     )
 
     assert response.status_code == 200
-    assert "stream_session_lost" in response.text
+    assert "stream_session_lost" not in response.text
+    assert "Agent stream was interrupted before completion" not in response.text
 
     async with SessionFactory() as db:
         message = await db.get(Message, agent_message_id)
         assert message is not None
-        assert message.status == "error"
-        assert "interrupted" in message.content[0]["text"]
+        assert message.status == "streaming"
+        assert message.content == []
 
 
 async def test_send_message_cleans_stale_stream_before_busy_check(

@@ -58,6 +58,8 @@ GENERIC_INTERRUPTED_TEXT = "已打断本次回复，可以继续补充要求。"
 CONTEXT_MAX_TOKENS_LIMIT = 200_000
 DEFAULT_PLANNER_CONTEXT_MAX_TOKENS = 128_000
 PLANNER_CONTEXT_MAX_TOKENS_LIMIT = 1_000_000
+ORPHANED_STREAM_RECOVERY_TIMEOUT_SECONDS = 10.0
+ORPHANED_STREAM_RECOVERY_POLL_SECONDS = 0.5
 
 
 class StreamDisconnectedError(RuntimeError):
@@ -420,21 +422,66 @@ async def _record_message_terminal_event(db: AsyncSession, message: Message) -> 
     )
 
 
-async def _mark_orphaned_stream_error(db: AsyncSession, message: Message) -> None:
-    message.status = "error"
-    if not message.content:
-        message.content = [
-            {
-                "type": "text",
-                "text": "Agent stream was interrupted before completion. Please retry.",
-            }
-        ]
-    await _record_message_terminal_event(db, message)
-    await db.commit()
+async def _recover_orphaned_stream_events(
+    message_id: UUID,
+) -> AsyncIterator[dict[str, str]]:
+    """Wait briefly for a streaming message to reach its persisted terminal state.
 
-
-async def _single_sse_event(event: dict[str, str]) -> AsyncIterator[dict[str, str]]:
-    yield event
+    The stream runner is in-process while the message state is persisted in the
+    database. During reloads or duplicate subscriptions the DB can say
+    ``streaming`` while this process no longer has a live session. That state is
+    recoverable and should not be persisted as an error.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + ORPHANED_STREAM_RECOVERY_TIMEOUT_SECONDS
+    while True:
+        async with SessionFactory() as db:
+            message = await db.get(Message, message_id)
+            if message is None:
+                yield StreamChunk(
+                    event_type="error",
+                    error_code="message_not_found",
+                    error="Message not found.",
+                ).to_sse()
+                return
+            if message.status == "done":
+                yield StreamChunk(
+                    event_type="done",
+                    status="done",
+                    message_id=str(message.id),
+                    conversation_id=str(message.conversation_id),
+                    agent_id=message.agent_id,
+                    total_blocks=len(message.content or []),
+                ).to_sse()
+                return
+            if message.status == "interrupted":
+                yield StreamChunk(
+                    event_type="interrupted",
+                    status="interrupted",
+                    message_id=str(message.id),
+                    conversation_id=str(message.conversation_id),
+                    agent_id=message.agent_id,
+                    total_blocks=len(message.content or []),
+                ).to_sse()
+                return
+            if message.status == "error":
+                error_text = GENERIC_STREAM_ERROR_TEXT
+                for block in message.content or []:
+                    if block.get("type") == "text" and str(block.get("text") or "").strip():
+                        error_text = _safe_error_text(str(block.get("text") or ""))
+                        break
+                yield StreamChunk(
+                    event_type="error",
+                    error_code="stream_terminal_error",
+                    error=error_text,
+                    message_id=str(message.id),
+                    conversation_id=str(message.conversation_id),
+                    agent_id=message.agent_id,
+                ).to_sse()
+                return
+        if loop.time() >= deadline:
+            return
+        await asyncio.sleep(ORPHANED_STREAM_RECOVERY_POLL_SECONDS)
 
 
 def _stream_wait_budget(
@@ -849,13 +896,9 @@ async def stream_message(
         return EventSourceResponse(stream_run_manager.subscribe(session))
 
     if message.status == "streaming":
-        await _mark_orphaned_stream_error(db, message)
-        event = StreamChunk(
-            event_type="error",
-            error_code="stream_session_lost",
-            error="Agent stream was interrupted before completion. Please retry.",
-        ).to_sse()
-        return EventSourceResponse(_single_sse_event(event))
+        recovery_message_id = message.id
+        await db.rollback()
+        return EventSourceResponse(_recover_orphaned_stream_events(recovery_message_id))
 
     if message.status != "pending":
         raise HTTPException(
@@ -869,6 +912,11 @@ async def stream_message(
         )
 
     message.status = "streaming"
-    await db.commit()
-    session = await stream_run_manager.start(message, _run_stream_session)
+    session = await stream_run_manager.prepare(message)
+    try:
+        await db.commit()
+    except Exception:
+        await stream_run_manager.finish(session)
+        raise
+    await stream_run_manager.start_prepared(session, _run_stream_session)
     return EventSourceResponse(stream_run_manager.subscribe(session))

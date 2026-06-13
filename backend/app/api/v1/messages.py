@@ -881,21 +881,16 @@ async def interrupt_message(
         )
 
     if msg.status == "streaming":
-        msg.status = "error"
+        msg.status = "interrupted"
         if not msg.content:
-            msg.content = [
-                {
-                    "type": "text",
-                    "text": "Agent stream was interrupted before completion. Please retry.",
-                }
-            ]
+            msg.content = [dict(INTERRUPTED_FALLBACK_BLOCK)]
         await db.commit()
         queued_next = await dispatch_next_queued_message(db, conversation_id=msg.conversation_id)
         if queued_next is not None:
             await db.commit()
         await db.refresh(msg)
         return InterruptMessageResponse(
-            state="already_terminal",
+            state="interrupted",
             message=MessageOut.model_validate(msg),
         )
 
