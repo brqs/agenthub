@@ -3758,6 +3758,16 @@ components:
           - type: 'null'
           title: Planner Model Backend
           description: ModelGateway backend for orchestrator LLM planning.
+        dialogue_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          title: Dialogue Model Backend
+          description: ModelGateway backend for Orchestrator dialogue moderation.
         context_max_tokens:
           anyOf:
           - type: integer
@@ -3790,11 +3800,25 @@ components:
           - type: 'null'
           title: Planner Context Max Tokens
           description: Maximum input context tokens used by the Orchestrator Planner.
+        orchestrator_control_mode:
+          anyOf:
+          - type: string
+            enum:
+            - auto
+            - llm_first
+          - type: 'null'
+          title: Orchestrator Control Mode
+          description: Orchestrator control mode. llm_first routes complex tasks through LLM control points before legacy templates; auto keeps compatibility.
         llm_planning:
           anyOf:
           - type: boolean
           - type: 'null'
           title: Llm Planning
+        orchestrator_dialogue_llm_control_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Dialogue Llm Control Enabled
         planner_fallback_to_template:
           anyOf:
           - type: boolean

@@ -170,11 +170,41 @@ def _is_identity_question(text: str) -> bool:
         return True
     if any(marker in text for marker in CHINESE_IDENTITY_MARKERS):
         return True
+    if len(text) > 120:
+        return False
+    if _looks_like_workspace_task(text):
+        return False
     return (
         "你" in text
         and "模型" in text
+        and "数据模型" not in text
         and ("什么" in text or "什麼" in text or "哪" in text)
     )
+
+
+def _looks_like_workspace_task(text: str) -> bool:
+    lowered = text.lower()
+    task_markers = (
+        "workspace",
+        "create",
+        "edit",
+        "write",
+        "implement",
+        "file",
+        ".md",
+        ".html",
+        ".css",
+        ".js",
+        ".py",
+        "创建",
+        "生成",
+        "编写",
+        "实现",
+        "修改",
+        "文件",
+        "产物",
+    )
+    return any(marker in lowered or marker in text for marker in task_markers)
 
 
 def _is_simple_greeting(text: str) -> bool:

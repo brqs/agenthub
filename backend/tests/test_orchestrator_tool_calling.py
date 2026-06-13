@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
+from app.agents.orchestrator._internal.tools.catalog import available_agent_ids
 from app.agents.orchestrator._internal.tools.loop import _tool_model_config
 from app.agents.orchestrator.tools import OrchestratorToolResult
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
@@ -50,6 +51,33 @@ def test_tool_model_config_uses_expanded_default_and_config_override() -> None:
     assert _tool_model_config({"orchestrator_tool_config": {"max_tokens": 2048}})[
         "max_tokens"
     ] == 2048
+
+
+def test_tool_catalog_available_agents_uses_current_group_runnable_scope() -> None:
+    config = {
+        "conversation_scoped_agents": True,
+        "available_agents_authoritative": True,
+        "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper"],
+        "available_agents": [
+            {
+                "id": "claude-code",
+                "runtime_available": True,
+                "runtime_status": "ready",
+            },
+            {
+                "id": "codex-helper",
+                "runtime_available": True,
+                "runtime_status": "ready",
+            },
+            {
+                "id": "opencode-helper",
+                "runtime_available": False,
+                "runtime_status": "unavailable",
+            },
+        ],
+    }
+
+    assert available_agent_ids(config) == ["claude-code", "codex-helper"]
 
 
 class FakeWriterAdapter(BaseAgentAdapter):
@@ -389,6 +417,7 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
         config={
             "orchestrator_tool_calling_enabled": True,
             "orchestrator_tool_gateway": gateway,
+            "orchestrator_response_polish_enabled": False,
             "orchestrator_memory_writer": memory,
             "managed_agent_ids": ["codex-helper"],
             "sub_adapters": {"codex-helper": writer},
@@ -438,6 +467,20 @@ async def test_tool_calling_dispatches_agent_validates_html_and_finishes(
         "dispatch_agent",
         "validate_html",
     ]
+    llm_events = [
+        event["payload"]
+        for event in memory.events
+        if event["event_type"] == "llm_control_point"
+    ]
+    assert [event["phase"] for event in llm_events] == [
+        "tool_loop",
+        "tool_loop",
+        "tool_loop",
+    ]
+    assert all(event["used_llm"] is True for event in llm_events)
+    assert llm_events[0]["decision_summary"].startswith(
+        "Tool loop iteration 1 selected 1 tool call"
+    )
     assert memory.finished[-1]["status"] == "done"
 
 

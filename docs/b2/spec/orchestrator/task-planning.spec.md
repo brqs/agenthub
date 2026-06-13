@@ -20,6 +20,51 @@ failure. They must either create real tasks for runnable conversation members or
 return an explicit error. Direct answers that discuss recent task state must use
 same-conversation structured Orchestrator memory before model-generated prose.
 
+## 2026-06-13 Update: Group-Scope Retry, Remap, And Diagnostics
+
+Normal group conversations now use `conversation.agent_ids` as the only
+scheduling boundary. During stream context construction, Orchestrator derives
+`available_agents`, `managed_agent_ids`, and `planning_agent_ids` from the
+current conversation's runnable non-Orchestrator members. Global built-in ids
+such as `claude-code`, `codex-helper`, or `opencode-helper` must not be added
+back merely because they exist in seed config.
+
+This boundary applies consistently to:
+
+- LLM Planner `Available agents`.
+- LLM Planner allowed `agent_id` set.
+- ReAct replanner `add_task` / `update_task` validation.
+- Orchestrator tool loop `dispatch_agent`.
+- Per-task fallback candidates.
+- Dialogue controller next-speaker choices.
+
+If the Planner outputs an agent id outside the current group scope:
+
+1. The backend performs one LLM retry with a safe correction message listing
+   only the legal ids and the illegal ids that were rejected.
+2. If retry still returns out-of-scope ids, the backend remaps those tasks to
+   the best current runnable group member by task type.
+3. If the current group has no runnable sub-agent, the run fails with a readable
+   `no_runnable_agent` style error instead of exposing raw
+   `invalid_task_plan: unknown agent_id ...` to the user.
+
+The raw `invalid_task_plan` validator remains as an internal safety check for
+unexpected protocol violations, but the normal hallucinated-agent path must be
+handled by retry/remap/readable failure.
+
+Live E2E reports for group-scope cases must include safe diagnostics:
+
+- `conversation_agent_ids`.
+- `available_agent_ids`.
+- `planning_agent_ids`.
+- observed task-card / child-message / agent-switch agent ids.
+- `illegal_agent_ids`.
+- whether user-visible text or SSE exposed `invalid_task_plan`,
+  `unknown agent_id`, or `agent_not_allowed`.
+
+Reports must not store full prompts, tokens, stderr, env vars, auth files, or
+secrets.
+
 ## 2026-06-07 Update: Built-in Planning Profiles And Clarification Gate MVP
 
 Planner `available_agents` entries include richer scheduling signals:
@@ -69,7 +114,11 @@ Orchestrator 必须区分“生成文件/构建产物”和“纯对话群聊”
 
 - 命中 `辩论`、`对话场景`、`群组内`、`角色扮演`、`圆桌讨论`，并同时命中
   `不需要生成文件`、`不要生成文件`、`直接以对话形式输出` 等 no-artifact marker 时，规划层应生成
-  `task_type="conversation"` 或等价内部类型。
+  `task_type="conversation"` / `task_type="dialogue_turn"` 或等价内部类型。
+- 如果请求没有明确文件/产物意图，但表达为“开始一场 / 组织一场 / 来一场”辩论、利弊讨论、
+  圆桌或角色对话，例如“请你开始一场有关 AI 发展的弊处和利处”，也应按纯对话处理。
+- 默认 `orchestrator_dialogue_llm_control_enabled=true` 时，纯对话优先交给 Orchestrator LLM
+  生成初始 `dialogue_turn` 计划；legacy template 只作为 planner 不可用或输出无效时的 fallback。
 - Conversation task 的 `expected_output` 必须为空或只描述自然语言发言，不得要求 workspace artifact。
 - Legacy template fallback 不得为纯对话任务生成 `Analyze request / Produce solution` 这类 artifact 模板；应生成两个或多个独立发言任务，例如正方、反方、主持总结。
 - 如果 LLM planner 把明确要求多个智能体的对话任务压成单个 conversation task，后端会拆成至少两个可用 Agent 的独立 conversation tasks。
@@ -93,6 +142,28 @@ Orchestrator 必须区分“生成文件/构建产物”和“纯对话群聊”
   turn-taking 抢占，除非用户明确要求多 Agent 轮流讨论或 panel 评审。
 
 详细契约见 [agent-turn-taking.spec.md](agent-turn-taking.spec.md)。
+
+## 2026-06-12 Update: LLM-First Orchestrator Control Plane
+
+内置 Orchestrator 默认 `orchestrator_control_mode="llm_first"`。在该模式下，复杂
+artifact/build/code/review/deploy/群聊协作请求不再先命中 legacy fullstack/template
+规则，而是在 direct gate 之后优先进入 LLM Planner。Planner 输出仍由后端做群聊白名单、
+依赖、preview/deploy service task 过滤、多 Agent implementation 重平衡和自审规避。
+
+Legacy template/direct artifact/fullstack 规则只作为兼容 fallback：
+
+- 显式 `config.tasks` 仍是最高优先级。
+- 平台事实、direct answer、previous-output follow-up、clarification 和 custom-agent
+  tool 仍可在 Planner 前短路。
+- `orchestrator_control_mode="auto"` 保留旧兼容顺序。
+- `llm_first` 下 Planner 失败后，只有 `planner_fallback_to_template=true` 才回退
+  template；否则暴露可诊断错误或进入配置的 fallback adapter。
+
+Run detail/E2E report 不应只看 `planner_used_llm`，而应聚合 `event_type="llm_control_point"`
+形成 `llm_control_points`，证明 planner、react replanner、dialogue controller、tool loop
+或 response polish 等关键流转阶段是否由大模型参与。
+
+完整控制面契约见 [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md)。
 
 ## 2026-06-11 Update: Explicit Task Routing, Attribution, And Large Planner Context
 
@@ -129,8 +200,8 @@ turn-taking scenarios.
 
 > 定义 Orchestrator 的任务规划、任务分配和 planner 降级规则。子任务执行流转、事件聚合和失败状态汇总见 [core.spec.md](core.spec.md)。
 >
-> 版本：v1.4
-> 最后更新：2026-06-11
+> 版本：v1.5
+> 最后更新：2026-06-12
 
 ---
 
@@ -180,18 +251,21 @@ turn-taking scenarios.
 
 Orchestrator 的任务解析顺序固定，前一个分支命中后不会继续尝试后续分支。
 
-当前实现顺序：
+`orchestrator_control_mode="llm_first"` 当前实现顺序：
 
 1. Platform facts / direct answer / recent task status / clarification gate 入口判定。
 2. 显式 `config.tasks` 自动跳过 previous-output follow-up、clarification gate 和 direct-answer detour，并直接解析。
 3. Clarification Gate 命中时输出 `clarification` block 并等待用户补充。
-4. 直接多 Agent mention 路由。
+4. 直接多 Agent broadcast 路由。
 5. LLM planner。
-6. Legacy template fallback。
+6. Planner 输出校验、过滤、重平衡和 explicit requirements 保留。
+7. Legacy template fallback（仅 `planner_fallback_to_template=true` 或 `auto` 兼容路径）。
+
+`orchestrator_control_mode="auto"` 保留旧兼容顺序，可在 LLM 成本、稳定性或旧测试迁移期使用。
 
 规划失败后的降级顺序：
 
-1. `planner_fallback_to_template is True` 时先回退 template。
+1. `planner_fallback_to_template is True` 时回退 template。
 2. planner 协议错误可按配置回退 direct answer。
 3. 有 fallback adapter 时回退单 Agent fallback。
 4. 都不可用时返回 Orchestrator fatal `error`。

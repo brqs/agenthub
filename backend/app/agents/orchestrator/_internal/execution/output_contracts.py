@@ -537,7 +537,18 @@ def _has_substantive_conversation_marker(text: str) -> bool:
 
 def _requires_previous_turn_response(task: SubTask) -> bool:
     haystack = f"{task.title}\n{task.instruction}".lower()
-    return bool(task.depends_on) or any(
+    if task.depends_on:
+        return True
+    opening_markers = (
+        "开场",
+        "先开始",
+        "opening",
+        "first turn",
+        "first speaker",
+    )
+    if any(marker in haystack for marker in opening_markers):
+        return False
+    return any(
         marker in haystack
         for marker in (
             "上一轮",

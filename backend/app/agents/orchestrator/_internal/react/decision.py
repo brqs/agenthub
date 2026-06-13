@@ -190,6 +190,7 @@ def _available_agent_summaries(
     config: Mapping[str, Any],
     agent_id_list: AgentIdList,
 ) -> list[dict[str, Any]]:
+    allowed_ids = set(_allowed_agent_ids(config, agent_id_list))
     available_agents = config.get("available_agents")
     if isinstance(available_agents, list):
         summaries: list[dict[str, Any]] = []
@@ -198,6 +199,8 @@ def _available_agent_summaries(
                 continue
             raw_id = item.get("agent_id", item.get("id"))
             if not isinstance(raw_id, str) or not raw_id.strip() or raw_id == "orchestrator":
+                continue
+            if raw_id.strip() not in allowed_ids:
                 continue
             summaries.append(
                 {

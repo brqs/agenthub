@@ -14,6 +14,8 @@ import app.agents.orchestrator.execution as orchestrator_execution
 from app.agents.base import BaseAgentAdapter
 from app.agents.orchestrator import OrchestratorAdapter
 from app.agents.orchestrator._internal.execution.attempts import task_messages
+from app.agents.orchestrator._internal.execution.events import accumulate_tool_event
+from app.agents.orchestrator._internal.execution.summary import planning_text
 from app.agents.orchestrator.artifacts import (
     check_attempt_artifacts,
     extract_artifact_paths_from_text,
@@ -47,6 +49,7 @@ from tests.orchestrator_fakes import (
     FakeSubAdapter,
     FakeWorkspaceVerifierAdapter,
     FakeWorkspaceWriterAdapter,
+    SequencedGateway,
     SequencedSubAdapter,
     _assert_blocks_balanced,
     _collect,
@@ -326,6 +329,22 @@ def test_artifact_candidates_ignore_negative_file_constraints() -> None:
     assert paths == ["index.html"]
 
 
+def test_non_output_tool_result_does_not_create_artifact_targets() -> None:
+    attempt = TaskAttempt(attempt_index=1, agent_id="agent-a")
+
+    accumulate_tool_event(
+        attempt,
+        StreamChunk(
+            event_type="tool_result",
+            tool_name="bash",
+            tool_status="ok",
+            tool_output="No entry.tar, server.js, or package.json was created.",
+        ),
+    )
+
+    assert attempt.artifact_paths == []
+
+
 def test_conversation_task_does_not_require_artifacts() -> None:
     attempt = TaskAttempt(attempt_index=1, agent_id="agent-a")
     task = SubTask(
@@ -476,6 +495,114 @@ async def test_orchestrator_emits_planning_agent_switch_subagent_and_summary() -
     assert not any(
         chunk.event_type == "delta" and (chunk.text_delta or "").startswith("@agent-")
         for chunk in chunks
+    )
+
+
+def test_task_card_orders_display_by_dependencies_before_priority() -> None:
+    tasks = [
+        SubTask(
+            task_id="repair",
+            agent_id="agent-a",
+            title="Repair findings",
+            instruction="Repair review findings.",
+            depends_on=("review",),
+            review_of=("review",),
+            priority=1,
+            task_type="repair",
+        ),
+        SubTask(
+            task_id="review",
+            agent_id="agent-b",
+            title="Review work",
+            instruction="Review the implementation.",
+            depends_on=("frontend", "backend"),
+            review_of=("frontend", "backend"),
+            priority=2,
+            task_type="review",
+        ),
+        SubTask(
+            task_id="frontend",
+            agent_id="agent-a",
+            title="Frontend implementation",
+            instruction="Build the frontend.",
+            depends_on=("planning",),
+            priority=3,
+        ),
+        SubTask(
+            task_id="backend",
+            agent_id="agent-b",
+            title="Backend implementation",
+            instruction="Build the backend.",
+            depends_on=("planning",),
+            priority=4,
+        ),
+        SubTask(
+            task_id="planning",
+            agent_id="agent-c",
+            title="Planning",
+            instruction="Write the plan.",
+            priority=10,
+        ),
+    ]
+
+    chunks = orchestrator_execution._task_card_block(0, tasks)
+    block_start = chunks[0][0]
+
+    assert block_start.metadata is not None
+    assert [
+        task["id"] for task in block_start.metadata["tasks"]
+    ] == [
+        "planning",
+        "frontend",
+        "backend",
+        "review",
+        "repair",
+    ]
+
+
+def test_planning_text_orders_display_by_dependencies_before_priority() -> None:
+    tasks = [
+        SubTask(
+            task_id="review",
+            agent_id="agent-b",
+            title="Review work",
+            instruction="Review the implementation.",
+            depends_on=("frontend", "backend"),
+            review_of=("frontend", "backend"),
+            priority=2,
+            task_type="review",
+        ),
+        SubTask(
+            task_id="frontend",
+            agent_id="agent-a",
+            title="Frontend implementation",
+            instruction="Build the frontend.",
+            depends_on=("planning",),
+            priority=3,
+        ),
+        SubTask(
+            task_id="backend",
+            agent_id="agent-b",
+            title="Backend implementation",
+            instruction="Build the backend.",
+            depends_on=("planning",),
+            priority=4,
+        ),
+        SubTask(
+            task_id="planning",
+            agent_id="agent-c",
+            title="Planning",
+            instruction="Write the plan.",
+            priority=10,
+        ),
+    ]
+
+    assert planning_text(tasks) == (
+        "I'll handle this in 4 step(s):\n"
+        "1. Planning\n"
+        "2. Frontend implementation\n"
+        "3. Backend implementation\n"
+        "4. Review work\n"
     )
 
 
@@ -1637,6 +1764,7 @@ async def test_orchestrator_uses_planner_for_named_agent_file_tasks() -> None:
             )
         ],
         config={
+            "orchestrator_control_mode": "llm_first",
             "planner_gateway": planner,
             "managed_agent_ids": ["claude-code", "opencode-helper"],
             "sub_adapters": {
@@ -2626,6 +2754,41 @@ async def test_orchestrator_subagent_error_triggers_per_task_fallback() -> None:
     assert "idle timeout" in adapter_b.received_messages[-2].content
     assert "Work" in summary
     assert "A retry/repair completed successfully." in summary
+
+
+async def test_orchestrator_fallback_context_hides_raw_runtime_trace_terms() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="external_runtime_error",
+                error="OpenAI Codex stderr: backend process failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+        },
+    )
+
+    context = adapter_b.received_messages[-2].content
+    assert chunks[-1].event_type == "done"
+    assert "Previous attempt failure" in context
+    assert "external_runtime_error" not in context
+    assert "stderr:" not in context
+    assert "external runtime failure" in context
+    assert "runtime diagnostic omitted" in context
 
 
 async def test_orchestrator_direct_chat_timeout_does_not_runtime_cooldown_agent() -> None:
@@ -4625,7 +4788,7 @@ async def test_orchestrator_dynamic_debate_continues_after_handoff() -> None:
 async def test_orchestrator_dynamic_debate_respects_explicit_one_exchange() -> None:
     request = (
         "@orchestrator 组织两个智能体辩论，论题是AI的快速发展利大于弊还是弊大于利，"
-        "只要双方各说一句，不需要生成文件。"
+        "由第一个智能体先开始，一人一句回应对方，不需要生成文件。"
     )
     claude = SequencedSubAdapter(
         "claude-code",
@@ -4687,6 +4850,158 @@ async def test_orchestrator_dynamic_debate_respects_explicit_one_exchange() -> N
     assert len(opencode.received_messages) == 1
     final_text = "".join(chunk.text_delta or "" for chunk in chunks)
     assert "辩论评判" in final_text
+
+
+async def test_orchestrator_dialogue_llm_controls_next_turn_and_final_judgement() -> None:
+    request = (
+        "@orchestrator 组织两个智能体辩论，论题是AI发展利大于弊还是弊大于利，"
+        "不需要生成文件，双方展开辩论。"
+    )
+    claude = SequencedSubAdapter(
+        "claude-code",
+        [
+            _text_chunks(
+                "正方开场：AI 发展利大于弊，因为医疗诊断、个性化教育和科研自动化都会"
+                "显著受益。风险确实存在，但技术扩散也能降低知识门槛，让更多中小团队"
+                "获得分析、创作和工程能力，社会总体生产力提升会创造新的岗位和服务。"
+            ),
+            _text_chunks(
+                "正方反驳：我回应反方提到的就业替代和隐私风险。替代压力不能被忽视，"
+                "但可以通过转岗教育、算法审计、数据最小化和责任追踪来缓解。关键不是"
+                "停止 AI 发展，而是把治理机制和产业收益同步推进，减少风险外溢。"
+            ),
+        ],
+    )
+    opencode = SequencedSubAdapter(
+        "opencode-helper",
+        [
+            _text_chunks(
+                "反方回应：我不同意正方把长期收益放在短期冲击之前。AI 发展弊处更突出，"
+                "因为就业替代、隐私收集和深度伪造会先爆发，而且监管通常滞后于商业部署。"
+                "如果治理能力跟不上，收益会集中在少数平台，普通劳动者先承担风险。"
+            ),
+        ],
+    )
+    dialogue_gateway = SequencedGateway(
+        [
+            [
+                StreamChunk(event_type="start", agent_id="dialogue"),
+                StreamChunk(
+                    event_type="tool_call",
+                    call_id="decision-1",
+                    tool_name="submit_dialogue_decision",
+                    tool_arguments={
+                        "action": "continue",
+                        "next_agent_id": "claude-code",
+                        "title": "第 3 轮发言：正方回应风险质疑",
+                        "instruction": "请正方回应就业替代和隐私风险，并补充治理方案。",
+                        "reason": "双方已有开场，正方需要回应反方核心质疑。",
+                    },
+                ),
+                StreamChunk(event_type="done", agent_id="dialogue"),
+            ],
+            [
+                StreamChunk(event_type="start", agent_id="dialogue"),
+                StreamChunk(
+                    event_type="tool_call",
+                    call_id="decision-2",
+                    tool_name="submit_dialogue_decision",
+                    tool_arguments={
+                        "action": "stop",
+                        "reason": "双方核心论点和回应已经足够，进入裁判总结。",
+                    },
+                ),
+                StreamChunk(event_type="done", agent_id="dialogue"),
+            ],
+            [
+                StreamChunk(event_type="start", agent_id="dialogue"),
+                StreamChunk(
+                    event_type="tool_call",
+                    call_id="judge-1",
+                    tool_name="submit_dialogue_judgement",
+                    tool_arguments={
+                        "winner": "draw",
+                        "winner_label": "双方势均力敌",
+                        "summary": "正方强调效率收益，反方强调风险扩散，双方都有有效回应。",
+                        "reason": "正方提出治理路径，反方指出风险优先爆发，证据强度接近。",
+                        "key_points": ["效率收益", "就业替代", "隐私治理"],
+                    },
+                ),
+                StreamChunk(event_type="done", agent_id="dialogue"),
+            ],
+        ]
+    )
+    memory = FakeMemoryWriter()
+
+    chunks = await _collect(
+        OrchestratorAdapter(agent_id="orchestrator"),
+        messages=[ChatMessage(role="user", content=request)],
+        config={
+            "react_enabled": False,
+            "orchestrator_response_polish_enabled": False,
+            "orchestrator_dialogue_llm_control_enabled": True,
+            "orchestrator_dialogue_gateway": dialogue_gateway,
+            "orchestrator_memory_writer": memory,
+            "managed_agent_ids": ["claude-code", "opencode-helper"],
+            "tasks": [
+                _task(
+                    "dialogue-turn-1",
+                    "claude-code",
+                    "第 1 轮发言：正方：AI 发展利大于弊",
+                    "你的角色/立场：正方，主张 AI 发展利大于弊。",
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+                _task(
+                    "dialogue-turn-2",
+                    "opencode-helper",
+                    "第 2 轮发言：反方：AI 发展弊大于利",
+                    "你的角色/立场：反方，主张 AI 发展弊大于利。本轮必须明确回应上一轮。",
+                    depends_on=["dialogue-turn-1"],
+                    task_type="dialogue_turn",
+                    expected_output="",
+                ),
+            ],
+            "sub_adapters": {
+                "claude-code": claude,
+                "opencode-helper": opencode,
+            },
+        },
+    )
+
+    assert len(dialogue_gateway.calls) == 3
+    assert dialogue_gateway.calls[0]["config"]["tool_choice"] == {
+        "type": "tool",
+        "name": "submit_dialogue_decision",
+    }
+    assert dialogue_gateway.calls[1]["config"]["tool_choice"] == {
+        "type": "tool",
+        "name": "submit_dialogue_decision",
+    }
+    assert dialogue_gateway.calls[2]["config"]["tool_choice"] == {
+        "type": "tool",
+        "name": "submit_dialogue_judgement",
+    }
+    assert len(claude.received_messages) == 2
+    assert len(opencode.received_messages) == 1
+    llm_points = [
+        payload
+        for event_type, _task_id, _agent_id, payload in memory.events
+        if event_type == "llm_control_point" and payload is not None
+    ]
+    assert [point["phase"] for point in llm_points] == [
+        "dialogue_controller",
+        "dialogue_controller",
+        "dialogue_controller",
+    ]
+    assert [point["status"] for point in llm_points] == [
+        "succeeded",
+        "succeeded",
+        "succeeded",
+    ]
+    final_text = "".join(chunk.text_delta or "" for chunk in chunks)
+    assert "辩论裁判" in final_text
+    assert "双方势均力敌" in final_text
 
 
 async def test_orchestrator_non_debate_dialogue_stops_after_each_participant_once() -> None:
@@ -4878,4 +5193,4 @@ async def test_registry_returns_orchestrator_adapter_for_builtin_orchestrator() 
     assert adapter.default_config["react_enabled"] is True
     assert adapter.default_config["react_trace_visible"] is False
     assert adapter.default_config["orchestrator_response_polish_enabled"] is True
-    assert adapter.default_config["planner_model_backend"] == "deepseek"
+    assert adapter.default_config["planner_model_backend"] == "openai"

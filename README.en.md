@@ -36,9 +36,11 @@ A typical flow is: user request -> Orchestrator planning -> Claude Code / Codex 
 
 ## Core Collaboration Flow
 
-The Orchestrator does not send every message straight to the Planner. A group-chat turn first passes through waterfall routing: clarification gates, previous-output follow-up, platform-fact answers, direct answers, custom-agent creation, and platform tool loops can all handle the request before planning starts. Planning itself has multiple routes: explicit `@` mentions can create broadcast tasks, discussion requests use turn-taking, configured `config.tasks` bypass the LLM Planner, and complex delivery requests use the Planner to build a DAG from current group members, agent profiles, conversation context, and workspace state.
+The Orchestrator does not send every message straight to the Planner. A group-chat turn first passes through waterfall routing: clarification gates, previous-output follow-up, platform-fact answers, direct answers, custom-agent creation, and platform tool loops can all handle the request before planning starts. Planning itself has multiple routes: explicit `@` mentions can create broadcast tasks, pure dialogue / debate / roundtable requests use Orchestrator LLM moderation for roles, turn order, continuation decisions, and final judgement, configured `config.tasks` bypass the LLM Planner, and complex delivery requests use the Planner to build a DAG from current group members, agent profiles, conversation context, and workspace state.
 
 Task delegation is bounded by the real members of the current group conversation. The Planner can select only available agents in the conversation, and sees built-in planning profiles plus safe allowlisted custom-agent fields. The generated task graph is validated for agent whitelist, dependencies, and workspace conflicts. Independent tasks can run in parallel; dependent tasks receive previous result summaries, workspace inventory, and the latest user request before being handed to a child agent. During execution, task cards show the actual execution agent, while run details preserve planned/current/final agent evidence. If a target agent is unavailable, fallback is limited to available agents in the group.
+
+For normal group conversations, `planning_agent_ids` is derived from the current runnable child agents in `conversation.agent_ids`; global built-in seed agents are not re-added behind the scenes. If the Planner still returns an out-of-group agent id, the backend retries once with the legal ids, then remaps to a current runnable group member or returns a readable degraded error when no executable child agent exists.
 
 Results then continue into review handoff, evaluation/reflection, and repair loops. Child agents generate or modify workspace artifacts; the Orchestrator collects results, decides whether repair is needed, and uses platform tools for preview, browser validation, source packaging, static release, or controlled container deployment. The user sees an inspectable chain rather than a black-box answer: routing -> planning -> delegation -> execution -> validation -> repair -> summary.
 
@@ -99,7 +101,7 @@ Watch or download the full demo: [demo.mp4](demo.mp4).
 - **Chat-native multi-agent work**: direct chats, group chats, Orchestrator scheduling, task cards, child-agent messages, and handoff timelines.
 - **Real workspace artifacts**: each conversation has a workspace with file tree, code preview, diffs, uploads, artifact manifest, and publish history.
 - **Multiple agent runtimes**: built-in Orchestrator, Claude Code, Codex Helper, OpenCode Helper, external CLI/SDK adapters, and a restricted builtin runtime for read-only custom agents.
-- **Planning and repair loops**: clarification gate, large-context Planner, DAG execution, parallel dispatch, fallback visibility, review handoff, evaluation, reflection, and repair loops.
+- **Planning and repair loops**: clarification gate, large-context Planner, LLM-moderated pure dialogue, DAG execution, parallel dispatch, fallback visibility, review handoff, evaluation, reflection, and repair loops.
 - **Preview and deployment**: static workspace preview, browser quality checks, static releases, source packages, and controlled container deployment paths.
 - **Contract-driven development**: OpenAPI-first API changes, generated frontend types, backend adapter contracts, and spec-backed E2E evidence.
 
@@ -411,6 +413,20 @@ Recent robustness scenarios include:
 - `static_package_deploy_repair_matrix`
 - `group_member_fallback_repair_visibility`
 - `im_dialogue_no_artifact_turn_taking_v2`
+- `dialogue_ai_benefits_risks_llm_moderated`
+
+Group-scope robustness scenarios validate that Orchestrator does not select agents outside the current group when a built-in agent is absent:
+
+- `group_scope_missing_opencode_dialogue_repair`
+- `group_scope_missing_codex_review_repair`
+- `group_scope_missing_claude_parallel_repair`
+- `group_scope_single_subagent_degraded`
+- `group_scope_react_replanner_no_external_agent`
+- `group_scope_tool_dispatch_no_external_agent`
+- `group_scope_fallback_no_external_agent`
+- `group_scope_memory_mentions_external_agent`
+
+These reports record safe diagnostics such as `conversation_agent_ids`, `available_agent_ids`, `planning_agent_ids`, `observed_agent_ids`, `illegal_agent_ids`, and whether a raw unknown-agent error leaked. They must not store full prompts, credentials, tokens, env vars, or runtime stderr.
 
 Credentials must be provided through environment variables. Do not write real accounts, passwords, access tokens, or refresh tokens into source files, reports, or logs.
 

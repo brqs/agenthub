@@ -283,10 +283,11 @@ class OrchestratorPlatformToolExecutor:
             return _tool_error("workspace preview session not found", "workspace_preview_not_found")
         if session.status != "running":
             return _tool_error("workspace preview session is not running", "preview_not_running")
+        verify_url = self._preview_service.local_url(session.port, session.entry_path)
         try:
             report = await self._browser_verifier.verify(
                 conversation_id=self._conversation_id,
-                url=session.url,
+                url=verify_url,
                 required_text=_string_list(arguments.get("required_text")),
                 viewports=_string_list(arguments.get("viewports")),
                 click_buttons=arguments.get("click_buttons") is not False,
@@ -294,6 +295,12 @@ class OrchestratorPlatformToolExecutor:
             )
         except (BrowserPreviewVerifyDisabledError, BrowserPreviewVerifyError) as exc:
             return _tool_error(str(exc), _browser_verify_error_code(exc))
+        if verify_url != session.url:
+            report = {
+                **report,
+                "public_url": session.url,
+                "verified_url": verify_url,
+            }
         return OrchestratorToolResult(
             status="ok" if report.get("passed") is True else "error",
             output=_json_output(report),

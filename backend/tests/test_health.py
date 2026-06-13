@@ -50,8 +50,8 @@ def test_default_cors_allows_tauri_origin() -> None:
 def test_default_agent_stream_timeouts_support_repair_loops() -> None:
     local_settings = Settings()
 
-    assert local_settings.agent_stream_idle_timeout_seconds == 240
-    assert local_settings.agent_stream_hard_timeout_seconds == 1800
+    assert local_settings.agent_stream_idle_timeout_seconds == 900
+    assert local_settings.agent_stream_hard_timeout_seconds == 3600
 
 
 def test_desktop_cors_is_appended_when_cors_origins_are_overridden() -> None:

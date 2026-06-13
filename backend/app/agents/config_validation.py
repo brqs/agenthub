@@ -13,6 +13,7 @@ from app.agents.config_fields import (
     CONTEXT_BUDGET_FIELDS,
     EXTERNAL_DIRECT_CHAT_FIELDS,
     EXTERNAL_RUNTIME_BUDGET_FIELDS,
+    ORCHESTRATOR_CONTROL_MODES,
     SUPPORTED_UPSTREAM_PROVIDERS,
     TOP_LEVEL_PROVIDERS,
 )
@@ -184,6 +185,18 @@ def _validate_optional_non_empty_string(config: dict[str, Any], key: str) -> Non
             code="INVALID_AGENT_CONFIG",
             message=f"'{key}' must be a non-empty string",
             details={"field": key, "value": value},
+        )
+
+
+def _validate_choice(config: dict[str, Any], key: str, choices: set[str]) -> None:
+    value = config.get(key)
+    if value is None:
+        return
+    if not isinstance(value, str) or value not in choices:
+        raise AgentConfigValidationError(
+            code="INVALID_AGENT_CONFIG",
+            message=f"'{key}' is not supported",
+            details={"field": key, "value": value, "choices": sorted(choices)},
         )
 
 
@@ -507,6 +520,16 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             message=f"Unsupported planner_model_backend '{planner_model_backend}'",
             details={"planner_model_backend": planner_model_backend},
         )
+    dialogue_model_backend = config.get("dialogue_model_backend")
+    if dialogue_model_backend is not None and (
+        not isinstance(dialogue_model_backend, str)
+        or dialogue_model_backend not in SUPPORTED_UPSTREAM_PROVIDERS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=f"Unsupported dialogue_model_backend '{dialogue_model_backend}'",
+            details={"dialogue_model_backend": dialogue_model_backend},
+        )
     response_polish_backend = config.get("orchestrator_response_polish_model_backend")
     if response_polish_backend is not None and (
         not isinstance(response_polish_backend, str)
@@ -547,6 +570,8 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "react_enabled")
     _validate_bool(config, "react_trace_visible")
     _validate_bool(config, "llm_planning")
+    _validate_choice(config, "orchestrator_control_mode", ORCHESTRATOR_CONTROL_MODES)
+    _validate_bool(config, "orchestrator_dialogue_llm_control_enabled")
     _validate_bool(config, "planner_fallback_to_template")
     _validate_bool(config, "available_agents_authoritative")
     _validate_bool(config, "clarification_gate_enabled")

@@ -46,21 +46,24 @@ async def external_runtime_prelude(
             stream=_iter_chunks([error_chunk("workspace_violation", workspace_error)]),
         )
 
+    merged = adapter.merged_config(config)
+    if _must_use_runtime_for_orchestrator_task(merged):
+        return RuntimePreludeResult(merged_config=merged)
+
     direct_response = direct_identity_response(messages, agent_id=adapter.agent_id)
     if direct_response:
         return RuntimePreludeResult(
-            merged_config={},
+            merged_config=merged,
             stream=_iter_chunks(text_result_chunks(direct_response, adapter.agent_id)),
         )
 
     direct_response = direct_small_talk_response(messages, agent_id=adapter.agent_id)
     if direct_response:
         return RuntimePreludeResult(
-            merged_config={},
+            merged_config=merged,
             stream=_iter_chunks(text_result_chunks(direct_response, adapter.agent_id)),
         )
 
-    merged = adapter.merged_config(config)
     route = await direct_chat(
         agent_id=adapter.agent_id,
         provider=provider,
@@ -71,6 +74,16 @@ async def external_runtime_prelude(
     if route.route == "direct_chat" and route.stream is not None:
         return RuntimePreludeResult(merged_config=merged, stream=route.stream)
     return RuntimePreludeResult(merged_config=merged)
+
+
+def _must_use_runtime_for_orchestrator_task(config: dict[str, Any]) -> bool:
+    runtime_context = config.get("runtime_context")
+    if not isinstance(runtime_context, dict):
+        return False
+    if not runtime_context.get("orchestrator_task_id"):
+        return False
+    task_type = str(runtime_context.get("orchestrator_task_type") or "").strip()
+    return task_type not in {"conversation", "dialogue_turn"}
 
 
 def text_result_chunks(

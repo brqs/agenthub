@@ -20,6 +20,7 @@ from app.agents.orchestrator._internal.execution.process_block import (
     task_result_step,
     task_running_step,
 )
+from app.agents.orchestrator._internal.llm_control import record_llm_control_point
 from app.agents.orchestrator._internal.presentation_markers import (
     final_answer_presentation,
 )
@@ -171,6 +172,15 @@ async def run_orchestrator_tool_loop(
                         yield _tool_call_chunk(call), next_block_index
                     continue
                 if chunk.event_type == "error":
+                    await record_llm_control_point(
+                        config,
+                        run_context,
+                        phase="tool_loop",
+                        status="failed",
+                        used_llm=True,
+                        fallback_reason=chunk.error_code or "model_error",
+                        decision_summary="Tool loop model returned an error.",
+                    )
                     await _finish_memory_run(
                         config,
                         run_context,
@@ -185,6 +195,15 @@ async def run_orchestrator_tool_loop(
                 if chunk.text_delta:
                     final_text_parts.append(chunk.text_delta)
         except Exception as exc:
+            await record_llm_control_point(
+                config,
+                run_context,
+                phase="tool_loop",
+                status="failed",
+                used_llm=True,
+                fallback_reason=exc.__class__.__name__,
+                decision_summary="Tool loop model call raised an exception.",
+            )
             await _finish_memory_run(config, run_context, "error", str(exc))
             yield StreamChunk(
                 event_type="error",
@@ -195,6 +214,14 @@ async def run_orchestrator_tool_loop(
             return
 
         if not tool_calls:
+            await record_llm_control_point(
+                config,
+                run_context,
+                phase="tool_loop",
+                status="succeeded",
+                used_llm=True,
+                decision_summary="Tool loop produced the final answer without tool calls.",
+            )
             final_summary = "".join(final_text_parts).strip() or "Tool calling completed."
             presented_summary = await presented_response_text(
                 config,
@@ -231,6 +258,15 @@ async def run_orchestrator_tool_loop(
                 yield chunk, updated_block_index
             await _finish_memory_run(config, run_context, "done", final_summary)
             return
+
+        await record_llm_control_point(
+            config,
+            run_context,
+            phase="tool_loop",
+            status="succeeded",
+            used_llm=True,
+            decision_summary=_tool_loop_decision_summary(iteration, tool_calls),
+        )
 
         result_lines: list[str] = []
         for call_index, call in enumerate(tool_calls, start=1):
@@ -347,6 +383,15 @@ async def run_orchestrator_tool_loop(
         current_messages.append(ChatMessage(role="assistant", content="\n".join(result_lines)))
 
     message = f"orchestrator tool loop exceeded {max_iterations} iterations"
+    await record_llm_control_point(
+        config,
+        run_context,
+        phase="tool_loop",
+        status="failed",
+        used_llm=True,
+        fallback_reason="max_iterations_exceeded",
+        decision_summary=message,
+    )
     await _finish_memory_run(config, run_context, "error", message)
     timeout_summary = process_step_delta(
         config,
@@ -380,6 +425,16 @@ def tool_trace_visible(config: Mapping[str, Any]) -> bool:
 
 def _friendly_tool_label(name: str) -> str:
     return name.replace("_", " ").strip() or "tool"
+
+
+def _tool_loop_decision_summary(
+    iteration: int,
+    tool_calls: list[OrchestratorToolCall],
+) -> str:
+    names = ", ".join(call.name for call in tool_calls[:5])
+    if len(tool_calls) > 5:
+        names = f"{names}, ..."
+    return f"Tool loop iteration {iteration} selected {len(tool_calls)} tool call(s): {names}."
 
 
 def _tool_gateway(config: Mapping[str, Any]) -> Any:

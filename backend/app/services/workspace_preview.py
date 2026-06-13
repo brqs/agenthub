@@ -188,6 +188,7 @@ class WorkspacePreviewService:
                 preferred,
                 exclude_conversation_id=conversation_id,
             )
+            self._release_orphan_preview_port(preferred)
         used_ports = set(
             (
                 await db.execute(
@@ -289,6 +290,16 @@ class WorkspacePreviewService:
     async def _stop_process(self, session: WorkspacePreviewSession) -> None:
         pid = session.pid
         session.pid = None
+        self._terminate_preview_process(pid)
+
+    def _release_orphan_preview_port(self, port: int) -> None:
+        """Release stale static preview processes that no longer have DB rows."""
+        if os.name == "nt":
+            return
+        for pid in self._static_server_pids_for_port(port):
+            self._terminate_preview_process(pid)
+
+    def _terminate_preview_process(self, pid: int | None) -> None:
         if not self._pid_alive(pid):
             return
         assert pid is not None
@@ -313,6 +324,44 @@ class WorkspacePreviewService:
             if os.name == "nt":
                 raise
             os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+
+    def _static_server_pids_for_port(self, port: int) -> list[int]:
+        if os.name == "nt":
+            return []
+        proc_root = Path("/proc")
+        if not proc_root.is_dir():
+            return []
+        pids: list[int] = []
+        for entry in proc_root.iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                raw = (entry / "cmdline").read_bytes()
+            except (FileNotFoundError, OSError, PermissionError):
+                continue
+            if not raw:
+                continue
+            argv = [
+                part.decode("utf-8", errors="ignore")
+                for part in raw.split(b"\0")
+                if part
+            ]
+            if self._is_static_server_cmdline_for_port(argv, port):
+                pids.append(int(entry.name))
+        return pids
+
+    def _is_static_server_cmdline_for_port(self, argv: list[str], port: int) -> bool:
+        if not any("app.services.workspace.static_server" in arg for arg in argv):
+            return False
+        expected_port = str(port)
+        for index, arg in enumerate(argv):
+            if arg == "--port" and index + 1 < len(argv):
+                if argv[index + 1] == expected_port:
+                    return True
+                continue
+            if arg == f"--port={expected_port}":
+                return True
+        return False
 
     def _kill_preview_process(self, pid: int, sig: signal.Signals) -> None:
         if os.name == "nt":
@@ -384,6 +433,9 @@ class WorkspacePreviewService:
                 netloc = f"{auth}@{netloc}"
             base = urlunparse((parsed.scheme, netloc, parsed.path, "", "", ""))
         return f"{base.rstrip('/')}/{self._quote_path(entry_path)}"
+
+    def local_url(self, port: int, entry_path: str) -> str:
+        return f"http://127.0.0.1:{port}/{self._quote_path(entry_path)}"
 
     def _quote_path(self, path: str) -> str:
         return "/".join(quote(part) for part in path.split("/"))

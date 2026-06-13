@@ -62,6 +62,9 @@ from app.agents.orchestrator._internal.execution.summary import (
 from app.agents.orchestrator._internal.execution.summary import (
     summary_text as _summary_text,
 )
+from app.agents.orchestrator._internal.llm_control import (
+    flush_pending_llm_control_points as _flush_pending_llm_control_points,
+)
 from app.agents.orchestrator._internal.memory import (
     record_event as _memory_record_event,
 )
@@ -141,6 +144,9 @@ from app.agents.orchestrator.task_planning import (
 )
 from app.agents.orchestrator.task_planning import (
     latest_user_request as _latest_user_request,
+)
+from app.agents.orchestrator.task_planning import (
+    normalize_llm_planned_dependencies as _normalize_llm_planned_dependencies,
 )
 from app.agents.orchestrator.task_planning import (
     resolve_tasks as _resolve_tasks,
@@ -697,6 +703,10 @@ class OrchestratorAdapter(BaseAgentAdapter):
             merged_config,
             _latest_user_request(messages),
         )
+        tasks = _normalize_llm_planned_dependencies(
+            tasks,
+            _latest_user_request(messages),
+        )
 
         try:
             _ensure_adapter_source(merged_config)
@@ -719,6 +729,7 @@ class OrchestratorAdapter(BaseAgentAdapter):
             plan_source=_plan_source(tasks),
             tasks=tasks,
         )
+        await _flush_pending_llm_control_points(merged_config, run_context)
         await _memory_record_event(
             merged_config,
             run_context,
@@ -790,27 +801,28 @@ class OrchestratorAdapter(BaseAgentAdapter):
                 yield chunk
                 if chunk.event_type == "error":
                     return
-        messages = await _apply_guidance_safe_point(
-            merged_config,
-            messages,
-            "quality_gate_before",
-            run_context=run_context,
-        )
-        async for chunk, updated_block_index in run_quality_gate(
-            merged_config,
-            messages,
-            next_block_index,
-            workspace_path,
-            tool_specs,
-            run_context,
-            run_task=_run_task,
-            text_block_with_next=_text_block_with_next,
-            positive_int_config=_positive_int_config,
-        ):
-            next_block_index = updated_block_index
-            yield chunk
-            if chunk.event_type == "error":
-                return
+        if not has_dialogue_tasks:
+            messages = await _apply_guidance_safe_point(
+                merged_config,
+                messages,
+                "quality_gate_before",
+                run_context=run_context,
+            )
+            async for chunk, updated_block_index in run_quality_gate(
+                merged_config,
+                messages,
+                next_block_index,
+                workspace_path,
+                tool_specs,
+                run_context,
+                run_task=_run_task,
+                text_block_with_next=_text_block_with_next,
+                positive_int_config=_positive_int_config,
+            ):
+                next_block_index = updated_block_index
+                yield chunk
+                if chunk.event_type == "error":
+                    return
         yield StreamChunk(
             event_type="done", agent_id=self.agent_id, total_blocks=next_block_index
         )

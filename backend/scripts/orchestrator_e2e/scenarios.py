@@ -133,6 +133,11 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         runner.GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT,
         runner.run_group_substantive_output_matrix_case,
     ),
+    "pure_dialogue_robustness_matrix": _spec(
+        "pure_dialogue_robustness_matrix",
+        runner.PURE_DIALOGUE_ROBUSTNESS_MATRIX_PROMPT,
+        runner.run_group_substantive_output_matrix_case,
+    ),
     "manual_two_agent_turn_taking": _spec(
         "manual_two_agent_turn_taking",
         runner.MANUAL_TWO_AGENT_TURN_TAKING_PROMPT,
@@ -188,6 +193,89 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "im_dialogue_no_artifact_turn_taking_v2",
         runner.AGENT_TURN_TAKING_DIALOGUE_PROMPT,
         runner.run_group_dialogue_debate_case,
+    ),
+    "dialogue_ai_benefits_risks_llm_moderated": _spec(
+        "dialogue_ai_benefits_risks_llm_moderated",
+        runner.DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT,
+        runner.run_group_dialogue_debate_case,
+    ),
+    "group_scope_missing_opencode_dialogue_repair": _spec(
+        "group_scope_missing_opencode_dialogue_repair",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS[
+            "group_scope_missing_opencode_dialogue_repair"
+        ],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_missing_opencode_dialogue_repair"
+        ],
+    ),
+    "group_scope_missing_codex_review_repair": _spec(
+        "group_scope_missing_codex_review_repair",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS[
+            "group_scope_missing_codex_review_repair"
+        ],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_missing_codex_review_repair"
+        ],
+    ),
+    "group_scope_missing_claude_parallel_repair": _spec(
+        "group_scope_missing_claude_parallel_repair",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS[
+            "group_scope_missing_claude_parallel_repair"
+        ],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_missing_claude_parallel_repair"
+        ],
+    ),
+    "group_scope_single_subagent_degraded": _spec(
+        "group_scope_single_subagent_degraded",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS["group_scope_single_subagent_degraded"],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_single_subagent_degraded"
+        ],
+    ),
+    "group_scope_react_replanner_no_external_agent": _spec(
+        "group_scope_react_replanner_no_external_agent",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS[
+            "group_scope_react_replanner_no_external_agent"
+        ],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_react_replanner_no_external_agent"
+        ],
+    ),
+    "group_scope_tool_dispatch_no_external_agent": _spec(
+        "group_scope_tool_dispatch_no_external_agent",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS[
+            "group_scope_tool_dispatch_no_external_agent"
+        ],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_tool_dispatch_no_external_agent"
+        ],
+    ),
+    "group_scope_fallback_no_external_agent": _spec(
+        "group_scope_fallback_no_external_agent",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS[
+            "group_scope_fallback_no_external_agent"
+        ],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_fallback_no_external_agent"
+        ],
+    ),
+    "group_scope_memory_mentions_external_agent": _spec(
+        "group_scope_memory_mentions_external_agent",
+        runner.GROUP_SCOPE_SCENARIO_PROMPTS[
+            "group_scope_memory_mentions_external_agent"
+        ],
+        runner.run_group_scope_no_external_agent_case,
+        agent_ids=runner.GROUP_SCOPE_SCENARIO_AGENT_IDS[
+            "group_scope_memory_mentions_external_agent"
+        ],
     ),
     "deployment": _spec("deployment", runner.DEPLOYMENT_PROMPT, runner.main),
     "deployment_repair": _spec(

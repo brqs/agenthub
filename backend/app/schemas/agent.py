@@ -62,6 +62,10 @@ class AgentConfig(BaseModel):
         default=None,
         description="ModelGateway backend for orchestrator LLM planning.",
     )
+    dialogue_model_backend: ModelBackend | None = Field(
+        default=None,
+        description="ModelGateway backend for Orchestrator dialogue moderation.",
+    )
     context_max_tokens: int | None = Field(
         default=None,
         ge=numeric_field("context_max_tokens").minimum,
@@ -86,7 +90,15 @@ class AgentConfig(BaseModel):
         le=numeric_field("planner_context_max_tokens").maximum,
         description="Maximum input context tokens used by the Orchestrator Planner.",
     )
+    orchestrator_control_mode: Literal["auto", "llm_first"] | None = Field(
+        default=None,
+        description=(
+            "Orchestrator control mode. llm_first routes complex tasks through "
+            "LLM control points before legacy templates; auto keeps compatibility."
+        ),
+    )
     llm_planning: bool | None = None
+    orchestrator_dialogue_llm_control_enabled: bool | None = None
     planner_fallback_to_template: bool | None = None
     available_agents_authoritative: bool | None = None
     orchestrator_llm_config: dict[str, Any] | None = None

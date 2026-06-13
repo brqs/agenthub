@@ -224,12 +224,14 @@ async def _orchestrator_conversation_config(
         for agent in available_agents
         if isinstance(agent.get("id"), str)
     ]
+    planning_agent_ids = list(managed_agent_ids)
     config: dict[str, Any] = {
         "conversation_agents": conversation_agents,
         "available_agents": available_agents,
         "available_agents_authoritative": True,
         "conversation_scoped_agents": True,
         "managed_agent_ids": managed_agent_ids,
+        "planning_agent_ids": planning_agent_ids,
         "orchestrator_include_group_agents_in_planning": True,
     }
     return config

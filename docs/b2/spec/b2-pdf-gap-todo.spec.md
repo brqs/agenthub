@@ -62,6 +62,8 @@ B2 已经完成 Agent Runtime Layer 和 Orchestrator 的主体能力：
 
 2026-06-10 纯对话 direct-chat timeout hardening：针对同类辩论场景中 Claude Code child message 出现 `direct_chat_timeout` 红框，B2 补齐 external direct-chat 流式预算配置字段，并让 Orchestrator 托管的 `conversation` / `dialogue_turn` 子任务在调用子 Agent 时使用更宽松 direct-chat 预算（idle 至少 45s、hard runtime 至少 120s、heartbeat 10s）。普通 Agent 私聊和代码 / 文件 / 部署任务不受该 override 影响；若仍超时，用户可见错误必须为清洗后的“本轮响应超时”说明，不能泄露 raw internal code。本轮先完成本地 targeted 与文档更新；公网 E2E 需后续按同例 prompt 重跑。
 
+2026-06-11 纯对话 / 辩论 Orchestrator LLM 控场：B2 已将“请你开始一场有关 AI 发展的弊处和利处”这类无产物纯对话请求纳入 LLM 主路径。规划层优先调用 LLM planner 生成 `dialogue_turn` 初始计划，包含当前群聊真实 Agent、角色/立场、发言顺序和 no-artifact guard；执行层在每轮 child message 完成后调用 LLM 生成 `dialogue_decision`，决定继续、换人或总结；结束时调用 LLM 生成 `dialogue_judgement`，辩论输出胜负/平局与理由，圆桌输出共识/分歧/建议。6/10 的 deterministic 动态轮次和 `debate_judgement` 保留为 LLM 不可用或输出无效时的 fallback。本轮新增 live E2E 场景 `dialogue_ai_benefits_risks_llm_moderated` 并完成本地 targeted 验证；尚未将该场景写入公网 passed evidence。
+
 2026-06-05 同例前端演示 repair loop：修复 OpenCode shared auth 权限归一化、planner 空 task payload fallback、managed preview 8082 端口接管后，使用用户原始 prompt 重跑公网 API/SSE E2E，最终 `/tmp/agenthub_same_prompt_repair_report_final.json` 与 `/tmp/agenthub_same_prompt_repair_sse_final.jsonl` `passed=true`。最终检查覆盖 `message_done`、LLM planner、三件前端文件、8082 preview、公网可访问、browser verify、桌面/移动截图、无 console/page/request 错误、移动端无横向溢出和按钮交互。
 
 2026-06-10 一键从零容器部署 repair loop：B2 新增

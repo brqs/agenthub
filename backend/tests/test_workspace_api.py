@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import signal
 import socket
 import zipfile
 from datetime import UTC, datetime
@@ -1495,6 +1496,70 @@ async def test_workspace_preview_requested_port_unavailable_fails(
 
     assert response.status_code == 503, response.text
     assert response.json()["detail"]["error"]["code"] == "workspace_preview_start_failed"
+
+
+async def test_workspace_preview_releases_matching_orphan_static_server_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = WorkspacePreviewService()
+    killed: list[tuple[int, signal.Signals]] = []
+    alive: dict[int, bool] = {1234: True, 5678: True}
+
+    monkeypatch.setattr(
+        service,
+        "_static_server_pids_for_port",
+        lambda port: [1234] if port == 8082 else [],
+    )
+    monkeypatch.setattr(service, "_pid_alive", lambda pid: bool(alive.get(pid, False)))
+
+    def fake_kill(pid: int, sig: signal.Signals) -> None:
+        killed.append((pid, sig))
+        alive[pid] = False
+
+    monkeypatch.setattr(service, "_kill_preview_process", fake_kill)
+
+    service._release_orphan_preview_port(8082)
+
+    assert killed == [(1234, signal.SIGTERM)]
+    assert alive[5678] is True
+
+
+async def test_workspace_preview_static_server_cmdline_requires_exact_port() -> None:
+    service = WorkspacePreviewService()
+
+    assert service._is_static_server_cmdline_for_port(
+        [
+            "python",
+            "-m",
+            "app.services.workspace.static_server",
+            "--port",
+            "8082",
+        ],
+        8082,
+    )
+    assert service._is_static_server_cmdline_for_port(
+        [
+            "python",
+            "-m",
+            "app.services.workspace.static_server",
+            "--port=8082",
+        ],
+        8082,
+    )
+    assert not service._is_static_server_cmdline_for_port(
+        [
+            "python",
+            "-m",
+            "app.services.workspace.static_server",
+            "--port",
+            "18082",
+        ],
+        8082,
+    )
+    assert not service._is_static_server_cmdline_for_port(
+        ["python", "-m", "uvicorn", "app.main:app", "--port", "8082"],
+        8082,
+    )
 
 
 async def test_workspace_preview_requested_port_replaces_managed_session(

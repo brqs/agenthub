@@ -38,6 +38,7 @@ from app.agents.orchestrator._internal.planning.templates import (
     workspace_conflict_tasks_from_request as _workspace_conflict_tasks_from_request,
 )
 from app.agents.orchestrator._internal.planning.turn_taking import (
+    pure_dialogue_requested,
     turn_taking_requested,
 )
 from app.agents.orchestrator.availability import scoped_runnable_agent_ids
@@ -48,9 +49,11 @@ from app.agents.types import ChatMessage
 PLANNER_PROTOCOL_ERROR_MARKERS = (
     "invalid_json",
     "empty_planner_output",
+    "empty_planner_tasks",
     "config.tasks must be a non-empty list",
     "planner failed",
 )
+EMPTY_PLANNER_TASKS_ERROR = "missing_task_plan: empty_planner_tasks"
 PORT_SERVICE_TASK_MARKERS = (
     "preview",
     "deploy",
@@ -185,6 +188,57 @@ PLATFORM_DEPLOYMENT_REPAIR_MARKERS = (
     "container deployment",
     "容器部署",
 )
+SEQUENTIAL_PLANNING_ORDER_MARKERS = (
+    "先",
+    "first",
+    "before implementation",
+    "before development",
+)
+SEQUENTIAL_FOLLOWUP_ORDER_MARKERS = (
+    "然后",
+    "再",
+    "之后",
+    "随后",
+    "then",
+    "after",
+)
+REQUEST_PLANNING_MARKERS = (
+    "planning.md",
+    "plan.md",
+    "规划",
+    "方案",
+    "设计文档",
+    "架构",
+    "document",
+    "specification",
+    "project plan",
+)
+PLANNING_BARRIER_TASK_MARKERS = (
+    "planning.md",
+    "plan.md",
+    "规划文档",
+    "架构规划",
+    "方案文档",
+    "技术方案",
+    "项目方案",
+    "project plan",
+    "architecture plan",
+    "technical plan",
+    "specification document",
+)
+REVIEW_TASK_MARKERS = (
+    "review",
+    "审阅",
+    "评审",
+    "复核",
+    "验收",
+)
+REPAIR_TASK_MARKERS = (
+    "repair",
+    "fix",
+    "修复",
+    "整改",
+)
 
 
 class PlannerResolutionError(ValueError):
@@ -208,50 +262,141 @@ async def resolve_tasks(
             )
         if _platform_first_deployment_repair_request(user_request):
             return []
+        dialogue_requested = pure_dialogue_requested(user_request)
         direct_tasks = _direct_tasks_from_request(config, messages)
-        if direct_tasks and not turn_taking_requested(user_request):
+        if direct_tasks and not dialogue_requested:
             return direct_tasks
-        if turn_taking_requested(user_request):
-            tasks = _derive_tasks(config, messages)
-            if tasks and all(
-                task.task_type in {"conversation", "dialogue_turn"} for task in tasks
-            ):
-                return _preserve_explicit_requirements(tasks, user_request)
-        conflict_tasks = _workspace_conflict_tasks_from_request(config, messages)
-        if conflict_tasks:
-            return conflict_tasks
-        explicit_artifact_tasks = _explicit_agent_artifact_tasks_from_request(
+        if _llm_first_control_enabled(config):
+            return await _resolve_tasks_llm_first(
+                config,
+                messages,
+                system_prompt,
+                user_request,
+                dialogue_requested,
+            )
+        return await _resolve_tasks_auto(
             config,
+            messages,
+            system_prompt,
             user_request,
+            dialogue_requested,
         )
-        if explicit_artifact_tasks:
-            return explicit_artifact_tasks
-        if not _should_skip_fullstack_template(config, user_request):
-            fullstack_tasks = _fullstack_delivery_tasks_from_request(config, messages)
-            if fullstack_tasks:
-                return fullstack_tasks
-        if llm_planning_enabled(config):
-            try:
-                return await _plan_tasks_with_model(config, messages, system_prompt)
-            except ValueError as exc:
-                if planner_fallback_to_template(
-                    config
-                ) or should_fallback_to_template_after_planner_failure(
-                    user_request
-                ) or _is_empty_task_list_error(exc):
-                    tasks = _derive_tasks(config, messages)
-                    tasks = balance_requested_multi_agent_plan(
-                        tasks,
-                        config,
-                        user_request,
-                    )
-                    return _preserve_explicit_requirements(tasks, user_request)
-                raise PlannerResolutionError(str(exc)) from exc
-        tasks = _derive_tasks(config, messages)
-        tasks = balance_requested_multi_agent_plan(tasks, config, user_request)
-        return _preserve_explicit_requirements(tasks, user_request)
 
     return _parse_task_list(raw_tasks)
+
+
+async def _resolve_tasks_llm_first(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    system_prompt: str | None,
+    user_request: str,
+    dialogue_requested: bool,
+) -> list[SubTask]:
+    if llm_planning_enabled(config):
+        try:
+            tasks = await _plan_tasks_with_model(config, messages, system_prompt)
+            if dialogue_requested:
+                return _dialogue_control_tasks(tasks, config, user_request)
+            return tasks
+        except ValueError as exc:
+            if planner_fallback_to_template(
+                config
+            ) or (
+                _is_empty_task_list_error(exc)
+                and should_fallback_to_template_after_planner_failure(user_request)
+            ):
+                return _legacy_template_tasks(config, messages, user_request)
+            raise PlannerResolutionError(str(exc)) from exc
+    return _legacy_template_tasks(config, messages, user_request)
+
+
+async def _resolve_tasks_auto(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    system_prompt: str | None,
+    user_request: str,
+    dialogue_requested: bool,
+) -> list[SubTask]:
+    if (
+        dialogue_requested
+        and _dialogue_llm_control_enabled(config)
+        and llm_planning_enabled(config)
+    ):
+        try:
+            tasks = await _plan_tasks_with_model(config, messages, system_prompt)
+            return _dialogue_control_tasks(tasks, config, user_request)
+        except ValueError as exc:
+            if not _should_fallback_dialogue_planner(config, user_request, exc):
+                raise PlannerResolutionError(str(exc)) from exc
+    if dialogue_requested:
+        tasks = _derive_tasks(config, messages)
+        if tasks and all(
+            task.task_type in {"conversation", "dialogue_turn"} for task in tasks
+        ):
+            return _preserve_explicit_requirements(tasks, user_request)
+    conflict_tasks = _workspace_conflict_tasks_from_request(config, messages)
+    if conflict_tasks:
+        return conflict_tasks
+    explicit_artifact_tasks = _explicit_agent_artifact_tasks_from_request(
+        config,
+        user_request,
+    )
+    if explicit_artifact_tasks:
+        return explicit_artifact_tasks
+    if not _should_skip_fullstack_template(config, user_request):
+        fullstack_tasks = _fullstack_delivery_tasks_from_request(config, messages)
+        if fullstack_tasks:
+            return fullstack_tasks
+    if llm_planning_enabled(config):
+        try:
+            return await _plan_tasks_with_model(config, messages, system_prompt)
+        except ValueError as exc:
+            if planner_fallback_to_template(
+                config
+            ) or should_fallback_to_template_after_planner_failure(
+                user_request
+            ) or _is_empty_task_list_error(exc):
+                tasks = _derive_tasks(config, messages)
+                tasks = balance_requested_multi_agent_plan(
+                    tasks,
+                    config,
+                    user_request,
+                )
+                return _preserve_explicit_requirements(tasks, user_request)
+            raise PlannerResolutionError(str(exc)) from exc
+    tasks = _derive_tasks(config, messages)
+    tasks = balance_requested_multi_agent_plan(tasks, config, user_request)
+    return _preserve_explicit_requirements(tasks, user_request)
+
+
+def _legacy_template_tasks(
+    config: Mapping[str, Any],
+    messages: list[ChatMessage],
+    user_request: str,
+) -> list[SubTask]:
+    if dialogue_requested := pure_dialogue_requested(user_request):
+        tasks = _derive_tasks(config, messages)
+        if tasks and all(
+            task.task_type in {"conversation", "dialogue_turn"} for task in tasks
+        ):
+            return _preserve_explicit_requirements(tasks, user_request)
+        if dialogue_requested:
+            return _preserve_explicit_requirements(tasks, user_request)
+    conflict_tasks = _workspace_conflict_tasks_from_request(config, messages)
+    if conflict_tasks:
+        return conflict_tasks
+    explicit_artifact_tasks = _explicit_agent_artifact_tasks_from_request(
+        config,
+        user_request,
+    )
+    if explicit_artifact_tasks:
+        return explicit_artifact_tasks
+    fullstack_tasks = _fullstack_delivery_tasks_from_request(config, messages)
+    if fullstack_tasks:
+        return fullstack_tasks
+    tasks = _derive_tasks(config, messages)
+    tasks = balance_requested_multi_agent_plan(tasks, config, user_request)
+    return _preserve_explicit_requirements(tasks, user_request)
 
 
 def _platform_first_deployment_repair_request(user_request: str) -> bool:
@@ -424,11 +569,19 @@ def _default_review_agent(
 
 
 def _is_empty_task_list_error(exc: ValueError) -> bool:
-    return "config.tasks must be a non-empty list" in str(exc)
+    message = str(exc)
+    return (
+        "empty_planner_tasks" in message
+        or "config.tasks must be a non-empty list" in message
+    )
 
 
 def planner_fallback_to_template(config: Mapping[str, Any]) -> bool:
     return config.get("planner_fallback_to_template") is True
+
+
+def _llm_first_control_enabled(config: Mapping[str, Any]) -> bool:
+    return config.get("orchestrator_control_mode") == "llm_first"
 
 
 def should_fallback_to_template_after_planner_failure(user_request: str) -> bool:
@@ -460,6 +613,22 @@ def should_fallback_to_template_after_planner_failure(user_request: str) -> bool
     return any(marker in normalized for marker in explicit_markers)
 
 
+def _dialogue_llm_control_enabled(config: Mapping[str, Any]) -> bool:
+    return config.get("orchestrator_dialogue_llm_control_enabled", True) is not False
+
+
+def _should_fallback_dialogue_planner(
+    config: Mapping[str, Any],
+    user_request: str,
+    exc: ValueError,
+) -> bool:
+    return (
+        planner_fallback_to_template(config)
+        or pure_dialogue_requested(user_request)
+        or _is_planner_protocol_error(exc)
+    )
+
+
 def _parse_task_list(raw_tasks: object) -> list[SubTask]:
     if not isinstance(raw_tasks, list) or not raw_tasks:
         raise ValueError("missing_task_plan: config.tasks must be a non-empty list")
@@ -486,6 +655,47 @@ async def _plan_tasks_with_model(
         user_request,
     )
     tasks = _tasks_from_planner_payload(planner_output.payload)
+    tasks = _normalize_planner_task_agents(
+        tasks,
+        config,
+        user_request,
+        planner_output.allowed_agent_ids,
+    )
+    invalid_agent_ids = _invalid_planned_agent_ids(tasks, planner_output.allowed_agent_ids)
+    if invalid_agent_ids:
+        retry_messages = _planner_retry_messages(
+            messages,
+            allowed_agent_ids=planner_output.allowed_agent_ids,
+            invalid_agent_ids=invalid_agent_ids,
+        )
+        retry_output = await plan_task_payload(
+            config,
+            retry_messages,
+            system_prompt,
+            user_request,
+        )
+        retry_tasks = _tasks_from_planner_payload(retry_output.payload)
+        retry_tasks = _normalize_planner_task_agents(
+            retry_tasks,
+            config,
+            user_request,
+            retry_output.allowed_agent_ids,
+        )
+        retry_invalid_ids = _invalid_planned_agent_ids(
+            retry_tasks,
+            retry_output.allowed_agent_ids,
+        )
+        if retry_invalid_ids:
+            tasks = _remap_invalid_planned_agents(
+                retry_tasks,
+                config,
+                user_request,
+                retry_output.allowed_agent_ids,
+            )
+            planner_output = retry_output
+        else:
+            tasks = retry_tasks
+            planner_output = retry_output
     _validate_planned_tasks(tasks, planner_output.allowed_agent_ids)
     tasks = _remove_port_service_tasks(tasks)
     tasks = balance_requested_multi_agent_plan(
@@ -494,12 +704,76 @@ async def _plan_tasks_with_model(
         user_request,
         planner_output.allowed_agent_ids,
     )
+    tasks = _preserve_explicit_primary_agent_assignment(
+        tasks,
+        user_request,
+        planner_output.allowed_agent_ids,
+    )
+    tasks = normalize_llm_planned_dependencies(tasks, user_request)
     tasks = _preserve_explicit_requirements(tasks, user_request)
+    _validate_planned_tasks(tasks, planner_output.allowed_agent_ids)
     return tasks
+
+
+def _invalid_planned_agent_ids(
+    tasks: list[SubTask],
+    allowed_agent_ids: set[str],
+) -> list[str]:
+    invalid: list[str] = []
+    seen: set[str] = set()
+    for task in tasks:
+        if task.agent_id in allowed_agent_ids or task.agent_id in seen:
+            continue
+        seen.add(task.agent_id)
+        invalid.append(task.agent_id)
+    return invalid
+
+
+def _planner_retry_messages(
+    messages: list[ChatMessage],
+    *,
+    allowed_agent_ids: set[str],
+    invalid_agent_ids: list[str],
+) -> list[ChatMessage]:
+    allowed = ", ".join(sorted(allowed_agent_ids)) or "none"
+    invalid = ", ".join(invalid_agent_ids)
+    retry_instruction = (
+        "Planner retry required: the previous task plan used agent ids that are "
+        f"not in the current group scope: {invalid}. The only legal agent ids for "
+        f"this conversation are: {allowed}. Return a corrected task plan using "
+        "only those legal ids. Do not include unavailable or historical agents."
+    )
+    return [*messages, ChatMessage(role="assistant", content=retry_instruction)]
+
+
+def _remap_invalid_planned_agents(
+    tasks: list[SubTask],
+    config: Mapping[str, Any],
+    user_request: str,
+    allowed_agent_ids: set[str],
+) -> list[SubTask]:
+    ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
+    if not ordered_agents:
+        raise ValueError(
+            "no_runnable_agent: no executable agent is available in current conversation"
+        )
+    return [
+        (
+            replace(
+                task,
+                agent_id=_replacement_agent_for_orchestrator_task(task, ordered_agents),
+            )
+            if task.agent_id not in allowed_agent_ids
+            else task
+        )
+        for task in tasks
+    ]
 
 
 def _tasks_from_planner_payload(payload: Any) -> list[SubTask]:
     raw_tasks = payload.get("tasks") if isinstance(payload, Mapping) else payload
+    if isinstance(raw_tasks, list) and not raw_tasks:
+        raise ValueError(EMPTY_PLANNER_TASKS_ERROR)
     return _parse_task_list(raw_tasks)
 
 
@@ -517,6 +791,118 @@ def _validate_planned_tasks(tasks: list[SubTask], allowed_agent_ids: set[str]) -
             )
 
 
+def _normalize_planner_task_agents(
+    tasks: list[SubTask],
+    config: Mapping[str, Any],
+    user_request: str,
+    allowed_agent_ids: set[str],
+) -> list[SubTask]:
+    if not any(task.agent_id == "orchestrator" for task in tasks):
+        return tasks
+    ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
+    if not ordered_agents:
+        return tasks
+    return [
+        (
+            replace(
+                task,
+                agent_id=_replacement_agent_for_orchestrator_task(task, ordered_agents),
+            )
+            if task.agent_id == "orchestrator"
+            else task
+        )
+        for task in tasks
+    ]
+
+
+def _replacement_agent_for_orchestrator_task(
+    task: SubTask,
+    ordered_agents: list[str],
+) -> str:
+    task_text = f"{task.task_type}\n{task.title}\n{task.instruction}".lower()
+    if _is_review_task(task) or any(marker in task_text for marker in REVIEW_TASK_MARKERS):
+        if "codex-helper" in ordered_agents:
+            return "codex-helper"
+    if _is_planning_barrier_task(task):
+        if "codex-helper" in ordered_agents:
+            return "codex-helper"
+    if any(marker in task_text for marker in ("verify", "verification", "验收", "验证")):
+        if "opencode-helper" in ordered_agents:
+            return "opencode-helper"
+    if _is_repair_task(task):
+        if "claude-code" in ordered_agents:
+            return "claude-code"
+    if any(marker in task_text for marker in IMPLEMENTATION_TASK_MARKERS):
+        for agent_id in ("claude-code", "opencode-helper"):
+            if agent_id in ordered_agents:
+                return agent_id
+    return ordered_agents[0]
+
+
+def _dialogue_control_tasks(
+    tasks: list[SubTask],
+    config: Mapping[str, Any],
+    user_request: str,
+) -> list[SubTask]:
+    allowed_agents = _allowed_agent_ids_from_config(config)
+    ordered_agents = _ordered_allowed_agent_ids(config, allowed_agents, user_request)
+    dialogue_tasks = [
+        task for task in tasks if task.task_type in {"conversation", "dialogue_turn"}
+    ]
+    if not dialogue_tasks and tasks:
+        dialogue_tasks = list(tasks)
+    if not dialogue_tasks:
+        raise ValueError("invalid_task_plan: dialogue planner returned no dialogue tasks")
+
+    normalized: list[SubTask] = []
+    existing: list[SubTask] = []
+    previous_task_id: str | None = None
+    for index, task in enumerate(dialogue_tasks):
+        agent_id = task.agent_id if task.agent_id in allowed_agents else ""
+        if not agent_id and ordered_agents:
+            agent_id = ordered_agents[index % len(ordered_agents)]
+        if not agent_id:
+            raise ValueError("invalid_task_plan: dialogue task has no allowed agent")
+        task_id = task.task_id or f"dialogue-turn-{index + 1}"
+        if any(item.task_id == task_id for item in existing):
+            task_id = _unique_task_id(existing, f"dialogue-turn-{index + 1}")
+        depends_on = task.depends_on
+        if previous_task_id and not depends_on:
+            depends_on = (previous_task_id,)
+        instruction = _no_artifact_dialogue_instruction(task.instruction, user_request)
+        normalized_task = replace(
+            task,
+            task_id=task_id,
+            agent_id=agent_id,
+            instruction=instruction,
+            depends_on=depends_on,
+            priority=index,
+            expected_output="",
+            task_type="dialogue_turn",
+        )
+        normalized.append(normalized_task)
+        existing.append(normalized_task)
+        previous_task_id = task_id
+
+    if len(normalized) == 1 and len(ordered_agents) >= 2:
+        normalized = _split_single_dialogue_turn_task(normalized[0], ordered_agents)
+    _validate_planned_tasks(normalized, allowed_agents)
+    return normalized
+
+
+def _no_artifact_dialogue_instruction(instruction: str, user_request: str) -> str:
+    guard = (
+        "No-artifact dialogue guard: this is a pure group dialogue turn. "
+        "Do not create, edit, or request workspace files, reports, code artifacts, "
+        "previews, deployments, or platform tools. Speak only for yourself in the "
+        "assigned role, respond to prior turns when relevant, and do not script "
+        "another Agent's full reply."
+    )
+    if "No-artifact dialogue guard:" in instruction:
+        return instruction
+    return f"{instruction}\n\n{guard}\n\nOriginal user request:\n{user_request}"
+
+
 def _remove_port_service_tasks(tasks: list[SubTask]) -> list[SubTask]:
     depended_on = {dependency for task in tasks for dependency in task.depends_on}
     kept = [
@@ -529,9 +915,199 @@ def _remove_port_service_tasks(tasks: list[SubTask]) -> list[SubTask]:
 
 def _is_port_service_task(task: SubTask) -> bool:
     text = f"{task.title}\n{task.instruction}".lower()
-    if not any(marker in text for marker in PORT_SERVICE_TASK_MARKERS):
+    if not _has_port_service_marker(text):
         return False
     return not any(marker in text for marker in ARTIFACT_TASK_MARKERS)
+
+
+def _has_port_service_marker(text: str) -> bool:
+    for marker in PORT_SERVICE_TASK_MARKERS:
+        if marker in {"port", "server", "service", "preview", "deploy"}:
+            if re.search(rf"\b{re.escape(marker)}\b", text):
+                return True
+            continue
+        if marker in text:
+            return True
+    return False
+
+
+def normalize_llm_planned_dependencies(
+    tasks: list[SubTask],
+    user_request: str,
+) -> list[SubTask]:
+    """Add conservative graph edges when the LLM omits obvious workflow order."""
+    if len(tasks) < 2:
+        return tasks
+
+    updated = list(tasks)
+    planning_ids = [
+        task.task_id for task in updated if _is_planning_barrier_task(task)
+    ]
+    if planning_ids and _sequential_planning_requested(user_request):
+        planning_id_set = set(planning_ids)
+        updated = [
+            (
+                replace(task, depends_on=(), review_of=())
+                if task.task_id in planning_id_set
+                else task
+            )
+            for task in updated
+        ]
+        updated = [
+            (
+                _with_added_dependencies(task, planning_ids)
+                if _should_follow_planning_barrier(task, planning_ids)
+                else task
+            )
+            for task in updated
+        ]
+
+    updated = [
+        replace(task, review_of=()) if task.review_of and not _is_review_task(task) else task
+        for task in updated
+    ]
+
+    review_ids = [task.task_id for task in updated if _is_review_task(task)]
+    raw_generation_ids = [
+        task.task_id
+        for task in updated
+        if not _is_review_task(task)
+        and not _is_repair_task(task)
+        and task.task_type not in {"conversation", "dialogue_turn"}
+    ]
+    generation_ids = [
+        *planning_ids,
+        *[
+            task_id
+            for task_id in raw_generation_ids
+            if task_id not in set(planning_ids)
+        ],
+    ]
+    if generation_ids:
+        updated = [
+            (
+                _with_added_dependencies(task, generation_ids)
+                if _is_review_task(task) and not task.review_of
+                else task
+            )
+            for task in updated
+        ]
+        updated = [
+            (
+                replace(task, review_of=tuple(generation_ids))
+                if _is_review_task(task) and not task.review_of
+                else task
+            )
+            for task in updated
+        ]
+
+    if review_ids:
+        updated = [
+            (
+                _with_added_dependencies(task, review_ids)
+                if _is_repair_task(task)
+                and not _has_dependency_from(task, set(review_ids))
+                else task
+            )
+            for task in updated
+        ]
+
+    if planning_ids and _sequential_planning_requested(user_request):
+        planning_id_set = set(planning_ids)
+        updated = [
+            (
+                replace(task, depends_on=(), review_of=())
+                if task.task_id in planning_id_set
+                else task
+            )
+            for task in updated
+        ]
+
+    return updated
+
+
+_normalize_llm_planned_dependencies = normalize_llm_planned_dependencies
+
+
+def _sequential_planning_requested(user_request: str) -> bool:
+    normalized = user_request.lower()
+    return (
+        any(marker in normalized for marker in SEQUENTIAL_PLANNING_ORDER_MARKERS)
+        and any(marker in normalized for marker in SEQUENTIAL_FOLLOWUP_ORDER_MARKERS)
+        and any(marker in normalized for marker in REQUEST_PLANNING_MARKERS)
+    )
+
+
+def _is_planning_barrier_task(task: SubTask) -> bool:
+    text = "\n".join(
+        part
+        for part in (
+            task.title,
+            task.expected_output or "",
+        )
+        if part
+    ).lower()
+    return any(marker in text for marker in PLANNING_BARRIER_TASK_MARKERS)
+
+
+def _should_follow_planning_barrier(
+    task: SubTask,
+    planning_ids: list[str],
+) -> bool:
+    if task.task_id in planning_ids:
+        return False
+    if task.task_type in {"conversation", "dialogue_turn"}:
+        return False
+    return task.task_type in {"implementation", "review", "repair"} or _is_review_task(
+        task
+    ) or _is_repair_task(task)
+
+
+def _is_review_task(task: SubTask) -> bool:
+    if task.task_type == "repair":
+        return False
+    if task.task_type == "review":
+        return True
+    text = _task_label_text(task)
+    return any(marker in text for marker in REVIEW_TASK_MARKERS)
+
+
+def _is_repair_task(task: SubTask) -> bool:
+    if task.task_type == "review":
+        return False
+    if task.task_type == "repair":
+        return True
+    text = _task_label_text(task)
+    return any(marker in text for marker in REPAIR_TASK_MARKERS)
+
+
+def _task_label_text(task: SubTask) -> str:
+    return "\n".join(
+        part
+        for part in (
+            task.title,
+            task.expected_output or "",
+        )
+        if part
+    ).lower()
+
+
+def _with_added_dependencies(
+    task: SubTask,
+    dependency_ids: list[str],
+) -> SubTask:
+    deps = list(task.depends_on)
+    for dependency_id in dependency_ids:
+        if dependency_id == task.task_id or dependency_id in deps:
+            continue
+        deps.append(dependency_id)
+    if tuple(deps) == task.depends_on:
+        return task
+    return replace(task, depends_on=tuple(deps))
+
+
+def _has_dependency_from(task: SubTask, dependency_ids: set[str]) -> bool:
+    return any(dependency_id in dependency_ids for dependency_id in task.depends_on)
 
 
 def balance_requested_multi_agent_plan(
@@ -542,6 +1118,8 @@ def balance_requested_multi_agent_plan(
 ) -> list[SubTask]:
     allowed_agent_ids = allowed_agent_ids or _allowed_agent_ids_from_config(config)
     ordered_agents = _ordered_allowed_agent_ids(config, allowed_agent_ids, user_request)
+    if _explicit_primary_agent_id(user_request, allowed_agent_ids):
+        return _avoid_self_review_tasks(tasks, ordered_agents)
     if len(tasks) == 1 and _explicit_multi_agent_distribution_requested(user_request):
         if tasks[0].task_type in {"conversation", "dialogue_turn"} and len(
             ordered_agents
@@ -780,6 +1358,59 @@ def _explicit_multi_agent_distribution_requested(user_request: str) -> bool:
     return any(marker in normalized for marker in MULTI_AGENT_DISTRIBUTION_MARKERS)
 
 
+def _explicit_primary_agent_id(
+    user_request: str,
+    allowed_agent_ids: set[str],
+) -> str | None:
+    mentioned = explicit_agent_mentions(list(allowed_agent_ids), user_request)
+    if len(mentioned) != 1:
+        return None
+    normalized = user_request.lower()
+    strong_primary_markers = (
+        "planned agent 必须是",
+        "planned agent must be",
+        "task card 的 planned agent",
+        "必须先把",
+        "先把任务",
+        "明确交给",
+        "首选 agent",
+        "首选成员",
+        "优先处理",
+        "优先交给",
+        "primary agent",
+        "primary task",
+    )
+    if not any(marker in normalized for marker in strong_primary_markers):
+        return None
+    return mentioned[0]
+
+
+def _preserve_explicit_primary_agent_assignment(
+    tasks: list[SubTask],
+    user_request: str,
+    allowed_agent_ids: set[str],
+) -> list[SubTask]:
+    target_agent_id = _explicit_primary_agent_id(user_request, allowed_agent_ids)
+    if not target_agent_id or not tasks:
+        return tasks
+    primary_index = next(
+        (
+            index
+            for index, task in enumerate(tasks)
+            if task.task_type not in {"conversation", "dialogue_turn"}
+            and not _is_review_task(task)
+            and not _is_repair_task(task)
+        ),
+        0,
+    )
+    primary_task = tasks[primary_index]
+    if primary_task.agent_id == target_agent_id:
+        return tasks
+    updated = list(tasks)
+    updated[primary_index] = replace(primary_task, agent_id=target_agent_id)
+    return updated
+
+
 def _ordered_allowed_agent_ids(
     config: Mapping[str, Any],
     allowed_agent_ids: set[str],
@@ -820,6 +1451,10 @@ def _configured_agent_order(config: Mapping[str, Any]) -> list[str]:
     scoped_ids = scoped_runnable_agent_ids(config)
     if scoped_ids is not None:
         return list(scoped_ids)
+
+    planning_agent_ids = agent_id_list(config.get("planning_agent_ids"))
+    if planning_agent_ids:
+        return planning_agent_ids
 
     available_agents = config.get("available_agents")
     if isinstance(available_agents, list):

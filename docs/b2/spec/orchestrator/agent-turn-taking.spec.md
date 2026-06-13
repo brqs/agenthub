@@ -75,13 +75,13 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 - Orchestrator 在下一轮 prompt 中只提供 bounded context：原始请求、当前 Agent 角色、本轮目标、前几轮发言的必要片段或摘要。
 - Orchestrator final answer 只做主持总结，不吞并或重写所有成员发言。
 - 辩论 / 反驳 / 接力类任务采用动态 session：初始只需要最小轮次；每轮完成后
-  Orchestrator 根据本轮 `agent_summary`、handoff hint、用户要求、已完成攻防轮次和
-  max turns 判断是否追加下一轮 `dialogue_turn`。
+  Orchestrator 优先调用 LLM 生成 `dialogue_decision`，决定是否继续、下一位 Agent 和下一轮焦点。
+  确定性规则只作为 LLM 不可用或输出无效时的 fallback。
 - `一人一句` 只约束单轮输出简短，不自动表示总轮数固定；只有“只要双方各说一句 /
   只要一轮”等明确短答约束才固定为双方各一轮。
-- 明确辩论任务结束时，Orchestrator 生成 deterministic `debate_judgement` run event，
-  并在 final answer 中给出“更有说服力的一方”或“势均力敌”。评分只基于公开发言，
-  维度包括回应针对性、证据具体性、风险覆盖、逻辑一致性和是否直接回应对方。
+- 明确辩论任务结束时，Orchestrator 优先调用 LLM 生成 `dialogue_judgement` run event，
+  并在 final answer 中给出最终裁判、双方关键论据、薄弱点和总结。旧的 deterministic
+  `debate_judgement` 只作为 fallback，且只基于公开发言。
 - 对明确接力任务，planner / legacy dialogue fallback 应保留完整参与者名单；runtime cooldown
   或 preflight unavailable 只影响该轮执行选择，不改变 DialoguePlan 里“谁本应发言”的事实。
 - 如果某个计划参与者在执行前已知不可用，Orchestrator 需要为该参与者创建清洗后的独立
@@ -134,22 +134,43 @@ Orchestrator 必须支持真实群聊中的 Agent-to-Agent 接力，而不是让
 - 辩论类 final answer 需要包含 `debate_judgement` 的主持评判；非辩论 roundtable /
   brainstorm / data panel 不输出胜负判断。
 - 只有所有已生成辩论轮次均成功时才输出 `debate_judgement`；如果某个追加轮次失败，
-  final answer 必须按 partial/needs-attention 说明，不能误报完整结束。
+final answer 必须按 partial/needs-attention 说明，不能误报完整结束。
+
+## 9. 2026-06-11 LLM-Moderated Dialogue Update
+
+纯对话 / 辩论默认进入 Orchestrator LLM 控场：
+
+- `orchestrator_dialogue_llm_control_enabled=true` 为默认 seed 配置。
+- 初始规划优先由 LLM planner 生成 `dialogue_turn`，包括参与 Agent、角色/立场和最小发言顺序。
+- 运行时每轮完成后，Orchestrator 调用 LLM 生成 `dialogue_decision`；结果写入 run detail。
+- 对话结束后，Orchestrator 调用 LLM 生成 `dialogue_judgement`；辩论输出胜负/平局与理由，
+  圆桌输出共识、分歧和建议。
+- LLM 结果必须经过当前群聊 Agent 白名单和 no-artifact guard 校验；不得创建文件、工具、
+  preview 或 deploy 任务。
+- 新增 live E2E 场景 `dialogue_ai_benefits_risks_llm_moderated`，用于验证“请你开始一场有关
+  AI 发展的弊处和利处”这类自然语言请求能体现 Orchestrator LLM 主持、续轮和裁判能力。
+  该场景已注册到 E2E harness；真实公网报告生成后再写入
+  [live-e2e-report.spec.md](live-e2e-report.spec.md) 的 passed evidence。
 
 本轮本地验证已通过：
 
 ```text
 pytest:
   tests/test_orchestrator_planning.py
-  tests/test_orchestrator_output_contracts.py
-  tests/test_orchestrator_response_presentation.py
+  tests/test_agent_config_validation.py
   tests/test_orchestrator_live_e2e_script.py
   tests/test_orchestrator.py::test_orchestrator_dynamic_debate_continues_after_handoff
   tests/test_orchestrator.py::test_orchestrator_dynamic_debate_respects_explicit_one_exchange
-  result: 108 passed
+  tests/test_orchestrator.py::test_orchestrator_dialogue_llm_controls_next_turn_and_final_judgement
+  tests/test_orchestrator.py::test_orchestrator_non_debate_dialogue_stops_after_each_participant_once
+  tests/test_orchestrator.py::test_dialogue_turn_does_not_fallback_to_opposing_participant
+  tests/test_stream_content_blocks.py::test_orchestrator_group_dialogue_tasks_finish_without_artifacts
+  tests/test_stream_content_blocks.py::test_turn_taking_direct_agent_target_routes_to_orchestrator
+  tests/test_stream_content_blocks.py::test_orchestrator_dialogue_turns_auto_schedule_next_agent
+  result: 210 passed
 
 ruff: passed
-mypy app/agents/orchestrator: passed
+py_compile: passed
 git diff --check: passed
 ```
 

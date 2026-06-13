@@ -386,6 +386,42 @@ class TestOpenCodeAdapterStream:
         ]
         assert "".join(chunk.text_delta or "" for chunk in chunks) == "hello from opencode"
 
+    async def test_json_format_skips_reasoning_and_hidden_think_tags(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        process = FakeProcess(
+            [
+                _json_line({"type": "reasoning", "text": "hidden reasoning"}),
+                _json_line(
+                    {
+                        "type": "text",
+                        "part": {
+                            "type": "reasoning",
+                            "text": "hidden part reasoning",
+                        },
+                    }
+                ),
+                _json_line(
+                    {
+                        "type": "text_delta",
+                        "text": "<think>hidden</think>visible</think>",
+                    }
+                ),
+                _json_line({"type": "done"}),
+            ]
+        )
+        _patch_subprocess(monkeypatch, process)
+
+        chunks = await _collect(OpenCodeAdapter(agent_id="opencode-test"), tmp_path)
+
+        text = "".join(chunk.text_delta or "" for chunk in chunks)
+        assert text == "visible"
+        assert "hidden" not in text
+        assert "<think>" not in text
+        assert "</think>" not in text
+
     async def test_json_format_uses_configured_model(
         self,
         monkeypatch: pytest.MonkeyPatch,

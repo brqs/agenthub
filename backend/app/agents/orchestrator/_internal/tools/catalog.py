@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from app.agents.orchestrator.availability import scoped_runnable_agent_ids
+from app.agents.orchestrator.availability import (
+    runnable_agent_ids,
+    scoped_runnable_agent_ids,
+)
 from app.agents.types import ToolSpec
 
 
@@ -257,22 +260,7 @@ def available_agent_ids(config: Mapping[str, Any]) -> list[str]:
     return _agent_id_list(config.get("managed_agent_ids", config.get("default_sub_agents")))
 
 def _agent_ids_from_available_agents(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    ids: list[str] = []
-    seen: set[str] = set()
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        raw_id = item.get("agent_id", item.get("id"))
-        if not isinstance(raw_id, str):
-            continue
-        agent_id = raw_id.strip()
-        if not agent_id or agent_id == "orchestrator" or agent_id in seen:
-            continue
-        seen.add(agent_id)
-        ids.append(agent_id)
-    return ids
+    return runnable_agent_ids(value)
 
 def _agent_id_list(value: object) -> list[str]:
     if not isinstance(value, list):
