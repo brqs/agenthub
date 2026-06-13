@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,6 +14,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
+import app.api.v1.stream as stream_module
 from app.agents.base import BaseAgentAdapter
 from app.agents.types import ChatMessage, StreamChunk
 from app.core.config import settings
@@ -775,7 +777,7 @@ async def test_orchestrator_context_skips_unauthenticated_claude_code(
     assert status_code == 200
     assert captured["config"]["available_agents"] == []
     assert captured["config"]["managed_agent_ids"] == []
-    assert captured["config"]["planning_agent_ids"] == ["claude-code"]
+    assert captured["config"]["planning_agent_ids"] == []
     assert captured["config"]["available_agents_authoritative"] is True
     assert captured["config"]["conversation_scoped_agents"] is True
     claude_context = captured["config"]["conversation_agents"][1]
@@ -1158,9 +1160,13 @@ async def test_stream_rejects_non_pending_agent_message(
     assert "MESSAGE_NOT_STREAMABLE" in body
 
 
-async def test_streaming_message_without_runtime_session_terminalizes_error(
+async def test_streaming_message_without_runtime_session_stays_recoverable(
     client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(stream_module, "ORPHANED_STREAM_RECOVERY_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(stream_module, "ORPHANED_STREAM_RECOVERY_POLL_SECONDS", 0.001)
+
     _, headers = await _register(client)
     conversation = await _create_conversation(client, headers)
     messages = await _send_message(client, headers, conversation["id"])
@@ -1175,10 +1181,51 @@ async def test_streaming_message_without_runtime_session_terminalizes_error(
     status_code, body = await _stream_message(client, headers, agent_message_id)
 
     assert status_code == 200
-    assert "stream_session_lost" in body
+    assert "stream_session_lost" not in body
+    assert "Agent stream was interrupted before completion" not in body
     message = await _stored_message(agent_message_id)
-    assert message.status == "error"
-    assert "interrupted" in message.content[0]["text"]
+    assert message.status == "streaming"
+    assert message.content == []
+
+
+async def test_streaming_message_without_runtime_session_recovers_done(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(stream_module, "ORPHANED_STREAM_RECOVERY_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(stream_module, "ORPHANED_STREAM_RECOVERY_POLL_SECONDS", 0.01)
+
+    _, headers = await _register(client)
+    conversation = await _create_conversation(client, headers)
+    messages = await _send_message(client, headers, conversation["id"])
+    agent_message_id = messages["agent_message"]["id"]
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+        assert message is not None
+        message.status = "streaming"
+        message.content = []
+        await db.commit()
+
+    request_task = asyncio.create_task(_stream_message(client, headers, agent_message_id))
+    await asyncio.sleep(0.05)
+
+    async with SessionFactory() as db:
+        message = await db.get(Message, UUID(agent_message_id))
+        assert message is not None
+        message.status = "done"
+        message.content = [{"type": "text", "text": "finished"}]
+        await db.commit()
+
+    status_code, body = await asyncio.wait_for(request_task, timeout=2)
+
+    assert status_code == 200
+    assert "event: done" in body
+    assert "stream_session_lost" not in body
+    assert "Agent stream was interrupted before completion" not in body
+    message = await _stored_message(agent_message_id)
+    assert message.status == "done"
+    assert message.content == [{"type": "text", "text": "finished"}]
 
 
 async def test_stream_passes_runtime_context_to_adapter(
