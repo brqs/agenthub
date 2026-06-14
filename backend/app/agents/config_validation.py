@@ -480,6 +480,7 @@ def _validate_external_direct_chat_config(config: dict[str, Any]) -> None:
             message=f"Unsupported qa_model_backend '{qa_model_backend}'",
             details={"qa_model_backend": qa_model_backend},
         )
+    _validate_requirement_alignment_model_backend(config)
     _validate_optional_non_empty_string(config, "qa_model")
     _validate_optional_non_empty_string(config, "qa_classifier_model")
     for field in EXTERNAL_DIRECT_CHAT_FIELDS:
@@ -489,6 +490,22 @@ def _validate_external_direct_chat_config(config: dict[str, Any]) -> None:
             field.minimum,
             field.maximum,
             allow_float=field.allow_float,
+        )
+
+
+def _validate_requirement_alignment_model_backend(config: dict[str, Any]) -> None:
+    alignment_backend = config.get("requirement_alignment_model_backend")
+    if alignment_backend is not None and (
+        not isinstance(alignment_backend, str)
+        or alignment_backend not in QA_MODEL_BACKENDS
+    ):
+        raise AgentConfigValidationError(
+            code="INVALID_MODEL_BACKEND",
+            message=(
+                "Unsupported requirement_alignment_model_backend "
+                f"'{alignment_backend}'"
+            ),
+            details={"requirement_alignment_model_backend": alignment_backend},
         )
 
 
@@ -530,6 +547,7 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
             message=f"Unsupported dialogue_model_backend '{dialogue_model_backend}'",
             details={"dialogue_model_backend": dialogue_model_backend},
         )
+    _validate_requirement_alignment_model_backend(config)
     response_polish_backend = config.get("orchestrator_response_polish_model_backend")
     if response_polish_backend is not None and (
         not isinstance(response_polish_backend, str)

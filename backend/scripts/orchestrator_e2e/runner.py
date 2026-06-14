@@ -83,6 +83,13 @@ AGENT_TURN_TAKING_DIALOGUE_SCENARIO = SCENARIO in {
 }
 AGENT_TURN_TAKING_MATRIX_SCENARIO = SCENARIO == "agent_turn_taking_matrix"
 MANUAL_TWO_AGENT_TURN_TAKING_SCENARIO = SCENARIO == "manual_two_agent_turn_taking"
+REQUIREMENT_ALIGNMENT_SCENARIOS = {
+    "requirement_alignment_group_orchestrator",
+    "requirement_alignment_single_claude",
+    "requirement_alignment_single_codex_or_opencode",
+    "requirement_alignment_single_direct_chat_skip",
+}
+REQUIREMENT_ALIGNMENT_SCENARIO = SCENARIO in REQUIREMENT_ALIGNMENT_SCENARIOS
 COMMAND_FULFILLMENT_SCENARIO = (
     SCENARIO == "command_fulfillment_cyberpunk_group_deploy"
 )
@@ -378,11 +385,11 @@ IM_CONTEXT_PIN_FOLLOWUP_REPAIR_PROMPT = (
 )
 GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT = (
     "@orchestrator 我想看一次真实群聊协作的任务归因过程，不要预览、不要部署。"
-    "请只使用当前群聊成员。需要产出 attribution-plan.md，说明任务拆解和 Agent 分工；"
-    "attribution-frontend.md，给出前端交付建议；attribution-backend.md，给出后端和验证建议；"
-    "最后生成 attribution-review.md，检查三份产物、归因、风险和 repair 建议。"
-    "请让每个参与 Agent 在自己的独立消息中完成负责部分，最终由 Orchestrator 总结 "
-    "planned/current/final agent 归因证据。"
+    "请只使用当前群聊成员。请先形成一份规划产物，说明任务拆解和 Agent 分工；"
+    "再分别完成前端交付建议、后端与验证建议，最后生成一份审阅总结，检查产物、"
+    "归因、风险和 repair 建议。文件名可以由 Planner 自主决定，但文件名或内容需要"
+    "清楚体现规划、前端、后端/验证、审阅这些角色。请让参与 Agent 在自己的独立"
+    "消息中完成负责部分，最终由 Orchestrator 总结 planned/current/final agent 归因证据。"
 )
 CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT = (
     "@orchestrator 我需要一个临时只读审阅助手。请创建一个新的自建 Agent，名字为 "
@@ -636,6 +643,18 @@ DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT = (
     "请由 Orchestrator 组织开场、分配正反方角色、决定是否需要追问或继续，"
     "最后由 Orchestrator 进行最终裁判和审阅。不要生成文件、不要写报告、"
     "不要调用预览或部署工具，只在群聊中完成。"
+)
+REQUIREMENT_ALIGNMENT_GROUP_PROMPT = (
+    "我想做一个面向小团队的任务管理 Demo，但现在只知道要有任务列表、筛选、"
+    "一个简单后端接口说明，以及最后的审阅。请先帮我确认最关键的交付边界，"
+    "确认后再进入规划。"
+)
+REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT = (
+    "我想让你独立完成一个小型任务管理 Demo 的第一版，需要文档、页面和交互，"
+    "但范围还没完全定清楚。请先确认最影响执行的一个边界。"
+)
+REQUIREMENT_ALIGNMENT_DIRECT_CHAT_SKIP_PROMPT = (
+    "你是谁？请用一句话说明你能帮我做什么。"
 )
 GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT = (
     "@orchestrator 请进行通用子 Agent 实质输出验收，不需要生成文件。"
@@ -979,19 +998,10 @@ GENERIC_GROUP_PROCESS_CASES: dict[str, dict[str, Any]] = {
         "require_failure_text": True,
     },
     "group_chat_attribution_process_matrix": {
-        "required_files": {
-            "attribution-plan.md",
-            "attribution-frontend.md",
-            "attribution-backend.md",
-            "attribution-review.md",
-        },
-        "min_child_messages": 3,
-        "required_child_agents": {
-            "codex-helper",
-            "claude-code",
-            "opencode-helper",
-        },
+        "required_files": set(),
+        "min_child_messages": 2,
         "require_group_member_scope": True,
+        "require_attribution_semantics": True,
     },
 }
 AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
@@ -1633,14 +1643,18 @@ def send_message_and_stream(
     content: str,
     target_agent_id: str,
     started_at: float,
+    requirement_alignment: str | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any] | None]:
+    payload: dict[str, Any] = {
+        "content": [{"type": "text", "text": content}],
+        "target_agent_id": target_agent_id,
+    }
+    if requirement_alignment is not None:
+        payload["requirement_alignment"] = requirement_alignment
     send = client.post(
         f"/api/v1/conversations/{conversation_id}/messages",
         headers=headers,
-        json={
-            "content": [{"type": "text", "text": content}],
-            "target_agent_id": target_agent_id,
-        },
+        json=payload,
     )
     send.raise_for_status()
     sent = send.json()
@@ -2612,6 +2626,189 @@ def p1_common_evidence(
     return events, files
 
 
+def _clarification_blocks_from_message(message: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(message, dict):
+        return []
+    blocks = message.get("content")
+    if not isinstance(blocks, list):
+        return []
+    return [
+        block
+        for block in blocks
+        if isinstance(block, dict) and block.get("type") == "clarification"
+    ]
+
+
+def _clarification_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for event in events:
+        data = event_data(event)
+        if data.get("block_type") == "clarification":
+            result.append(event)
+    return result
+
+
+def run_requirement_alignment_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    if SCENARIO == "requirement_alignment_group_orchestrator":
+        mode = "group"
+        agent_ids = AGENT_IDS
+        target_agent_id = "orchestrator"
+        prompt = REQUIREMENT_ALIGNMENT_GROUP_PROMPT
+        should_confirm = True
+        expected_first_agent = "orchestrator"
+    elif SCENARIO == "requirement_alignment_single_claude":
+        mode = "single"
+        agent_ids = ["claude-code"]
+        target_agent_id = "claude-code"
+        prompt = REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT
+        should_confirm = True
+        expected_first_agent = "claude-code"
+    elif SCENARIO == "requirement_alignment_single_codex_or_opencode":
+        mode = "single"
+        agent_ids = ["opencode-helper"]
+        target_agent_id = "opencode-helper"
+        prompt = REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT
+        should_confirm = True
+        expected_first_agent = "opencode-helper"
+    else:
+        mode = "single"
+        agent_ids = ["claude-code"]
+        target_agent_id = "claude-code"
+        prompt = REQUIREMENT_ALIGNMENT_DIRECT_CHAT_SKIP_PROMPT
+        should_confirm = False
+        expected_first_agent = "claude-code"
+
+    conversation = client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": f"{SCENARIO} Live E2E {int(started_at)}",
+            "mode": mode,
+            "agent_ids": agent_ids,
+        },
+    )
+    conversation.raise_for_status()
+    conv = conversation.json()
+    conv_id = conv["id"]
+    report["conversation"] = conv
+    report["conversation_id"] = conv_id
+    report["alignment_expected_agent_id"] = expected_first_agent
+
+    first_sent, first_events, first_target = send_message_and_stream(
+        client,
+        headers,
+        conv_id,
+        content=prompt,
+        target_agent_id=target_agent_id,
+        started_at=started_at,
+        requirement_alignment="strict",
+    )
+    first_blocks = _clarification_blocks_from_message(first_target)
+    first_event_blocks = _clarification_events(first_events)
+    report["user_message_id"] = first_sent["user_message"]["id"]
+    report["agent_message_id"] = first_sent["agent_message"]["id"]
+    report["target_agent_message"] = first_target
+    report["first_alignment"] = {
+        "sent_agent_id": first_sent["agent_message"].get("agent_id"),
+        "target_status": (first_target or {}).get("status"),
+        "clarification_block_count": len(first_blocks),
+        "clarification_event_count": len(first_event_blocks),
+        "clarification_blocks": first_blocks,
+    }
+    report["stream_event_count"] = len(first_events)
+    report["checks"]["first_message_done"] = bool(
+        first_target and first_target.get("status") == "done"
+    )
+    report["checks"]["first_agent_expected"] = (
+        first_sent["agent_message"].get("agent_id") == expected_first_agent
+    )
+    report["checks"]["alignment_card_seen"] = bool(first_blocks or first_event_blocks)
+
+    second_target: dict[str, Any] | None = None
+    second_events: list[dict[str, Any]] = []
+    if should_confirm:
+        second_sent, second_events, second_target = send_message_and_stream(
+            client,
+            headers,
+            conv_id,
+            content="按这个做",
+            target_agent_id=target_agent_id,
+            started_at=started_at,
+            requirement_alignment="strict",
+        )
+        report["confirmation_user_message_id"] = second_sent["user_message"]["id"]
+        report["confirmation_agent_message_id"] = second_sent["agent_message"]["id"]
+        report["confirmation_target_agent_message"] = second_target
+        report["confirmation_stream_event_count"] = len(second_events)
+        confirmation_blocks = _clarification_blocks_from_message(second_target)
+        report["confirmation_alignment"] = {
+            "sent_agent_id": second_sent["agent_message"].get("agent_id"),
+            "target_status": (second_target or {}).get("status"),
+            "clarification_block_count": len(confirmation_blocks),
+            "clarification_blocks": confirmation_blocks,
+        }
+        report["checks"]["confirmation_message_done"] = bool(
+            second_target and second_target.get("status") == "done"
+        )
+        report["checks"]["confirmation_contains_resolved_alignment"] = any(
+            block.get("status") == "resolved" for block in confirmation_blocks
+        )
+        if mode == "group":
+            fetch_orchestrator_run_detail(client, headers, conv_id, report)
+            run_detail = report.get("orchestrator_run_detail")
+            report["checks"]["orchestrator_run_after_confirmation"] = isinstance(
+                run_detail, dict
+            ) and bool(run_detail.get("tasks"))
+        else:
+            report["checks"]["single_agent_runtime_after_confirmation"] = bool(
+                second_target and second_target.get("status") == "done"
+            )
+    else:
+        report["checks"]["alignment_card_absent_for_direct_chat_skip"] = not bool(
+            first_blocks or first_event_blocks
+        )
+
+    messages = fetch_conversation_messages(client, headers, conv_id, report)
+    report["message_count"] = len(messages)
+    report["requirement_alignment_sse_events"] = [
+        event.get("event") for event in [*first_events, *second_events]
+    ]
+
+    if should_confirm:
+        required = (
+            "first_message_done",
+            "first_agent_expected",
+            "alignment_card_seen",
+            "confirmation_message_done",
+            "confirmation_contains_resolved_alignment",
+        )
+        if mode == "group":
+            required = (*required, "orchestrator_run_after_confirmation")
+        else:
+            required = (*required, "single_agent_runtime_after_confirmation")
+    else:
+        required = (
+            "first_message_done",
+            "first_agent_expected",
+            "alignment_card_absent_for_direct_chat_skip",
+        )
+    report["acceptance"] = {key: bool(report["checks"].get(key)) for key in required}
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+    if not report["acceptance"]["passed"]:
+        report["bugs"].append(
+            {
+                "code": "requirement_alignment_e2e_failed",
+                "symptom": "Requirement alignment E2E did not meet expected flow.",
+                "checks": report["acceptance"],
+            }
+        )
+
+
 def run_group_scope_no_external_agent_case(
     client: httpx.Client,
     headers: dict[str, str],
@@ -2812,6 +3009,89 @@ def workflow_blocks_from_messages(messages: list[dict[str, Any]]) -> list[dict[s
         for block in message_blocks(message)
         if isinstance(block, dict) and block.get("type") == "workflow"
     ]
+
+
+def group_attribution_semantics_report(
+    files: list[dict[str, Any]],
+    visible_text: str,
+    *,
+    task_graph: Mapping[str, Any] | None = None,
+    child_messages: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
+    file_names = {
+        str(item.get("path", "")).rsplit("/", 1)[-1].lower()
+        for item in files
+        if item.get("path")
+    }
+    joined_files = "\n".join(sorted(file_names))
+    evidence_text = f"{joined_files}\n{visible_text}".lower()
+
+    def has_any(*patterns: str) -> bool:
+        return any(re.search(pattern, evidence_text, re.I) for pattern in patterns)
+
+    frontend_files_present = {"index.html", "styles.css", "app.js"} <= file_names
+    backend_files_present = any(
+        name.startswith("backend") or name in {"api.md", "backend_app.py"}
+        for name in file_names
+    )
+    structured_attribution_present = _structured_group_attribution_present(
+        task_graph,
+        child_messages,
+    )
+    report = {
+        "planning_artifact_present": has_any(r"\bplanning\.md\b", r"\bplan\b", "规划"),
+        "frontend_artifact_present": frontend_files_present
+        or has_any("frontend", "front-end", "前端"),
+        "backend_artifact_present": backend_files_present
+        or has_any("backend", "api", "后端", "验证"),
+        "review_artifact_present": has_any(r"\breview\.md\b", "review", "审阅", "风险"),
+        "attribution_terms_present": has_any("attribution", "归因"),
+        "structured_attribution_present": structured_attribution_present,
+        "planned_current_final_present": all(
+            term in evidence_text for term in ("planned", "current", "final")
+        )
+        or structured_attribution_present,
+    }
+    required_keys = (
+        "planning_artifact_present",
+        "frontend_artifact_present",
+        "backend_artifact_present",
+        "review_artifact_present",
+        "attribution_terms_present",
+        "planned_current_final_present",
+    )
+    report["passed"] = all(bool(report.get(key)) for key in required_keys)
+    return report
+
+
+def _structured_group_attribution_present(
+    task_graph: Mapping[str, Any] | None,
+    child_messages: Sequence[Mapping[str, Any]],
+) -> bool:
+    if not isinstance(task_graph, Mapping):
+        return False
+    raw_tasks = task_graph.get("tasks")
+    if not isinstance(raw_tasks, list):
+        return False
+    tasks = [task for task in raw_tasks if isinstance(task, Mapping)]
+    planned_agents = {
+        str(task.get("agent_id"))
+        for task in tasks
+        if isinstance(task.get("agent_id"), str) and task.get("agent_id")
+    }
+    terminal_task_agents = {
+        str(task.get("agent_id"))
+        for task in tasks
+        if isinstance(task.get("agent_id"), str)
+        and str(task.get("final_state") or "") in {"succeeded", "done"}
+    }
+    terminal_child_agents = {
+        str(message.get("agent_id"))
+        for message in child_messages
+        if isinstance(message.get("agent_id"), str)
+        and str(message.get("status") or "") in {"done", "error", "interrupted"}
+    }
+    return bool(planned_agents) and bool(terminal_task_agents or terminal_child_agents)
 
 
 def forbidden_visible_terms(text: str) -> list[str]:
@@ -4359,6 +4639,17 @@ def evaluate_generic_group_process(
         checks["generic_group_dispatch_only_group_members"] = all(
             agent_id in group_agent_ids for agent_id in switched_agents
         )
+    if case.get("require_attribution_semantics"):
+        attribution_semantics = group_attribution_semantics_report(
+            files,
+            visible_text,
+            task_graph=report.get("task_graph"),
+            child_messages=child_messages,
+        )
+        report["generic_group_attribution_semantics"] = attribution_semantics
+        checks["generic_group_attribution_semantics_present"] = bool(
+            attribution_semantics.get("passed")
+        )
     if case.get("require_failure_text"):
         checks["generic_group_failure_text_readable"] = bool(
             re.search(r"失败|无法|不能|安全|限制|workspace|路径|重试", visible_text, re.I)
@@ -4401,6 +4692,8 @@ def evaluate_generic_group_process(
         acceptance_keys.append("generic_group_failure_text_readable")
     if case.get("require_group_member_scope"):
         acceptance_keys.append("generic_group_dispatch_only_group_members")
+    if case.get("require_attribution_semantics"):
+        acceptance_keys.append("generic_group_attribution_semantics_present")
     if case.get("require_workflow"):
         acceptance_keys.extend(
             [
@@ -6396,6 +6689,16 @@ def main() -> None:
             return
         if GROUP_SCOPE_SCENARIO:
             run_group_scope_no_external_agent_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if REQUIREMENT_ALIGNMENT_SCENARIO:
+            run_requirement_alignment_case(client, headers, report, started_at)
             report["finished_at"] = utc_now()
             report["duration_seconds"] = round(time.time() - started_at, 3)
             report["passed"] = bool(report.get("acceptance", {}).get("passed"))

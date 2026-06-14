@@ -221,6 +221,40 @@ class TestClaudeCodeAdapterStream:
         ]
         assert chunks[2].text_delta == "direct"
 
+    async def test_requirement_alignment_does_not_load_sdk(
+        self,
+        adapter: ClaudeCodeAdapter,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        monkeypatch.setattr(
+            adapter,
+            "_load_sdk",
+            lambda: pytest.fail("SDK should not load for requirement alignment"),
+        )
+
+        chunks = await _collect(
+            adapter,
+            workspace_path=tmp_path,
+            config={
+                "runtime": "sdk",
+                "turn_options": {"requirement_alignment": "strict"},
+                "requirement_alignment_llm_enabled": False,
+            },
+            messages=[ChatMessage(role="user", content="帮我做一个任务管理网站，包含前后端")],
+        )
+
+        assert [chunk.event_type for chunk in chunks] == [
+            "start",
+            "block_start",
+            "block_end",
+            "done",
+        ]
+        assert chunks[1].block_type == "clarification"
+        assert chunks[1].agent_id == "agent-claude-code"
+        assert chunks[1].metadata is not None
+        assert chunks[1].metadata["mode"] == "requirement_alignment"
+
     async def test_direct_chat_timeout_closes_partial_block_and_errors(
         self,
         adapter: ClaudeCodeAdapter,

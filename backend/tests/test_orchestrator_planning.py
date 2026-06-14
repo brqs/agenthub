@@ -1529,18 +1529,18 @@ async def test_orchestrator_splits_single_parallel_development_task() -> None:
         if chunk.event_type == "agent_switch"
     ]
     assert chunks[-1].event_type == "done"
-    assert ("codex-helper", "Generate cyberpunk website specification document") in switches
+    assert ("codex-helper", "生成赛博朋克风网站设计文档") in switches
     assert (
         "claude-code",
-        "Implement cyberpunk website with button interactions - primary implementation",
+        "并行开发 - 实现赛博朋克风前端页面 - primary implementation",
     ) in switches
     assert (
         "opencode-helper",
-        "Implement cyberpunk website with button interactions - parallel implementation",
+        "并行开发 - 实现赛博朋克风前端页面 - parallel implementation",
     ) in switches
     assert switches[-1] == (
-        "claude-code",
-        "Review and verify cyberpunk website implementation",
+        "codex-helper",
+        "审阅最终生成的网站文件",
     )
     assert "primary implementation slice" in claude.received_messages[-1].content
     assert "complementary implementation" in opencode.received_messages[-1].content
@@ -1795,6 +1795,100 @@ async def test_llm_first_planner_normalizes_doc_then_parallel_dependencies() -> 
         "task-1-planning",
         "task-4-review",
     )
+
+
+async def test_llm_plan_breaks_review_implementation_dependency_cycle() -> None:
+    planner = FakePlannerGateway(
+        [
+            StreamChunk(event_type="start", agent_id="planner"),
+            StreamChunk(
+                event_type="tool_call",
+                call_id="plan-1",
+                tool_name="submit_task_plan",
+                tool_arguments={
+                    "tasks": [
+                        _task(
+                            "review-summary",
+                            "claude-code",
+                            "审阅总结：产物、归因、风险与 Repair 建议",
+                            "Review all generated attribution deliverables.",
+                            depends_on=[
+                                "plan-decomposition",
+                                "frontend-suggestions",
+                                "backend-verification-suggestions",
+                            ],
+                            expected_output="REVIEW-attribution-summary.md",
+                            task_type="review",
+                        ),
+                        _task(
+                            "frontend-suggestions",
+                            "claude-code",
+                            "前端交付建议",
+                            "Write frontend delivery advice.",
+                            depends_on=[
+                                "review-summary",
+                                "backend-verification-suggestions",
+                            ],
+                            expected_output="FRONTEND-delivery-suggestions.md",
+                        ),
+                        _task(
+                            "backend-verification-suggestions",
+                            "opencode-helper",
+                            "后端与验证建议",
+                            "Write backend and validation advice.",
+                            depends_on=[
+                                "plan-decomposition",
+                                "review-summary",
+                            ],
+                            expected_output="BACKEND-VERIFICATION-suggestions.md",
+                        ),
+                        _task(
+                            "plan-decomposition",
+                            "codex-helper",
+                            "规划产物：任务拆解与 Agent 分工",
+                            "Write the plan.",
+                            expected_output="PLAN-task-decomposition.md",
+                        ),
+                    ]
+                },
+            ),
+            StreamChunk(event_type="done", agent_id="planner"),
+        ]
+    )
+
+    tasks = await resolve_tasks(
+        {
+            "planner_gateway": planner,
+            "orchestrator_control_mode": "llm_first",
+            "managed_agent_ids": [
+                "claude-code",
+                "opencode-helper",
+                "codex-helper",
+            ],
+        },
+        [
+            ChatMessage(
+                role="user",
+                content="@orchestrator 请做一次真实群聊协作归因，不要预览、不要部署。",
+            )
+        ],
+        None,
+    )
+
+    by_id = {task.task_id: task for task in tasks}
+    assert by_id["frontend-suggestions"].depends_on == (
+        "backend-verification-suggestions",
+    )
+    assert by_id["backend-verification-suggestions"].depends_on == (
+        "plan-decomposition",
+    )
+    assert by_id["review-summary"].depends_on == (
+        "plan-decomposition",
+        "frontend-suggestions",
+        "backend-verification-suggestions",
+    )
+    assert "review-summary" not in by_id["frontend-suggestions"].depends_on
+    assert "review-summary" not in by_id["backend-verification-suggestions"].depends_on
 
 
 async def test_adapter_normalizes_final_llm_plan_before_execution(tmp_path) -> None:
@@ -2602,7 +2696,7 @@ async def test_llm_planner_preserves_explicit_primary_agent_assignment() -> None
     assert tasks[0].task_id == "fallback-opencode-001"
 
 
-async def test_orchestrator_rejects_planner_unknown_agent() -> None:
+async def test_orchestrator_remaps_planner_unknown_agent_after_retry() -> None:
     planner = FakePlannerGateway(
         [
             StreamChunk(
@@ -2627,9 +2721,11 @@ async def test_orchestrator_rejects_planner_unknown_agent() -> None:
         },
     )
 
-    assert [chunk.event_type for chunk in chunks] == ["start", "error"]
-    assert chunks[1].error_code == "invalid_task_plan"
-    assert "unknown agent_id" in (chunks[1].error or "")
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a"]
+    assert len(planner.calls) == 2
 
 
 async def test_orchestrator_remaps_planner_orchestrator_task_to_sub_agent() -> None:

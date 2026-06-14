@@ -19,8 +19,12 @@ export function resolveTargetAgentId(
   text: string,
   mode: 'single' | 'group',
   agentIds: string[],
+  requirementAlignment: RequirementAlignmentMode = 'off',
 ): string | null {
   if (mode !== 'group') return null;
+  if (requirementAlignment === 'strict' && agentIds.includes('orchestrator')) {
+    return 'orchestrator';
+  }
   return (
     parseMentionedAgent(text, mode, agentIds) ??
     (agentIds.includes('orchestrator') ? 'orchestrator' : agentIds[0] ?? null)
@@ -45,7 +49,12 @@ export function useSendMessage() {
     try {
       const conversation = conversations.find((c) => c.id === conversationId);
       const targetAgentId = conversation
-        ? resolveTargetAgentId(text, conversation.mode, conversation.agent_ids)
+        ? resolveTargetAgentId(
+            text,
+            conversation.mode,
+            conversation.agent_ids,
+            requirementAlignment,
+          )
         : null;
 
       const response = await messagesAdapter.sendMessage(conversationId, {

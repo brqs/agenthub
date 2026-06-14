@@ -490,7 +490,7 @@ export function MessageInput({
           ].join(' ')}
           title={
             requirementAlignment === 'strict'
-              ? '需求对齐已开启：发送前会先确认关键边界'
+              ? '需求对齐已开启：执行前会先确认关键边界'
               : '开启需求对齐'
           }
           aria-label="需求对齐"

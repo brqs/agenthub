@@ -81,8 +81,16 @@ async def _resolve_target_agent_id(
     conv: Conversation,
     target_agent_id: str | None,
     request_text: str | None = None,
+    requirement_alignment: str | None = None,
 ) -> str:
     resolved_target_agent_id = target_agent_id
+    if (
+        requirement_alignment == "strict"
+        and conv.mode == "group"
+        and ORCHESTRATOR_AGENT_ID in conv.agent_ids
+    ):
+        await _validate_visible_agent_ids(db, user_id, [ORCHESTRATOR_AGENT_ID])
+        return ORCHESTRATOR_AGENT_ID
     if (
         conv.mode == "group"
         and should_route_group_turn_taking_to_orchestrator(
@@ -355,6 +363,7 @@ async def send_message(
         conv,
         payload.target_agent_id,
         request_text=request_text,
+        requirement_alignment=payload.requirement_alignment,
     )
 
     await cleanup_stale_streaming_messages(db)
@@ -452,6 +461,7 @@ async def queue_message(
         conv,
         payload.target_agent_id,
         request_text=request_text,
+        requirement_alignment=payload.requirement_alignment,
     )
     await cleanup_stale_streaming_messages(db)
     active_message = await _get_active_agent_message(db, conv_id)
@@ -516,9 +526,17 @@ async def update_queued_message(
                 }
             },
         )
+    request_text = _content_text(payload.content) if payload.content is not None else None
     target_agent_id = (
-        await _resolve_target_agent_id(db, user.id, conv, payload.target_agent_id)
-        if payload.target_agent_id is not None
+        await _resolve_target_agent_id(
+            db,
+            user.id,
+            conv,
+            payload.target_agent_id,
+            request_text=request_text,
+            requirement_alignment=payload.requirement_alignment,
+        )
+        if payload.target_agent_id is not None or payload.requirement_alignment == "strict"
         else None
     )
     position = await update_queued_user_message(

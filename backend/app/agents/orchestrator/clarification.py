@@ -369,7 +369,7 @@ async def maybe_handle_clarification(
             config,
             next_block_index,
             mode="requirement_alignment",
-            title="Orchestrator 需求对齐",
+            title=_requirement_alignment_title(config, "Orchestrator 需求对齐"),
             question=question,
             original_request=user_request,
             question_count=1,
@@ -454,8 +454,10 @@ async def _handle_pending_answer(
     has_task_intent: Callable[[str], bool],
 ) -> ClarificationOutcome | None:
     if _contains_any(user_request, CANCEL_MARKERS):
+        agent_id = _clarification_agent_id_from_state(state)
         chunks = _clarification_block_chunks(
             next_block_index,
+            agent_id=agent_id,
             mode=_mode(state),
             title=str(state.get("title") or "需求澄清"),
             status="cancelled",
@@ -563,6 +565,7 @@ async def _handle_pending_answer(
     final_chunks = (
         *_clarification_block_chunks(
             next_block_index,
+            agent_id=_clarification_agent_id_from_state(state),
             mode=mode,
             title=str(state.get("title") or "需求追问"),
             status="resolved",
@@ -571,7 +574,11 @@ async def _handle_pending_answer(
             summary=summary,
             metadata={**_metadata(state), "resolved_by_user": True},
         ),
-        *_text_block(next_block_index + 1, summary),
+        *_text_block(
+            next_block_index + 1,
+            summary,
+            agent_id=_clarification_agent_id_from_state(state),
+        ),
     )
     await _record_clarification(config, "clarification_resolved", state, user_request)
     return ClarificationOutcome(
@@ -635,6 +642,7 @@ async def _handle_setup_answer(
     chunks = (
         *_clarification_block_chunks(
             next_block_index,
+            agent_id=_clarification_agent_id_from_config(config),
             mode="setup_matt_pocock_skills",
             title="Matt Pocock Skills 初始化",
             status=status,
@@ -643,7 +651,11 @@ async def _handle_setup_answer(
             summary=summary,
             metadata={**_metadata(state), "workspace_docs": error is None},
         ),
-        *_text_block(next_block_index + 1, summary),
+        *_text_block(
+            next_block_index + 1,
+            summary,
+            agent_id=_clarification_agent_id_from_config(config),
+        ),
     )
     await _record_clarification(config, "clarification_resolved", state, user_request)
     return ClarificationOutcome(chunks=chunks, next_block_index=next_block_index + 2, done=True)
@@ -679,6 +691,7 @@ async def _handle_docs_answer(
     chunks = (
         *_clarification_block_chunks(
             next_block_index,
+            agent_id=_clarification_agent_id_from_config(config),
             mode="grill_with_docs",
             title="带文档的需求澄清",
             status="resolved" if error is None else "cancelled",
@@ -687,7 +700,11 @@ async def _handle_docs_answer(
             summary=summary,
             metadata={**_metadata(state), "context_updated": error is None},
         ),
-        *_text_block(next_block_index + 1, summary),
+        *_text_block(
+            next_block_index + 1,
+            summary,
+            agent_id=_clarification_agent_id_from_config(config),
+        ),
     )
     await _record_clarification(config, "clarification_resolved", state, user_request)
     return ClarificationOutcome(chunks=chunks, next_block_index=next_block_index + 2, done=True)
@@ -707,13 +724,16 @@ async def _ask_question(
 ) -> ClarificationOutcome:
     current_question = _question_payload(question)
     questions = [*(answered_questions or []), current_question]
+    agent_id = _clarification_agent_id_from_config(config)
     metadata = {
         "original_request": original_request,
         "question_count": question_count,
         "max_questions": max_questions,
+        "agent_id": agent_id,
     }
     chunks = _clarification_block_chunks(
         next_block_index,
+        agent_id=agent_id,
         mode=_safe_mode(mode),
         title=title,
         status="waiting",
@@ -739,6 +759,7 @@ async def _ask_question(
 def _clarification_block_chunks(
     block_index: int,
     *,
+    agent_id: str = "orchestrator",
     mode: ClarificationMode,
     title: str,
     status: Literal["waiting", "resolved", "cancelled"],
@@ -748,7 +769,7 @@ def _clarification_block_chunks(
     metadata: dict[str, Any],
 ) -> tuple[StreamChunk, StreamChunk]:
     payload: dict[str, Any] = {
-        "agent_id": "orchestrator",
+        "agent_id": agent_id,
         "mode": mode,
         "title": title,
         "status": status,
@@ -764,28 +785,33 @@ def _clarification_block_chunks(
             event_type="block_start",
             block_index=block_index,
             block_type="clarification",
-            agent_id="orchestrator",
+            agent_id=agent_id,
             metadata=payload,
         ),
-        StreamChunk(event_type="block_end", block_index=block_index, agent_id="orchestrator"),
+        StreamChunk(event_type="block_end", block_index=block_index, agent_id=agent_id),
     )
 
 
-def _text_block(block_index: int, text: str) -> tuple[StreamChunk, StreamChunk, StreamChunk]:
+def _text_block(
+    block_index: int,
+    text: str,
+    *,
+    agent_id: str = "orchestrator",
+) -> tuple[StreamChunk, StreamChunk, StreamChunk]:
     return (
         StreamChunk(
             event_type="block_start",
             block_index=block_index,
             block_type="text",
-            agent_id="orchestrator",
+            agent_id=agent_id,
         ),
         StreamChunk(
             event_type="delta",
             block_index=block_index,
             text_delta=text,
-            agent_id="orchestrator",
+            agent_id=agent_id,
         ),
-        StreamChunk(event_type="block_end", block_index=block_index, agent_id="orchestrator"),
+        StreamChunk(event_type="block_end", block_index=block_index, agent_id=agent_id),
     )
 
 
@@ -796,6 +822,7 @@ def _resolved_chunks(
 ) -> tuple[StreamChunk, StreamChunk]:
     return _clarification_block_chunks(
         block_index,
+        agent_id=_clarification_agent_id_from_state(state),
         mode=_mode(state),
         title=str(state.get("title") or "需求澄清"),
         status="resolved",
@@ -918,6 +945,7 @@ async def _switch_clarification_topic(
 ) -> ClarificationOutcome:
     cancel_chunks = _clarification_block_chunks(
         next_block_index,
+        agent_id=_clarification_agent_id_from_state(state),
         mode=_mode(state),
         title=str(state.get("title") or "需求澄清"),
         status="cancelled",
@@ -933,7 +961,7 @@ async def _switch_clarification_topic(
             config,
             next_block_index + 1,
             mode="requirement_alignment",
-            title="Orchestrator 需求对齐",
+            title=_requirement_alignment_title(config, "Orchestrator 需求对齐"),
             question=alignment_question,
             original_request=user_request,
             question_count=1,
@@ -978,6 +1006,7 @@ async def _ask_topic_route_confirmation(
     }
     chunks = _clarification_block_chunks(
         next_block_index,
+        agent_id=_clarification_agent_id_from_state(state),
         mode=_mode(state),
         title="确认澄清方向",
         status="waiting",
@@ -1023,6 +1052,7 @@ async def _repeat_current_clarification(
     chunks = (
         *_clarification_block_chunks(
             next_block_index,
+            agent_id=_clarification_agent_id_from_state(state),
             mode=_mode(state),
             title=str(state.get("title") or "Orchestrator 需求澄清"),
             status="waiting",
@@ -1031,7 +1061,11 @@ async def _repeat_current_clarification(
             summary=summary,
             metadata={**_metadata(state), "repeated_request": user_request},
         ),
-        *_text_block(next_block_index + 1, summary),
+        *_text_block(
+            next_block_index + 1,
+            summary,
+            agent_id=_clarification_agent_id_from_state(state),
+        ),
     )
     await _record_clarification(
         config,
@@ -1062,6 +1096,7 @@ async def _ask_proceed_confirmation(
     chunks = (
         *_clarification_block_chunks(
             next_block_index,
+            agent_id=_clarification_agent_id_from_state(state),
             mode=_mode(state),
             title=str(state.get("title") or "需求澄清"),
             status="waiting",
@@ -1070,7 +1105,11 @@ async def _ask_proceed_confirmation(
             summary=summary,
             metadata={**_metadata(state), "pending_answer": answer},
         ),
-        *_text_block(next_block_index + 1, summary),
+        *_text_block(
+            next_block_index + 1,
+            summary,
+            agent_id=_clarification_agent_id_from_state(state),
+        ),
     )
     await _record_clarification(config, "clarification_question_asked", state, user_request)
     return ClarificationOutcome(chunks=chunks, next_block_index=next_block_index + 2, done=True)
@@ -1092,6 +1131,7 @@ async def _ask_setup_write_confirmation(
     }
     chunks = _clarification_block_chunks(
         next_block_index,
+        agent_id=_clarification_agent_id_from_state(state),
         mode="setup_matt_pocock_skills",
         title="Matt Pocock Skills 初始化",
         status="waiting",
@@ -1124,6 +1164,7 @@ async def _ask_docs_write_confirmation(
     }
     chunks = _clarification_block_chunks(
         next_block_index,
+        agent_id=_clarification_agent_id_from_state(state),
         mode="grill_with_docs",
         title="带文档的需求澄清",
         status="waiting",
@@ -1229,6 +1270,26 @@ def _requirement_alignment_mode(config: Mapping[str, Any]) -> str:
     return mode if mode in {"off", "strict"} else "off"
 
 
+def _clarification_agent_id_from_config(config: Mapping[str, Any]) -> str:
+    value = config.get("clarification_agent_id")
+    return value.strip() if isinstance(value, str) and value.strip() else "orchestrator"
+
+
+def _clarification_agent_id_from_state(state: Mapping[str, Any]) -> str:
+    metadata = state.get("metadata")
+    if isinstance(metadata, Mapping):
+        value = metadata.get("agent_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    value = state.get("agent_id")
+    return value.strip() if isinstance(value, str) and value.strip() else "orchestrator"
+
+
+def _requirement_alignment_title(config: Mapping[str, Any], default: str) -> str:
+    value = config.get("requirement_alignment_title")
+    return value.strip() if isinstance(value, str) and value.strip() else default
+
+
 async def _requirement_alignment_question(
     config: Mapping[str, Any],
     messages: list[ChatMessage],
@@ -1254,7 +1315,13 @@ async def _llm_requirement_alignment_question(
     *,
     task_kind: str,
 ) -> dict[str, Any] | None:
-    backend = config.get("planner_model_backend", config.get("model_backend", "deepseek"))
+    backend = (
+        config.get("requirement_alignment_model_backend")
+        or config.get("qa_model_backend")
+        or config.get("planner_model_backend")
+        or config.get("model_backend")
+        or "deepseek"
+    )
     if not isinstance(backend, str) or not backend.strip():
         return None
     try:
@@ -1265,11 +1332,12 @@ async def _llm_requirement_alignment_question(
                 "max_tokens": 900,
                 "request_timeout_seconds": 12,
             },
-            agent_id="orchestrator-requirement-alignment",
+            agent_id=f"{_clarification_agent_id_from_config(config)}-requirement-alignment",
             system_prompt=(
                 "You generate one concise requirement-alignment question before an "
-                "orchestrator dispatches agents. Return only JSON with keys: id, "
-                "question, reason, recommended_answer, options. The answer must be "
+                "agent starts execution or an orchestrator dispatches agents. "
+                "Return only JSON with keys: id, question, reason, "
+                "recommended_answer, options. The answer must be "
                 "Chinese when the user writes Chinese. Do not recommend frontend "
                 "static artifacts unless task_kind is frontend_artifact."
             ),

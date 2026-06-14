@@ -3808,7 +3808,8 @@ components:
             - llm_first
           - type: 'null'
           title: Orchestrator Control Mode
-          description: Orchestrator control mode. llm_first routes complex tasks through LLM control points before legacy templates; auto keeps compatibility.
+          description: Orchestrator control mode. llm_first routes complex tasks through
+            LLM control points before legacy templates; auto keeps compatibility.
         llm_planning:
           anyOf:
           - type: boolean
@@ -3934,6 +3935,16 @@ components:
           - type: 'null'
           title: Qa Model Backend
           description: ModelGateway backend for external direct chat.
+        requirement_alignment_model_backend:
+          anyOf:
+          - type: string
+            enum:
+            - claude
+            - deepseek
+            - openai
+          - type: 'null'
+          title: Requirement Alignment Model Backend
+          description: ModelGateway backend for single-agent requirement alignment.
         qa_model:
           anyOf:
           - type: string
@@ -5227,6 +5238,7 @@ components:
           - claude_code
           - codex
           - opencode
+          - builtin
           title: Provider
         avatar_url:
           type: string

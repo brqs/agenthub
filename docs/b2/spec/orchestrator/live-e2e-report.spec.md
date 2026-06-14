@@ -83,6 +83,10 @@
 - `/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json`（待真实 HTTP/SSE refresh 后补证据）
 - `/tmp/agenthub_group_scope_fallback_no_external_agent_report.json`（待真实 HTTP/SSE refresh 后补证据）
 - `/tmp/agenthub_group_scope_memory_mentions_external_agent_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_requirement_alignment_group_orchestrator_report.json`（2026-06-14 live E2E passed）
+- `/tmp/agenthub_requirement_alignment_single_claude_report.json`（2026-06-14 live E2E passed）
+- `/tmp/agenthub_requirement_alignment_single_external_report.json`（2026-06-14 live E2E passed）
+- `/tmp/agenthub_requirement_alignment_single_direct_chat_skip_report.json`（2026-06-14 live E2E passed）
 
 最终结论：截至 2026-06-11 的历史功能 E2E 为 `passed=true`。2026-06-12 之后的
 LLM-first 控制面新增 `llm_control_points` 验收口径，旧 8 个鲁棒性 report 只能作为功能
@@ -193,6 +197,51 @@ planning profile，且只能使用 `read_file`。
 | Case 24 - Group Member Fallback Repair Visibility | 目标 Agent 不可用时仅 fallback 到群聊内可用 Agent；task card 展示最终 fallback Agent；planned/final 差异有证据；fallback 后验证通过 | passed |
 | Case 25 - IM Dialogue No Artifact Turn Taking v2 | 纯对话多 Agent 轮流发言，不创建 workspace artifact，不泄露 tool trace，最终总结各方观点 | passed |
 | Case 26 - Dialogue AI Benefits/Risks LLM Moderated | “请你开始一场有关 AI 发展的弊处和利处”自然语言纯对话；Planner 生成 `dialogue_turn`；执行层 LLM 生成 `dialogue_decision` / `dialogue_judgement`；无 artifact；report 含 `dialogue_controller` 控制点 | pending fresh live E2E |
+| Case 27 - Requirement Alignment Group Orchestrator | 群聊开启 `requirement_alignment=strict` 后由 Orchestrator 输出 `clarification` 卡片；确认前不调度子 Agent，确认后进入 planner | passed |
+| Case 28 - Requirement Alignment Single External Agent | 单聊 Claude/Codex/OpenCode 开启 strict 后由当前 Agent 输出 `clarification` 卡片；确认前不启动 CLI/SDK，确认后才进入 runtime | passed |
+| Case 29 - Requirement Alignment Single Direct Chat Skip | 单聊 strict 下身份/解释类请求跳过需求对齐，保持 direct-chat 直接回答 | passed |
+
+需求对齐 E2E 场景可用同一命令模板执行：
+
+```bash
+AGENTHUB_E2E_BASE_URL=<真实后端地址> \
+AGENTHUB_E2E_USERNAME=<测试账号> \
+AGENTHUB_E2E_PASSWORD=<测试密码> \
+AGENTHUB_E2E_SCENARIO=requirement_alignment_group_orchestrator \
+backend/.venv/bin/python backend/scripts/orchestrator_live_e2e.py
+```
+
+可替换的 `AGENTHUB_E2E_SCENARIO`：
+
+- `requirement_alignment_group_orchestrator`
+- `requirement_alignment_single_claude`
+- `requirement_alignment_single_codex_or_opencode`
+- `requirement_alignment_single_direct_chat_skip`
+
+2026-06-14 按需 live E2E 回归：
+
+```text
+requirement_alignment_group_orchestrator:
+  report: /tmp/agenthub_requirement_alignment_group_orchestrator_report.json
+  passed: true
+requirement_alignment_single_claude:
+  report: /tmp/agenthub_requirement_alignment_single_claude_report.json
+  passed: true
+requirement_alignment_single_codex_or_opencode:
+  report: /tmp/agenthub_requirement_alignment_single_external_report.json
+  passed: true
+requirement_alignment_single_direct_chat_skip:
+  report: /tmp/agenthub_requirement_alignment_single_direct_chat_skip_report.json
+  passed: true
+group_chat_attribution_process_matrix:
+  report: /tmp/agenthub_group_chat_attribution_process_matrix_report.json
+  passed: true
+  evidence:
+    - planner llm_control_point succeeded
+    - response_polish llm_control_point succeeded
+    - group dispatch stayed inside current group members
+    - final visible answer preserved planned/current/final attribution evidence
+```
 
 2026-06-11 多场景鲁棒性 E2E 报告：
 

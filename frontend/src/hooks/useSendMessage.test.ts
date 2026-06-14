@@ -14,6 +14,17 @@ describe('resolveTargetAgentId', () => {
     ).toBe('codex-helper');
   });
 
+  it('routes strict requirement alignment group messages to orchestrator', () => {
+    expect(
+      resolveTargetAgentId(
+        '请 @codex-helper 处理这段代码',
+        'group',
+        ['orchestrator', 'codex-helper'],
+        'strict',
+      ),
+    ).toBe('orchestrator');
+  });
+
   it('falls back to orchestrator in group conversations without mentions', () => {
     expect(resolveTargetAgentId('帮我拆解任务', 'group', ['orchestrator', 'codex-helper'])).toBe(
       'orchestrator',

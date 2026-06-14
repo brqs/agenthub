@@ -109,6 +109,7 @@ def numeric_field(key: str) -> NumericConfigField:
 EXTERNAL_DIRECT_CHAT_DEFAULTS: dict[str, object] = {
     "qa_short_circuit_enabled": True,
     "qa_model_backend": "openai",
+    "requirement_alignment_model_backend": None,
     "qa_max_tokens": 8192,
     "qa_classifier_max_tokens": 128,
     "qa_temperature": 0.2,
@@ -147,6 +148,7 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "clarification_gate_enabled": True,
     "auto_clarification_max_questions": 3,
     "requirement_alignment_llm_enabled": True,
+    "requirement_alignment_model_backend": None,
     "grill_max_questions": 8,
     "workspace_docs_enabled": True,
     "orchestrator_tool_calling_enabled": False,

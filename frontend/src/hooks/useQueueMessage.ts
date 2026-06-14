@@ -24,7 +24,12 @@ export function useQueueMessage() {
     try {
       const conversation = conversations.find((c) => c.id === conversationId);
       const targetAgentId = conversation
-        ? resolveTargetAgentId(text, conversation.mode, conversation.agent_ids)
+        ? resolveTargetAgentId(
+            text,
+            conversation.mode,
+            conversation.agent_ids,
+            requirementAlignment,
+          )
         : null;
       const response = await messagesAdapter.queueMessage(conversationId, {
         content: [{ type: 'text', text }],

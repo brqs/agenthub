@@ -2,7 +2,7 @@
 
 > Owner: B2
 > Related: [B1 ContentBlock Attribution](../../../b1/spec/message-content-block-attribution.spec.md), [F Orchestrated Rendering](../../../frontend/spec/orchestrated-message-rendering.spec.md)
-> Last updated: 2026-06-10
+> Last updated: 2026-06-14
 
 ## 1. 目标
 
@@ -19,6 +19,9 @@ B2 负责：
 - 为子 Agent block/tool chunk 标记实际 `agent_id`。
 - 在真实群聊后端模式下，为子 Agent 输出创建独立 message 并持久化其 content / status。
 - 移除或降级纯文本 `@<agent_id>` header，不再把它作为归属语义。
+- 在 task card、run detail、E2E report 和最终用户可见回答中保留
+  planned/current/final agent 归因证据，尤其是 fallback、repair 或实际执行
+  Agent 与原计划 Agent 不一致时。
 
 B2 不负责：
 
@@ -99,6 +102,24 @@ SSE lifecycle：
 Agent-to-Agent 接力对话的完整契约见 [agent-turn-taking.spec.md](agent-turn-taking.spec.md)。
 
 关闭 `orchestrator_group_messages_enabled=false` 时，Orchestrator 回到旧模式：所有子 Agent block 仍在父 Orchestrator message 中以 `agent_id` 标记。
+
+## 4.1 Planned / Current / Final Agent 归因
+
+Orchestrator 归因不只看原始计划中的 `task.agent_id`。每个 task 至少有三层语义：
+
+| 层级 | 来源 | 含义 |
+|---|---|---|
+| `planned` | Planner / `config.tasks` 生成的 `task.agent_id` | 原计划负责 Agent。 |
+| `current` | 当前 running attempt / child message / task card | 当前正在执行或最近执行该任务的 Agent。 |
+| `final` | terminal `TaskResult.attempts[-1].agent_id` | 最终完成、失败或中断该任务的 Agent。 |
+
+契约：
+
+- task card 展示面向用户的当前 / 最终执行 Agent，不能只展示原计划 Agent。
+- run detail / report 必须能追溯 `planned_agent_id`、当前执行 Agent 和 `final_agent_id`。
+- 最终回答在用户请求任务归因、群聊协作过程或 planned/current/final 证据时，必须包含安全的归因摘要。
+- Response polish LLM 可以润色最终回答，但不能删除已经提供的归因事实；如果 polish 输出缺失或触发安全过滤，deterministic final answer 必须保留归因行。
+- E2E evaluator 可以使用结构化 task graph、child messages、agent switch 和最终文本共同判断归因；不能只依赖英文关键字搜索。
 
 ## 5. 后端文件修改
 

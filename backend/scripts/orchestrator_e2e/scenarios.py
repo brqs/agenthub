@@ -199,6 +199,29 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         runner.DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT,
         runner.run_group_dialogue_debate_case,
     ),
+    "requirement_alignment_group_orchestrator": _spec(
+        "requirement_alignment_group_orchestrator",
+        runner.REQUIREMENT_ALIGNMENT_GROUP_PROMPT,
+        runner.run_requirement_alignment_case,
+    ),
+    "requirement_alignment_single_claude": _spec(
+        "requirement_alignment_single_claude",
+        runner.REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT,
+        runner.run_requirement_alignment_case,
+        agent_ids=["claude-code"],
+    ),
+    "requirement_alignment_single_codex_or_opencode": _spec(
+        "requirement_alignment_single_codex_or_opencode",
+        runner.REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT,
+        runner.run_requirement_alignment_case,
+        agent_ids=["opencode-helper"],
+    ),
+    "requirement_alignment_single_direct_chat_skip": _spec(
+        "requirement_alignment_single_direct_chat_skip",
+        runner.REQUIREMENT_ALIGNMENT_DIRECT_CHAT_SKIP_PROMPT,
+        runner.run_requirement_alignment_case,
+        agent_ids=["claude-code"],
+    ),
     "group_scope_missing_opencode_dialogue_repair": _spec(
         "group_scope_missing_opencode_dialogue_repair",
         runner.GROUP_SCOPE_SCENARIO_PROMPTS[

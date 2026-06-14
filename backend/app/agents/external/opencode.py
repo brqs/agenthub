@@ -26,7 +26,11 @@ from app.agents.external.runtime_budget import (
     runtime_budget_config,
 )
 from app.agents.external.runtime_isolation import isolated_runtime_env
-from app.agents.external.runtime_prelude import external_runtime_prelude
+from app.agents.external.runtime_prelude import (
+    external_runtime_prelude,
+    leading_block_count,
+    offset_stream_chunk_indices,
+)
 from app.agents.external.runtime_utils import (
     argv,
     external_error_chunk,
@@ -154,6 +158,14 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 yield chunk
             return
         merged = prelude.merged_config
+        messages = prelude.messages or messages
+        for chunk in prelude.leading_chunks:
+            yield chunk
+        block_offset = leading_block_count(prelude.leading_chunks)
+
+        def shift(chunk: StreamChunk) -> StreamChunk:
+            return offset_stream_chunk_indices(chunk, block_offset)
+
         assert workspace_path is not None
 
         command = argv(merged.get("command", DEFAULT_COMMAND))
@@ -180,7 +192,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
             write_stdin_payload = False
 
         if not command:
-            yield self._error("external_runtime_error", "OpenCode command is empty")
+            yield shift(self._error("external_runtime_error", "OpenCode command is empty"))
             return
 
         try:
@@ -196,10 +208,10 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 **process_kwargs(),
             )
         except FileNotFoundError:
-            yield self._error("external_runtime_error", OPENCODE_CLI_MISSING_ERROR)
+            yield shift(self._error("external_runtime_error", OPENCODE_CLI_MISSING_ERROR))
             return
         except Exception as exc:
-            yield self._error("external_runtime_error", self._safe_message(exc))
+            yield shift(self._error("external_runtime_error", self._safe_message(exc)))
             return
 
         if write_stdin_payload:
@@ -213,7 +225,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 )
             except Exception as exc:
                 await self._terminate_process(process)
-                yield self._error("external_runtime_error", self._safe_message(exc))
+                yield shift(self._error("external_runtime_error", self._safe_message(exc)))
                 return
         elif process.stdin is not None:
             process.stdin.close()
@@ -229,7 +241,12 @@ class OpenCodeAdapter(BaseAgentAdapter):
         try:
             stdout = process.stdout
             if stdout is None:
-                yield self._error("external_runtime_error", "OpenCode stdout pipe was not created")
+                yield shift(
+                    self._error(
+                        "external_runtime_error",
+                        "OpenCode stdout pipe was not created",
+                    )
+                )
                 await self._terminate_process(process)
                 return
 
@@ -249,7 +266,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
                                 budget.check_timeout()
                             break
                         budget.check_timeout()
-                        yield budget.heartbeat(agent_id=self.agent_id, provider=self.provider)
+                        yield shift(
+                            budget.heartbeat(agent_id=self.agent_id, provider=self.provider)
+                        )
                 finally:
                     if not line_task.done():
                         line_task.cancel()
@@ -258,19 +277,23 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
                 if not jsonl:
                     if not text_block_open:
-                        yield StreamChunk(
-                            event_type="block_start",
-                            block_index=next_block_index,
-                            block_type="text",
+                        yield shift(
+                            StreamChunk(
+                                event_type="block_start",
+                                block_index=next_block_index,
+                                block_type="text",
+                            )
                         )
                         text_block_open = True
                         saw_meaningful_event = True
-                    yield StreamChunk(
-                        event_type="delta",
-                        block_index=next_block_index,
-                        text_delta=sanitize_preview_deploy_text(
-                            line.decode(errors="replace")
-                        ),
+                    yield shift(
+                        StreamChunk(
+                            event_type="delta",
+                            block_index=next_block_index,
+                            text_delta=sanitize_preview_deploy_text(
+                                line.decode(errors="replace")
+                            ),
+                        )
                     )
                     saw_meaningful_event = True
                     continue
@@ -279,21 +302,29 @@ class OpenCodeAdapter(BaseAgentAdapter):
                     event = json.loads(line.decode("utf-8"))
                 except json.JSONDecodeError as exc:
                     if text_block_open:
-                        yield StreamChunk(event_type="block_end", block_index=next_block_index)
+                        yield shift(
+                            StreamChunk(event_type="block_end", block_index=next_block_index)
+                        )
                     await self._terminate_process(process)
-                    yield self._error(
-                        "external_runtime_error",
-                        f"OpenCode emitted invalid JSONL: {exc.msg}",
+                    yield shift(
+                        self._error(
+                            "external_runtime_error",
+                            f"OpenCode emitted invalid JSONL: {exc.msg}",
+                        )
                     )
                     return
 
                 if not isinstance(event, dict):
                     if text_block_open:
-                        yield StreamChunk(event_type="block_end", block_index=next_block_index)
+                        yield shift(
+                            StreamChunk(event_type="block_end", block_index=next_block_index)
+                        )
                     await self._terminate_process(process)
-                    yield self._error(
-                        "external_runtime_error",
-                        "OpenCode JSONL event must be an object",
+                    yield shift(
+                        self._error(
+                            "external_runtime_error",
+                            "OpenCode JSONL event must be an object",
+                        )
                     )
                     return
 
@@ -302,7 +333,9 @@ class OpenCodeAdapter(BaseAgentAdapter):
                 if event_type == "done":
                     saw_done_event = True
                     if text_block_open:
-                        yield StreamChunk(event_type="block_end", block_index=next_block_index)
+                        yield shift(
+                            StreamChunk(event_type="block_end", block_index=next_block_index)
+                        )
                         text_block_open = False
                         next_block_index += 1
                     return_code = await self._wait_process(process, budget)
@@ -313,23 +346,31 @@ class OpenCodeAdapter(BaseAgentAdapter):
 
                 if event_type == "error":
                     if text_block_open:
-                        yield StreamChunk(event_type="block_end", block_index=next_block_index)
+                        yield shift(
+                            StreamChunk(event_type="block_end", block_index=next_block_index)
+                        )
                     await self._terminate_process(process)
-                    yield self._error(
-                        self._string_field(event, "error_code") or "external_runtime_error",
-                        self._normalize_runtime_error(
-                            self._string_field(event, "error") or "OpenCode runtime error"
-                        ),
+                    yield shift(
+                        self._error(
+                            self._string_field(event, "error_code") or "external_runtime_error",
+                            self._normalize_runtime_error(
+                                self._string_field(event, "error") or "OpenCode runtime error"
+                            ),
+                        )
                     )
                     return
 
                 if event_type not in TEXT_EVENT_TYPES | TOOL_EVENT_TYPES:
                     if text_block_open:
-                        yield StreamChunk(event_type="block_end", block_index=next_block_index)
+                        yield shift(
+                            StreamChunk(event_type="block_end", block_index=next_block_index)
+                        )
                     await self._terminate_process(process)
-                    yield self._error(
-                        "external_runtime_error",
-                        f"OpenCode emitted unsupported event type: {event_type!r}",
+                    yield shift(
+                        self._error(
+                            "external_runtime_error",
+                            f"OpenCode emitted unsupported event type: {event_type!r}",
+                        )
                     )
                     return
 
@@ -346,7 +387,7 @@ class OpenCodeAdapter(BaseAgentAdapter):
                         "tool_result",
                     }:
                         saw_meaningful_event = True
-                    yield chunk
+                    yield shift(chunk)
 
                 if (
                     event_type in TEXT_EVENT_TYPES
@@ -361,21 +402,21 @@ class OpenCodeAdapter(BaseAgentAdapter):
             return_code = await self._wait_process(process, budget)
         except RuntimeTimeoutError as exc:
             if text_block_open:
-                yield StreamChunk(event_type="block_end", block_index=next_block_index)
+                yield shift(StreamChunk(event_type="block_end", block_index=next_block_index))
             await self._terminate_process(process)
-            yield self._error(exc.error_code, str(exc))
+            yield shift(self._error(exc.error_code, str(exc)))
             return
         finally:
             if process.returncode is None:
                 await self._terminate_process(process)
 
         if text_block_open:
-            yield StreamChunk(event_type="block_end", block_index=next_block_index)
+            yield shift(StreamChunk(event_type="block_end", block_index=next_block_index))
             next_block_index += 1
 
         if return_code != 0 and not saw_meaningful_event and not saw_done_event:
             stderr = await self._read_stderr(process)
-            yield self._exit_error(return_code, stderr)
+            yield shift(self._exit_error(return_code, stderr))
             return
 
         if return_code == 0 and not saw_meaningful_event and session_id:
@@ -387,14 +428,16 @@ class OpenCodeAdapter(BaseAgentAdapter):
             )
             if db_text:
                 for chunk in self._text_chunks(db_text, next_block_index):
-                    yield chunk
+                    yield shift(chunk)
                 next_block_index += 1
                 saw_meaningful_event = True
 
-        yield StreamChunk(
-            event_type="done",
-            agent_id=self.agent_id,
-            total_blocks=next_block_index,
+        yield shift(
+            StreamChunk(
+                event_type="done",
+                agent_id=self.agent_id,
+                total_blocks=next_block_index,
+            )
         )
 
     async def _map_event(
