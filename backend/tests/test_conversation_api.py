@@ -135,6 +135,25 @@ async def _create_single_conversation(
     return str(response.json()["id"]), agent_id
 
 
+async def _create_orchestrated_group_conversation(
+    client: AsyncClient,
+    headers: dict[str, str],
+) -> tuple[str, str]:
+    await _ensure_agent("orchestrator")
+    agent_id = await _insert_agent()
+    response = await client.post(
+        "/api/v1/conversations",
+        headers=headers,
+        json={
+            "title": "Requirement alignment group",
+            "mode": "group",
+            "agent_ids": ["orchestrator", agent_id],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return str(response.json()["id"]), agent_id
+
+
 async def _seed_profile_run(conversation_id: str, agent_id: str) -> None:
     async with SessionFactory() as db:
         store = OrchestratorMemoryStore(
@@ -176,6 +195,33 @@ async def _seed_profile_run(conversation_id: str, agent_id: str) -> None:
             final_summary="Execution summary\n- succeeded",
         )
         await db.commit()
+
+
+async def test_group_strict_requirement_alignment_routes_to_orchestrator(
+    client: AsyncClient,
+) -> None:
+    _, headers = await _register(client)
+    conversation_id, agent_id = await _create_orchestrated_group_conversation(client, headers)
+
+    response = await client.post(
+        f"/api/v1/conversations/{conversation_id}/messages",
+        headers=headers,
+        json={
+            "content": [
+                {
+                    "type": "text",
+                    "text": f"请 @{agent_id} 帮我做一个任务管理 Demo",
+                }
+            ],
+            "target_agent_id": agent_id,
+            "requirement_alignment": "strict",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    agent_message = response.json()["agent_message"]
+    assert agent_message["agent_id"] == "orchestrator"
+    assert agent_message["turn_options"]["requirement_alignment"] == "strict"
 
 
 async def test_queue_message_requires_active_agent_response(client: AsyncClient) -> None:

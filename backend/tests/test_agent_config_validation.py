@@ -80,6 +80,7 @@ class TestValidConfigs:
             "context_max_tokens": 64000,
             "qa_short_circuit_enabled": True,
             "qa_model_backend": "openai",
+            "requirement_alignment_model_backend": "deepseek",
             "qa_max_tokens": 8192,
             "qa_classifier_max_tokens": 128,
             "qa_temperature": 0.2,
@@ -757,6 +758,17 @@ class TestNumericValidation:
                 system_prompt=None,
             )
         assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+
+    @pytest.mark.parametrize("provider", ["claude_code", "builtin"])
+    def test_invalid_requirement_alignment_backend_rejected(self, provider: str) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider=provider,
+                config={"requirement_alignment_model_backend": "custom"},
+                system_prompt=None,
+            )
+        assert exc_info.value.code == "INVALID_MODEL_BACKEND"
+        assert "requirement_alignment_model_backend" in exc_info.value.details
 
     def test_invalid_qa_token_range_rejected(self) -> None:
         with pytest.raises(AgentConfigValidationError) as exc_info:

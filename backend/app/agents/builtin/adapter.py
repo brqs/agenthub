@@ -11,7 +11,12 @@ from app.agents.base import BaseAgentAdapter
 from app.agents.builtin.loop import AgentLoop
 from app.agents.builtin.mcp.client import MCPClient, MCPServerDown
 from app.agents.builtin.tools.registry import ToolRegistry
+from app.agents.external.runtime_prelude import (
+    leading_block_count,
+    offset_stream_chunk_indices,
+)
 from app.agents.model_gateway import ModelGateway
+from app.agents.requirement_alignment import maybe_handle_single_agent_requirement_alignment
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
 READ_FILE_PATH_RE = re.compile(
@@ -68,6 +73,21 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
             )
             return
 
+        alignment = await maybe_handle_single_agent_requirement_alignment(
+            agent_id=self.agent_id,
+            messages=messages,
+            config=merged,
+            workspace_path=workspace_path,
+        )
+        if alignment.handled and alignment.stream is not None:
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            async for chunk in alignment.stream:
+                yield chunk
+            return
+        messages = alignment.messages or messages
+        leading_chunks = alignment.leading_chunks
+        block_offset = leading_block_count(leading_chunks)
+
         try:
             tools = await self._available_tools(merged, tool_specs)
         except MCPServerDown as exc:
@@ -81,12 +101,18 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
 
         read_only_path = _deterministic_read_only_path(merged, messages, tools)
         if read_only_path is not None:
+            if leading_chunks:
+                yield StreamChunk(event_type="start", agent_id=self.agent_id)
+                for chunk in leading_chunks:
+                    yield chunk
             async for chunk in self._stream_deterministic_read_only(
                 read_only_path,
                 workspace_path=workspace_path,
                 config=merged,
             ):
-                yield chunk
+                if leading_chunks and chunk.event_type == "start":
+                    continue
+                yield offset_stream_chunk_indices(chunk, block_offset)
             return
 
         loop = AgentLoop(
@@ -95,6 +121,10 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
             tool_registry=self.tool_registry,
             mcp_client=self.mcp_client,
         )
+        if leading_chunks:
+            yield StreamChunk(event_type="start", agent_id=self.agent_id)
+            for chunk in leading_chunks:
+                yield chunk
         async for chunk in loop.run(
             messages,
             tools=tools,
@@ -103,7 +133,9 @@ class BuiltinAgentAdapter(BaseAgentAdapter):
             config=merged,
             max_iterations=_read_int(merged, "max_iterations", 10),
         ):
-            yield chunk
+            if leading_chunks and chunk.event_type == "start":
+                continue
+            yield offset_stream_chunk_indices(chunk, block_offset)
 
     async def _available_tools(
         self,

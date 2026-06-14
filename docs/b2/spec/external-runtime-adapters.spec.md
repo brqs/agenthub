@@ -39,6 +39,10 @@ contradictory SDK wrapper text such as `error result: success`.
 - 不启动、不建议、不输出 preview/deploy 长驻服务命令。
 - 使用统一 runtime lifecycle，见 [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)。
 - 支持 direct chat routing；普通问答不启动 SDK / CLI。
+- 支持单聊 `requirement_alignment="strict"` pre-runtime gate：复杂任务先通过
+  ModelGateway/API 生成结构化 `clarification` block，用户确认前不得启动 SDK / CLI、
+  不读写 workspace、不得调用工具；用户明确确认后才将合并后的需求上下文交给 runtime。
+- Orchestrator 分发的子任务必须跳过单聊需求对齐，避免执行阶段二次追问。
 - stdout/stderr 只进入诊断日志，不直接暴露完整内容给最终用户。
 - 日志必须 redacted，不记录 API key、完整 env、secrets、`.env` 内容。
 - `cwd` 和 prompt guard 只是当前安全底座，不等价于 OS 级 sandbox；最小权限与 worker 隔离 backlog 见 [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)。
@@ -176,6 +180,11 @@ Adapter-specific 配置继续保留：
 
 - runtime lifecycle 字段见 [external-runtime-lifecycle.spec.md](external-runtime-lifecycle.spec.md)。
 - direct chat 字段见 `external-direct-chat-routing.spec.md`。
+- 单聊需求对齐字段：
+  - `requirement_alignment_model_backend`：可选 ModelGateway backend；优先于
+    `qa_model_backend` / `model_backend`。
+  - `requirement_alignment_llm_enabled`：为 `false` 时只使用确定性 fallback 问题。
+  - `auto_clarification_max_questions`：默认最多 3 轮，每轮只问 1 个最高价值问题。
 - external direct-chat 流式预算字段：
   - `qa_stream_idle_timeout_seconds`：等待下一条 direct-chat chunk 的 idle timeout。
   - `qa_stream_max_runtime_seconds`：direct-chat 单次回答 hard timeout。

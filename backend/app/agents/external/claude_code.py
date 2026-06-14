@@ -28,6 +28,8 @@ from app.agents.external.runtime_isolation import (
 )
 from app.agents.external.runtime_prelude import (
     external_runtime_prelude,
+    leading_block_count,
+    offset_stream_chunk_indices,
     text_result_chunks,
 )
 from app.agents.external.runtime_utils import (
@@ -134,6 +136,10 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
                 yield chunk
             return
         merged = prelude.merged_config
+        messages = prelude.messages or messages
+        for chunk in prelude.leading_chunks:
+            yield chunk
+        block_offset = leading_block_count(prelude.leading_chunks)
         assert workspace_path is not None
 
         budget_config = runtime_budget_config(
@@ -154,7 +160,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
                 merged,
                 workspace_path,
             ):
-                yield chunk
+                yield offset_stream_chunk_indices(chunk, block_offset)
             return
 
         try:
@@ -169,7 +175,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
                     merged,
                     workspace_path,
                 ):
-                    yield chunk
+                    yield offset_stream_chunk_indices(chunk, block_offset)
                 return
             yield self._error_chunk(self._classify_exception(exc), self._safe_error_message(exc))
             return
@@ -196,7 +202,7 @@ class ClaudeCodeAdapter(BaseAgentAdapter):
             timeout_error_chunk=lambda exc: self._error_chunk(exc.error_code, str(exc)),
             exception_stream=exception_stream,
         ):
-            yield chunk
+            yield offset_stream_chunk_indices(chunk, block_offset)
 
     def _load_sdk(self) -> Any:
         return importlib.import_module(SDK_MODULE_NAME)

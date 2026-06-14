@@ -58,6 +58,18 @@ DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_SSE_PATH = (  # noqa: S108
 DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_sse.jsonl"  # noqa: S108
 )
+DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_group_orchestrator_sse.jsonl"  # noqa: S108
+)
+DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_single_claude_sse.jsonl"  # noqa: S108
+)
+DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_single_external_sse.jsonl"  # noqa: S108
+)
+DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_single_direct_chat_skip_sse.jsonl"  # noqa: S108
+)
 DEFAULT_GROUP_SCOPE_MISSING_OPENCODE_DIALOGUE_REPAIR_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_sse.jsonl"  # noqa: S108
 )
@@ -183,6 +195,18 @@ DEFAULT_IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_V2_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json"  # noqa: S108
+)
+DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_group_orchestrator_report.json"  # noqa: S108
+)
+DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_single_claude_report.json"  # noqa: S108
+)
+DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_single_external_report.json"  # noqa: S108
+)
+DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_requirement_alignment_single_direct_chat_skip_report.json"  # noqa: S108
 )
 DEFAULT_GROUP_SCOPE_MISSING_OPENCODE_DIALOGUE_REPAIR_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_report.json"  # noqa: S108
@@ -388,6 +412,22 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
         DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH,
         DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH,
         DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_BROWSER_REPORT_PATH,
+    ),
+    "requirement_alignment_group_orchestrator": ScenarioDefaults(
+        DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_REPORT_PATH,
+        DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_SSE_PATH,
+    ),
+    "requirement_alignment_single_claude": ScenarioDefaults(
+        DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_REPORT_PATH,
+        DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_SSE_PATH,
+    ),
+    "requirement_alignment_single_codex_or_opencode": ScenarioDefaults(
+        DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_REPORT_PATH,
+        DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_SSE_PATH,
+    ),
+    "requirement_alignment_single_direct_chat_skip": ScenarioDefaults(
+        DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_REPORT_PATH,
+        DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_SSE_PATH,
     ),
     "group_scope_missing_opencode_dialogue_repair": ScenarioDefaults(
         DEFAULT_GROUP_SCOPE_MISSING_OPENCODE_DIALOGUE_REPAIR_REPORT_PATH,

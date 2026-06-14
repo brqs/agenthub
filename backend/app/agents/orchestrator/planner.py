@@ -76,6 +76,8 @@ require otherwise. Do not probe a weaker agent first and rely on fallback when t
 profile already provides clear evidence.
 Each task instruction must be self-contained and must not ask one sub-agent to contact
 other agents. The backend will dispatch tasks; sub-agents only complete their own task.
+Do not create circular dependencies. Review tasks should depend on the artifacts they
+review; implementation or planning tasks should not depend on later review tasks.
 Assign planning, implementation, verification, review, repair, and escalation work by
 matching the request to each available agent's profile, strengths, weaknesses, and
 preferred task types.

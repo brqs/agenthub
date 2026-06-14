@@ -2,8 +2,8 @@
 
 > 定义 AgentHub 多 Agent 编排器的当前行为契约，包括任务规划、任务分配、子任务流转、事件聚合和失败处理。
 >
-> 版本：v1.7
-> 最后更新：2026-06-12
+> 版本：v1.8
+> 最后更新：2026-06-14
 
 ---
 
@@ -43,6 +43,7 @@ Orchestrator 不负责：
 - `dispatch_agent` 是 tool calling 模式下的单个子 Agent 调度工具；当前默认主链仍是 LLM planning + 静态 DAG executor。
 - Workspace conflict detection 的详细规则拆分到 [workspace-conflict.spec.md](workspace-conflict.spec.md)。
 - LLM-first 控制面详见 [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md)。该模式下模板不再是复杂任务主路径，而是 Planner 失败后的兼容 fallback。
+- Planner 生成 task DAG，执行器根据已校验 DAG 做确定性调度；运行期并行 batch 不再逐步调用模型决定。
 
 ---
 
@@ -126,6 +127,21 @@ async def stream(
 默认模型上下文预算说明：即使底层 DeepSeek backend 支持更大上下文（例如 1M），
 AgentHub 默认仍使用 `64000` tokens 作为产品级安全预算，用于控制延迟、成本和跨
 provider 兼容性；需要更大上下文时通过上述 `context_*_max_tokens` 字段显式配置。
+
+### 2.1 DAG 并行调度契约
+
+复杂任务通常由 LLM Planner 先产出 DAG，但执行调度由 Orchestrator 后端确定性完成：
+
+1. 初始化所有 task 为 `pending`。
+2. 每轮从 `pending` 中找出依赖已满足的 runnable tasks。
+3. 如果没有 runnable task，剩余 task 被标记为 `skipped`，并在 process / summary 中暴露为未执行，而不是无限等待。
+4. 从 runnable tasks 中按 `(priority, task_id)` 排序选择一个并行 batch。
+5. batch 大小受 `orchestrator_parallel_max_concurrency` 限制，默认 `3`。
+6. 同一 batch 默认避免同一个 preferred / final Agent 被同时分配多个任务，以降低 workspace 冲突和 runtime session 竞争。
+7. batch 内每个 task 使用 `asyncio.create_task()` 并发执行，子 Agent SSE 事件通过队列合并回父 Orchestrator stream。
+8. batch 完成后写入 `TaskResult`、刷新 workspace conflict、触发 review repair task（如需要），然后进入下一轮 runnable 选择。
+
+Review task 的依赖判断更宽松：如果被审阅 task 虽未完全成功但已产生可审阅 artifact 或文件变更，review 仍可运行并给出修复意见。Repair task 会动态加入同一个 DAG pending 队列。
 
 生产接线：
 

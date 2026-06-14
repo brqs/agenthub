@@ -33,6 +33,7 @@ from scripts.orchestrator_e2e.runner import (
     fallback_group_agent_ids,
     forbidden_visible_terms,
     fullstack_parallel_report,
+    group_attribution_semantics_report,
     message_error_text,
 )
 from scripts.orchestrator_e2e.scenarios import SCENARIOS
@@ -80,6 +81,14 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_PRESENTATION_MARKERS_SSE_PATH,
     DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH,
     DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_SSE_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_REPORT_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_SSE_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_REPORT_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_SSE_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_REPORT_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_SSE_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_REPORT_PATH,
+    DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_SSE_PATH,
     DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_REPORT_PATH,
     DEFAULT_STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_SSE_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_REPORT_PATH,
@@ -103,6 +112,9 @@ from scripts.orchestrator_live_e2e import (
     P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT,
     PRESENTATION_COLLAPSE_PROMPT,
     PURE_DIALOGUE_ROBUSTNESS_MATRIX_PROMPT,
+    REQUIREMENT_ALIGNMENT_DIRECT_CHAT_SKIP_PROMPT,
+    REQUIREMENT_ALIGNMENT_GROUP_PROMPT,
+    REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT,
     SERVER_COMMAND_RE,
     STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT,
     TASK_MANAGER_PARALLEL_PROMPT,
@@ -327,6 +339,22 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "dialogue_ai_benefits_risks_llm_moderated": (
             "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json",
             "/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_sse.jsonl",
+        ),
+        "requirement_alignment_group_orchestrator": (
+            "/tmp/agenthub_requirement_alignment_group_orchestrator_report.json",
+            "/tmp/agenthub_requirement_alignment_group_orchestrator_sse.jsonl",
+        ),
+        "requirement_alignment_single_claude": (
+            "/tmp/agenthub_requirement_alignment_single_claude_report.json",
+            "/tmp/agenthub_requirement_alignment_single_claude_sse.jsonl",
+        ),
+        "requirement_alignment_single_codex_or_opencode": (
+            "/tmp/agenthub_requirement_alignment_single_external_report.json",
+            "/tmp/agenthub_requirement_alignment_single_external_sse.jsonl",
+        ),
+        "requirement_alignment_single_direct_chat_skip": (
+            "/tmp/agenthub_requirement_alignment_single_direct_chat_skip_report.json",
+            "/tmp/agenthub_requirement_alignment_single_direct_chat_skip_sse.jsonl",
         ),
         "group_scope_missing_opencode_dialogue_repair": (
             "/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_report.json",
@@ -596,6 +624,47 @@ def test_robustness_repair_loop_scenarios_are_registered() -> None:
         assert marker in prompt
         assert "writer" not in prompt
         assert "web-designer" not in prompt
+
+
+def test_requirement_alignment_scenarios_are_registered() -> None:
+    expected = {
+        "requirement_alignment_group_orchestrator": (
+            DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_REPORT_PATH,
+            DEFAULT_REQUIREMENT_ALIGNMENT_GROUP_ORCHESTRATOR_SSE_PATH,
+            REQUIREMENT_ALIGNMENT_GROUP_PROMPT,
+            ("orchestrator", "claude-code", "opencode-helper", "codex-helper"),
+            "确认最关键的交付边界",
+        ),
+        "requirement_alignment_single_claude": (
+            DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_REPORT_PATH,
+            DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_CLAUDE_SSE_PATH,
+            REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT,
+            ("claude-code",),
+            "确认最影响执行的一个边界",
+        ),
+        "requirement_alignment_single_codex_or_opencode": (
+            DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_REPORT_PATH,
+            DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_EXTERNAL_SSE_PATH,
+            REQUIREMENT_ALIGNMENT_SINGLE_TASK_PROMPT,
+            ("opencode-helper",),
+            "确认最影响执行的一个边界",
+        ),
+        "requirement_alignment_single_direct_chat_skip": (
+            DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_REPORT_PATH,
+            DEFAULT_REQUIREMENT_ALIGNMENT_SINGLE_DIRECT_CHAT_SKIP_SSE_PATH,
+            REQUIREMENT_ALIGNMENT_DIRECT_CHAT_SKIP_PROMPT,
+            ("claude-code",),
+            "你是谁",
+        ),
+    }
+
+    for name, (report_path, sse_path, prompt, agent_ids, marker) in expected.items():
+        spec = SCENARIOS[name]
+        assert str(spec.default_report_path) == report_path
+        assert str(spec.default_sse_path) == sse_path
+        assert spec.prompt == prompt
+        assert spec.agent_ids == agent_ids
+        assert marker in prompt
 
 
 def test_pure_dialogue_robustness_matrix_covers_dialogue_shapes() -> None:
@@ -1577,6 +1646,71 @@ def test_shared_robustness_evaluators_reject_bad_report() -> None:
     assert checks["task_card_agent_matches_final_agent"] is False
     assert checks["workspace_required_artifacts_present"] is False
     assert checks["visible_text_no_sensitive_trace"] is False
+
+
+def test_group_attribution_semantics_accepts_llm_chosen_artifact_names() -> None:
+    files = [
+        {"path": "planning.md"},
+        {"path": "index.html"},
+        {"path": "styles.css"},
+        {"path": "app.js"},
+        {"path": "backend_app.py"},
+        {"path": "api.md"},
+        {"path": "review.md"},
+    ]
+    visible_text = (
+        "Orchestrator 总结 planned/current/final agent 归因证据。"
+        "审阅发现风险并给出 repair 建议。"
+    )
+
+    report = group_attribution_semantics_report(files, visible_text)
+
+    assert report["planning_artifact_present"] is True
+    assert report["frontend_artifact_present"] is True
+    assert report["backend_artifact_present"] is True
+    assert report["review_artifact_present"] is True
+    assert report["attribution_terms_present"] is True
+    assert report["planned_current_final_present"] is True
+    assert report["passed"] is True
+
+
+def test_group_attribution_semantics_accepts_structured_task_graph() -> None:
+    files = [
+        {"path": "PLAN-agent-task-decomposition.md"},
+        {"path": "FRONTEND-delivery-recommendations.md"},
+        {"path": "BACKEND-verification-recommendations.md"},
+        {"path": "REVIEW-attribution-risk-repair.md"},
+    ]
+    visible_text = "Orchestrator 总结归因证据。审阅发现风险并给出 repair 建议。"
+    task_graph = {
+        "tasks": [
+            {
+                "task_id": "T1-plan",
+                "agent_id": "codex-helper",
+                "final_state": "succeeded",
+            },
+            {
+                "task_id": "T2-frontend",
+                "agent_id": "claude-code",
+                "final_state": "succeeded",
+            },
+        ]
+    }
+    child_messages = [
+        {"agent_id": "codex-helper", "status": "done"},
+        {"agent_id": "claude-code", "status": "done"},
+    ]
+
+    report = group_attribution_semantics_report(
+        files,
+        visible_text,
+        task_graph=task_graph,
+        child_messages=child_messages,
+    )
+
+    assert report["structured_attribution_present"] is True
+    assert report["planned_current_final_present"] is True
+    assert report["passed"] is True
 
 
 def test_e2e_report_sanitizer_redacts_structured_runtime_trace() -> None:

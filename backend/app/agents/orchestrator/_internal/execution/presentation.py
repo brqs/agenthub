@@ -33,6 +33,8 @@ Use only the provided facts. Do not invent completed work, files, URLs, or valid
 Mention failures or manual review needs clearly.
 Never reveal internal orchestration/debug terms, task ids, call ids, raw tool output,
 JSON, code blocks, agent @ ids, hidden reasoning, ReAct traces, or planner labels.
+When attribution facts are provided because the user asked for task ownership,
+preserve the planned/current/final agent summary without adding raw debug details.
 Never ask the user to manually start local preview, server, deployment, or validation
 commands; AgentHub platform tools handle preview, browser validation, and deployment
 when requested.
@@ -89,6 +91,7 @@ class ResponseFacts:
     changed_files: list[str]
     verification: list[str]
     review: list[str]
+    attribution: list[str]
     urls: list[str]
     raw_summary_excerpt: str
 
@@ -186,6 +189,8 @@ def deterministic_response_text(facts: ResponseFacts) -> str:
             lines.extend(["", "验证结果：", *[f"- {item}" for item in facts.verification]])
         if facts.review:
             lines.extend(["", "Review：", *[f"- {item}" for item in facts.review]])
+        if facts.attribution:
+            lines.extend(["", "归因证据：", *[f"- {item}" for item in facts.attribution]])
         if facts.needs_attention:
             lines.extend(
                 ["", "需要注意：", *[f"- {item}" for item in facts.needs_attention]]
@@ -209,6 +214,8 @@ def deterministic_response_text(facts: ResponseFacts) -> str:
         lines.extend(["", "Validation:", *[f"- {item}" for item in facts.verification]])
     if facts.review:
         lines.extend(["", "Review:", *[f"- {item}" for item in facts.review]])
+    if facts.attribution:
+        lines.extend(["", "Attribution:", *[f"- {item}" for item in facts.attribution]])
     if facts.needs_attention:
         lines.extend(["", "Needs attention:", *[f"- {item}" for item in facts.needs_attention]])
     return _ensure_trailing_newline("\n".join(lines))
@@ -294,6 +301,7 @@ def _response_facts(
         changed_files=_dedupe(changed_files)[:MAX_PRESENTED_ITEMS],
         verification=_dedupe(verification)[:MAX_PRESENTED_ITEMS],
         review=_dedupe(review)[:MAX_PRESENTED_ITEMS],
+        attribution=_attribution_lines(task_items, run_context)[:MAX_PRESENTED_ITEMS],
         urls=_dedupe(urls)[:MAX_PRESENTED_ITEMS],
         raw_summary_excerpt=_truncate_for_facts(raw_summary, 1200),
     )
@@ -332,6 +340,26 @@ def _collect_result_facts(
         verification.append("A retry/repair completed successfully.")
     if final_attempt.review_outcome and final_attempt.review_outcome != "passed":
         review.append("Review feedback was captured for follow-up or repair.")
+
+
+def _attribution_lines(
+    tasks: Sequence[SubTask],
+    run_context: OrchestratorRunContext,
+) -> list[str]:
+    lines: list[str] = []
+    for task in tasks:
+        result = run_context.results.get(task.task_id)
+        if result is not None and result.attempts:
+            current_agent = result.attempts[-1].agent_id
+            final_agent = result.attempts[-1].agent_id
+        else:
+            current_agent = task.agent_id
+            final_agent = "pending"
+        lines.append(
+            f"{_clean_title(task.title)}: planned={task.agent_id}, "
+            f"current={current_agent}, final={final_agent}"
+        )
+    return lines
 
 
 def _evaluation_lines(payloads: list[dict[str, Any]]) -> list[str]:
@@ -445,6 +473,7 @@ def _facts_prompt(facts: ResponseFacts) -> str:
         "changed_files": facts.changed_files,
         "verification": facts.verification,
         "review": facts.review,
+        "attribution": facts.attribution,
         "urls": facts.urls,
         "output_requirements": [
             "short natural final answer",
@@ -453,6 +482,7 @@ def _facts_prompt(facts: ResponseFacts) -> str:
             "do not mention unavailable facts",
             "do not ask the user to run local preview/server/deploy commands",
             "do not claim completed member outputs were not preserved",
+            "preserve attribution lines if provided",
         ],
     }
     return _truncate_for_facts(

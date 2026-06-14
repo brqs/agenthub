@@ -693,7 +693,8 @@ CONTEXT_COMPRESSION_BASE_URL=https://api.deepseek.com
   "content": [
     {"type": "text", "text": "用 React 写一个 Todo 组件"}
   ],
-  "target_agent_id": "claude-code"
+  "target_agent_id": "claude-code",
+  "requirement_alignment": "strict"
 }
 ```
 
@@ -702,10 +703,13 @@ CONTEXT_COMPRESSION_BASE_URL=https://api.deepseek.com
 |------|------|------|------|
 | `content` | ContentBlock[] | ✅ | 消息内容块数组 |
 | `target_agent_id` | string | ⭕ | 指定目标 Agent；single 模式可省略 |
+| `requirement_alignment` | `"off"` / `"strict"` | ⭕ | 本 turn 是否开启需求对齐；默认 `off` |
 
 **说明**：
 - 单聊模式：`target_agent_id` 自动用会话的唯一 Agent
 - 群聊模式：必须指定 `target_agent_id`（通常是 Orchestrator）
+- 群聊包含 Orchestrator 且 `requirement_alignment="strict"` 时，本轮需求对齐由 Orchestrator 统一负责，后端会把目标 Agent 收敛为 Orchestrator。
+- 单聊且 `requirement_alignment="strict"` 时，当前单聊 Agent 会在 direct-chat / CLI / SDK runtime 前先输出结构化 `clarification` 卡片；该阶段使用 ModelGateway/API，不启动真实 runtime。
 
 **响应 201**：
 ```json
@@ -1525,6 +1529,7 @@ interface AgentConfig {
   timeout_seconds?: number;
   qa_short_circuit_enabled?: boolean;
   qa_model_backend?: "claude" | "deepseek" | "openai";
+  requirement_alignment_model_backend?: "claude" | "deepseek" | "openai";
   qa_model?: string | null;
   qa_classifier_model?: string | null;
   qa_max_tokens?: number;

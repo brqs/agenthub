@@ -1023,7 +1023,7 @@ def normalize_llm_planned_dependencies(
             for task in updated
         ]
 
-    return updated
+    return _break_dependency_cycles(updated)
 
 
 _normalize_llm_planned_dependencies = normalize_llm_planned_dependencies
@@ -1108,6 +1108,73 @@ def _with_added_dependencies(
 
 def _has_dependency_from(task: SubTask, dependency_ids: set[str]) -> bool:
     return any(dependency_id in dependency_ids for dependency_id in task.depends_on)
+
+
+def _break_dependency_cycles(tasks: list[SubTask]) -> list[SubTask]:
+    if len(tasks) < 2:
+        return tasks
+
+    task_by_id = {task.task_id: task for task in tasks}
+    review_or_repair_ids = {
+        task.task_id
+        for task in tasks
+        if _is_review_task(task) or _is_repair_task(task)
+    }
+    cleaned: list[SubTask] = []
+    for task in tasks:
+        deps = [
+            dep
+            for dep in task.depends_on
+            if dep != task.task_id
+            and (
+                dep not in review_or_repair_ids
+                or _is_review_task(task)
+                or _is_repair_task(task)
+            )
+        ]
+        cleaned.append(
+            replace(task, depends_on=tuple(deps))
+            if tuple(deps) != task.depends_on
+            else task
+        )
+
+    graph = {task.task_id: list(task.depends_on) for task in cleaned}
+    normalized: list[SubTask] = []
+    for task in cleaned:
+        deps: list[str] = []
+        for dep in task.depends_on:
+            if dep not in task_by_id:
+                continue
+            candidate_graph = {key: list(value) for key, value in graph.items()}
+            candidate_graph[task.task_id] = [*deps, dep]
+            if _dependency_path_exists(candidate_graph, dep, task.task_id):
+                continue
+            deps.append(dep)
+        graph[task.task_id] = deps
+        normalized.append(
+            replace(task, depends_on=tuple(deps))
+            if tuple(deps) != task.depends_on
+            else task
+        )
+    return normalized
+
+
+def _dependency_path_exists(
+    graph: Mapping[str, list[str]],
+    start: str,
+    target: str,
+) -> bool:
+    pending = list(graph.get(start, []))
+    seen: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if node == target:
+            return True
+        if node in seen:
+            continue
+        seen.add(node)
+        pending.extend(graph.get(node, []))
+    return False
 
 
 def balance_requested_multi_agent_plan(

@@ -65,6 +65,33 @@ Live E2E reports for group-scope cases must include safe diagnostics:
 Reports must not store full prompts, tokens, stderr, env vars, auth files, or
 secrets.
 
+## 2026-06-14 Update: LLM DAG Dependency Safety
+
+LLM Planner owns the first draft of the task DAG: task ids, assigned agents,
+`depends_on`, `review_of`, priorities, task types, and expected outputs. The
+executor must not blindly trust that graph. Before execution, the backend must
+normalize and validate the Planner output deterministically.
+
+The normalization contract is:
+
+- `depends_on` entries must reference existing task ids.
+- Planner output must not include circular dependencies.
+- Review tasks should depend on the implementation / artifact tasks they review.
+- Implementation, planning, verification, and ordinary generation tasks must not
+  depend on later review / repair tasks.
+- Self-dependencies must be removed.
+- If a remaining dependency would create a cycle, the backend must drop the edge
+  instead of letting the executor skip the runnable graph.
+
+This is a product safety guard, not only a prompt instruction. The Planner prompt
+also tells the model not to create circular dependencies, but the backend
+normalizer remains the authoritative protection against bad DAGs.
+
+Parallelism is an execution property derived from the normalized DAG. The model
+does not decide each runtime batch. After normalization, tasks whose dependencies
+are already satisfied become runnable; the static executor selects a bounded
+batch from that runnable set and runs it concurrently.
+
 ## 2026-06-07 Update: Built-in Planning Profiles And Clarification Gate MVP
 
 Planner `available_agents` entries include richer scheduling signals:

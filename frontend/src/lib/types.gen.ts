@@ -1676,7 +1676,7 @@ export interface components {
              * Orchestrator Control Mode
              * @description Orchestrator control mode. llm_first routes complex tasks through LLM control points before legacy templates; auto keeps compatibility.
              */
-            orchestrator_control_mode?: 'auto' | 'llm_first' | null;
+            orchestrator_control_mode?: ("auto" | "llm_first") | null;
             /** Llm Planning */
             llm_planning?: boolean | null;
             /** Orchestrator Dialogue Llm Control Enabled */
@@ -1725,6 +1725,11 @@ export interface components {
              * @description ModelGateway backend for external direct chat.
              */
             qa_model_backend?: ("claude" | "deepseek" | "openai") | null;
+            /**
+             * Requirement Alignment Model Backend
+             * @description ModelGateway backend for single-agent requirement alignment.
+             */
+            requirement_alignment_model_backend?: ("claude" | "deepseek" | "openai") | null;
             /** Qa Model */
             qa_model?: string | null;
             /** Qa Classifier Model */
@@ -2365,7 +2370,7 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "claude_code" | "codex" | "opencode";
+            provider: "claude_code" | "codex" | "opencode" | "builtin";
             /**
              * Avatar Url
              * @default

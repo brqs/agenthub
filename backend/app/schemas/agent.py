@@ -149,6 +149,10 @@ class AgentConfig(BaseModel):
         default=None,
         description="ModelGateway backend for external direct chat.",
     )
+    requirement_alignment_model_backend: ModelBackend | None = Field(
+        default=None,
+        description="ModelGateway backend for single-agent requirement alignment.",
+    )
     qa_model: str | None = None
     qa_classifier_model: str | None = None
     qa_max_tokens: int | None = Field(
