@@ -292,6 +292,17 @@ dialogue_ai_benefits_risks_llm_moderated:
 - 2026-06-11 的旧 report 需要保留为历史功能证据，但 LLM-first 验收必须使用重跑后的 fresh report。
 - 本轮实现只准备脚本和报告结构；真实 HTTP/SSE E2E 由测试执行者单独触发。
 
+2026-06-15 Agent architecture E2E 补充要求：
+
+- LLM-first 验收必须区分 `planner`、`react_replanner`、`dialogue_controller`、`tool_loop`、`response_polish`，不能只看最终 artifact 或旧 `planner_used_llm`。
+- Parallel DAG 场景如果声称支持 batch-level Re-planner，report 必须证明每个关键 batch 后出现 `phase="react_replanner"` 或等价安全摘要。
+- Fallback 场景如果声称由 LLM 决定 fallback/repair Agent，report 必须包含白名单输入、模型建议和后端校验后的实际 Agent，且不得调用群聊外 Agent。
+- Evaluator-Optimizer 场景必须保留 first failure evidence、repair decision、repair attempt、final pass evidence。
+- 当前待新增/刷新场景建议：
+  - `parallel_batch_replanner_repair`
+  - `fallback_llm_decision_whitelist`
+  - `evaluator_optimizer_repair_loop`
+
 2026-06-13 group-scope E2E 报告要求：
 
 - 每个普通群聊场景必须以 `conversation.agent_ids` 为唯一调度边界。

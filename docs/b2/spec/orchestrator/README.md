@@ -3,7 +3,7 @@
 > 目的：作为 Orchestrator 相关 spec 的包级入口，区分当前契约和当前验证报告。
 >
 > 状态：Current package index
-> 最后更新：2026-06-12
+> 最后更新：2026-06-15
 
 ---
 
@@ -13,6 +13,7 @@
 |---|---|---|
 | [core.spec.md](core.spec.md) | Current contract | Orchestrator 主行为契约：调度、DAG 并行、summary、失败处理、preview 边界 |
 | [task-planning.spec.md](task-planning.spec.md) | Current contract | direct answer、direct mention、LLM planner、legacy fallback、DAG 依赖语义 |
+| [agent-architecture-patterns.spec.md](agent-architecture-patterns.spec.md) | Architecture reference | 主流 Agent 架构模式与 AgentHub B2 Orchestrator 的实现状态、差距和演进映射 |
 | [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md) | Current contract | LLM-first 控制面、控制点观测、legacy template fallback 与 E2E 报告口径 |
 | [command-fulfillment.spec.md](command-fulfillment.spec.md) | Backend MVP implemented | 显式命令逐项履约、平台 preview/verify/deploy 闭环和 final summary 不误报 |
 | [context-routing.spec.md](context-routing.spec.md) | Backend hardening implemented + Live E2E Passed | 多轮追问、workspace/run evidence answer 和继续/修复命令 evidence pack 注入 |
@@ -37,12 +38,13 @@
 修改 Orchestrator 主执行流：
 
 1. [core.spec.md](core.spec.md)
-2. [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md)
-3. [task-planning.spec.md](task-planning.spec.md)
-4. [command-fulfillment.spec.md](command-fulfillment.spec.md)
-5. [clarification-gate.spec.md](clarification-gate.spec.md)
-6. [workspace-conflict.spec.md](workspace-conflict.spec.md)
-7. [live-e2e-report.spec.md](live-e2e-report.spec.md)
+2. [agent-architecture-patterns.spec.md](agent-architecture-patterns.spec.md)
+3. [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md)
+4. [task-planning.spec.md](task-planning.spec.md)
+5. [command-fulfillment.spec.md](command-fulfillment.spec.md)
+6. [clarification-gate.spec.md](clarification-gate.spec.md)
+7. [workspace-conflict.spec.md](workspace-conflict.spec.md)
+8. [live-e2e-report.spec.md](live-e2e-report.spec.md)
 
 修改 Orchestrator 需求澄清 / 代码前追问：
 
@@ -98,7 +100,8 @@
 
 ## 3. 当前边界
 
-- 当前默认主链是 `llm_planning=true` + 静态 DAG 并行 executor。
+- 当前默认主链是 `llm_planning=true` + 静态 DAG 并行 executor；这属于 “LLM Planner + deterministic graph executor” 架构，不等同于完整 autonomous agent loop。
+- ReAct replanner 已实现为 LLM 控制点，但多任务并行主链当前不会在每个 parallel batch 后强制进入 Re-planner；batch-level Re-planner 属于 proposed enhancement。
 - 通用 Evaluation / Reflection Phase 2 MVP 已实现；网页 preview/browser verify、Workflow validation + allowlist dry-run、PPT outline、受控 test runner 和 deployment health 已接入 evaluator / health gate 语义，workflow runtime 与 deployment repair/redeploy live E2E 已通过。
 - DAG 并行是 Orchestrator execution 能力，不是 platform tool。
 - Preview / browser verify / create custom agent / deployment 是 Orchestrator 可调用的平台 tool，但实际执行由平台 service 完成。

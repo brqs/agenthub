@@ -2,8 +2,8 @@
 
 > 定义 Orchestrator 的 LLM-first 控制面：复杂任务优先由大模型完成意图理解、任务拆解、Agent 分工、依赖规划、过程重规划、repair/review 决策和最终总结；确定性代码保留为安全边界、平台工具执行、显式指令和失败 fallback。
 >
-> 版本：v0.2
-> 最后更新：2026-06-14
+> 版本：v0.3
+> 最后更新：2026-06-15
 
 ---
 
@@ -16,6 +16,8 @@ AgentHub 的鲁棒性不应依赖“模板可识别 prompt”或固定脚本场�
 - Dialogue controller：纯对话/辩论场景决定下一轮发言者、是否继续和最终总结。
 - Tool loop：在安全工具白名单内，由模型决定读取、预览、部署、浏览器验证等平台动作顺序。
 - Response polish：基于结构化事实组织最终回答，不暴露 raw trace 或隐藏推理。
+
+本 spec 对齐 [agent-architecture-patterns.spec.md](agent-architecture-patterns.spec.md) 的生产架构原则：LLM 负责关键决策，确定性 executor 负责状态推进、安全边界和可观测性。
 
 确定性逻辑不删除，但必须退回到护栏位置：
 
@@ -109,6 +111,26 @@ ReAct replanner 是 LLM-first 的第二控制点，职责不是重新执行 Plan
 
 静态 DAG executor 仍可用于多任务并行执行；当使用静态并行时，ReAct 可以作为并行阶段后的后续控制点，而不是完全替代并行调度。
 
+目标架构：
+
+```text
+Initial Planner
+-> DAG Executor Batch
+-> Batch-level Re-planner
+-> continue / add repair / add review / skip / finish
+-> Evaluator / Browser / Deployment evidence
+-> Re-planner
+-> Final Summary
+```
+
+当前实现边界：
+
+- LLM Planner：`Implemented`。
+- 静态 DAG executor：`Implemented`。
+- ReAct replanner：`Partially implemented`，已可在非并行主链和部分 repair/failure 场景决策。
+- Parallel batch 后强制进入 Re-planner：`Proposed`，尚不是默认并行 DAG 主链。
+- LLM 在安全白名单内建议 fallback/repair Agent：`Proposed`。
+
 ---
 
 ## 6. 安全边界
@@ -121,6 +143,7 @@ LLM-first 不等于 LLM 任意执行：
 - 不保存完整 prompt、密钥、token、认证文件、环境变量、runtime stderr。
 - 用户自建 Agent 不自动继承内置 planning profile；只暴露自己的安全 profile。
 - Planner 只生成 DAG 草案；并行 batch 由后端基于 normalized DAG、task state 和 concurrency limit 确定性选择，不由模型逐步决定。
+- Re-planner 输出只能作为受控 action proposal，必须经过群聊白名单、cycle 防护、max attempts、cooldown 和 tool allowlist 校验。
 
 ---
 
