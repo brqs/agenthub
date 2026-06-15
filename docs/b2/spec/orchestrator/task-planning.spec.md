@@ -192,6 +192,13 @@ Run detail/E2E report 不应只看 `planner_used_llm`，而应聚合 `event_type
 
 完整控制面契约见 [llm-orchestrated-flow.spec.md](llm-orchestrated-flow.spec.md)。
 
+架构边界：
+
+- Planner 是初始规划器，只负责生成第一版 task graph。
+- Planner 输出不是完整过程自治；后续执行仍由 DAG executor、ReAct replanner、evaluator、tool loop 和 deterministic guardrails 协同完成。
+- 多任务并行主链当前由静态 DAG executor 选择 ready batch；batch-level Re-planner 属于 proposed enhancement。
+- 主流架构映射见 [agent-architecture-patterns.spec.md](agent-architecture-patterns.spec.md)。
+
 ## 2026-06-11 Update: Explicit Task Routing, Attribution, And Large Planner Context
 
 Planner now receives a dedicated large context path for true LLM planning:
@@ -287,6 +294,8 @@ Orchestrator 的任务解析顺序固定，前一个分支命中后不会继续�
 5. LLM planner。
 6. Planner 输出校验、过滤、重平衡和 explicit requirements 保留。
 7. Legacy template fallback（仅 `planner_fallback_to_template=true` 或 `auto` 兼容路径）。
+
+该顺序只描述初始任务解析。任务执行阶段的 dynamic decision 由 ReAct replanner、dialogue controller、tool loop、evaluation/reflection 或 deterministic fallback 负责；不要把 Planner 成功等同于完整 LLM-driven flow 完成。
 
 `orchestrator_control_mode="auto"` 保留旧兼容顺序，可在 LLM 成本、稳定性或旧测试迁移期使用。
 

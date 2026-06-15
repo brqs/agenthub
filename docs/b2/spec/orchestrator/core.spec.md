@@ -128,6 +128,12 @@ async def stream(
 AgentHub 默认仍使用 `64000` tokens 作为产品级安全预算，用于控制延迟、成本和跨
 provider 兼容性；需要更大上下文时通过上述 `context_*_max_tokens` 字段显式配置。
 
+架构状态说明：
+
+- `orchestrator_control_mode="llm_first"` 表示复杂任务优先由 LLM Planner 生成初始 task graph。
+- `orchestrator_parallel_enabled=true` 表示后端静态 DAG executor 负责可靠并行执行。
+- 当前默认主链不是完整 autonomous tool-loop；LLM 动态重规划通过 ReAct / tool loop 等控制点逐步接入。
+
 ### 2.1 DAG 并行调度契约
 
 复杂任务通常由 LLM Planner 先产出 DAG，但执行调度由 Orchestrator 后端确定性完成：
@@ -323,6 +329,7 @@ error
 - DAG executor 不通过 `dispatch_agent` tool 实现；它直接调度内部 `SubTask`，以保证默认群聊任务稳定、可测、可控制并发。
 - 子任务失败不会让整个 Orchestrator SSE 直接变成 fatal error。
 - 依赖 task 只读取已成功依赖的结果。
+- Batch-level Re-planner 当前是 proposed enhancement：未来每个 parallel batch 完成后可把 task result、artifact、evaluation evidence 交给 ReAct 决定 continue / repair / review / finish。
 - memory writer 调用由 stream 层注入 lock 串行化，避免同一个 AsyncSession 并发写入。
 
 当前 `TaskState`：

@@ -3,7 +3,7 @@
 > 定义将 Orchestrator 从“程序化多 Agent 调度器 + LLM planner/replanner”升级为“具备原生 tool calling 的 autonomous manager agent”的技术设计。
 >
 > 状态：v1 implemented / platform tools extended / allowed_tools live E2E passed
-> 最后更新：2026-06-11
+> 最后更新：2026-06-15
 
 > 2026-06-11 update: `create_custom_agent` supports two safe product paths. The default custom Agent path is still a server Agent wrapper around `claude-code`, `codex-helper`, or `opencode-helper`. A restricted `provider="builtin"` path is also allowed for user-created read-only review/reader agents; it may expose only `allowed_tools=["read_file"]` and must not accept runtime command, args, env, API keys, raw MCP account credentials, or write/bash permissions.
 
@@ -25,6 +25,8 @@
 ```
 
 它已经能调度真实 `claude-code`、`codex-helper`、`opencode-helper`，但这种调度是后端程序调用 adapter，不是模型通过 `tool_call` 自主决定下一步。
+
+这与 [agent-architecture-patterns.spec.md](agent-architecture-patterns.spec.md) 中的划分一致：当前默认主链是 Planner / Executor + Graph State Machine；tool loop 是更接近 autonomous agent loop 的可选控制路径。
 
 更典型的 autonomous agent 应该是：
 
@@ -771,6 +773,7 @@ model tool_call
 - 显式 `config.tasks` 继续走现有 executor。
 - tool loop 内部的 `dispatch_agent` 复用 `_run_task()` 和 `TaskResult`，避免重复实现子 agent 流转。
 - 现有 ReAct 可以作为稳定 fallback。
+- 当前生产默认主链仍以 LLM Planner + 静态 DAG executor 为主；tool loop 是 optional control point，不是所有复杂任务的默认入口。
 
 长期方向：
 
@@ -830,7 +833,7 @@ Tool loop 是 Orchestrator LLM-first control plane 的一个独立控制点。�
 - `shared/openapi.yaml`
   - 同步 config 字段。
 - `backend/app/seeds/seed_agents.py`
-  - 内置 Orchestrator 默认启用 LLM planning、DAG 并行和正式 tool loop。
+  - 内置 Orchestrator 默认启用 LLM planning 和 DAG 并行；tool loop 保持可选开关，避免在未完成 smoke 前替代默认主链。
 
 实现顺序：
 
