@@ -76,6 +76,12 @@ GROUP_SCOPE_SCENARIO_NAMES = {
     "group_scope_memory_mentions_external_agent",
 }
 GROUP_SCOPE_SCENARIO = SCENARIO in GROUP_SCOPE_SCENARIO_NAMES
+PARALLEL_BATCH_REPLANNER_REPAIR_SCENARIO = (
+    SCENARIO == "parallel_batch_replanner_repair"
+)
+FALLBACK_LLM_DECISION_WHITELIST_SCENARIO = (
+    SCENARIO == "fallback_llm_decision_whitelist"
+)
 AGENT_TURN_TAKING_DIALOGUE_SCENARIO = SCENARIO in {
     "agent_turn_taking_dialogue_repair",
     "im_dialogue_no_artifact_turn_taking_v2",
@@ -612,6 +618,16 @@ def group_member_fallback_case_prompt(
     )
 
 
+FALLBACK_LLM_DECISION_WHITELIST_PROMPT = (
+    "@orchestrator 请执行受控 LLM fallback decision 白名单验收。"
+    "本 case 固定先把唯一核心任务交给 @claude-code：创建 "
+    "`fallback-llm-decision.md`，不要创建并行任务、不要新建 repair task、不要预览、不要部署。"
+    "如果首轮失败，后端只能在当前群聊成员和既有 fallback 约束内决定下一次 attempt；"
+    "不要调用群聊外 Agent，也不要扩大工具权限。最终总结请说明模型建议、后端实际选择"
+    "和最终执行 Agent。"
+)
+
+
 COMMAND_FULFILLMENT_PROMPT = (
     "@orchestrator 我要做一个网站，主题是赛博朋克风，先生成一份文档，"
     "然后交由两个智能体并行开发工作，包含代码产物、Diff、按钮交互和移动端适配，"
@@ -705,6 +721,11 @@ GROUP_SCOPE_SCENARIO_PROMPTS: dict[str, str] = {
         "不要选择任何不在当前群聊里的 Agent。"
     ),
 }
+PARALLEL_BATCH_REPLANNER_REPAIR_PROMPT = (
+    "@orchestrator 我想验证一个分批交付流程：先并行产出计划和检查材料，"
+    "第一批完成后请做一次复盘，补一个 repair/review 任务来生成 batch-repair.md，"
+    "最后再生成 batch-final.md。不要预览、不要部署，只使用当前群聊成员。"
+)
 GROUP_SCOPE_SCENARIO_AGENT_IDS: dict[str, list[str]] = {
     "group_scope_missing_opencode_dialogue_repair": [
         "orchestrator",
@@ -743,6 +764,10 @@ GROUP_SCOPE_SCENARIO_AGENT_IDS: dict[str, list[str]] = {
         "codex-helper",
     ],
 }
+
+PARALLEL_BATCH_REPLANNER_INITIAL_TASK_IDS = frozenset(
+    {"batch-plan", "batch-check", "batch-final"}
+)
 
 GROUP_SUBSTANTIVE_OUTPUT_MATRIX_CASES = (
     {
@@ -1040,6 +1065,22 @@ AGENT_FALLBACK_MATRIX_CASES: tuple[dict[str, Any], ...] = (
         },
     },
 )
+FALLBACK_LLM_DECISION_WHITELIST_CASE: dict[str, Any] = {
+    "name": "fallback_llm_decision_whitelist",
+    "target_agent_id": "claude-code",
+    "fallback_agent_id": "opencode-helper",
+    "artifact_path": "fallback-llm-decision.md",
+    "sub_agent_config_overrides": {
+        "claude-code": {
+            "runtime": "cli",
+            "command": ["python3", AGENT_FALLBACK_E2E_FAIL_RUNTIME],
+        },
+        "opencode-helper": {
+            "command": ["python3", AGENT_FALLBACK_E2E_WRITE_RUNTIME],
+            "jsonl": False,
+        },
+    },
+}
 FORBIDDEN_VISIBLE_TRACE_TERMS = (
     "ReAct step",
     "Observation:",
@@ -2158,6 +2199,114 @@ async def _patch_orchestrator_static_task_config(
     )
 
 
+async def _patch_orchestrator_fallback_llm_decision_config(
+    *,
+    target_agent_id: str,
+    artifact_path: str,
+    sub_agent_config_overrides: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    fallback_agent_ids = [
+        agent_id for agent_id in BUILTIN_SUB_AGENT_IDS if agent_id != target_agent_id
+    ]
+    return await _patch_builtin_agent_config(
+        "orchestrator",
+        {
+            "react_enabled": True,
+            "llm_planning": False,
+            "available_agents_authoritative": True,
+            "orchestrator_parallel_enabled": False,
+            "orchestrator_runtime_cooldown_enabled": False,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "max_task_attempts": 3,
+            "managed_agent_ids": list(BUILTIN_SUB_AGENT_IDS),
+            "task_fallback_agent_ids": fallback_agent_ids,
+            "sub_agent_config_overrides": {
+                agent_id: dict(agent_config)
+                for agent_id, agent_config in (sub_agent_config_overrides or {}).items()
+            },
+            "tasks": [
+                {
+                    "task_id": "fallback-task",
+                    "agent_id": target_agent_id,
+                    "title": "Create fallback decision evidence",
+                    "instruction": (
+                        f"Create `{artifact_path}` as a markdown file in the current "
+                        "workspace. Use the native `write_file` tool with path exactly "
+                        f"`{artifact_path}`; do not use bash, shell commands, absolute "
+                        "paths, `/workspace`, or `file_path`. Include the lines "
+                        "`FALLBACK_LLM_DECISION_SENTINEL=1` and "
+                        f"`PLANNED_AGENT={target_agent_id}`. If a previous Agent "
+                        "failed, continue the same task and finish the same file."
+                    ),
+                    "expected_output": artifact_path,
+                }
+            ],
+        },
+    )
+
+
+async def _patch_orchestrator_batch_replanner_config() -> dict[str, Any]:
+    return await _patch_builtin_agent_config(
+        "orchestrator",
+        {
+            "react_enabled": True,
+            "llm_planning": False,
+            "available_agents_authoritative": True,
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_parallel_max_concurrency": 2,
+            "orchestrator_batch_replanner_enabled": True,
+            "orchestrator_runtime_cooldown_enabled": False,
+            "max_iterations": 3,
+            "managed_agent_ids": list(BUILTIN_SUB_AGENT_IDS),
+            "tasks": [
+                {
+                    "task_id": "batch-plan",
+                    "agent_id": "claude-code",
+                    "task_type": "implementation",
+                    "title": "Create batch plan",
+                    "instruction": (
+                        "Create `batch-plan.md` in the current workspace. Describe "
+                        "the delivery plan and explicitly mention that the next batch "
+                        "needs `repair-batch-review` before finalization."
+                    ),
+                    "expected_output": "batch-plan.md",
+                    "priority": 1,
+                    "depends_on": [],
+                },
+                {
+                    "task_id": "batch-check",
+                    "agent_id": "opencode-helper",
+                    "task_type": "implementation",
+                    "title": "Create batch check notes",
+                    "instruction": (
+                        "Create `batch-check.md` in the current workspace. Include "
+                        "a concise checklist of what the repair/review task should "
+                        "verify before finalization."
+                    ),
+                    "expected_output": "batch-check.md",
+                    "priority": 1,
+                    "depends_on": [],
+                },
+                {
+                    "task_id": "batch-final",
+                    "agent_id": "codex-helper",
+                    "task_type": "implementation",
+                    "title": "Create final batch summary",
+                    "instruction": (
+                        "Create `batch-final.md` summarizing batch-plan.md and "
+                        "batch-check.md. If batch-repair.md exists, include it in "
+                        "the summary; otherwise state that the batch repair task "
+                        "has not run yet."
+                    ),
+                    "expected_output": "batch-final.md",
+                    "priority": 3,
+                    "depends_on": ["batch-plan", "batch-check"],
+                },
+            ],
+        },
+    )
+
+
 async def _patch_orchestrator_llm_fallback_config(
     *,
     target_agent_id: str,
@@ -2934,6 +3083,628 @@ def run_group_scope_no_external_agent_case(
         )
     }
     report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def run_parallel_batch_replanner_repair_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    original_orchestrator_config: dict[str, Any] | None = None
+    try:
+        original_orchestrator_config = asyncio.run(
+            _patch_orchestrator_batch_replanner_config()
+        )
+        report["batch_replanner_config_patch"] = {
+            "patched": True,
+            "original_config_summary": config_summary(original_orchestrator_config),
+            "patched_config_summary": {
+                **config_summary(original_orchestrator_config),
+                "react_enabled": True,
+                "llm_planning": False,
+                "orchestrator_parallel_enabled": True,
+                "orchestrator_batch_replanner_enabled": True,
+            },
+        }
+        events, _files = p1_common_evidence(
+            client,
+            headers,
+            report,
+            started_at,
+            title=f"{SCENARIO} Live E2E {int(started_at)}",
+            agent_ids=AGENT_IDS,
+        )
+        conv_id = str(report.get("conversation_id") or "")
+        messages = fetch_conversation_messages(client, headers, conv_id, report)
+        target = report.get("target_agent_message")
+        target_message = target if isinstance(target, dict) else {}
+        child_messages = child_messages_for_user(
+            messages,
+            parent_message_id=str(report.get("agent_message_id") or ""),
+            user_message_id=str(report.get("user_message_id") or ""),
+        )
+        report["child_agent_messages"] = child_messages
+        report["sse_message_error_text"] = message_error_text(events)
+        evaluate_parallel_batch_replanner_repair_report(report)
+        _attach_standard_e2e_report_sections(report)
+        evaluate_parallel_batch_replanner_repair_report(report)
+        report["target_message_status"] = target_message.get("status")
+    finally:
+        if original_orchestrator_config is not None:
+            try:
+                restore = asyncio.run(
+                    _restore_orchestrator_config(original_orchestrator_config)
+                )
+            except Exception as exc:  # noqa: BLE001
+                restore = {"restored": False, "error": str(exc)}
+            report["batch_replanner_config_restore"] = restore
+
+
+def evaluate_parallel_batch_replanner_repair_report(
+    report: dict[str, Any],
+) -> None:
+    run_detail = report.get("orchestrator_run_detail")
+    run_detail = run_detail if isinstance(run_detail, dict) else {}
+    run_events = (
+        run_detail.get("events", [])
+        if isinstance(run_detail.get("events"), list)
+        else []
+    )
+    tasks = run_detail.get("tasks") if isinstance(run_detail.get("tasks"), list) else []
+    task_items = [task for task in tasks if isinstance(task, dict)]
+    llm_control_points = _llm_control_points_from_events(run_events)
+    decisions = _parallel_batch_replanner_decisions(run_events)
+    added_tasks = _parallel_batch_replanner_added_tasks(decisions)
+    added_task_ids = {
+        str(task.get("task_id"))
+        for task in added_tasks
+        if isinstance(task.get("task_id"), str)
+    }
+    group_agent_ids = {
+        item
+        for item in (report.get("conversation", {}).get("agent_ids") or AGENT_IDS)
+        if isinstance(item, str)
+    }
+    observed_agent_ids = _observed_report_agent_ids(report)
+    illegal_agent_ids = sorted(
+        agent_id
+        for agent_id in observed_agent_ids
+        if agent_id not in group_agent_ids and agent_id != "orchestrator"
+    )
+    task_card_mismatches = _task_card_final_agent_mismatches(report)
+    dependency_errors = _task_dependency_errors(task_items)
+    workspace_paths = _report_workspace_basenames(report)
+    required_artifacts = {
+        "batch-plan.md",
+        "batch-check.md",
+        "batch-repair.md",
+        "batch-final.md",
+    }
+    attempts = _attempts_from_run_detail(run_detail)
+    terminal_task_ids = {
+        str(attempt.get("task_id"))
+        for attempt in attempts
+        if str(attempt.get("state") or attempt.get("final_state") or "").lower()
+        in {"succeeded", "done", "manual_review_required"}
+    } | _task_result_event_task_ids(run_events)
+    visible_text = all_visible_message_text(
+        [
+            report.get("target_agent_message") or {},
+            *(report.get("child_agent_messages") or []),
+        ]
+    )
+    forbidden_terms = forbidden_visible_terms(
+        "\n".join([visible_text, str(report.get("sse_message_error_text") or "")])
+    )
+    report["parallel_batch_replanner"] = {
+        "initial_task_ids": sorted(PARALLEL_BATCH_REPLANNER_INITIAL_TASK_IDS),
+        "llm_control_points": llm_control_points,
+        "decision_events": decisions,
+        "added_tasks": added_tasks,
+        "added_task_ids": sorted(added_task_ids),
+        "terminal_added_task_ids": sorted(added_task_ids & terminal_task_ids),
+        "dependency_errors": dependency_errors,
+        "illegal_agent_ids": illegal_agent_ids,
+        "task_card_mismatches": task_card_mismatches,
+        "required_artifacts": sorted(required_artifacts),
+        "workspace_paths": sorted(workspace_paths),
+        "forbidden_visible_terms": forbidden_terms,
+    }
+    checks = report.setdefault("checks", {})
+    checks["message_done"] = bool(
+        (report.get("target_agent_message") or {}).get("status") == "done"
+    )
+    checks["batch_replanner_llm_control_point_seen"] = any(
+        point.get("phase") == "react_replanner"
+        and point.get("used_llm") is True
+        and point.get("status") == "succeeded"
+        for point in llm_control_points
+    )
+    checks["batch_react_decision_seen"] = bool(decisions)
+    checks["batch_replanner_added_repair_or_review"] = bool(added_tasks)
+    checks["batch_replanner_added_task_not_initial"] = bool(
+        added_task_ids - set(PARALLEL_BATCH_REPLANNER_INITIAL_TASK_IDS)
+    )
+    checks["batch_replanner_added_task_executed"] = bool(
+        added_task_ids & terminal_task_ids
+    )
+    checks["task_graph_dependency_valid"] = not dependency_errors
+    checks["group_dispatch_only_allowed_members"] = not illegal_agent_ids
+    checks["task_card_agent_matches_final_agent"] = not task_card_mismatches
+    checks["workspace_required_artifacts_present"] = required_artifacts.issubset(
+        workspace_paths
+    )
+    checks["visible_text_no_sensitive_trace"] = not forbidden_terms
+    keys = (
+        "message_done",
+        "batch_replanner_llm_control_point_seen",
+        "batch_react_decision_seen",
+        "batch_replanner_added_repair_or_review",
+        "batch_replanner_added_task_not_initial",
+        "batch_replanner_added_task_executed",
+        "task_graph_dependency_valid",
+        "group_dispatch_only_allowed_members",
+        "task_card_agent_matches_final_agent",
+        "workspace_required_artifacts_present",
+        "visible_text_no_sensitive_trace",
+    )
+    report["acceptance"] = {key: bool(checks.get(key, False)) for key in keys}
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def run_fallback_llm_decision_whitelist_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    _ensure_agent_fallback_matrix_runtime_helpers()
+    case = FALLBACK_LLM_DECISION_WHITELIST_CASE
+    target_agent_id = str(case["target_agent_id"])
+    fallback_agent_id = str(case["fallback_agent_id"])
+    artifact_path = str(case["artifact_path"])
+    original_orchestrator_config: dict[str, Any] | None = None
+    original_fallback_agent_config: dict[str, Any] | None = None
+    try:
+        original_fallback_agent_config = asyncio.run(
+            _patch_builtin_agent_config(
+                fallback_agent_id,
+                {
+                    "allowed_tools": ["write_file"],
+                    "max_iterations": 4,
+                },
+            )
+        )
+        original_orchestrator_config = asyncio.run(
+            _patch_orchestrator_fallback_llm_decision_config(
+                target_agent_id=target_agent_id,
+                artifact_path=artifact_path,
+                sub_agent_config_overrides=case.get("sub_agent_config_overrides"),
+            )
+        )
+        report["fallback_llm_decision_config_patch"] = {
+            "patched": True,
+            "original_config_summary": config_summary(original_orchestrator_config),
+            "patched_config_summary": {
+                **config_summary(original_orchestrator_config),
+                "react_enabled": True,
+                "llm_planning": False,
+                "available_agents_authoritative": True,
+                "orchestrator_llm_fallback_decision_enabled": True,
+                "orchestrator_parallel_enabled": False,
+            },
+        }
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers=headers,
+            json={
+                "title": f"{case['name']} Live E2E {int(started_at)}",
+                "mode": "group",
+                "agent_ids": fallback_group_agent_ids(target_agent_id),
+            },
+        )
+        conversation.raise_for_status()
+        conv = conversation.json()
+        conv_id = conv["id"]
+        report["conversation"] = conv
+        report["conversation_id"] = conv_id
+
+        sent, events, target = send_message_and_stream(
+            client,
+            headers,
+            conv_id,
+            content=FALLBACK_LLM_DECISION_WHITELIST_PROMPT,
+            target_agent_id="orchestrator",
+            started_at=started_at,
+        )
+        user_message_id = sent["user_message"]["id"]
+        parent_message_id = sent["agent_message"]["id"]
+        report["user_message_id"] = user_message_id
+        report["agent_message_id"] = parent_message_id
+        report["target_agent_message"] = target
+        report["stream_event_count"] = len(events)
+        report["agent_switch_to_agents"] = [
+            event_data(event).get("to_agent")
+            for event in events
+            if event.get("event") == "agent_switch"
+        ]
+        fetch_orchestrator_run_detail(client, headers, conv_id, report)
+        fetch_workspace_evidence(client, headers, conv_id, report)
+        messages = fetch_conversation_messages(client, headers, conv_id, report)
+        child_messages = child_messages_for_user(
+            messages,
+            parent_message_id=parent_message_id,
+            user_message_id=user_message_id,
+        )
+        report["child_agent_messages"] = child_messages
+        report["group_chat"] = group_process_report(events, target or {}, child_messages)
+        report["fallback_task_id"] = _fallback_task_id_from_run_detail(
+            report.get("orchestrator_run_detail"),
+            target_agent_id=target_agent_id,
+            artifact_path=artifact_path,
+        )
+        report["sse_message_error_text"] = message_error_text(events)
+        evaluate_fallback_llm_decision_whitelist_report(report)
+        _attach_standard_e2e_report_sections(report)
+        evaluate_fallback_llm_decision_whitelist_report(report)
+        report["target_message_status"] = (target or {}).get("status")
+    finally:
+        restores: dict[str, Any] = {}
+        if original_orchestrator_config is not None:
+            try:
+                restores["orchestrator"] = asyncio.run(
+                    _restore_orchestrator_config(original_orchestrator_config)
+                )
+            except Exception as exc:  # noqa: BLE001
+                restores["orchestrator"] = {"restored": False, "error": str(exc)}
+        if original_fallback_agent_config is not None:
+            try:
+                restores[fallback_agent_id] = asyncio.run(
+                    _restore_builtin_agent_config(
+                        fallback_agent_id,
+                        original_fallback_agent_config,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                restores[fallback_agent_id] = {
+                    "restored": False,
+                    "error": str(exc),
+                }
+        report["fallback_llm_decision_restore"] = restores
+
+
+def evaluate_fallback_llm_decision_whitelist_report(
+    report: dict[str, Any],
+) -> None:
+    run_detail = report.get("orchestrator_run_detail")
+    run_detail = run_detail if isinstance(run_detail, dict) else {}
+    run_events = (
+        run_detail.get("events", [])
+        if isinstance(run_detail.get("events"), list)
+        else []
+    )
+    attempts = _attempts_from_run_detail(run_detail)
+    llm_control_points = _llm_control_points_from_events(run_events)
+    decision_events = _task_fallback_llm_decision_events(run_events)
+    latest_decision = decision_events[-1] if decision_events else {}
+    conversation_agent_ids = sorted(
+        {
+            str(agent_id)
+            for agent_id in (report.get("conversation", {}).get("agent_ids") or AGENT_IDS)
+            if isinstance(agent_id, str) and agent_id
+        }
+    )
+    group_member_ids = {
+        agent_id for agent_id in conversation_agent_ids if agent_id != "orchestrator"
+    }
+    allowed_agent_ids = [
+        str(agent_id)
+        for agent_id in latest_decision.get("allowed_agent_ids", [])
+        if isinstance(agent_id, str) and agent_id
+    ]
+    model_suggestion = (
+        latest_decision.get("model_suggestion")
+        if isinstance(latest_decision.get("model_suggestion"), dict)
+        else None
+    )
+    backend_action = latest_decision.get("backend_action")
+    backend_agent_id = latest_decision.get("backend_agent_id")
+    actual_attempt_agent_id = _fallback_llm_decision_case_actual_agent_id(
+        attempts,
+        task_id=report.get("fallback_task_id"),
+    )
+    backend_decision = (
+        {
+            "action": backend_action,
+            "agent_id": backend_agent_id,
+            "decision_outcome": latest_decision.get("decision_outcome"),
+            "reason": latest_decision.get("reason"),
+        }
+        if latest_decision
+        else None
+    )
+    observed_agent_ids = _observed_report_agent_ids(report)
+    suggested_agent_id = (
+        model_suggestion.get("agent_id") if isinstance(model_suggestion, dict) else None
+    )
+    illegal_agent_ids = sorted(
+        {
+            agent_id
+            for agent_id in {
+                *observed_agent_ids,
+                suggested_agent_id,
+                backend_agent_id,
+                actual_attempt_agent_id,
+            }
+            if isinstance(agent_id, str)
+            and agent_id
+            and agent_id not in group_member_ids
+            and agent_id != "orchestrator"
+        }
+    )
+    workspace_paths = _report_workspace_basenames(report)
+    visible_text = all_visible_message_text(
+        [
+            report.get("target_agent_message") or {},
+            *(report.get("child_agent_messages") or []),
+        ]
+    )
+    forbidden_terms = forbidden_visible_terms(
+        "\n".join([visible_text, str(report.get("sse_message_error_text") or "")])
+    )
+    report["fallback_llm_decision"] = {
+        "conversation_agent_ids": conversation_agent_ids,
+        "allowed_agent_ids": allowed_agent_ids,
+        "model_suggestion": model_suggestion,
+        "backend_decision": backend_decision,
+        "actual_attempt_agent_id": actual_attempt_agent_id,
+        "illegal_agent_ids": illegal_agent_ids,
+        "forbidden_visible_terms": forbidden_terms,
+        "artifact_paths": sorted(workspace_paths),
+        "llm_control_points": llm_control_points,
+    }
+    checks = report.setdefault("checks", {})
+    checks["message_done"] = bool(
+        (report.get("target_agent_message") or {}).get("status") == "done"
+    )
+    checks["fallback_llm_control_point_seen"] = any(
+        point.get("phase") == "react_replanner"
+        and point.get("used_llm") is True
+        and point.get("status") == "succeeded"
+        for point in llm_control_points
+    )
+    checks["fallback_llm_decision_event_seen"] = bool(latest_decision)
+    checks["fallback_llm_model_suggestion_present"] = bool(
+        isinstance(model_suggestion, dict) and model_suggestion.get("action")
+    )
+    checks["fallback_llm_backend_decision_present"] = bool(
+        isinstance(backend_action, str) and backend_action
+    )
+    checks["fallback_llm_allowed_agents_scoped"] = bool(allowed_agent_ids) and set(
+        allowed_agent_ids
+    ).issubset(group_member_ids)
+    checks["fallback_llm_suggested_agent_scoped"] = not (
+        isinstance(suggested_agent_id, str)
+        and suggested_agent_id
+        and suggested_agent_id not in group_member_ids
+    )
+    checks["fallback_llm_actual_agent_scoped"] = not (
+        isinstance(actual_attempt_agent_id, str)
+        and actual_attempt_agent_id
+        and actual_attempt_agent_id not in group_member_ids
+    )
+    checks["fallback_llm_backend_matches_actual_attempt"] = bool(
+        backend_action == "stop"
+        or (
+            isinstance(backend_agent_id, str)
+            and backend_agent_id
+            and backend_agent_id == actual_attempt_agent_id
+        )
+    )
+    checks["group_dispatch_only_allowed_members"] = not illegal_agent_ids
+    checks["workspace_required_artifacts_present"] = "fallback-llm-decision.md" in workspace_paths
+    checks["visible_text_no_sensitive_trace"] = not forbidden_terms
+    keys = (
+        "message_done",
+        "fallback_llm_control_point_seen",
+        "fallback_llm_decision_event_seen",
+        "fallback_llm_model_suggestion_present",
+        "fallback_llm_backend_decision_present",
+        "fallback_llm_allowed_agents_scoped",
+        "fallback_llm_suggested_agent_scoped",
+        "fallback_llm_actual_agent_scoped",
+        "fallback_llm_backend_matches_actual_attempt",
+        "group_dispatch_only_allowed_members",
+        "workspace_required_artifacts_present",
+        "visible_text_no_sensitive_trace",
+    )
+    report["acceptance"] = {key: bool(checks.get(key, False)) for key in keys}
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def _parallel_batch_replanner_decisions(
+    events: list[Any],
+) -> list[dict[str, Any]]:
+    decisions: list[dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict) or event.get("event_type") != "react_decision":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict) or payload.get("mode") != "parallel_batch":
+            continue
+        decisions.append(payload)
+    return decisions
+
+
+def _parallel_batch_replanner_added_tasks(
+    decisions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = []
+    for decision in decisions:
+        actions = decision.get("actions")
+        if not isinstance(actions, list):
+            continue
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            raw_task = action.get("task")
+            if not isinstance(raw_task, dict):
+                continue
+            task_type = str(raw_task.get("task_type") or "").lower()
+            action_type = str(action.get("type") or "").lower()
+            if task_type in {"repair", "review"} or action_type in {
+                "add_repair",
+                "add_review",
+            }:
+                tasks.append(raw_task)
+    return tasks
+
+
+def _task_fallback_llm_decision_events(events: list[Any]) -> list[dict[str, Any]]:
+    decisions: list[dict[str, Any]] = []
+    for event in events:
+        if (
+            not isinstance(event, dict)
+            or event.get("event_type") != "task_fallback_llm_decision"
+        ):
+            continue
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            decisions.append(payload)
+    return decisions
+
+
+def _task_result_event_task_ids(events: list[Any]) -> set[str]:
+    task_ids: set[str] = set()
+    for event in events:
+        if not isinstance(event, dict) or event.get("event_type") != "task_result":
+            continue
+        raw_task_id = event.get("task_id")
+        if isinstance(raw_task_id, str) and raw_task_id:
+            task_ids.add(raw_task_id)
+            continue
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            payload_task_id = payload.get("task_id")
+            if isinstance(payload_task_id, str) and payload_task_id:
+                task_ids.add(payload_task_id)
+    return task_ids
+
+
+def _observed_report_agent_ids(report: dict[str, Any]) -> set[str]:
+    observed = {
+        item
+        for item in report.get("agent_switch_to_agents") or []
+        if isinstance(item, str)
+    }
+    observed.update(
+        item.get("agent_id")
+        for item in report.get("child_agent_messages") or []
+        if isinstance(item, dict) and isinstance(item.get("agent_id"), str)
+    )
+    target = report.get("target_agent_message")
+    target_message = target if isinstance(target, dict) else {}
+    observed.update(_task_card_agent_ids(target_message))
+    return {agent_id for agent_id in observed if isinstance(agent_id, str)}
+
+
+def _task_card_final_agent_mismatches(report: dict[str, Any]) -> list[dict[str, Any]]:
+    target = report.get("target_agent_message")
+    target_message = target if isinstance(target, dict) else {}
+    mismatches: list[dict[str, Any]] = []
+    for card in _task_cards_from_message(target_message):
+        tasks = card.get("tasks")
+        if not isinstance(tasks, list):
+            continue
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            agent_id = task.get("agent_id")
+            final_agent_id = task.get("final_agent_id")
+            if agent_id and final_agent_id and agent_id != final_agent_id:
+                mismatches.append(task)
+    return mismatches
+
+
+def _task_dependency_errors(tasks: list[dict[str, Any]]) -> list[str]:
+    task_ids = {str(task.get("task_id")) for task in tasks if task.get("task_id")}
+    errors: list[str] = []
+    for task in tasks:
+        task_id = str(task.get("task_id") or "")
+        depends_on = task.get("depends_on")
+        if not isinstance(depends_on, list):
+            depends_on = []
+        for dependency in depends_on:
+            if dependency not in task_ids:
+                errors.append(f"{task_id}:missing:{dependency}")
+    graph = {
+        str(task.get("task_id")): {
+            str(dependency)
+            for dependency in (
+                task.get("depends_on") if isinstance(task.get("depends_on"), list) else []
+            )
+        }
+        for task in tasks
+        if task.get("task_id")
+    }
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(task_id: str) -> None:
+        if task_id in visited:
+            return
+        if task_id in visiting:
+            errors.append(f"{task_id}:cycle")
+            return
+        visiting.add(task_id)
+        for dependency in graph.get(task_id, set()):
+            if dependency in graph:
+                visit(dependency)
+        visiting.remove(task_id)
+        visited.add(task_id)
+
+    for task_id in graph:
+        visit(task_id)
+    return sorted(set(errors))
+
+
+def _fallback_llm_decision_case_actual_agent_id(
+    attempts: list[dict[str, Any]],
+    *,
+    task_id: object,
+) -> str | None:
+    relevant_attempts = [
+        attempt
+        for attempt in attempts
+        if not isinstance(task_id, str) or attempt.get("task_id") == task_id
+    ]
+    if not relevant_attempts:
+        return None
+    terminal_attempts = [
+        attempt
+        for attempt in relevant_attempts
+        if str(attempt.get("state") or attempt.get("final_state") or "").lower()
+        in {"succeeded", "done", "manual_review_required"}
+    ]
+    selected_attempt = terminal_attempts[-1] if terminal_attempts else relevant_attempts[-1]
+    agent_id = selected_attempt.get("agent_id")
+    return agent_id if isinstance(agent_id, str) and agent_id else None
+
+
+def _report_workspace_basenames(report: dict[str, Any]) -> set[str]:
+    paths: set[str] = set()
+    for key in ("workspace_files", "workspace_artifacts_api", "artifact_list"):
+        items = report.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            if isinstance(path, str) and path:
+                paths.add(path.rsplit("/", 1)[-1])
+    return paths
 
 
 def _task_card_agent_ids(message: dict[str, Any]) -> list[str]:
@@ -6689,6 +7460,36 @@ def main() -> None:
             return
         if GROUP_SCOPE_SCENARIO:
             run_group_scope_no_external_agent_case(client, headers, report, started_at)
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if PARALLEL_BATCH_REPLANNER_REPAIR_SCENARIO:
+            run_parallel_batch_replanner_repair_case(
+                client,
+                headers,
+                report,
+                started_at,
+            )
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if FALLBACK_LLM_DECISION_WHITELIST_SCENARIO:
+            run_fallback_llm_decision_whitelist_case(
+                client,
+                headers,
+                report,
+                started_at,
+            )
             report["finished_at"] = utc_now()
             report["duration_seconds"] = round(time.time() - started_at, 3)
             report["passed"] = bool(report.get("acceptance", {}).get("passed"))

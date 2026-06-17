@@ -117,7 +117,7 @@ ReAct replanner 是 LLM-first 的第二控制点，职责不是重新执行 Plan
 Initial Planner
 -> DAG Executor Batch
 -> Batch-level Re-planner
--> continue / add repair / add review / skip / finish
+-> continue / add repair / add review / finish
 -> Evaluator / Browser / Deployment evidence
 -> Re-planner
 -> Final Summary
@@ -128,8 +128,14 @@ Initial Planner
 - LLM Planner：`Implemented`。
 - 静态 DAG executor：`Implemented`。
 - ReAct replanner：`Partially implemented`，已可在非并行主链和部分 repair/failure 场景决策。
-- Parallel batch 后强制进入 Re-planner：`Proposed`，尚不是默认并行 DAG 主链。
-- LLM 在安全白名单内建议 fallback/repair Agent：`Proposed`。
+- Parallel batch 后进入 Re-planner：`Partially implemented / default off`。开启
+  `orchestrator_batch_replanner_enabled=true` 后，每个 parallel batch 完成后会调用受限
+  Re-planner；默认关闭，尚不是默认并行 DAG 主链。Module B 首版 batch action 仅允许
+  `continue / add_repair / add_review / finish`，不允许 `skip_task` 或通用 `add_task`。
+- LLM 在安全白名单内建议 fallback/repair Agent：`Partially implemented / default off`。
+  开启 `orchestrator_llm_fallback_decision_enabled=true` 后，task 失败重试路径会调用独立
+  suggestion helper；合同固定为 `retry_original / fallback / add_repair / stop`，其中
+  `add_repair` 在当前阶段只映射为同一 task 的一次受控 retry/fallback，不新增 DAG task。
 
 ---
 
@@ -144,6 +150,8 @@ LLM-first 不等于 LLM 任意执行：
 - 用户自建 Agent 不自动继承内置 planning profile；只暴露自己的安全 profile。
 - Planner 只生成 DAG 草案；并行 batch 由后端基于 normalized DAG、task state 和 concurrency limit 确定性选择，不由模型逐步决定。
 - Re-planner 输出只能作为受控 action proposal，必须经过群聊白名单、cycle 防护、max attempts、cooldown 和 tool allowlist 校验。
+- fallback decision helper 不重写 `_agent_for_attempt()` 主体筛选逻辑；它只能为下一次
+  retry 提供受控 override，非法建议或模型异常时必须回退 deterministic fallback。
 
 ---
 
@@ -168,6 +176,9 @@ LLM-first 不等于 LLM 任意执行：
 
 - `planner`：LLM Planner 成功、失败、fallback 都会记录安全摘要。
 - `react_replanner`：task 完成 / 失败后的 repair、skip、finish 等决策会记录安全摘要。
+- `react_replanner`：task 失败后的受控 fallback decision 也复用同一 `phase`，并额外写入
+  `task_fallback_llm_decision` run detail 事件；事件只保留白名单、模型建议、后端决策和安全
+  reason，不保存完整 prompt、token、stderr、env 或认证文件。
 - `dialogue_controller`：纯对话 / 辩论的续轮决策和最终 judgement 会记录安全摘要。
 - `tool_loop`：Orchestrator tool loop 的模型工具决策会记录安全摘要。
 - `response_polish`：最终回答润色模型的成功、失败和 fallback 会记录安全摘要。

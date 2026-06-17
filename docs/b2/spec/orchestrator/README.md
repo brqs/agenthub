@@ -101,7 +101,12 @@
 ## 3. 当前边界
 
 - 当前默认主链是 `llm_planning=true` + 静态 DAG 并行 executor；这属于 “LLM Planner + deterministic graph executor” 架构，不等同于完整 autonomous agent loop。
-- ReAct replanner 已实现为 LLM 控制点，但多任务并行主链当前不会在每个 parallel batch 后强制进入 Re-planner；batch-level Re-planner 属于 proposed enhancement。
+- ReAct replanner 已实现为 LLM 控制点；batch-level Re-planner 已可通过
+  `orchestrator_batch_replanner_enabled=true` 作为实验开关接入每个 parallel batch
+  之后，但默认关闭，当前默认主链仍是静态 DAG 并行 executor。
+- 每个 task 失败后的受控 LLM fallback decision 已可通过
+  `orchestrator_llm_fallback_decision_enabled=true` 实验性开启；模型只能在当前群聊白名单和
+  既有 fallback 约束内建议下一次 retry/fallback，后端继续做最终裁决，默认关闭。
 - 通用 Evaluation / Reflection Phase 2 MVP 已实现；网页 preview/browser verify、Workflow validation + allowlist dry-run、PPT outline、受控 test runner 和 deployment health 已接入 evaluator / health gate 语义，workflow runtime 与 deployment repair/redeploy live E2E 已通过。
 - DAG 并行是 Orchestrator execution 能力，不是 platform tool。
 - Preview / browser verify / create custom agent / deployment 是 Orchestrator 可调用的平台 tool，但实际执行由平台 service 完成。

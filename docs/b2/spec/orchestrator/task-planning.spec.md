@@ -196,7 +196,11 @@ Run detail/E2E report 不应只看 `planner_used_llm`，而应聚合 `event_type
 
 - Planner 是初始规划器，只负责生成第一版 task graph。
 - Planner 输出不是完整过程自治；后续执行仍由 DAG executor、ReAct replanner、evaluator、tool loop 和 deterministic guardrails 协同完成。
-- 多任务并行主链当前由静态 DAG executor 选择 ready batch；batch-level Re-planner 属于 proposed enhancement。
+- 多任务并行主链默认由静态 DAG executor 选择 ready batch；batch-level Re-planner
+  已可通过 `orchestrator_batch_replanner_enabled=true` 实验性开启，但默认关闭。
+- 每个 task 失败后的受控 fallback decision 已可通过
+  `orchestrator_llm_fallback_decision_enabled=true` 实验性开启；模型只能建议当前 task 的下一次
+  `retry_original / fallback / add_repair / stop`，不能扩大可执行 Agent 范围或创建新 task。
 - 主流架构映射见 [agent-architecture-patterns.spec.md](agent-architecture-patterns.spec.md)。
 
 ## 2026-06-11 Update: Explicit Task Routing, Attribution, And Large Planner Context

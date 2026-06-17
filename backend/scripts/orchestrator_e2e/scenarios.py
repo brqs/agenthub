@@ -270,6 +270,16 @@ SCENARIOS: dict[str, ScenarioSpec] = {
             "group_scope_react_replanner_no_external_agent"
         ],
     ),
+    "parallel_batch_replanner_repair": _spec(
+        "parallel_batch_replanner_repair",
+        runner.PARALLEL_BATCH_REPLANNER_REPAIR_PROMPT,
+        runner.run_parallel_batch_replanner_repair_case,
+    ),
+    "fallback_llm_decision_whitelist": _spec(
+        "fallback_llm_decision_whitelist",
+        runner.FALLBACK_LLM_DECISION_WHITELIST_PROMPT,
+        runner.run_fallback_llm_decision_whitelist_case,
+    ),
     "group_scope_tool_dispatch_no_external_agent": _spec(
         "group_scope_tool_dispatch_no_external_agent",
         runner.GROUP_SCOPE_SCENARIO_PROMPTS[

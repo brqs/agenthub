@@ -81,7 +81,7 @@ User request
 Initial Planner
 -> DAG Executor Batch
 -> Batch-level Re-planner
--> continue / add repair / add review / skip / finish
+-> continue / add repair / add review / finish
 -> Evaluator / Browser / Deployment evidence
 -> Re-planner
 -> Final Summary
@@ -89,8 +89,13 @@ Initial Planner
 
 建议状态划分：
 
-- Parallel batch 后进入 Re-planner：`Proposed`。
-- LLM 在安全白名单内建议 fallback/repair Agent：`Proposed`。
+- Parallel batch 后进入 Re-planner：`Partially implemented / default off`。已可通过
+  `orchestrator_batch_replanner_enabled=true` 在每个 parallel batch 后调用受限
+  Re-planner；默认关闭，尚不是默认并行 DAG 主链。Module B 首版 batch action
+  限定为 `continue / add_repair / add_review / finish`。
+- LLM 在安全白名单内建议 fallback/repair Agent：`Partially implemented / default off`。
+  已可通过 `orchestrator_llm_fallback_decision_enabled=true` 开启；模型 suggestion 只覆盖失败
+  task 的下一次 retry/fallback 选择，后端继续做最终裁决。
 - Evaluator-Optimizer repair loop 统一由 Re-planner 决策：`Proposed`。
 - 完整 autonomous tool-loop orchestrator：`Future / optional`。
 
@@ -103,4 +108,3 @@ Initial Planner
 - Tool loop 是可选能力；即使启用，平台 tool 的实际执行仍由后端 service 完成。
 - Fallback 不应完全交给模型自由选择；模型只能在当前群聊可运行 Agent 集合内建议。
 - E2E 验收必须证明模型参与关键控制点，而不是只证明最终文件存在。
-

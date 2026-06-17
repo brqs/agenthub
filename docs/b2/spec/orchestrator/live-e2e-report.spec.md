@@ -303,6 +303,16 @@ dialogue_ai_benefits_risks_llm_moderated:
   - `fallback_llm_decision_whitelist`
   - `evaluator_optimizer_repair_loop`
 
+`fallback_llm_decision_whitelist` 场景要求：
+
+- report 必须包含 `fallback_llm_decision` section，至少记录：
+  `conversation_agent_ids`、`allowed_agent_ids`、`model_suggestion`、`backend_decision`、
+  `actual_attempt_agent_id`、`illegal_agent_ids`、`forbidden_visible_terms`、
+  `artifact_paths`、`llm_control_points`。
+- `model_suggestion` 和 `backend_decision` 缺失时 evaluator 必须拒绝。
+- suggested / actual agent 不能超出当前 `conversation.agent_ids` 白名单。
+- report/SSE 不得泄露 raw prompt、token、stderr、env、认证文件或其它敏感 trace。
+
 2026-06-13 group-scope E2E 报告要求：
 
 - 每个普通群聊场景必须以 `conversation.agent_ids` 为唯一调度边界。

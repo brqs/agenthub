@@ -108,6 +108,8 @@ class AgentConfig(BaseModel):
         le=numeric_field("max_iterations").maximum,
     )
     react_enabled: bool | None = None
+    orchestrator_batch_replanner_enabled: bool | None = None
+    orchestrator_llm_fallback_decision_enabled: bool | None = None
     react_trace_visible: bool | None = None
     react_decision_max_tokens: int | None = Field(
         default=None,

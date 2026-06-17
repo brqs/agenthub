@@ -348,10 +348,20 @@ def agent_for_attempt(
     run_context: OrchestratorRunContext,
     *,
     excluded_agent_ids: set[str] | None = None,
+    preferred_agent_id: str | None = None,
+    allow_preferred_revisit: bool = False,
 ) -> AttemptAgentSelection:
     skipped_agent_ids: list[str] = []
     candidate_ids = dedupe_strings([task.agent_id, *fallback_agents])
     excluded_agent_ids = excluded_agent_ids or set()
+    if isinstance(preferred_agent_id, str) and preferred_agent_id.strip():
+        preferred = preferred_agent_id.strip()
+        if (
+            preferred not in excluded_agent_ids
+            and (allow_preferred_revisit or preferred not in considered_agents)
+            and agent_permitted_for_attempt(config, run_context, preferred)
+        ):
+            return AttemptAgentSelection(agent_id=preferred)
     for agent_id in candidate_ids:
         if agent_id in considered_agents:
             continue

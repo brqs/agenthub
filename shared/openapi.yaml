@@ -4158,6 +4158,16 @@ components:
           - type: boolean
           - type: 'null'
           title: Orchestrator Parallel Enabled
+        orchestrator_batch_replanner_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Batch Replanner Enabled
+        orchestrator_llm_fallback_decision_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Llm Fallback Decision Enabled
         orchestrator_parallel_max_concurrency:
           anyOf:
           - type: integer
