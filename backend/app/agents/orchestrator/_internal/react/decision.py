@@ -54,8 +54,11 @@ async def _react_decision(
     positive_int_config: PositiveIntConfig,
     agent_id_list: AgentIdList,
     error_reason: ErrorReason,
+    system_prompt: str | None = None,
+    required_output: Mapping[str, Any] | None = None,
 ) -> ReactDecision:
-    gateway = _react_gateway(config, positive_int_config)
+    effective_system_prompt = system_prompt or _react_system_prompt()
+    gateway = _react_gateway(config, positive_int_config, effective_system_prompt)
     parts: list[str] = []
     try:
         async for chunk in gateway.stream(
@@ -71,8 +74,9 @@ async def _react_decision(
                 format_task_result_context=format_task_result_context,
                 latest_user_request=latest_user_request,
                 agent_id_list=agent_id_list,
+                required_output=required_output,
             ),
-            system_prompt=_react_system_prompt(),
+            system_prompt=effective_system_prompt,
             config=_react_config(config, positive_int_config),
         ):
             if chunk.event_type == "delta":
@@ -88,6 +92,7 @@ async def _react_decision(
 def _react_gateway(
     config: Mapping[str, Any],
     positive_int_config: PositiveIntConfig,
+    system_prompt: str | None = None,
 ) -> Any:
     gateway = config.get("react_gateway", config.get("replanner_gateway"))
     if gateway is not None:
@@ -99,7 +104,7 @@ def _react_gateway(
         backend,
         default_config=_react_config(config, positive_int_config),
         agent_id="orchestrator-react",
-        system_prompt=_react_system_prompt(),
+        system_prompt=system_prompt or _react_system_prompt(),
     )
 
 def _react_config(
@@ -142,7 +147,20 @@ def _react_messages(
     format_task_result_context: FormatTaskResultContext,
     latest_user_request: LatestUserRequest,
     agent_id_list: AgentIdList,
+    required_output: Mapping[str, Any] | None = None,
 ) -> list[ChatMessage]:
+    output_schema = required_output or {
+        "actions": [
+            {
+                "type": "add_task|update_task|skip_task|finish",
+                "task": "required for add_task",
+                "task_id": "required for update_task/skip_task",
+                "patch": "object for update_task",
+                "reason": "string for skip_task/finish",
+            }
+        ],
+        "summary": "short non-private decision summary",
+    }
     payload = {
         "user_request": latest_user_request(messages),
         "iteration": iteration,
@@ -171,18 +189,7 @@ def _react_messages(
             )
             for task_id, result in run_context.results.items()
         ],
-        "required_output": {
-            "actions": [
-                {
-                    "type": "add_task|update_task|skip_task|finish",
-                    "task": "required for add_task",
-                    "task_id": "required for update_task/skip_task",
-                    "patch": "object for update_task",
-                    "reason": "string for skip_task/finish",
-                }
-            ],
-            "summary": "short non-private decision summary",
-        },
+        "required_output": output_schema,
     }
     return [ChatMessage(role="user", content=json.dumps(payload, ensure_ascii=False))]
 

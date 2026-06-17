@@ -35,6 +35,9 @@ from app.agents.orchestrator._internal.execution.attempts import (
     parallel_max_concurrency as _parallel_max_concurrency,
 )
 from app.agents.orchestrator._internal.execution.attempts import (
+    positive_int_config as _positive_int_config,
+)
+from app.agents.orchestrator._internal.execution.attempts import (
     preferred_agent_for_task as _preferred_agent_for_task,
 )
 from app.agents.orchestrator._internal.execution.attempts import (
@@ -72,6 +75,15 @@ from app.agents.orchestrator._internal.execution.events import (
 )
 from app.agents.orchestrator._internal.execution.events import (
     refresh_and_record_workspace_conflicts as _refresh_and_record_workspace_conflicts,
+)
+from app.agents.orchestrator._internal.execution.fallback_llm import (
+    TaskFallbackLlmDecision as _TaskFallbackLlmDecision,
+)
+from app.agents.orchestrator._internal.execution.fallback_llm import (
+    maybe_task_fallback_llm_decision as _maybe_task_fallback_llm_decision,
+)
+from app.agents.orchestrator._internal.execution.fallback_llm import (
+    record_task_fallback_llm_decision as _record_task_fallback_llm_decision,
 )
 from app.agents.orchestrator._internal.execution.fulfillment import (
     fulfillment_payload as _fulfillment_payload,
@@ -151,7 +163,13 @@ from app.agents.orchestrator._internal.execution.review import (
 from app.agents.orchestrator._internal.execution.review import (
     review_repair_task as _review_repair_task,
 )
+from app.agents.orchestrator._internal.execution.summary import (
+    format_task_result_context as _format_task_result_context,
+)
 from app.agents.orchestrator._internal.execution.summary import summary_text as _summary_text
+from app.agents.orchestrator._internal.llm_control import (
+    record_llm_control_point as _record_llm_control_point,
+)
 from app.agents.orchestrator._internal.memory import (
     finish_run as _memory_finish_run,
 )
@@ -164,6 +182,12 @@ from app.agents.orchestrator._internal.memory import (
 from app.agents.orchestrator._internal.memory import (
     record_task_started as _memory_record_task_started,
 )
+from app.agents.orchestrator._internal.planning.routing import (
+    agent_id_list as _agent_id_list,
+)
+from app.agents.orchestrator._internal.planning.routing import (
+    latest_user_request as _latest_user_request,
+)
 from app.agents.orchestrator._internal.presentation_markers import (
     agent_summary_presentation as _agent_summary_presentation,
 )
@@ -172,6 +196,12 @@ from app.agents.orchestrator._internal.presentation_markers import (
 )
 from app.agents.orchestrator._internal.presentation_markers import (
     final_answer_presentation as _final_answer_presentation,
+)
+from app.agents.orchestrator._internal.react.decision import _react_decision
+from app.agents.orchestrator._internal.react.graph import _apply_react_decision
+from app.agents.orchestrator._internal.react.types import (
+    ReactDecision,
+    ReactDecisionError,
 )
 from app.agents.orchestrator._internal.streams import (
     remapped_sub_stream as _remapped_sub_stream,
@@ -992,6 +1022,9 @@ async def _run_task(
         fallback_agents = []
     max_attempts = _max_task_attempts(config)
     considered_agents: set[str] = set()
+    next_attempt_preferred_agent_id: str | None = None
+    next_attempt_allow_revisit = False
+    pending_fallback_llm_decision: _TaskFallbackLlmDecision | None = None
     await _memory_record_event(
         config,
         run_context,
@@ -1016,7 +1049,25 @@ async def _run_task(
             config,
             run_context,
             excluded_agent_ids=_review_attempt_excluded_agent_ids(task, run_context),
+            preferred_agent_id=next_attempt_preferred_agent_id,
+            allow_preferred_revisit=next_attempt_allow_revisit,
         )
+        next_attempt_preferred_agent_id = None
+        next_attempt_allow_revisit = False
+        if pending_fallback_llm_decision is not None:
+            await _record_task_fallback_llm_decision(
+                config,
+                run_context=run_context,
+                task_id=task.task_id,
+                decision=pending_fallback_llm_decision,
+                backend_action=_task_fallback_backend_action(
+                    pending_fallback_llm_decision.failed_agent_id,
+                    selection.agent_id,
+                ),
+                backend_agent_id=selection.agent_id,
+                record_event=_memory_record_event,
+            )
+            pending_fallback_llm_decision = None
         for skipped_agent_id in selection.skipped_agent_ids:
             considered_agents.add(skipped_agent_id)
             reason = _unavailable_agent_reason(run_context, skipped_agent_id)
@@ -1560,6 +1611,49 @@ async def _run_task(
         if attempt.state == TaskState.SUCCEEDED:
             break
         can_retry = _can_retry_task(task_result, fallback_agents, max_attempts)
+        if can_retry:
+            llm_fallback_decision = await _maybe_task_fallback_llm_decision(
+                config,
+                task=task,
+                messages=messages,
+                task_result=task_result,
+                fallback_agents=fallback_agents,
+                max_attempts=max_attempts,
+                run_context=run_context,
+                excluded_agent_ids=_review_attempt_excluded_agent_ids(task, run_context),
+            )
+            if llm_fallback_decision is not None:
+                if llm_fallback_decision.stop:
+                    await _record_task_fallback_llm_decision(
+                        config,
+                        run_context=run_context,
+                        task_id=task.task_id,
+                        decision=llm_fallback_decision,
+                        backend_action="stop",
+                        backend_agent_id=None,
+                        record_event=_memory_record_event,
+                    )
+                    await _memory_record_event(
+                        config,
+                        run_context,
+                        event_type="task_fallback_stopped",
+                        task_id=task.task_id,
+                        agent_id=agent_id,
+                        payload={
+                            "attempt_count": len(task_result.attempts),
+                            "final_state": task_result.final_state.value,
+                            "fallback_agents": fallback_agents,
+                            "max_attempts": max_attempts,
+                            "llm_decision": llm_fallback_decision.model_suggestion,
+                            "reason": llm_fallback_decision.reason,
+                        },
+                    )
+                    break
+                pending_fallback_llm_decision = llm_fallback_decision
+                next_attempt_preferred_agent_id = (
+                    llm_fallback_decision.preferred_agent_id
+                )
+                next_attempt_allow_revisit = llm_fallback_decision.allow_revisit
         if not can_retry:
             await _memory_record_event(
                 config,
@@ -1634,6 +1728,17 @@ async def _run_task(
     refresh_workspace_conflicts(run_context)
     await _refresh_and_record_workspace_conflicts(config, run_context)
     await _memory_record_task_result(config, run_context, task, task_result)
+
+
+def _task_fallback_backend_action(
+    failed_agent_id: str,
+    selected_agent_id: str | None,
+) -> str:
+    if not selected_agent_id:
+        return "stop"
+    if selected_agent_id == failed_agent_id:
+        return "retry_original"
+    return "fallback"
 
 
 async def _skipped_agent_child_message_chunks(
@@ -1885,6 +1990,255 @@ def _float_config(value: object) -> float:
     return parsed if parsed > 0 else 0.0
 
 
+def _batch_replanner_enabled(config: Mapping[str, Any]) -> bool:
+    return (
+        config.get("orchestrator_batch_replanner_enabled") is True
+        and config.get("react_enabled") is True
+    )
+
+
+def _batch_replanner_max_calls(config: Mapping[str, Any]) -> int:
+    return _positive_int_config(config, "max_iterations", 10)
+
+
+async def _maybe_run_batch_replanner(
+    config: Mapping[str, Any],
+    *,
+    messages: list[ChatMessage],
+    task_sequence: list[SubTask],
+    task_states: dict[str, TaskState],
+    task_by_id: dict[str, SubTask],
+    pending: set[str],
+    batch: list[SubTask],
+    run_context: OrchestratorRunContext,
+    batch_index: int,
+) -> str | None:
+    observation = _batch_replanner_observation(batch, run_context)
+    try:
+        decision = await _react_decision(
+            config,
+            messages,
+            task_sequence,
+            task_states,
+            run_context,
+            batch_index,
+            _batch_replanner_max_calls(config),
+            observation,
+            format_task_result_context=_format_task_result_context,
+            latest_user_request=_latest_user_request,
+            positive_int_config=_positive_int_config,
+            agent_id_list=_agent_id_list,
+            error_reason=_error_reason,
+            system_prompt=_batch_replanner_system_prompt(),
+            required_output=_batch_replanner_required_output(),
+        )
+        decision = _restrict_batch_replanner_decision(decision, task_states)
+        updated_tasks, updated_states, finish_reason = _apply_react_decision(
+            decision,
+            task_sequence,
+            task_states,
+            config,
+            _agent_id_list,
+        )
+        _validate_no_dependency_cycle(updated_tasks)
+        if finish_reason is not None and any(
+            state == TaskState.PENDING for state in updated_states.values()
+        ):
+            raise ReactDecisionError("batch finish requires terminal task graph")
+    except ReactDecisionError as exc:
+        await _record_llm_control_point(
+            config,
+            run_context,
+            phase="react_replanner",
+            status="failed",
+            used_llm=True,
+            fallback_reason=str(exc),
+            decision_summary=(
+                "Batch-level Re-planner unavailable; continuing existing DAG."
+            ),
+        )
+        return None
+
+    task_sequence[:] = updated_tasks
+    task_states.clear()
+    task_states.update(updated_states)
+    task_by_id.clear()
+    task_by_id.update({task.task_id: task for task in task_sequence})
+    pending.clear()
+    pending.update(
+        task_id for task_id, state in task_states.items() if state == TaskState.PENDING
+    )
+    await _record_batch_replanner_decision_event(
+        config,
+        run_context,
+        batch_index,
+        observation,
+        decision,
+    )
+    await _record_llm_control_point(
+        config,
+        run_context,
+        phase="react_replanner",
+        status="succeeded",
+        used_llm=True,
+        decision_summary=_public_batch_replanner_summary(decision, finish_reason),
+    )
+    return finish_reason
+
+
+def _batch_replanner_observation(
+    batch: list[SubTask],
+    run_context: OrchestratorRunContext,
+) -> str:
+    lines = ["Parallel batch completed."]
+    for task in batch:
+        result = run_context.results.get(task.task_id)
+        state = result.final_state.value if result is not None else "unknown"
+        lines.append(f"- {task.task_id}: {state}")
+    return "\n".join(lines)
+
+
+def _restrict_batch_replanner_decision(
+    decision: ReactDecision,
+    task_states: Mapping[str, TaskState],
+) -> ReactDecision:
+    restricted: list[Mapping[str, Any]] = []
+    add_count = 0
+    for action in decision.actions:
+        action_type = action.get("type")
+        if action_type == "continue":
+            continue
+        if action_type == "finish":
+            restricted.append(action)
+            continue
+        if action_type in {"add_repair", "add_review"}:
+            add_count += 1
+            if add_count > 1:
+                raise ReactDecisionError(
+                    "batch replanner may add at most one repair/review task per batch"
+                )
+            restricted.append(_batch_replanner_add_task_action(action, action_type))
+            continue
+        raise ReactDecisionError(
+            f"batch replanner action {action_type!r} is not allowed"
+        )
+    if not restricted and all(state != TaskState.PENDING for state in task_states.values()):
+        return ReactDecision(actions=[], summary=decision.summary)
+    return ReactDecision(actions=restricted, summary=decision.summary)
+
+
+def _batch_replanner_add_task_action(
+    action: Mapping[str, Any],
+    action_type: object,
+) -> Mapping[str, Any]:
+    raw_task = action.get("task")
+    if not isinstance(raw_task, Mapping):
+        raise ReactDecisionError("batch replanner add action requires task object")
+    task_payload = dict(raw_task)
+    if action_type == "add_repair":
+        task_payload.setdefault("task_type", "repair")
+    elif action_type == "add_review":
+        task_payload.setdefault("task_type", "review")
+    try:
+        task = SubTask.from_mapping(task_payload)
+    except (TypeError, ValueError) as exc:
+        raise ReactDecisionError(str(exc)) from exc
+    if task.task_type not in {"repair", "review"}:
+        raise ReactDecisionError(
+            "batch replanner may only add repair or review tasks"
+        )
+    return {"type": "add_task", "task": task_payload}
+
+
+def _batch_replanner_system_prompt() -> str:
+    return (
+        "You are AgentHub's batch-level Orchestrator Re-planner. "
+        "Return strict JSON only. Do not include markdown. Do not include thought, "
+        "chain_of_thought, hidden reasoning, or private analysis. "
+        "Choose actions only from continue, add_repair, add_review, finish. "
+        "Do not use add_task, update_task, or skip_task. "
+        "Add at most one repair or review task per decision."
+    )
+
+
+def _batch_replanner_required_output() -> Mapping[str, Any]:
+    return {
+        "actions": [
+            {
+                "type": "continue|add_repair|add_review|finish",
+                "task": (
+                    "required for add_repair/add_review; object with task_id, "
+                    "agent_id, title, instruction, depends_on, priority, "
+                    "expected_output"
+                ),
+                "reason": "required for finish",
+            }
+        ],
+        "summary": "short non-private decision summary",
+    }
+
+
+def _validate_no_dependency_cycle(tasks: list[SubTask]) -> None:
+    graph = {task.task_id: set(task.depends_on) for task in tasks}
+    visiting: set[str] = set()
+    visited: set[str] = set()
+
+    def visit(task_id: str) -> None:
+        if task_id in visited:
+            return
+        if task_id in visiting:
+            raise ReactDecisionError("batch replanner produced dependency cycle")
+        visiting.add(task_id)
+        for dependency in graph.get(task_id, set()):
+            visit(dependency)
+        visiting.remove(task_id)
+        visited.add(task_id)
+
+    for task_id in graph:
+        visit(task_id)
+
+
+async def _record_batch_replanner_decision_event(
+    config: Mapping[str, Any],
+    run_context: OrchestratorRunContext,
+    batch_index: int,
+    observation: str,
+    decision: ReactDecision,
+) -> None:
+    await _memory_record_event(
+        config,
+        run_context,
+        event_type="react_decision",
+        agent_id="orchestrator",
+        payload={
+            "mode": "parallel_batch",
+            "iteration": batch_index,
+            "observation": observation,
+            "actions": [dict(action) for action in decision.actions],
+            "summary": decision.summary,
+        },
+    )
+
+
+def _public_batch_replanner_summary(
+    decision: ReactDecision,
+    finish_reason: str | None,
+) -> str:
+    if finish_reason:
+        return f"finish: {finish_reason}"
+    if not decision.actions:
+        return "continue existing DAG"
+    labels: list[str] = []
+    for action in decision.actions:
+        if action.get("type") == "add_task":
+            raw_task = action.get("task")
+            task_type = raw_task.get("task_type") if isinstance(raw_task, Mapping) else None
+            labels.append(f"add_{task_type or 'task'}")
+        else:
+            labels.append(str(action.get("type") or "unknown"))
+    return ", ".join(labels)
+
+
 async def _run_parallel_tasks(
     config: Mapping[str, Any],
     tasks: list[SubTask],
@@ -1900,6 +2254,8 @@ async def _run_parallel_tasks(
     task_by_id = {task.task_id: task for task in task_sequence}
     run_context = run_context or OrchestratorRunContext()
     max_concurrency = _parallel_max_concurrency(config)
+    batch_replanner_calls = 0
+    max_batch_replanner_calls = _batch_replanner_max_calls(config)
     repaired_review_task_ids: set[str] = set()
     process_block_index: int | None = None
     process_start = _process_block_start(
@@ -1998,6 +2354,24 @@ async def _run_parallel_tasks(
                 task_states[repair_task.task_id] = TaskState.PENDING
                 pending.add(repair_task.task_id)
         await _refresh_and_record_workspace_conflicts(config, run_context)
+        if (
+            _batch_replanner_enabled(config)
+            and batch_replanner_calls < max_batch_replanner_calls
+        ):
+            batch_replanner_calls += 1
+            finish_reason = await _maybe_run_batch_replanner(
+                config,
+                messages=messages,
+                task_sequence=task_sequence,
+                task_states=task_states,
+                task_by_id=task_by_id,
+                pending=pending,
+                batch=batch,
+                run_context=run_context,
+                batch_index=batch_replanner_calls,
+            )
+            if finish_reason is not None:
+                break
 
     refresh_workspace_conflicts(run_context)
     _mark_task_fulfillment(run_context, task_sequence, task_states)

@@ -85,6 +85,12 @@ DEFAULT_GROUP_SCOPE_SINGLE_SUBAGENT_DEGRADED_SSE_PATH = (  # noqa: S108
 DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_react_replanner_no_external_agent_sse.jsonl"  # noqa: S108
 )
+DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_parallel_batch_replanner_repair_sse.jsonl"  # noqa: S108
+)
+DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_fallback_llm_decision_whitelist_sse.jsonl"  # noqa: S108
+)
 DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_sse.jsonl"  # noqa: S108
 )
@@ -222,6 +228,12 @@ DEFAULT_GROUP_SCOPE_SINGLE_SUBAGENT_DEGRADED_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_react_replanner_no_external_agent_report.json"  # noqa: S108
+)
+DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_parallel_batch_replanner_repair_report.json"  # noqa: S108
+)
+DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_fallback_llm_decision_whitelist_report.json"  # noqa: S108
 )
 DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json"  # noqa: S108
@@ -448,6 +460,14 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
     "group_scope_react_replanner_no_external_agent": ScenarioDefaults(
         DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_REPORT_PATH,
         DEFAULT_GROUP_SCOPE_REACT_REPLANNER_NO_EXTERNAL_AGENT_SSE_PATH,
+    ),
+    "parallel_batch_replanner_repair": ScenarioDefaults(
+        DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_REPORT_PATH,
+        DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_SSE_PATH,
+    ),
+    "fallback_llm_decision_whitelist": ScenarioDefaults(
+        DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH,
+        DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH,
     ),
     "group_scope_tool_dispatch_no_external_agent": ScenarioDefaults(
         DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_REPORT_PATH,

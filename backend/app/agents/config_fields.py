@@ -133,6 +133,8 @@ ORCHESTRATOR_DEFAULTS: dict[str, object] = {
     "orchestrator_dialogue_llm_control_enabled": True,
     "planner_fallback_to_template": False,
     "react_enabled": True,
+    "orchestrator_batch_replanner_enabled": False,
+    "orchestrator_llm_fallback_decision_enabled": False,
     "react_decision_max_tokens": 2048,
     "react_trace_visible": False,
     "direct_answer_on_planner_failure": True,

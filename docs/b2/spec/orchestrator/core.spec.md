@@ -329,7 +329,15 @@ error
 - DAG executor 不通过 `dispatch_agent` tool 实现；它直接调度内部 `SubTask`，以保证默认群聊任务稳定、可测、可控制并发。
 - 子任务失败不会让整个 Orchestrator SSE 直接变成 fatal error。
 - 依赖 task 只读取已成功依赖的结果。
-- Batch-level Re-planner 当前是 proposed enhancement：未来每个 parallel batch 完成后可把 task result、artifact、evaluation evidence 交给 ReAct 决定 continue / repair / review / finish。
+- Batch-level Re-planner 当前是实验开关能力：开启
+  `orchestrator_batch_replanner_enabled=true` 后，每个 parallel batch 完成后会把 task
+  result、artifact、evaluation evidence 交给受限 ReAct 决定 `continue` / `add_repair` /
+  `add_review` / `finish`；默认关闭时保持纯静态 DAG 行为。
+- Per-task fallback LLM decision 当前也是实验开关能力：开启
+  `orchestrator_llm_fallback_decision_enabled=true` 后，单个 task attempt 失败且仍可重试时，
+  会在下一次 `_agent_for_attempt()` 前请求受控 suggestion。模型只能建议
+  `retry_original / fallback / add_repair / stop`，最终仍由后端按群聊范围、cooldown、
+  hard-failure 和 attempt budget 决定；默认关闭时保持纯 deterministic fallback。
 - memory writer 调用由 stream 层注入 lock 串行化，避免同一个 AsyncSession 并发写入。
 
 当前 `TaskState`：

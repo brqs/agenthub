@@ -29,7 +29,9 @@ from scripts.orchestrator_e2e.runner import (
     _unresolved_missing_artifact_paths,
     artifact_section_check_keys,
     command_fulfillment_statuses,
+    evaluate_fallback_llm_decision_whitelist_report,
     evaluate_fallback_task_card_case,
+    evaluate_parallel_batch_replanner_repair_report,
     fallback_group_agent_ids,
     forbidden_visible_terms,
     fullstack_parallel_report,
@@ -57,6 +59,8 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_CYBERPUNK_QUALITY_V2_SSE_PATH,
     DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH,
     DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH,
+    DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH,
+    DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH,
     DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH,
     DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_SSE_PATH,
     DEFAULT_GROUP_DIALOGUE_DEBATE_REPORT_PATH,
@@ -77,6 +81,8 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_P1_RICH_ARTIFACTS_SSE_PATH,
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_REPORT_PATH,
     DEFAULT_P2_AGENT_CAPABILITY_PROFILE_V2_SSE_PATH,
+    DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_REPORT_PATH,
+    DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_SSE_PATH,
     DEFAULT_PRESENTATION_MARKERS_REPORT_PATH,
     DEFAULT_PRESENTATION_MARKERS_SSE_PATH,
     DEFAULT_PURE_DIALOGUE_ROBUSTNESS_MATRIX_REPORT_PATH,
@@ -96,6 +102,7 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH,
     DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT,
+    FALLBACK_LLM_DECISION_WHITELIST_PROMPT,
     GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT,
     GROUP_DIALOGUE_DEBATE_PROMPT,
     GROUP_MEMBER_FALLBACK_REPAIR_VISIBILITY_PROMPT,
@@ -110,6 +117,7 @@ from scripts.orchestrator_live_e2e import (
     P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT,
     P1_RICH_ARTIFACTS_PROMPT,
     P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT,
+    PARALLEL_BATCH_REPLANNER_REPAIR_PROMPT,
     PRESENTATION_COLLAPSE_PROMPT,
     PURE_DIALOGUE_ROBUSTNESS_MATRIX_PROMPT,
     REQUIREMENT_ALIGNMENT_DIRECT_CHAT_SKIP_PROMPT,
@@ -375,6 +383,14 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "group_scope_react_replanner_no_external_agent": (
             "/tmp/agenthub_group_scope_react_replanner_no_external_agent_report.json",
             "/tmp/agenthub_group_scope_react_replanner_no_external_agent_sse.jsonl",
+        ),
+        "parallel_batch_replanner_repair": (
+            "/tmp/agenthub_parallel_batch_replanner_repair_report.json",
+            "/tmp/agenthub_parallel_batch_replanner_repair_sse.jsonl",
+        ),
+        "fallback_llm_decision_whitelist": (
+            "/tmp/agenthub_fallback_llm_decision_whitelist_report.json",
+            "/tmp/agenthub_fallback_llm_decision_whitelist_sse.jsonl",
         ),
         "group_scope_tool_dispatch_no_external_agent": (
             "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json",
@@ -729,6 +745,38 @@ def test_group_scope_missing_agent_scenarios_have_scoped_members() -> None:
         "orchestrator",
         "claude-code",
     )
+
+
+def test_parallel_batch_replanner_repair_scenario_defaults_and_prompt() -> None:
+    assert DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_REPORT_PATH == (
+        "/tmp/agenthub_parallel_batch_replanner_repair_report.json"
+    )
+    assert DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_SSE_PATH == (
+        "/tmp/agenthub_parallel_batch_replanner_repair_sse.jsonl"
+    )
+    spec = SCENARIOS["parallel_batch_replanner_repair"]
+    assert spec.prompt == PARALLEL_BATCH_REPLANNER_REPAIR_PROMPT
+    assert "第一批完成后" in spec.prompt
+    assert "repair/review" in spec.prompt
+    assert "writer" not in spec.prompt
+    assert "web-designer" not in spec.prompt
+
+
+def test_fallback_llm_decision_whitelist_scenario_defaults_and_prompt() -> None:
+    assert DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH == (
+        "/tmp/agenthub_fallback_llm_decision_whitelist_report.json"
+    )
+    assert DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH == (
+        "/tmp/agenthub_fallback_llm_decision_whitelist_sse.jsonl"
+    )
+    spec = SCENARIOS["fallback_llm_decision_whitelist"]
+    assert spec.prompt == FALLBACK_LLM_DECISION_WHITELIST_PROMPT
+    assert "@claude-code" in spec.prompt
+    assert "当前群聊成员" in spec.prompt
+    assert "群聊外 Agent" in spec.prompt
+    assert "repair task" in spec.prompt
+    assert "writer" not in spec.prompt
+    assert "web-designer" not in spec.prompt
 
 
 def test_dialogue_semantic_helpers_allow_non_debate_summary() -> None:
@@ -1646,6 +1694,358 @@ def test_shared_robustness_evaluators_reject_bad_report() -> None:
     assert checks["task_card_agent_matches_final_agent"] is False
     assert checks["workspace_required_artifacts_present"] is False
     assert checks["visible_text_no_sensitive_trace"] is False
+
+
+def parallel_batch_replanner_report() -> dict:
+    return {
+        "checks": {},
+        "conversation": {
+            "agent_ids": [
+                "orchestrator",
+                "claude-code",
+                "opencode-helper",
+                "codex-helper",
+            ]
+        },
+        "target_agent_message": {
+            "status": "done",
+            "content": [
+                {
+                    "type": "task_card",
+                    "tasks": [
+                        {
+                            "id": "batch-plan",
+                            "agent_id": "claude-code",
+                            "final_agent_id": "claude-code",
+                        },
+                        {
+                            "id": "repair-batch-review",
+                            "agent_id": "codex-helper",
+                            "final_agent_id": "codex-helper",
+                        },
+                    ],
+                },
+                {"type": "text", "text": "Batch replanner completed repair."},
+            ],
+        },
+        "agent_switch_to_agents": [
+            "claude-code",
+            "opencode-helper",
+            "codex-helper",
+        ],
+        "child_agent_messages": [
+            {"agent_id": "claude-code", "status": "done"},
+            {"agent_id": "opencode-helper", "status": "done"},
+            {"agent_id": "codex-helper", "status": "done"},
+        ],
+        "workspace_files": [
+            {"path": "batch-plan.md"},
+            {"path": "batch-check.md"},
+            {"path": "batch-repair.md"},
+            {"path": "batch-final.md"},
+        ],
+        "orchestrator_run_detail": {
+            "tasks": [
+                {"task_id": "batch-plan", "depends_on": []},
+                {"task_id": "batch-check", "depends_on": []},
+                {
+                    "task_id": "repair-batch-review",
+                    "depends_on": ["batch-plan", "batch-check"],
+                },
+                {
+                    "task_id": "batch-final",
+                    "depends_on": [
+                        "batch-plan",
+                        "batch-check",
+                        "repair-batch-review",
+                    ],
+                },
+            ],
+            "attempts": [
+                {
+                    "task_id": "repair-batch-review",
+                    "agent_id": "codex-helper",
+                    "state": "succeeded",
+                }
+            ],
+            "events": [
+                {
+                    "event_type": "llm_control_point",
+                    "payload": {
+                        "phase": "react_replanner",
+                        "status": "succeeded",
+                        "used_llm": True,
+                        "decision_summary": "add repair repair-batch-review",
+                    },
+                },
+                {
+                    "event_type": "react_decision",
+                    "payload": {
+                        "mode": "parallel_batch",
+                        "actions": [
+                            {
+                                "type": "add_task",
+                                "task": {
+                                    "task_id": "repair-batch-review",
+                                    "agent_id": "codex-helper",
+                                    "task_type": "repair",
+                                    "title": "Repair batch review",
+                                    "instruction": "Create batch-repair.md.",
+                                    "depends_on": ["batch-plan", "batch-check"],
+                                    "priority": 2,
+                                },
+                            }
+                        ],
+                    },
+                },
+                {
+                    "event_type": "task_result",
+                    "task_id": "repair-batch-review",
+                    "payload": {
+                        "attempts": [
+                            {
+                                "task_id": "repair-batch-review",
+                                "agent_id": "codex-helper",
+                                "state": "succeeded",
+                            }
+                        ]
+                    },
+                },
+            ],
+        },
+    }
+
+
+def test_parallel_batch_replanner_evaluator_accepts_repair_report() -> None:
+    report = parallel_batch_replanner_report()
+
+    evaluate_parallel_batch_replanner_repair_report(report)
+
+    assert report["acceptance"]["passed"] is True
+    assert report["checks"]["batch_replanner_llm_control_point_seen"] is True
+    assert report["checks"]["batch_replanner_added_repair_or_review"] is True
+    assert report["parallel_batch_replanner"]["added_task_ids"] == [
+        "repair-batch-review"
+    ]
+
+
+def test_parallel_batch_replanner_evaluator_rejects_missing_control_point() -> None:
+    report = parallel_batch_replanner_report()
+    events = report["orchestrator_run_detail"]["events"]
+    report["orchestrator_run_detail"]["events"] = [
+        event for event in events if event["event_type"] != "llm_control_point"
+    ]
+
+    evaluate_parallel_batch_replanner_repair_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["batch_replanner_llm_control_point_seen"] is False
+
+
+def test_parallel_batch_replanner_evaluator_rejects_missing_added_task() -> None:
+    report = parallel_batch_replanner_report()
+    for event in report["orchestrator_run_detail"]["events"]:
+        if event["event_type"] == "react_decision":
+            event["payload"]["actions"] = [{"type": "continue"}]
+
+    evaluate_parallel_batch_replanner_repair_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["batch_replanner_added_repair_or_review"] is False
+
+
+def test_parallel_batch_replanner_evaluator_rejects_external_agent() -> None:
+    report = parallel_batch_replanner_report()
+    report["agent_switch_to_agents"].append("writer")
+
+    evaluate_parallel_batch_replanner_repair_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["group_dispatch_only_allowed_members"] is False
+
+
+def test_parallel_batch_replanner_evaluator_rejects_sensitive_trace() -> None:
+    report = parallel_batch_replanner_report()
+    report["sse_message_error_text"] = "external_runtime_error"
+
+    evaluate_parallel_batch_replanner_repair_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["visible_text_no_sensitive_trace"] is False
+
+
+def fallback_llm_decision_whitelist_report() -> dict:
+    return {
+        "checks": {},
+        "conversation": {
+            "agent_ids": [
+                "orchestrator",
+                "claude-code",
+                "opencode-helper",
+                "codex-helper",
+            ]
+        },
+        "fallback_task_id": "fallback-task",
+        "target_agent_message": {
+            "status": "done",
+            "content": [
+                {
+                    "type": "task_card",
+                    "tasks": [
+                        {
+                            "id": "fallback-task",
+                            "planned_agent_id": "claude-code",
+                            "agent_id": "opencode-helper",
+                            "final_agent_id": "opencode-helper",
+                        }
+                    ],
+                },
+                {"type": "text", "text": "Fallback decision completed safely."},
+            ],
+        },
+        "agent_switch_to_agents": [
+            "claude-code",
+            "opencode-helper",
+        ],
+        "child_agent_messages": [
+            {"agent_id": "claude-code", "status": "error"},
+            {"agent_id": "opencode-helper", "status": "done"},
+        ],
+        "workspace_files": [
+            {"path": "fallback-llm-decision.md"},
+        ],
+        "orchestrator_run_detail": {
+            "tasks": [
+                {
+                    "task_id": "fallback-task",
+                    "agent_id": "claude-code",
+                    "expected_output": "fallback-llm-decision.md",
+                }
+            ],
+            "attempts": [
+                {
+                    "task_id": "fallback-task",
+                    "agent_id": "claude-code",
+                    "state": "failed",
+                },
+                {
+                    "task_id": "fallback-task",
+                    "agent_id": "opencode-helper",
+                    "state": "succeeded",
+                },
+            ],
+            "events": [
+                {
+                    "event_type": "llm_control_point",
+                    "payload": {
+                        "phase": "react_replanner",
+                        "status": "succeeded",
+                        "used_llm": True,
+                        "decision_summary": (
+                            "Fallback suggestion accepted: fallback using "
+                            "@opencode-helper."
+                        ),
+                    },
+                },
+                {
+                    "event_type": "task_fallback_llm_decision",
+                    "task_id": "fallback-task",
+                    "payload": {
+                        "attempt_index": 1,
+                        "failed_agent_id": "claude-code",
+                        "failed_state": "failed",
+                        "allowed_agent_ids": [
+                            "claude-code",
+                            "opencode-helper",
+                            "codex-helper",
+                        ],
+                        "model_suggestion": {
+                            "action": "fallback",
+                            "agent_id": "opencode-helper",
+                            "reason": "claude runtime failed",
+                            "summary": "fallback to a healthy group member",
+                        },
+                        "backend_action": "fallback",
+                        "backend_agent_id": "opencode-helper",
+                        "decision_outcome": "accepted",
+                        "reason": "suggested fallback agent is runnable",
+                    },
+                },
+            ],
+        },
+    }
+
+
+def test_fallback_llm_decision_evaluator_accepts_whitelist_report() -> None:
+    report = fallback_llm_decision_whitelist_report()
+
+    evaluate_fallback_llm_decision_whitelist_report(report)
+
+    assert report["acceptance"]["passed"] is True
+    assert report["checks"]["fallback_llm_control_point_seen"] is True
+    assert report["checks"]["fallback_llm_backend_matches_actual_attempt"] is True
+    assert report["fallback_llm_decision"]["actual_attempt_agent_id"] == (
+        "opencode-helper"
+    )
+
+
+def test_fallback_llm_decision_evaluator_rejects_missing_model_suggestion() -> None:
+    report = fallback_llm_decision_whitelist_report()
+    decision = report["orchestrator_run_detail"]["events"][1]["payload"]
+    decision["model_suggestion"] = None
+
+    evaluate_fallback_llm_decision_whitelist_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["fallback_llm_model_suggestion_present"] is False
+
+
+def test_fallback_llm_decision_evaluator_rejects_missing_backend_decision() -> None:
+    report = fallback_llm_decision_whitelist_report()
+    decision = report["orchestrator_run_detail"]["events"][1]["payload"]
+    decision["backend_action"] = None
+
+    evaluate_fallback_llm_decision_whitelist_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["fallback_llm_backend_decision_present"] is False
+
+
+def test_fallback_llm_decision_evaluator_rejects_external_suggested_agent() -> None:
+    report = fallback_llm_decision_whitelist_report()
+    decision = report["orchestrator_run_detail"]["events"][1]["payload"]
+    decision["model_suggestion"]["agent_id"] = "writer"
+
+    evaluate_fallback_llm_decision_whitelist_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["fallback_llm_suggested_agent_scoped"] is False
+    assert report["checks"]["group_dispatch_only_allowed_members"] is False
+
+
+def test_fallback_llm_decision_evaluator_rejects_external_actual_agent() -> None:
+    report = fallback_llm_decision_whitelist_report()
+    report["agent_switch_to_agents"].append("writer")
+    report["child_agent_messages"].append({"agent_id": "writer", "status": "done"})
+    report["orchestrator_run_detail"]["attempts"][-1]["agent_id"] = "writer"
+    decision = report["orchestrator_run_detail"]["events"][1]["payload"]
+    decision["backend_agent_id"] = "writer"
+
+    evaluate_fallback_llm_decision_whitelist_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["fallback_llm_actual_agent_scoped"] is False
+    assert report["checks"]["group_dispatch_only_allowed_members"] is False
+
+
+def test_fallback_llm_decision_evaluator_rejects_sensitive_trace() -> None:
+    report = fallback_llm_decision_whitelist_report()
+    report["sse_message_error_text"] = "external_runtime_error"
+
+    evaluate_fallback_llm_decision_whitelist_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["visible_text_no_sensitive_trace"] is False
 
 
 def test_group_attribution_semantics_accepts_llm_chosen_artifact_names() -> None:

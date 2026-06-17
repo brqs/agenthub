@@ -53,6 +53,7 @@ from tests.orchestrator_fakes import (
     SequencedSubAdapter,
     _assert_blocks_balanced,
     _collect,
+    _react_decision_chunks,
     _task,
     _text_chunks,
 )
@@ -187,6 +188,17 @@ class FakeMemoryWriter:
 
     async def cancel_active_run(self) -> None:
         pass
+
+
+def _memory_event_payloads(
+    writer: FakeMemoryWriter,
+    event_type: str,
+) -> list[dict[str, object]]:
+    payloads: list[dict[str, object]] = []
+    for recorded_event_type, _task_id, _agent_id, payload in writer.events:
+        if recorded_event_type == event_type and isinstance(payload, dict):
+            payloads.append(payload)
+    return payloads
 
 
 class FailingArtifactManifestService(ArtifactManifestService):
@@ -1179,6 +1191,191 @@ async def test_orchestrator_parallel_takes_precedence_over_react_for_multi_task(
 
     assert started == {"agent-a", "agent-b"}
     assert react_gateway.calls == []
+    assert chunks[-1].event_type == "done"
+
+
+async def test_orchestrator_parallel_batch_replanner_adds_repair_task() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("implemented feature"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("reviewed and repaired feature"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"actions":[{"type":"add_repair","task":{'
+                '"task_id":"repair-a","agent_id":"agent-b",'
+                '"title":"Repair A","instruction":"Repair task A output.",'
+                '"depends_on":["task-a"],"priority":2}}],'
+                '"summary":"add repair"}'
+            ),
+            _react_decision_chunks('{"actions":[{"type":"continue"}]}'),
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_batch_replanner_enabled": True,
+            "max_iterations": 2,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task(
+                    "task-final",
+                    "agent-a",
+                    "Final task",
+                    "Run after repair",
+                    depends_on=["repair-a"],
+                    priority=3,
+                ),
+            ],
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    switches = [
+        (chunk.to_agent, chunk.task)
+        for chunk in chunks
+        if chunk.event_type == "agent_switch"
+    ]
+    assert switches == [
+        ("agent-a", "Task A"),
+        ("agent-b", "Repair A"),
+        ("agent-a", "Final task"),
+    ]
+    assert len(react_gateway.calls) == 2
+    system_prompt = react_gateway.calls[0]["system_prompt"]
+    assert "continue, add_repair, add_review, finish" in system_prompt
+    assert "Do not use add_task" in system_prompt
+    assert chunks[-1].event_type == "done"
+
+
+async def test_orchestrator_parallel_batch_replanner_failure_continues_dag() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+    react_gateway = SequencedGateway([_react_decision_chunks("")])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_batch_replanner_enabled": True,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Task B",
+                    "Do B",
+                    depends_on=["task-a"],
+                    priority=2,
+                ),
+            ],
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert len(react_gateway.calls) >= 1
+    assert chunks[-1].event_type == "done"
+
+
+async def test_orchestrator_parallel_batch_replanner_rejects_malformed_task() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"actions":[{"type":"add_repair","task":{'
+                '"task_id":"repair-a","title":"Repair A",'
+                '"instruction":"Repair task A output.",'
+                '"depends_on":["task-a"]}}],'
+                '"summary":"malformed repair"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_batch_replanner_enabled": True,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Task B",
+                    "Do B",
+                    depends_on=["task-a"],
+                    priority=2,
+                ),
+            ],
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert chunks[-1].event_type == "done"
+
+
+async def test_orchestrator_parallel_batch_replanner_rejects_raw_add_task() -> None:
+    adapter_a = FakeSubAdapter("agent-a", _text_chunks("from a"))
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("from b"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"actions":[{"type":"add_task","task":{'
+                '"task_id":"repair-a","agent_id":"agent-b",'
+                '"task_type":"repair","title":"Repair A",'
+                '"instruction":"Repair task A output.",'
+                '"depends_on":["task-a"]}}],'
+                '"summary":"raw add task"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "react_enabled": True,
+            "react_gateway": react_gateway,
+            "orchestrator_parallel_enabled": True,
+            "orchestrator_batch_replanner_enabled": True,
+            "tasks": [
+                _task("task-a", "agent-a", "Task A", "Do A", priority=1),
+                _task(
+                    "task-b",
+                    "agent-b",
+                    "Task B",
+                    "Do B",
+                    depends_on=["task-a"],
+                    priority=2,
+                ),
+            ],
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+        },
+    )
+
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
     assert chunks[-1].event_type == "done"
 
 
@@ -2754,6 +2951,493 @@ async def test_orchestrator_subagent_error_triggers_per_task_fallback() -> None:
     assert "idle timeout" in adapter_b.received_messages[-2].content
     assert "Work" in summary
     assert "A retry/repair completed successfully." in summary
+
+
+async def test_orchestrator_llm_fallback_decision_disabled_keeps_deterministic_flow() -> None:
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="runtime_idle_timeout",
+                error="idle timeout",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    react_gateway = SequencedGateway([_react_decision_chunks("{}")])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": False,
+        },
+    )
+
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert react_gateway.calls == []
+
+
+async def test_orchestrator_llm_fallback_decision_can_retry_original_agent() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = SequencedSubAdapter(
+        "agent-a",
+        [
+            [
+                StreamChunk(event_type="start", agent_id="agent-a"),
+                StreamChunk(
+                    event_type="error",
+                    agent_id="agent-a",
+                    error_code="validation_failed",
+                    error="validation failed",
+                ),
+            ],
+            _text_chunks("Recovered by retrying the original agent."),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("fallback should not run"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"retry_original","agent_id":"agent-a",'
+                '"reason":"Try the same agent once more.","summary":"retry"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+    llm_points = _memory_event_payloads(memory_writer, "llm_control_point")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-a"]
+    assert decision_events[-1]["backend_action"] == "retry_original"
+    assert decision_events[-1]["backend_agent_id"] == "agent-a"
+    assert decision_events[-1]["decision_outcome"] == "accepted"
+    assert any(
+        payload.get("phase") == "react_replanner"
+        and payload.get("status") == "succeeded"
+        for payload in llm_points
+    )
+
+
+async def test_orchestrator_llm_fallback_decision_can_stop_retry_loop() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="validation_failed",
+                error="validation failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("fallback should not run"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"stop","agent_id":null,'
+                '"reason":"Do not continue automatic fallback.","summary":"stop"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+    stopped_events = _memory_event_payloads(memory_writer, "task_fallback_stopped")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a"]
+    assert decision_events[-1]["backend_action"] == "stop"
+    assert decision_events[-1]["decision_outcome"] == "accepted"
+    assert stopped_events[-1]["reason"] == "Do not continue automatic fallback."
+    assert "did not complete successfully" in "".join(chunk.text_delta or "" for chunk in chunks)
+
+
+async def test_orchestrator_llm_fallback_decision_remaps_add_repair_to_fallback() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="artifact_missing",
+                error="missing artifact",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Repair retry completed on fallback agent."))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"add_repair","agent_id":"agent-b",'
+                '"reason":"Use the repair-capable fallback agent.","summary":"repair"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["backend_action"] == "fallback"
+    assert decision_events[-1]["backend_agent_id"] == "agent-b"
+    assert decision_events[-1]["decision_outcome"] == "remapped"
+
+
+async def test_orchestrator_llm_fallback_decision_rejects_group_external_agent() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="runtime_idle_timeout",
+                error="idle timeout",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"fallback","agent_id":"outside-agent",'
+                '"reason":"Use another agent.","summary":"fallback"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "managed_agent_ids": ["agent-a", "agent-b"],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["outside-agent", "agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+    llm_points = _memory_event_payloads(memory_writer, "llm_control_point")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["backend_action"] == "fallback"
+    assert decision_events[-1]["backend_agent_id"] == "agent-b"
+    assert decision_events[-1]["decision_outcome"] == "rejected"
+    assert any(
+        payload.get("phase") == "react_replanner"
+        and payload.get("status") == "fallback"
+        for payload in llm_points
+    )
+
+
+async def test_orchestrator_llm_fallback_decision_rejects_retry_for_runtime_failed_agent() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="external_runtime_error",
+                error="runtime failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered by fallback"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"retry_original","agent_id":"agent-a",'
+                '"reason":"Retry the same runtime.","summary":"retry"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["decision_outcome"] == "rejected"
+    assert decision_events[-1]["reason"] == "retry_original_not_available"
+
+
+async def test_orchestrator_llm_fallback_decision_rejects_cooldown_agent() -> None:
+    clear_runtime_cooldowns()
+    mark_runtime_cooldown("agent-b", "previous run failed")
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="validation_failed",
+                error="validation failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("cooldown fallback should not run"))
+    adapter_c = FakeSubAdapter("agent-c", _text_chunks("Recovered by agent-c"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"fallback","agent_id":"agent-b",'
+                '"reason":"Use agent-b.","summary":"fallback"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    try:
+        chunks = await _collect(
+            orchestrator,
+            config={
+                "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+                "managed_agent_ids": ["agent-a", "agent-b", "agent-c"],
+                "sub_adapters": {
+                    "agent-a": adapter_a,
+                    "agent-b": adapter_b,
+                    "agent-c": adapter_c,
+                },
+                "task_fallback_agent_ids": ["agent-b", "agent-c"],
+                "max_task_attempts": 2,
+                "react_gateway": react_gateway,
+                "orchestrator_llm_fallback_decision_enabled": True,
+                "orchestrator_memory_writer": memory_writer,
+            },
+        )
+    finally:
+        clear_runtime_cooldowns()
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-c"]
+    assert decision_events[-1]["decision_outcome"] == "rejected"
+    assert decision_events[-1]["backend_agent_id"] == "agent-c"
+
+
+async def test_orchestrator_llm_fallback_decision_empty_output_falls_back() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="validation_failed",
+                error="validation failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    react_gateway = SequencedGateway([_react_decision_chunks("")])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["decision_outcome"] == "deterministic_fallback"
+    assert decision_events[-1]["reason"] == "empty_fallback_llm_decision"
+
+
+async def test_orchestrator_llm_fallback_decision_illegal_action_falls_back() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="validation_failed",
+                error="validation failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"skip_task","agent_id":"agent-b",'
+                '"reason":"Skip the task.","summary":"skip"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["decision_outcome"] == "deterministic_fallback"
+
+
+async def test_orchestrator_llm_fallback_decision_model_error_falls_back() -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeSubAdapter(
+        "agent-a",
+        [
+            StreamChunk(event_type="start", agent_id="agent-a"),
+            StreamChunk(
+                event_type="error",
+                agent_id="agent-a",
+                error_code="validation_failed",
+                error="validation failed",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("Recovered result"))
+    react_gateway = SequencedGateway(
+        [[StreamChunk(event_type="error", error_code="model_error", error="boom")]]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        config={
+            "tasks": [_task("task-a", "agent-a", "Work", "Do work")],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_llm_fallback_decision_enabled": True,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_fallback_llm_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["decision_outcome"] == "deterministic_fallback"
+    assert decision_events[-1]["reason"] == "fallback_llm_unavailable"
 
 
 async def test_orchestrator_fallback_context_hides_raw_runtime_trace_terms() -> None:
