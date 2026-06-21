@@ -38,7 +38,7 @@ AgentHub 推荐采用生产级 agent 架构：**LLM decision + deterministic exe
 | Planner / Executor | 先规划，再由执行器完成任务 | LLM Planner 生成 `SubTask` graph，executor 调度子 Agent | Implemented |
 | Orchestrator-Workers | 中央协调者分派给多个 worker | Orchestrator 调度 Claude/Codex/OpenCode/自建 Agent | Implemented |
 | Parallelization | 可并行子任务同时执行 | DAG ready batch 并行执行，受 max concurrency 限制 | Implemented |
-| Evaluator-Optimizer | 生成、评估、修复、再验证 | Evaluation / Reflection、review thread、quality repair loop | Partially implemented |
+| Evaluator-Optimizer | 生成、评估、修复、再验证 | Evaluation / Reflection、review thread、quality repair loop、受控 Re-planner repair decision | Partially implemented / default off |
 | Handoff | Agent 间交接和审阅 | review/handoff metadata、timeline、handoff hint | Implemented MVP |
 | Tool Calling | 模型通过工具调用推进任务 | Orchestrator tool loop，平台 preview/browser/deploy tools | Partially implemented / optional |
 | Guardrails | 模型输出必须经过策略和边界校验 | 群聊白名单、tool allowlist、secret filtering、fallback limits | Implemented |
@@ -96,7 +96,10 @@ Initial Planner
 - LLM 在安全白名单内建议 fallback/repair Agent：`Partially implemented / default off`。
   已可通过 `orchestrator_llm_fallback_decision_enabled=true` 开启；模型 suggestion 只覆盖失败
   task 的下一次 retry/fallback 选择，后端继续做最终裁决。
-- Evaluator-Optimizer repair loop 统一由 Re-planner 决策：`Proposed`。
+- Evaluator-Optimizer repair loop 统一由 Re-planner 决策：
+  `Partially implemented / default off`。已可通过
+  `orchestrator_evaluator_optimizer_repair_enabled=true` 开启；当前只统一
+  `document_quality`、`code_static_quality`、`browser_preview_quality` 三类失败来源。
 - 完整 autonomous tool-loop orchestrator：`Future / optional`。
 
 ---

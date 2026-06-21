@@ -338,6 +338,12 @@ error
   会在下一次 `_agent_for_attempt()` 前请求受控 suggestion。模型只能建议
   `retry_original / fallback / add_repair / stop`，最终仍由后端按群聊范围、cooldown、
   hard-failure 和 attempt budget 决定；默认关闭时保持纯 deterministic fallback。
+- Evaluator-Optimizer repair decision 当前也是实验开关能力：开启
+  `orchestrator_evaluator_optimizer_repair_enabled=true` 后，
+  `document_quality`、`code_static_quality`、`browser_preview_quality` 失败会在现有
+  deterministic repair/fallback 之前请求受控 suggestion。模型只能建议
+  `retry_current / fallback / finish_with_failure`；`document/code` 仍在当前逻辑 task 上
+  retry/fallback，`browser` 继续保留 repair subtask；默认关闭时保持原有 repair 行为。
 - memory writer 调用由 stream 层注入 lock 串行化，避免同一个 AsyncSession 并发写入。
 
 当前 `TaskState`：
@@ -676,6 +682,11 @@ Orchestrator v1.5+ Evaluation / Reflection MVP：
 - `requirements_coverage` 只有注入 `orchestrator_evaluation_judge` 时执行；生产默认 skipped。
 - 读取 artifact 遵守 `orchestrator_evaluation_read_max_bytes`，并跳过 `.agenthub`、`.env`、`.ssh`、`secrets` 等敏感路径。
 - evaluation 失败会生成结构化 reflection，并把 repair instruction 注入下一次 fallback attempt 的上下文。
+- 开启 `orchestrator_evaluator_optimizer_repair_enabled=true` 后，
+  `document_quality`、`code_static_quality`、`browser_preview_quality` 会额外写入
+  `task_evaluator_repair_decision` run detail 事件，并继续用 `phase="react_replanner"`
+  记录安全摘要；事件只能保留失败来源、允许 agent、模型 suggestion、后端裁决和结果摘要，
+  不得写入完整 prompt、token、stderr、env 或 hidden reasoning。
 - 不新增 DB migration；`evaluation_started`、`evaluation_result`、`reflection_created`、`evaluation_finished` 写入现有 memory event payload。
 - `run_quality_gate()` 保留为兼容包装，语义上属于 `browser_preview_quality` evaluator 路径。
 

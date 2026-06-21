@@ -8,6 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from app.agents.orchestrator._internal.execution.evaluator_repair_llm import (
+    maybe_browser_evaluator_repair_llm_decision as _maybe_browser_evaluator_repair_llm_decision,
+)
+from app.agents.orchestrator._internal.execution.evaluator_repair_llm import (
+    record_task_evaluator_repair_llm_decision as _record_task_evaluator_repair_llm_decision,
+)
 from app.agents.orchestrator._internal.execution.fulfillment import (
     fulfillment_payload as _fulfillment_payload,
 )
@@ -64,7 +70,7 @@ from app.agents.orchestrator.evaluation import (
     evaluation_results_payload,
     reflection_payload,
 )
-from app.agents.orchestrator.tools import OrchestratorToolResult
+from app.agents.orchestrator.tools import OrchestratorToolResult, available_agent_ids
 from app.agents.orchestrator.types import OrchestratorRunContext, SubTask
 from app.agents.types import ChatMessage, StreamChunk, ToolSpec
 
@@ -91,6 +97,10 @@ REQUESTED_PORT_RE = re.compile(r"(?<!\d)(\d{4,5})(?!\d)")
 REPAIR_AGENT_MISSING_TEXT = (
     "浏览器级质量验收暂时无法继续自动修复：当前没有可用的质量修复 Agent。"
     "我已经保留了本轮验收证据；请检查可用 Agent 配置，或先补齐静态前端产物后重试。"
+)
+QUALITY_REPAIR_STOPPED_TEXT = (
+    "浏览器级质量验收已停止继续自动修复。"
+    "我已经保留了本轮失败证据、修复建议和当前决策摘要。"
 )
 ONE_CLICK_CONTAINER_AUTOMATION_KIND = "one_click_container_deploy"
 
@@ -142,6 +152,9 @@ async def run_quality_gate(
     positive_int_config: PositiveIntConfig,
 ) -> AsyncIterator[tuple[StreamChunk, int]]:
     """Run the browser_preview_quality evaluator for frontend deploy requests."""
+
+    if config.get("orchestrator_quality_gate_enabled", True) is False:
+        return
 
     user_request = _latest_user_request(messages)
     is_one_click_container = _is_one_click_container_quality_gate(config)
@@ -201,18 +214,77 @@ async def run_quality_gate(
     )
     required_text = _required_text(user_request)
     repair_round = 0
+    current_agent_id, current_attempt_index = _latest_quality_attempt_metadata(run_context)
     entry_path = _find_preview_entry(workspace_path)
     while entry_path is None and repair_round < max_rounds:
-        repair_agent = _repair_agent(config)
-        if repair_agent is None:
-            await _record_evaluation_failure(
+        repair_instruction = _missing_frontend_artifacts_instruction()
+        failure_result, reflection = _browser_failure_result(
+            code="preview_entry_not_found",
+            message="no HTML entry file was found in the workspace",
+            checked_artifacts=[],
+            repair_instruction=repair_instruction,
+        )
+        await _record_evaluation_result(
+            config,
+            run_context,
+            failure_result,
+            reflection,
+        )
+        llm_decision = await _maybe_browser_evaluator_repair_llm_decision(
+            config,
+            messages=messages,
+            run_context=run_context,
+            failed_agent_id=current_agent_id,
+            attempt_index=current_attempt_index,
+            checked_artifacts=["index.html", "styles.css", "app.js"],
+            issues=[
+                {
+                    "code": "preview_entry_not_found",
+                    "message": "No HTML entry file was found in the workspace.",
+                    "evidence": "index.html",
+                    "repair_hint": repair_instruction,
+                }
+            ],
+            reflection_summary=reflection.summary,
+            repair_instruction=reflection.repair_instruction,
+            repair_round=repair_round,
+            max_repair_rounds=max_rounds,
+            allowed_agent_ids=_browser_allowed_agent_ids(config, current_agent_id),
+        )
+        if llm_decision is not None and llm_decision.stop:
+            await _record_task_evaluator_repair_llm_decision(
                 config,
-                run_context,
-                "browser_preview_quality",
-                "repair_agent_missing",
-                "no repair agent is available",
-                repair_hint="Configure a quality repair agent or create the missing HTML artifact.",
+                run_context=run_context,
+                task_id=None,
+                decision=llm_decision,
+                backend_action="finish_with_failure",
+                backend_agent_id=None,
+                record_event=_memory_record_event,
             )
+            yield (
+                _error("browser_verification_failed", QUALITY_REPAIR_STOPPED_TEXT),
+                next_block_index,
+            )
+            return
+        repair_agent = (
+            llm_decision.preferred_agent_id
+            if llm_decision is not None and llm_decision.preferred_agent_id
+            else _repair_agent(config)
+        )
+        if llm_decision is not None:
+            await _record_task_evaluator_repair_llm_decision(
+                config,
+                run_context=run_context,
+                task_id=None,
+                decision=llm_decision,
+                backend_action=_browser_repair_backend_action(
+                    current_agent_id,
+                    repair_agent,
+                ),
+                backend_agent_id=repair_agent,
+                record_event=_memory_record_event,
+            )
+        if repair_agent is None:
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 REPAIR_AGENT_MISSING_TEXT,
@@ -226,18 +298,7 @@ async def run_quality_gate(
             task_id=f"quality-repair-{repair_round}",
             agent_id=repair_agent,
             title=f"Create missing frontend artifacts round {repair_round}",
-            instruction=_repair_instruction(
-                "index.html",
-                {
-                    "issues": [
-                        "No HTML entry file was found. Create index.html, styles.css, "
-                        "and app.js at the workspace root with the required task "
-                        "breakdown, code artifact, Diff, webpage preview, button "
-                        "interaction, and mobile adaptation sections."
-                    ]
-                },
-                "no HTML entry file was found in the workspace",
-            ),
+            instruction=repair_instruction,
             expected_output="index.html\nstyles.css\napp.js",
             include_history=True,
             priority=1000 + repair_round,
@@ -254,6 +315,8 @@ async def run_quality_gate(
         ):
             next_block_index = updated_block_index
             yield chunk, updated_block_index
+        current_agent_id = repair_agent
+        current_attempt_index += 1
         entry_path = _find_preview_entry(workspace_path)
 
     preview_call_id = "orch.quality.preview"
@@ -424,30 +487,76 @@ async def run_quality_gate(
                 yield chunk, updated_block_index
             return
 
+        repair_instruction = _repair_instruction(
+            entry_path or "index.html",
+            verify_payload,
+            verify_result.output,
+        )
+        failure_result, reflection = _browser_failure_result(
+            code=verify_result.error_code or "browser_verification_failed",
+            message=_browser_failure_message(verify_payload, verify_result.output),
+            checked_artifacts=[entry_path] if entry_path else [],
+            repair_instruction=repair_instruction,
+        )
+        await _record_evaluation_result(
+            config,
+            run_context,
+            failure_result,
+            reflection,
+        )
         if repair_round >= max_rounds:
-            await _record_evaluation_failure(
-                config,
-                run_context,
-                "browser_preview_quality",
-                verify_result.error_code or "browser_verification_failed",
-                verify_result.output,
-                checked_artifacts=[entry_path] if entry_path else [],
-                repair_hint="Repair the static frontend until verify_web_preview passes.",
-            )
             yield _error("browser_verification_failed", verify_result.output), next_block_index
             return
 
-        repair_agent = _repair_agent(config)
-        if repair_agent is None:
-            await _record_evaluation_failure(
+        llm_decision = await _maybe_browser_evaluator_repair_llm_decision(
+            config,
+            messages=messages,
+            run_context=run_context,
+            failed_agent_id=current_agent_id,
+            attempt_index=current_attempt_index,
+            checked_artifacts=[entry_path] if entry_path else [],
+            issues=_browser_issue_payloads(verify_payload),
+            reflection_summary=reflection.summary,
+            repair_instruction=reflection.repair_instruction,
+            repair_round=repair_round,
+            max_repair_rounds=max_rounds,
+            allowed_agent_ids=_browser_allowed_agent_ids(config, current_agent_id),
+        )
+        if llm_decision is not None and llm_decision.stop:
+            await _record_task_evaluator_repair_llm_decision(
                 config,
-                run_context,
-                "browser_preview_quality",
-                "repair_agent_missing",
-                "no repair agent is available",
-                checked_artifacts=[entry_path] if entry_path else [],
-                repair_hint="Configure a quality repair agent or manually fix the browser issues.",
+                run_context=run_context,
+                task_id=None,
+                decision=llm_decision,
+                backend_action="finish_with_failure",
+                backend_agent_id=None,
+                record_event=_memory_record_event,
             )
+            yield (
+                _error("browser_verification_failed", QUALITY_REPAIR_STOPPED_TEXT),
+                next_block_index,
+            )
+            return
+
+        repair_agent = (
+            llm_decision.preferred_agent_id
+            if llm_decision is not None and llm_decision.preferred_agent_id
+            else _repair_agent(config)
+        )
+        if llm_decision is not None:
+            await _record_task_evaluator_repair_llm_decision(
+                config,
+                run_context=run_context,
+                task_id=None,
+                decision=llm_decision,
+                backend_action=_browser_repair_backend_action(
+                    current_agent_id,
+                    repair_agent,
+                ),
+                backend_agent_id=repair_agent,
+                record_event=_memory_record_event,
+            )
+        if repair_agent is None:
             for chunk, updated_block_index in text_block_with_next(
                 next_block_index,
                 REPAIR_AGENT_MISSING_TEXT,
@@ -462,11 +571,7 @@ async def run_quality_gate(
             task_id=f"quality-repair-{repair_round}",
             agent_id=repair_agent,
             title=f"Repair browser quality issues round {repair_round}",
-            instruction=_repair_instruction(
-                entry_path or "index.html",
-                verify_payload,
-                verify_result.output,
-            ),
+            instruction=repair_instruction,
             expected_output=entry_path,
             include_history=True,
             priority=1000 + repair_round,
@@ -483,6 +588,8 @@ async def run_quality_gate(
         ):
             next_block_index = updated_block_index
             yield chunk, updated_block_index
+        current_agent_id = repair_agent
+        current_attempt_index += 1
         preview_refresh_needed = True
 
 
@@ -684,6 +791,117 @@ def _should_wait_for_container_terminal(
     if config.get("orchestrator_container_deployment_wait_for_terminal") is True:
         return True
     return bool(DEPLOYMENT_REPAIR_WAIT_INTENT_RE.search(user_request or ""))
+
+
+def _latest_quality_attempt_metadata(
+    run_context: OrchestratorRunContext,
+) -> tuple[str, int]:
+    for task_id in reversed(run_context.result_order):
+        result = run_context.results.get(task_id)
+        if result is None or not result.attempts:
+            continue
+        attempt = result.attempts[-1]
+        return attempt.agent_id, max(1, attempt.attempt_index)
+    return "orchestrator", 1
+
+
+def _browser_allowed_agent_ids(
+    config: Mapping[str, Any],
+    current_agent_id: str,
+) -> list[str]:
+    return [
+        agent_id
+        for agent_id in dict.fromkeys([current_agent_id, *available_agent_ids(config)])
+        if isinstance(agent_id, str) and agent_id and agent_id != "orchestrator"
+    ]
+
+
+def _browser_repair_backend_action(
+    current_agent_id: str,
+    selected_agent_id: str | None,
+) -> str:
+    if not selected_agent_id:
+        return "finish_with_failure"
+    if selected_agent_id == current_agent_id:
+        return "retry_current"
+    return "fallback"
+
+
+def _missing_frontend_artifacts_instruction() -> str:
+    return _repair_instruction(
+        "index.html",
+        {
+            "issues": [
+                "No HTML entry file was found. Create index.html, styles.css, and "
+                "app.js at the workspace root with the required task breakdown, "
+                "code artifact, Diff, webpage preview, button interaction, and "
+                "mobile adaptation sections."
+            ]
+        },
+        "no HTML entry file was found in the workspace",
+    )
+
+
+def _browser_issue_payloads(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    issues = payload.get("issues")
+    if not isinstance(issues, list):
+        return []
+    output: list[dict[str, Any]] = []
+    for issue in issues:
+        if not isinstance(issue, Mapping):
+            continue
+        output.append(
+            {
+                "code": issue.get("code"),
+                "message": issue.get("message"),
+                "evidence": issue.get("evidence"),
+                "repair_hint": issue.get("repair_hint"),
+            }
+        )
+    return output[:12]
+
+
+def _browser_failure_message(payload: Mapping[str, Any], raw_output: str) -> str:
+    issues = payload.get("issues")
+    if isinstance(issues, list) and issues:
+        messages = [
+            str(issue.get("message") or issue.get("code") or "browser verification failed")
+            for issue in issues
+            if isinstance(issue, Mapping)
+        ]
+        if messages:
+            return "; ".join(messages[:6])
+    return raw_output
+
+
+def _browser_failure_result(
+    *,
+    code: str,
+    message: str,
+    checked_artifacts: list[str],
+    repair_instruction: str,
+) -> tuple[EvaluationResult, ReflectionResult]:
+    issue = EvaluationIssue(
+        code=code,
+        message=_truncate(message, 1000),
+        evidence=_truncate(message, 1000),
+        repair_hint=repair_instruction,
+    )
+    result = EvaluationResult(
+        evaluator="browser_preview_quality",
+        status="failed",
+        passed=False,
+        severity="major",
+        issues=[issue],
+        checked_artifacts=checked_artifacts,
+    )
+    reflection = ReflectionResult(
+        failure_category="browser_preview_quality_failed",
+        summary="browser_preview_quality failed.",
+        evidence=[f"{code}: {_truncate(message, 500)}"],
+        repair_instruction=repair_instruction,
+    )
+    return result, reflection
 
 
 async def _record_fulfillment_tool_result(

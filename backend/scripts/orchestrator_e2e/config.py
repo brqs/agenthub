@@ -91,6 +91,9 @@ DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_SSE_PATH = (  # noqa: S108
 DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_fallback_llm_decision_whitelist_sse.jsonl"  # noqa: S108
 )
+DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_SSE_PATH = (  # noqa: S108
+    "/tmp/agenthub_evaluator_optimizer_repair_loop_sse.jsonl"  # noqa: S108
+)
 DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_SSE_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_sse.jsonl"  # noqa: S108
 )
@@ -234,6 +237,9 @@ DEFAULT_PARALLEL_BATCH_REPLANNER_REPAIR_REPORT_PATH = (  # noqa: S108
 )
 DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_fallback_llm_decision_whitelist_report.json"  # noqa: S108
+)
+DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_REPORT_PATH = (  # noqa: S108
+    "/tmp/agenthub_evaluator_optimizer_repair_loop_report.json"  # noqa: S108
 )
 DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_REPORT_PATH = (  # noqa: S108
     "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json"  # noqa: S108
@@ -468,6 +474,10 @@ SCENARIO_DEFAULTS: dict[str, ScenarioDefaults] = {
     "fallback_llm_decision_whitelist": ScenarioDefaults(
         DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH,
         DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH,
+    ),
+    "evaluator_optimizer_repair_loop": ScenarioDefaults(
+        DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_REPORT_PATH,
+        DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_SSE_PATH,
     ),
     "group_scope_tool_dispatch_no_external_agent": ScenarioDefaults(
         DEFAULT_GROUP_SCOPE_TOOL_DISPATCH_NO_EXTERNAL_AGENT_REPORT_PATH,

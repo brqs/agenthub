@@ -598,6 +598,8 @@ def _validate_builtin_config(config: dict[str, Any]) -> None:
     _validate_bool(config, "orchestrator_memory_enabled")
     _validate_bool(config, "orchestrator_batch_replanner_enabled")
     _validate_bool(config, "orchestrator_llm_fallback_decision_enabled")
+    _validate_bool(config, "orchestrator_evaluator_optimizer_repair_enabled")
+    _validate_bool(config, "orchestrator_quality_gate_enabled")
     _validate_bool(config, "orchestrator_tool_calling_enabled")
     _validate_bool(config, "orchestrator_tool_trace_visible")
     _validate_bool(config, "orchestrator_group_messages_enabled")

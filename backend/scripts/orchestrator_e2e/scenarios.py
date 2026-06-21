@@ -178,6 +178,7 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "custom_agent_reader_review_repair",
         runner.CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT,
         runner.run_custom_agent_tools_case,
+        agent_ids=runner.CUSTOM_AGENT_READER_REVIEW_REPAIR_AGENT_IDS,
     ),
     "static_package_deploy_repair_matrix": _spec(
         "static_package_deploy_repair_matrix",
@@ -193,11 +194,13 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "im_dialogue_no_artifact_turn_taking_v2",
         runner.AGENT_TURN_TAKING_DIALOGUE_PROMPT,
         runner.run_group_dialogue_debate_case,
+        agent_ids=runner.IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_AGENT_IDS,
     ),
     "dialogue_ai_benefits_risks_llm_moderated": _spec(
         "dialogue_ai_benefits_risks_llm_moderated",
         runner.DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT,
         runner.run_group_dialogue_debate_case,
+        agent_ids=runner.DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_AGENT_IDS,
     ),
     "requirement_alignment_group_orchestrator": _spec(
         "requirement_alignment_group_orchestrator",
@@ -279,6 +282,12 @@ SCENARIOS: dict[str, ScenarioSpec] = {
         "fallback_llm_decision_whitelist",
         runner.FALLBACK_LLM_DECISION_WHITELIST_PROMPT,
         runner.run_fallback_llm_decision_whitelist_case,
+    ),
+    "evaluator_optimizer_repair_loop": _spec(
+        "evaluator_optimizer_repair_loop",
+        runner.EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT,
+        runner.run_evaluator_optimizer_repair_loop_case,
+        runner.evaluate_evaluator_optimizer_repair_loop_report,
     ),
     "group_scope_tool_dispatch_no_external_agent": _spec(
         "group_scope_tool_dispatch_no_external_agent",

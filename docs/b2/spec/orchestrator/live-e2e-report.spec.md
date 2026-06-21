@@ -1,7 +1,7 @@
 # Orchestrator Live E2E Report
 
-> 状态：Historical passed evidence / LLM-first refresh pending
-> 最后更新：2026-06-13
+> 状态：Fresh LLM-first control-plane closure passed
+> 最后更新：2026-06-18
 
 ---
 
@@ -74,7 +74,7 @@
 - `/tmp/agenthub_static_package_deploy_repair_matrix_report.json`
 - `/tmp/agenthub_group_member_fallback_repair_visibility_report.json`
 - `/tmp/agenthub_im_dialogue_no_artifact_turn_taking_v2_report.json`
-- `/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json`（待真实 HTTP/SSE refresh 后补证据）
+- `/tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json`
 - `/tmp/agenthub_group_scope_missing_opencode_dialogue_repair_report.json`（待真实 HTTP/SSE refresh 后补证据）
 - `/tmp/agenthub_group_scope_missing_codex_review_repair_report.json`（待真实 HTTP/SSE refresh 后补证据）
 - `/tmp/agenthub_group_scope_missing_claude_parallel_repair_report.json`（待真实 HTTP/SSE refresh 后补证据）
@@ -88,9 +88,9 @@
 - `/tmp/agenthub_requirement_alignment_single_external_report.json`（2026-06-14 live E2E passed）
 - `/tmp/agenthub_requirement_alignment_single_direct_chat_skip_report.json`（2026-06-14 live E2E passed）
 
-最终结论：截至 2026-06-11 的历史功能 E2E 为 `passed=true`。2026-06-12 之后的
-LLM-first 控制面新增 `llm_control_points` 验收口径，旧 8 个鲁棒性 report 只能作为功能
-回归证据，不能作为 LLM-first 参与度的最终验收证据；需要重跑 fresh HTTP/SSE E2E 后补充
+历史结论：截至 2026-06-11 的功能 E2E 为 `passed=true`。2026-06-12 之后的
+LLM-first 控制面新增 `llm_control_points` 验收口径，因此旧 8 个鲁棒性 report 只作为功能
+回归证据；2026-06-18 已完成 fresh HTTP/SSE final closure，并补齐
 `llm_control_points`、planner / react / dialogue / tool / polish 控制点证据。
 
 第五点部署发布后端直连 E2E 结论：`passed=true`。2026-06-03 已补跑 deployment
@@ -163,6 +163,27 @@ planning profile，且只能使用 `read_file`。
 后续重跑时，每个新 report 必须包含 `llm_control_points`，并按场景验证 `planner`、
 `react_replanner`、`dialogue_controller`、`tool_loop` 或 `response_polish` 控制点。
 
+2026-06-18 Orchestrator LLM control plane final closure 结论：
+
+- 控制面模块矩阵 fresh HTTP/SSE E2E 全部 `passed=true`：
+  `parallel_batch_replanner_repair`、`fallback_llm_decision_whitelist`、
+  `evaluator_optimizer_repair_loop`。
+- 全量鲁棒性矩阵 9 个 fresh HTTP/SSE E2E 全部 `passed=true`：
+  `fullstack_task_manager_parallel_repair_v2`、
+  `cyberpunk_site_quality_repair_8082_v2`、`im_context_pin_followup_repair`、
+  `group_chat_attribution_process_matrix`、`custom_agent_reader_review_repair`、
+  `static_package_deploy_repair_matrix`、`group_member_fallback_repair_visibility`、
+  `im_dialogue_no_artifact_turn_taking_v2`、
+  `dialogue_ai_benefits_risks_llm_moderated`。
+- 所有 fresh report 均包含 `control_plane_evidence`；控制面场景覆盖
+  `react_replanner` batch decision、LLM fallback suggestion/backend decision、evaluator repair
+  first failure/repair/final validation；鲁棒性场景覆盖 planner、react replanner 或
+  dialogue controller 等 LLM 控制点。
+- 本轮 repair loop 中修复的 E2E harness 问题：对话场景显式避开当前不可用的
+  `opencode-helper` runtime；custom read-only Agent repair 由内置可写 Agent 直接执行；
+  group-member fallback 使用静态 planned target + LLM fallback decision，避免 planner 改写
+  planned agent，并让 fallback sentinel 文档满足 document quality。
+
 ---
 
 ## 2. Case Results
@@ -196,7 +217,7 @@ planning profile，且只能使用 `read_file`。
 | Case 23 - Static Package Deploy Repair Matrix | 静态站点、源码包、平台预览/发布链路通过；源码包不包含认证/密钥文件；repair 后浏览器验收通过并有部署历史 | passed |
 | Case 24 - Group Member Fallback Repair Visibility | 目标 Agent 不可用时仅 fallback 到群聊内可用 Agent；task card 展示最终 fallback Agent；planned/final 差异有证据；fallback 后验证通过 | passed |
 | Case 25 - IM Dialogue No Artifact Turn Taking v2 | 纯对话多 Agent 轮流发言，不创建 workspace artifact，不泄露 tool trace，最终总结各方观点 | passed |
-| Case 26 - Dialogue AI Benefits/Risks LLM Moderated | “请你开始一场有关 AI 发展的弊处和利处”自然语言纯对话；Planner 生成 `dialogue_turn`；执行层 LLM 生成 `dialogue_decision` / `dialogue_judgement`；无 artifact；report 含 `dialogue_controller` 控制点 | pending fresh live E2E |
+| Case 26 - Dialogue AI Benefits/Risks LLM Moderated | “请你开始一场有关 AI 发展的弊处和利处”自然语言纯对话；Planner 生成 `dialogue_turn`；执行层 LLM 生成 `dialogue_decision` / `dialogue_judgement`；无 artifact；report 含 `dialogue_controller` 控制点 | passed |
 | Case 27 - Requirement Alignment Group Orchestrator | 群聊开启 `requirement_alignment=strict` 后由 Orchestrator 输出 `clarification` 卡片；确认前不调度子 Agent，确认后进入 planner | passed |
 | Case 28 - Requirement Alignment Single External Agent | 单聊 Claude/Codex/OpenCode 开启 strict 后由当前 Agent 输出 `clarification` 卡片；确认前不启动 CLI/SDK，确认后才进入 runtime | passed |
 | Case 29 - Requirement Alignment Single Direct Chat Skip | 单聊 strict 下身份/解释类请求跳过需求对齐，保持 direct-chat 直接回答 | passed |
@@ -277,7 +298,7 @@ im_dialogue_no_artifact_turn_taking_v2:
 dialogue_ai_benefits_risks_llm_moderated:
   report: /tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_report.json
   sse: /tmp/agenthub_dialogue_ai_benefits_risks_llm_moderated_sse.jsonl
-  passed: pending fresh live E2E
+  passed: true
 ```
 
 2026-06-12 LLM-first E2E 报告要求：
@@ -303,6 +324,18 @@ dialogue_ai_benefits_risks_llm_moderated:
   - `fallback_llm_decision_whitelist`
   - `evaluator_optimizer_repair_loop`
 
+2026-06-18 Module E observability report 合同：
+
+- 新 report 写入阶段必须生成 `control_plane_evidence` 安全摘要 section。
+- `control_plane_evidence` 只包含：`scenario`、`llm_control_points`、`phases_seen`、
+  `key_events_seen`、`module_sections_present`、`artifact_paths`、`illegal_agent_ids`、
+  `forbidden_visible_terms`。
+- B/C/D 专用 evaluator 必须将缺失 `llm_control_points`、群聊外 Agent、敏感 trace 泄露判为
+  failed，并在专用 section 与 `control_plane_evidence` 中保留可诊断摘要。
+- 当前 fresh evidence 状态：`parallel_batch_replanner_repair`、
+  `fallback_llm_decision_whitelist` 与 `evaluator_optimizer_repair_loop` 均已有 passed
+  report/SSE；full robustness matrix 已完成 fresh LLM-first closure。
+
 `fallback_llm_decision_whitelist` 场景要求：
 
 - report 必须包含 `fallback_llm_decision` section，至少记录：
@@ -311,6 +344,17 @@ dialogue_ai_benefits_risks_llm_moderated:
   `artifact_paths`、`llm_control_points`。
 - `model_suggestion` 和 `backend_decision` 缺失时 evaluator 必须拒绝。
 - suggested / actual agent 不能超出当前 `conversation.agent_ids` 白名单。
+- report/SSE 不得泄露 raw prompt、token、stderr、env、认证文件或其它敏感 trace。
+
+`evaluator_optimizer_repair_loop` 场景要求：
+
+- report 必须包含 `evaluator_optimizer_repair` section，至少记录：
+  `first_failure_evidence`、`repair_decision`、`repair_attempt_agent_id`、
+  `actual_attempt_agent_id`、`final_validation`、`artifact_paths`、
+  `llm_control_points`、`forbidden_visible_terms`。
+- `first_failure_evidence`、`repair_decision` 或 `final_validation` 缺失时 evaluator 必须拒绝。
+- suggested / actual agent 不能超出当前 `conversation.agent_ids` 白名单。
+- browser 类 repair 如果声称最终通过，report 必须证明 preview 已刷新后再重新 verify。
 - report/SSE 不得泄露 raw prompt、token、stderr、env、认证文件或其它敏感 trace。
 
 2026-06-13 group-scope E2E 报告要求：

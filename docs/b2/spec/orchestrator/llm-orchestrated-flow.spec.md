@@ -3,7 +3,7 @@
 > 定义 Orchestrator 的 LLM-first 控制面：复杂任务优先由大模型完成意图理解、任务拆解、Agent 分工、依赖规划、过程重规划、repair/review 决策和最终总结；确定性代码保留为安全边界、平台工具执行、显式指令和失败 fallback。
 >
 > 版本：v0.3
-> 最后更新：2026-06-15
+> 最后更新：2026-06-18
 
 ---
 
@@ -136,6 +136,12 @@ Initial Planner
   开启 `orchestrator_llm_fallback_decision_enabled=true` 后，task 失败重试路径会调用独立
   suggestion helper；合同固定为 `retry_original / fallback / add_repair / stop`，其中
   `add_repair` 在当前阶段只映射为同一 task 的一次受控 retry/fallback，不新增 DAG task。
+- Evaluator-Optimizer repair loop 统一由 Re-planner 决策：
+  `Partially implemented / default off`。开启
+  `orchestrator_evaluator_optimizer_repair_enabled=true` 后，
+  `document_quality`、`code_static_quality`、`browser_preview_quality` 会在现有
+  deterministic repair/fallback 之前请求受控 suggestion；`document/code` 保持同一逻辑
+  task retry/fallback，`browser` 保留 repair subtask，只统一 repair agent 选择和终止决策。
 
 ---
 
@@ -172,16 +178,21 @@ LLM-first 不等于 LLM 任意执行：
 
 ## 8. 当前实现状态
 
-截至 2026-06-13，代码侧已接入以下 LLM control point 观测：
+截至 2026-06-18，代码侧已接入以下 LLM control point 观测：
 
 - `planner`：LLM Planner 成功、失败、fallback 都会记录安全摘要。
 - `react_replanner`：task 完成 / 失败后的 repair、skip、finish 等决策会记录安全摘要。
 - `react_replanner`：task 失败后的受控 fallback decision 也复用同一 `phase`，并额外写入
   `task_fallback_llm_decision` run detail 事件；事件只保留白名单、模型建议、后端决策和安全
   reason，不保存完整 prompt、token、stderr、env 或认证文件。
+- `react_replanner`：Evaluator-Optimizer repair decision 复用同一 `phase`，并额外写入
+  `task_evaluator_repair_decision` run detail 事件；事件只保留失败来源、失败 evaluator、
+  checked artifacts、模型建议、后端裁决和安全 reason。
 - `dialogue_controller`：纯对话 / 辩论的续轮决策和最终 judgement 会记录安全摘要。
 - `tool_loop`：Orchestrator tool loop 的模型工具决策会记录安全摘要。
 - `response_polish`：最终回答润色模型的成功、失败和 fallback 会记录安全摘要。
+- Live E2E report 会从 run detail 聚合 `control_plane_evidence` 安全摘要，用于统一验证
+  `llm_control_points`、关键事件、module section、artifact、群聊白名单和敏感 trace。
 
 当前约束：
 
@@ -190,5 +201,8 @@ LLM-first 不等于 LLM 任意执行：
   `fallback_reason` 和 `decision_summary`，不保存完整 prompt、token、stderr、env、认证文件或 workspace 敏感内容。
 - 2026-06-11 的 8 个鲁棒性 E2E report 是历史功能证据，生成时还没有完整
   `llm_control_points` 硬验收；LLM-first 验收必须使用重跑后的 fresh report。
-- 新增纯对话场景 `dialogue_ai_benefits_risks_llm_moderated` 已进入 E2E harness，待真实
-  HTTP/SSE 执行后再写入 passed evidence。
+- 2026-06-18 final closure 已完成 fresh HTTP/SSE E2E：控制面模块矩阵
+  `parallel_batch_replanner_repair`、`fallback_llm_decision_whitelist`、
+  `evaluator_optimizer_repair_loop` 全部 passed；9 个 full robustness 场景全部 passed。
+  新增纯对话场景 `dialogue_ai_benefits_risks_llm_moderated` 已有
+  `dialogue_controller` fresh evidence。

@@ -16,7 +16,9 @@ from app.api.v1.stream_preview import _wants_platform_preview
 from tests.orchestrator_fakes import (
     FakeSubAdapter,
     FakeWorkspaceWriterAdapter,
+    SequencedGateway,
     _collect,
+    _react_decision_chunks,
     _task,
     _text_chunks,
 )
@@ -171,6 +173,49 @@ def test_stream_preview_respects_negative_preview_intent() -> None:
     )
 
 
+async def test_quality_gate_config_disabled_skips_browser_tools(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>任务 代码 Diff 预览</h1></body></html>",
+    )
+    executor = FakePlatformToolExecutor([True])
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content="@orchestrator 做一个前端网页演示，部署在端口8082，完成浏览器质量验收",
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code"],
+            "sub_adapters": {"claude-code": generator},
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_quality_gate_enabled": False,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert executor.calls == []
+
+
 class FakeMemoryWriter:
     def __init__(self) -> None:
         self.run_id = uuid4()
@@ -314,6 +359,124 @@ async def test_quality_gate_repairs_failed_browser_verification(
     assert "浏览器验证问题" in repair.received_messages[-1].content
     assert "mobile_no_horizontal_overflow" in repair.received_messages[-1].content
     assert "overflow-wrap:anywhere" in repair.received_messages[-1].content
+
+
+async def test_quality_gate_llm_repair_decision_uses_suggested_group_agent(
+    tmp_path: Path,
+) -> None:
+    generator = FakeWorkspaceWriterAdapter(
+        "claude-code",
+        _text_chunks("Created index.html"),
+        "index.html",
+        "<!doctype html><html><body><h1>bad</h1></body></html>",
+    )
+    default_repair = FakeWorkspaceWriterAdapter(
+        "codex-helper",
+        _text_chunks("Default repair should not run"),
+        "index.html",
+        "<!doctype html><html><body><h1>默认 repair</h1></body></html>",
+    )
+    suggested_repair = FakeWorkspaceWriterAdapter(
+        "opencode-helper",
+        _text_chunks("Suggested repair ran"),
+        "index.html",
+        "<!doctype html><html><body><h1>任务 代码 Diff 预览 按钮 移动</h1></body></html>",
+    )
+    executor = FakePlatformToolExecutor([False, True])
+    writer = FakeMemoryWriter()
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"fallback","agent_id":"opencode-helper",'
+                '"reason":"Use the suggested browser repair agent.",'
+                '"summary":"fallback"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        messages=[
+            ChatMessage(
+                role="user",
+                content=(
+                    "@orchestrator 做一个前端网页演示，部署在端口8082，"
+                    "并完成浏览器质量验收"
+                ),
+            )
+        ],
+        workspace_path=tmp_path,
+        config={
+            "react_enabled": False,
+            "tasks": [
+                _task(
+                    "create-demo",
+                    "claude-code",
+                    "Create demo",
+                    "Create index.html",
+                    expected_output="index.html",
+                )
+            ],
+            "managed_agent_ids": ["claude-code", "codex-helper", "opencode-helper"],
+            "sub_adapters": {
+                "claude-code": generator,
+                "codex-helper": default_repair,
+                "opencode-helper": suggested_repair,
+            },
+            "orchestrator_platform_tool_executor": executor,
+            "orchestrator_quality_max_repair_rounds": 2,
+            "orchestrator_quality_repair_agent_order": [
+                "codex-helper",
+                "opencode-helper",
+            ],
+            "react_gateway": react_gateway,
+            "orchestrator_evaluator_optimizer_repair_enabled": True,
+            "orchestrator_memory_writer": writer,
+        },
+    )
+
+    decision_payloads = [
+        payload
+        for event_type, payload in writer.events
+        if event_type == "task_evaluator_repair_decision" and payload
+    ]
+    llm_points = [
+        payload
+        for event_type, payload in writer.events
+        if event_type == "llm_control_point" and payload
+    ]
+    browser_results = [
+        result
+        for event_type, payload in writer.events
+        if event_type == "evaluation_result" and payload
+        for result in payload["results"]
+        if result["evaluator"] == "browser_preview_quality"
+    ]
+    reflection_payloads = [
+        payload for event_type, payload in writer.events if event_type == "reflection_created"
+    ]
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ][:2] == ["claude-code", "opencode-helper"]
+    assert default_repair.received_messages == []
+    assert decision_payloads[-1]["failure_source"] == "browser_preview_quality"
+    assert decision_payloads[-1]["backend_action"] == "fallback"
+    assert decision_payloads[-1]["backend_agent_id"] == "opencode-helper"
+    assert decision_payloads[-1]["decision_outcome"] == "accepted"
+    assert browser_results[0]["status"] == "failed"
+    assert any(
+        payload
+        and payload["reflection"]["failure_category"] == "browser_preview_quality_failed"
+        for payload in reflection_payloads
+    )
+    assert any(
+        payload.get("phase") == "react_replanner"
+        and payload.get("status") == "succeeded"
+        for payload in llm_points
+    )
 
 
 async def test_quality_gate_creates_missing_frontend_artifacts_before_preview(

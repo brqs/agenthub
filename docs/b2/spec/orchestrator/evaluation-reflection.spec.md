@@ -15,6 +15,10 @@
 - 验证失败后最多调度 repair agent 修复 2 轮，并在修复后刷新 preview snapshot 或重新调用 deployment tool 再验证。
 - `expected_output` 可以触发 artifact 存在性检查和 per-task fallback。
 - artifact Evaluation / Reflection 已实现 MVP：`artifact_exists`、`document_quality`、`code_static_quality`、`workflow_validation`、workflow allowlist dry-run、`ppt_validation`、受控 `test_report_quality`、网页 `browser_preview_quality`、`deployment_health` 和可注入 `requirements_coverage`。2026-06-03 live E2E 已验证 workflow validation -> dry-run -> health passed、deployment failure -> reflection -> repair agent -> redeploy -> published，以及 document_quality failed -> reflection -> repair/fallback -> final passed。
+- 2026-06-18 起，`document_quality`、`code_static_quality`、`browser_preview_quality`
+  还可在 `orchestrator_evaluator_optimizer_repair_enabled=true` 下复用统一的 Re-planner
+  repair decision helper；helper 只提供受控 override，默认关闭，关闭时保持现有 deterministic
+  evaluation/quality repair 行为不变。
 - 2026-06-11 多场景鲁棒性 E2E 进一步验证：browser/deployment repair loop 必须在 report 中保留首次失败证据和最终通过证据；静态发布、源码打包、浏览器验收、群聊 fallback、只读自建 review agent 和上下文 follow-up 场景均通过真实 HTTP/SSE。相关 report 包括 `/tmp/agenthub_cyberpunk_quality_v2_report.json`、`/tmp/agenthub_static_package_deploy_repair_matrix_report.json`、`/tmp/agenthub_group_member_fallback_repair_visibility_report.json` 和 `/tmp/agenthub_custom_agent_reader_review_repair_report.json`。
 
 剩余缺口是：`.pptx` 二进制深度解析、workflow 外部 step / 平台 tool step / 队列化长任务 runtime、生产 LLM-as-judge、更多语言/测试框架 runner、部署平台真实探活重试策略仍未覆盖。MVP 之前，部分 artifact 任务可能停在：
@@ -204,6 +208,13 @@ run_task
 - 如果首次验证直接通过，`repair_trace` 必须明确标记 `not_required` 或等价状态，避免被误判为未执行质量门。
 - `deployment_health` 失败后必须使用 deployment kind、tool arguments、`failure_category`、`last_error_code` 和截断 logs 生成修复指令；repair 后重新调用同一类 deployment tool。
 - `browser_preview_quality` 失败后必须刷新 preview snapshot，再重新执行 browser verify，避免验证旧产物。
+- `document_quality`、`code_static_quality`、`browser_preview_quality` 如启用
+  `orchestrator_evaluator_optimizer_repair_enabled=true`，必须额外记录统一的
+  `task_evaluator_repair_decision` 事件：至少包含 `failure_source`、`attempt_index`、
+  `failed_agent_id`、`failed_state`、`failed_evaluators`、`checked_artifacts`、
+  `repair_round`、`allowed_agent_ids`、`model_suggestion`、`backend_action`、
+  `backend_agent_id`、`decision_outcome`、`reason`。该事件和相关 report/SSE 仍不得泄露
+  prompt、token、stderr、env、认证文件或 hidden reasoning。
 
 建议新增 task state：
 
