@@ -159,6 +159,41 @@ class FakeWorkspaceWriterAdapter(FakeSubAdapter):
             yield chunk
 
 
+class SequencedWorkspaceWriterAdapter(SequencedSubAdapter):
+    def __init__(
+        self,
+        agent_id: str,
+        chunk_sequences: list[list[StreamChunk]],
+        write_sequences: list[tuple[str, str]],
+    ) -> None:
+        super().__init__(agent_id, chunk_sequences)
+        self.write_sequences = write_sequences
+
+    async def stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        system_prompt: str | None = None,
+        config: dict[str, Any] | None = None,
+        workspace_path: Path | None = None,
+        tool_specs: list[Any] | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        index = len(self.received_messages)
+        if workspace_path is not None and index < len(self.write_sequences):
+            write_path, content = self.write_sequences[index]
+            target = workspace_path / write_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        async for chunk in super().stream(
+            messages,
+            system_prompt=system_prompt,
+            config=config,
+            workspace_path=workspace_path,
+            tool_specs=tool_specs,
+        ):
+            yield chunk
+
+
 class FakeWorkspaceVerifierAdapter(FakeSubAdapter):
     def __init__(self, agent_id: str, verify_path: str) -> None:
         super().__init__(agent_id, [])

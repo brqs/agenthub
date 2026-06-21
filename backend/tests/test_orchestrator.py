@@ -51,6 +51,7 @@ from tests.orchestrator_fakes import (
     FakeWorkspaceWriterAdapter,
     SequencedGateway,
     SequencedSubAdapter,
+    SequencedWorkspaceWriterAdapter,
     _assert_blocks_balanced,
     _collect,
     _react_decision_chunks,
@@ -2470,6 +2471,377 @@ async def test_orchestrator_evaluation_repairs_empty_document(
         -2
     ].content
     assert "Artifact target(s): report.md" in adapter_b.received_messages[-2].content
+
+
+async def test_orchestrator_evaluator_repair_llm_disabled_keeps_deterministic_document_repair(
+    tmp_path: Path,
+) -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created report.md"),
+        "report.md",
+        "",
+    )
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Completed report.md"),
+        "report.md",
+        "# Report\n\nThis document now contains complete task-specific content.",
+    )
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"fallback","agent_id":"agent-b",'
+                '"reason":"Use a repair fallback.","summary":"fallback"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md; first attempt may be TODO-only",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_evaluator_optimizer_repair_enabled": False,
+            "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert react_gateway.calls == []
+    assert _memory_event_payloads(memory_writer, "task_evaluator_repair_decision") == []
+
+
+async def test_orchestrator_evaluator_repair_llm_can_fallback_document_quality(
+    tmp_path: Path,
+) -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created report.md"),
+        "report.md",
+        "",
+    )
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Completed report.md"),
+        "report.md",
+        "# Report\n\nThis document now contains complete task-specific content.",
+    )
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"fallback","agent_id":"agent-b",'
+                '"reason":"Use the document repair fallback.","summary":"fallback"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md; first attempt may be TODO-only",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_evaluator_optimizer_repair_enabled": True,
+            "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_evaluator_repair_decision")
+    llm_points = _memory_event_payloads(memory_writer, "llm_control_point")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["failure_source"] == "document_quality"
+    assert decision_events[-1]["backend_action"] == "fallback"
+    assert decision_events[-1]["backend_agent_id"] == "agent-b"
+    assert decision_events[-1]["decision_outcome"] == "accepted"
+    assert "document_quality" in decision_events[-1]["failed_evaluators"]
+    assert decision_events[-1]["checked_artifacts"] == ["report.md"]
+    assert _memory_event_payloads(memory_writer, "agent_runtime_cooldown") == []
+    assert any(
+        payload.get("phase") == "react_replanner"
+        and payload.get("status") == "succeeded"
+        for payload in llm_points
+    )
+
+
+async def test_orchestrator_evaluator_repair_llm_can_retry_current_document_quality(
+    tmp_path: Path,
+) -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = SequencedWorkspaceWriterAdapter(
+        "agent-a",
+        [
+            _text_chunks("Created report.md"),
+            _text_chunks("Repaired report.md"),
+        ],
+        [
+            ("report.md", ""),
+            (
+                "report.md",
+                "# Report\n\nThis document now contains complete task-specific content.",
+            ),
+        ],
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("fallback should not run"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"retry_current","agent_id":"agent-a",'
+                '"reason":"Retry the same document agent once.","summary":"retry"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md; first attempt may be TODO-only",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_evaluator_optimizer_repair_enabled": True,
+            "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_evaluator_repair_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-a"]
+    assert decision_events[-1]["backend_action"] == "retry_current"
+    assert decision_events[-1]["backend_agent_id"] == "agent-a"
+    assert decision_events[-1]["decision_outcome"] == "accepted"
+    assert any(
+        "Previous attempt failure:" in message.content
+        for message in adapter_a.received_messages[-1]
+        if message.role == "system"
+    )
+
+
+async def test_orchestrator_evaluator_repair_llm_can_finish_with_failure_on_last_round(
+    tmp_path: Path,
+) -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created report.md"),
+        "report.md",
+        "",
+    )
+    adapter_b = FakeSubAdapter("agent-b", _text_chunks("fallback should not run"))
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"finish_with_failure","agent_id":null,'
+                '"reason":"Stop automatic repair on the last round.","summary":"stop"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md; first attempt may be TODO-only",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_evaluator_optimizer_repair_enabled": True,
+            "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_evaluator_repair_decision")
+    summary = "".join(chunk.text_delta or "" for chunk in chunks)
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a"]
+    assert decision_events[-1]["backend_action"] == "finish_with_failure"
+    assert decision_events[-1]["decision_outcome"] == "accepted"
+    assert "Write report: validation did not pass" in summary
+    assert "I could not complete the request successfully yet." in summary
+
+
+async def test_orchestrator_evaluator_repair_llm_can_fallback_static_code(
+    tmp_path: Path,
+) -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created broken.py"),
+        "broken.py",
+        "def broken(:\n    pass\n",
+    )
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Fixed broken.py"),
+        "broken.py",
+        "def repaired() -> str:\n    return 'ok'\n",
+    )
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"fallback","agent_id":"agent-b",'
+                '"reason":"Use the code repair fallback.","summary":"fallback"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write code",
+                    "Create broken.py",
+                    expected_output="broken.py",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_evaluator_optimizer_repair_enabled": True,
+            "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_evaluator_repair_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["failure_source"] == "code_static_quality"
+    assert "code_static_quality" in decision_events[-1]["failed_evaluators"]
+    assert decision_events[-1]["backend_agent_id"] == "agent-b"
+
+
+async def test_orchestrator_evaluator_repair_llm_illegal_action_falls_back(
+    tmp_path: Path,
+) -> None:
+    memory_writer = FakeMemoryWriter()
+    adapter_a = FakeWorkspaceWriterAdapter(
+        "agent-a",
+        _text_chunks("Created report.md"),
+        "report.md",
+        "",
+    )
+    adapter_b = FakeWorkspaceWriterAdapter(
+        "agent-b",
+        _text_chunks("Completed report.md"),
+        "report.md",
+        "# Report\n\nThis document now contains complete task-specific content.",
+    )
+    react_gateway = SequencedGateway(
+        [
+            _react_decision_chunks(
+                '{"action":"skip_task","agent_id":"agent-b",'
+                '"reason":"Skip it.","summary":"invalid"}'
+            )
+        ]
+    )
+    orchestrator = OrchestratorAdapter(agent_id="orchestrator")
+
+    chunks = await _collect(
+        orchestrator,
+        workspace_path=tmp_path,
+        config={
+            "tasks": [
+                _task(
+                    "task-a",
+                    "agent-a",
+                    "Write report",
+                    "Write report.md",
+                    expected_output="report.md; first attempt may be TODO-only",
+                )
+            ],
+            "sub_adapters": {"agent-a": adapter_a, "agent-b": adapter_b},
+            "task_fallback_agent_ids": ["agent-b"],
+            "max_task_attempts": 2,
+            "react_gateway": react_gateway,
+            "orchestrator_evaluator_optimizer_repair_enabled": True,
+            "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_memory_writer": memory_writer,
+        },
+    )
+
+    decision_events = _memory_event_payloads(memory_writer, "task_evaluator_repair_decision")
+
+    assert chunks[-1].event_type == "done"
+    assert [
+        chunk.to_agent for chunk in chunks if chunk.event_type == "agent_switch"
+    ] == ["agent-a", "agent-b"]
+    assert decision_events[-1]["decision_outcome"] == "deterministic_fallback"
+    assert decision_events[-1]["backend_action"] == "fallback"
 
 
 async def test_orchestrator_appends_file_block_for_rich_artifact(

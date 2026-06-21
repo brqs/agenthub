@@ -16,6 +16,9 @@ from scripts.orchestrator_e2e.runner import (
     AGENT_FALLBACK_E2E_WRITE_RUNTIME,
     AGENT_FALLBACK_MATRIX_CASES,
     BUILTIN_SUB_AGENT_IDS,
+    DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_AGENT_IDS,
+    DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_TASKS,
+    IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_AGENT_IDS,
     PURE_DIALOGUE_ROBUSTNESS_MATRIX_CASES,
     _ai_benefits_risks_dialogue_present,
     _child_output_contract,
@@ -29,6 +32,8 @@ from scripts.orchestrator_e2e.runner import (
     _unresolved_missing_artifact_paths,
     artifact_section_check_keys,
     command_fulfillment_statuses,
+    dialogue_ai_benefits_risks_llm_moderated_config_updates,
+    evaluate_evaluator_optimizer_repair_loop_report,
     evaluate_fallback_llm_decision_whitelist_report,
     evaluate_fallback_task_card_case,
     evaluate_parallel_batch_replanner_repair_report,
@@ -36,12 +41,15 @@ from scripts.orchestrator_e2e.runner import (
     forbidden_visible_terms,
     fullstack_parallel_report,
     group_attribution_semantics_report,
+    group_member_fallback_case_prompt,
+    group_member_fallback_config_updates,
     message_error_text,
 )
 from scripts.orchestrator_e2e.scenarios import SCENARIOS
 from scripts.orchestrator_live_e2e import (
     AGENT_FALLBACK_MATRIX_PROMPT,
     COMMAND_FULFILLMENT_PROMPT,
+    CUSTOM_AGENT_READER_REVIEW_REPAIR_AGENT_IDS,
     CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT,
     CYBERPUNK_QUALITY_PROMPT,
     CYBERPUNK_QUALITY_V2_PROMPT,
@@ -59,6 +67,8 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_CYBERPUNK_QUALITY_V2_SSE_PATH,
     DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_REPORT_PATH,
     DEFAULT_DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_SSE_PATH,
+    DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_REPORT_PATH,
+    DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_SSE_PATH,
     DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH,
     DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH,
     DEFAULT_GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_REPORT_PATH,
@@ -102,6 +112,7 @@ from scripts.orchestrator_live_e2e import (
     DEFAULT_TASK_MANAGER_PARALLEL_V2_REPORT_PATH,
     DEFAULT_TASK_MANAGER_PARALLEL_V2_SSE_PATH,
     DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT,
+    EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT,
     FALLBACK_LLM_DECISION_WHITELIST_PROMPT,
     GROUP_CHAT_ATTRIBUTION_PROCESS_MATRIX_PROMPT,
     GROUP_DIALOGUE_DEBATE_PROMPT,
@@ -194,6 +205,46 @@ def test_dialogue_final_judgement_accepts_natural_orchestrator_review() -> None:
     assert _dialogue_final_judgement_visible(parent_text) is True
     assert _dialogue_llm_final_decision_seen(control_points) is True
     assert _dialogue_final_judgement_visible("完成内容：正反方都已发言。") is False
+
+
+def test_dialogue_ai_benefits_risks_llm_moderated_uses_stable_agents() -> None:
+    spec = SCENARIOS["dialogue_ai_benefits_risks_llm_moderated"]
+    updates = dialogue_ai_benefits_risks_llm_moderated_config_updates()
+    tasks = updates["tasks"]
+
+    assert spec.agent_ids == tuple(DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_AGENT_IDS)
+    assert "opencode-helper" not in spec.agent_ids
+    assert updates["llm_planning"] is False
+    assert updates["orchestrator_dialogue_llm_control_enabled"] is True
+    assert updates["available_agents_authoritative"] is True
+    assert updates["managed_agent_ids"] == ["claude-code", "codex-helper"]
+    assert [task["agent_id"] for task in tasks] == ["claude-code", "codex-helper"]
+    assert {task["task_type"] for task in tasks} == {"dialogue_turn"}
+
+    tasks[1]["depends_on"].append("mutated-test-task")
+    assert (
+        "mutated-test-task"
+        not in DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_TASKS[1]["depends_on"]
+    )
+
+
+def test_im_dialogue_turn_taking_uses_stable_dialogue_agents() -> None:
+    spec = SCENARIOS["im_dialogue_no_artifact_turn_taking_v2"]
+
+    assert spec.agent_ids == tuple(IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_AGENT_IDS)
+    assert "claude-code" in spec.agent_ids
+    assert "codex-helper" in spec.agent_ids
+    assert "opencode-helper" not in spec.agent_ids
+
+
+def test_custom_agent_reader_review_repair_has_builtin_repair_agent() -> None:
+    spec = SCENARIOS["custom_agent_reader_review_repair"]
+
+    assert spec.agent_ids == tuple(CUSTOM_AGENT_READER_REVIEW_REPAIR_AGENT_IDS)
+    assert "claude-code" in spec.agent_ids
+    assert "opencode-helper" in spec.agent_ids
+    assert "read_file" in spec.prompt
+    assert "内置可写 Agent" in spec.prompt
 
 
 def test_unresolved_missing_artifact_paths_ignores_recovered_fallback_files() -> None:
@@ -391,6 +442,10 @@ def test_all_scenario_report_and_sse_defaults_match_legacy_paths() -> None:
         "fallback_llm_decision_whitelist": (
             "/tmp/agenthub_fallback_llm_decision_whitelist_report.json",
             "/tmp/agenthub_fallback_llm_decision_whitelist_sse.jsonl",
+        ),
+        "evaluator_optimizer_repair_loop": (
+            "/tmp/agenthub_evaluator_optimizer_repair_loop_report.json",
+            "/tmp/agenthub_evaluator_optimizer_repair_loop_sse.jsonl",
         ),
         "group_scope_tool_dispatch_no_external_agent": (
             "/tmp/agenthub_group_scope_tool_dispatch_no_external_agent_report.json",
@@ -779,6 +834,22 @@ def test_fallback_llm_decision_whitelist_scenario_defaults_and_prompt() -> None:
     assert "web-designer" not in spec.prompt
 
 
+def test_evaluator_optimizer_repair_loop_scenario_defaults_and_prompt() -> None:
+    assert DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_REPORT_PATH == (
+        "/tmp/agenthub_evaluator_optimizer_repair_loop_report.json"
+    )
+    assert DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_SSE_PATH == (
+        "/tmp/agenthub_evaluator_optimizer_repair_loop_sse.jsonl"
+    )
+    spec = SCENARIOS["evaluator_optimizer_repair_loop"]
+    assert spec.prompt == EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT
+    assert "当前群聊成员" in spec.prompt
+    assert "react_replanner repair decision" in spec.prompt
+    assert "独立 repair task" in spec.prompt
+    assert "writer" not in spec.prompt
+    assert "web-designer" not in spec.prompt
+
+
 def test_dialogue_semantic_helpers_allow_non_debate_summary() -> None:
     roundtable = _dialogue_semantic_checks(
         dialogue_kind="roundtable",
@@ -998,6 +1069,28 @@ def test_agent_fallback_matrix_defaults_and_prompt_are_generic() -> None:
         claude_case["sub_agent_config_overrides"]["opencode-helper"]["command"]
         == ["python3", AGENT_FALLBACK_E2E_WRITE_RUNTIME]
     )
+
+
+def test_group_member_fallback_uses_static_task_with_llm_decision() -> None:
+    updates = group_member_fallback_config_updates(
+        target_agent_id="opencode-helper",
+        artifact_path="fallback-opencode.md",
+        sub_agent_config_overrides={"opencode-helper": {"command": "missing-cli"}},
+    )
+    prompt = group_member_fallback_case_prompt(
+        target_agent_id="opencode-helper",
+        artifact_path="fallback-opencode.md",
+    )
+    task = updates["tasks"][0]
+
+    assert updates["llm_planning"] is False
+    assert updates["orchestrator_llm_fallback_decision_enabled"] is True
+    assert updates["available_agents_authoritative"] is True
+    assert task["agent_id"] == "opencode-helper"
+    assert task["task_id"] == "fallback-task"
+    assert "fallback-opencode.md" in task["expected_output"]
+    assert "清晰 markdown 标题" in prompt
+    assert "AGENT_FALLBACK_SENTINEL=opencode-helper" in task["instruction"]
 
 
 def test_command_fulfillment_scenario_defaults_and_prompt_are_registered() -> None:
@@ -1818,6 +1911,7 @@ def parallel_batch_replanner_report() -> dict:
 
 def test_parallel_batch_replanner_evaluator_accepts_repair_report() -> None:
     report = parallel_batch_replanner_report()
+    report["scenario"] = "parallel_batch_replanner_repair"
 
     evaluate_parallel_batch_replanner_repair_report(report)
 
@@ -1827,6 +1921,23 @@ def test_parallel_batch_replanner_evaluator_accepts_repair_report() -> None:
     assert report["parallel_batch_replanner"]["added_task_ids"] == [
         "repair-batch-review"
     ]
+    evidence = report["control_plane_evidence"]
+    assert set(evidence) == {
+        "scenario",
+        "llm_control_points",
+        "phases_seen",
+        "key_events_seen",
+        "module_sections_present",
+        "artifact_paths",
+        "illegal_agent_ids",
+        "forbidden_visible_terms",
+    }
+    assert evidence["scenario"] == "parallel_batch_replanner_repair"
+    assert evidence["phases_seen"] == ["react_replanner"]
+    assert evidence["key_events_seen"] == ["llm_control_point", "react_decision"]
+    assert "parallel_batch_replanner" in evidence["module_sections_present"]
+    assert "batch-repair.md" in evidence["artifact_paths"]
+    assert report["checks"]["control_plane_llm_control_points_present"] is True
 
 
 def test_parallel_batch_replanner_evaluator_rejects_missing_control_point() -> None:
@@ -1840,6 +1951,7 @@ def test_parallel_batch_replanner_evaluator_rejects_missing_control_point() -> N
 
     assert report["acceptance"]["passed"] is False
     assert report["checks"]["batch_replanner_llm_control_point_seen"] is False
+    assert report["checks"]["control_plane_llm_control_points_present"] is False
 
 
 def test_parallel_batch_replanner_evaluator_rejects_missing_added_task() -> None:
@@ -1862,6 +1974,7 @@ def test_parallel_batch_replanner_evaluator_rejects_external_agent() -> None:
 
     assert report["acceptance"]["passed"] is False
     assert report["checks"]["group_dispatch_only_allowed_members"] is False
+    assert report["checks"]["control_plane_group_scope_clean"] is False
 
 
 def test_parallel_batch_replanner_evaluator_rejects_sensitive_trace() -> None:
@@ -1872,6 +1985,7 @@ def test_parallel_batch_replanner_evaluator_rejects_sensitive_trace() -> None:
 
     assert report["acceptance"]["passed"] is False
     assert report["checks"]["visible_text_no_sensitive_trace"] is False
+    assert report["checks"]["control_plane_sensitive_trace_absent"] is False
 
 
 def fallback_llm_decision_whitelist_report() -> dict:
@@ -1978,6 +2092,7 @@ def fallback_llm_decision_whitelist_report() -> dict:
 
 def test_fallback_llm_decision_evaluator_accepts_whitelist_report() -> None:
     report = fallback_llm_decision_whitelist_report()
+    report["scenario"] = "fallback_llm_decision_whitelist"
 
     evaluate_fallback_llm_decision_whitelist_report(report)
 
@@ -1987,6 +2102,15 @@ def test_fallback_llm_decision_evaluator_accepts_whitelist_report() -> None:
     assert report["fallback_llm_decision"]["actual_attempt_agent_id"] == (
         "opencode-helper"
     )
+    evidence = report["control_plane_evidence"]
+    assert evidence["scenario"] == "fallback_llm_decision_whitelist"
+    assert evidence["phases_seen"] == ["react_replanner"]
+    assert evidence["key_events_seen"] == [
+        "llm_control_point",
+        "task_fallback_llm_decision",
+    ]
+    assert "fallback_llm_decision" in evidence["module_sections_present"]
+    assert "fallback-llm-decision.md" in evidence["artifact_paths"]
 
 
 def test_fallback_llm_decision_evaluator_rejects_missing_model_suggestion() -> None:
@@ -2046,6 +2170,256 @@ def test_fallback_llm_decision_evaluator_rejects_sensitive_trace() -> None:
 
     assert report["acceptance"]["passed"] is False
     assert report["checks"]["visible_text_no_sensitive_trace"] is False
+    assert report["checks"]["control_plane_sensitive_trace_absent"] is False
+
+
+def evaluator_optimizer_repair_loop_report() -> dict:
+    return {
+        "checks": {},
+        "conversation": {
+            "agent_ids": [
+                "orchestrator",
+                "claude-code",
+                "opencode-helper",
+                "codex-helper",
+            ]
+        },
+        "target_agent_message": {
+            "status": "done",
+            "content": [
+                {
+                    "type": "task_card",
+                    "tasks": [
+                        {
+                            "id": "task-a",
+                            "planned_agent_id": "claude-code",
+                            "agent_id": "opencode-helper",
+                            "final_agent_id": "opencode-helper",
+                        }
+                    ],
+                },
+                {"type": "text", "text": "Repair loop completed safely."},
+            ],
+        },
+        "agent_switch_to_agents": [
+            "claude-code",
+            "opencode-helper",
+        ],
+        "child_agent_messages": [
+            {"agent_id": "claude-code", "status": "error"},
+            {"agent_id": "opencode-helper", "status": "done"},
+        ],
+        "workspace_files": [
+            {"path": "evaluator-optimizer-repair.md"},
+        ],
+        "workspace_artifacts_api": [
+            {
+                "path": "evaluator-optimizer-repair.md",
+                "evaluation_status": "passed",
+                "evaluation_results": [
+                    {
+                        "evaluator": "document_quality",
+                        "status": "passed",
+                        "passed": True,
+                        "checked_artifacts": ["evaluator-optimizer-repair.md"],
+                    }
+                ],
+            }
+        ],
+        "orchestrator_run_detail": {
+            "attempts": [
+                {
+                    "task_id": "task-a",
+                    "agent_id": "claude-code",
+                    "state": "evaluation_failed",
+                    "evaluation_results": [
+                        {
+                            "evaluator": "document_quality",
+                            "status": "failed",
+                            "passed": False,
+                            "checked_artifacts": ["evaluator-optimizer-repair.md"],
+                        }
+                    ],
+                },
+                {
+                    "task_id": "task-a",
+                    "agent_id": "opencode-helper",
+                    "state": "succeeded",
+                    "evaluation_results": [
+                        {
+                            "evaluator": "document_quality",
+                            "status": "passed",
+                            "passed": True,
+                            "checked_artifacts": ["evaluator-optimizer-repair.md"],
+                        }
+                    ],
+                },
+            ],
+            "events": [
+                {
+                    "event_type": "llm_control_point",
+                    "payload": {
+                        "phase": "react_replanner",
+                        "status": "succeeded",
+                        "used_llm": True,
+                        "decision_summary": (
+                            "Repair suggestion for document_quality accepted: "
+                            "fallback -> fallback via @opencode-helper."
+                        ),
+                    },
+                },
+                {
+                    "event_type": "task_evaluator_repair_decision",
+                    "task_id": "task-a",
+                    "payload": {
+                        "failure_source": "document_quality",
+                        "attempt_index": 1,
+                        "failed_agent_id": "claude-code",
+                        "failed_state": "evaluation_failed",
+                        "failed_evaluators": ["document_quality"],
+                        "checked_artifacts": ["evaluator-optimizer-repair.md"],
+                        "repair_round": 0,
+                        "allowed_agent_ids": [
+                            "claude-code",
+                            "opencode-helper",
+                            "codex-helper",
+                        ],
+                        "model_suggestion": {
+                            "action": "fallback",
+                            "agent_id": "opencode-helper",
+                            "reason": "Use the repair-capable group member.",
+                            "summary": "fallback",
+                        },
+                        "backend_action": "fallback",
+                        "backend_agent_id": "opencode-helper",
+                        "decision_outcome": "accepted",
+                        "reason": "Use the repair-capable group member.",
+                    },
+                },
+            ],
+        },
+    }
+
+
+def test_evaluator_optimizer_repair_evaluator_accepts_good_report() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    report["scenario"] = "evaluator_optimizer_repair_loop"
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is True
+    assert report["checks"]["evaluator_optimizer_first_failure_evidence_present"] is True
+    assert report["checks"]["evaluator_optimizer_repair_decision_present"] is True
+    assert report["checks"]["evaluator_optimizer_final_validation_present"] is True
+    assert report["evaluator_optimizer_repair"]["actual_attempt_agent_id"] == (
+        "opencode-helper"
+    )
+    evidence = report["control_plane_evidence"]
+    assert evidence["scenario"] == "evaluator_optimizer_repair_loop"
+    assert evidence["phases_seen"] == ["react_replanner"]
+    assert evidence["key_events_seen"] == [
+        "llm_control_point",
+        "task_evaluator_repair_decision",
+    ]
+    assert "evaluator_optimizer_repair" in evidence["module_sections_present"]
+    assert "evaluator-optimizer-repair.md" in evidence["artifact_paths"]
+
+
+def test_evaluator_optimizer_repair_evaluator_rejects_missing_first_failure_evidence() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    report["orchestrator_run_detail"]["attempts"][0]["evaluation_results"] = []
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["evaluator_optimizer_first_failure_evidence_present"] is False
+
+
+def test_evaluator_optimizer_repair_evaluator_rejects_missing_repair_decision() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    decision = report["orchestrator_run_detail"]["events"][1]["payload"]
+    decision["backend_action"] = None
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["evaluator_optimizer_repair_decision_present"] is False
+
+
+def test_evaluator_optimizer_repair_evaluator_rejects_missing_final_validation() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    report["orchestrator_run_detail"]["attempts"][-1]["evaluation_results"] = []
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["evaluator_optimizer_final_validation_present"] is False
+
+
+def test_evaluator_optimizer_repair_evaluator_rejects_external_suggested_agent() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    decision = report["orchestrator_run_detail"]["events"][1]["payload"]
+    decision["model_suggestion"]["agent_id"] = "writer"
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["evaluator_optimizer_suggested_agent_scoped"] is False
+    assert report["checks"]["group_dispatch_only_allowed_members"] is False
+
+
+def test_evaluator_optimizer_repair_evaluator_rejects_external_actual_agent() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    report["agent_switch_to_agents"].append("writer")
+    report["child_agent_messages"].append({"agent_id": "writer", "status": "done"})
+    report["orchestrator_run_detail"]["attempts"][-1]["agent_id"] = "writer"
+    decision = report["orchestrator_run_detail"]["events"][1]["payload"]
+    decision["backend_agent_id"] = "writer"
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["evaluator_optimizer_actual_agent_scoped"] is False
+    assert report["checks"]["group_dispatch_only_allowed_members"] is False
+
+
+def test_evaluator_optimizer_repair_evaluator_rejects_sensitive_trace() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    report["sse_message_error_text"] = "external_runtime_error"
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["visible_text_no_sensitive_trace"] is False
+    assert report["checks"]["control_plane_sensitive_trace_absent"] is False
+
+
+def test_control_plane_evidence_rejects_fallback_report_without_control_point() -> None:
+    report = fallback_llm_decision_whitelist_report()
+    events = report["orchestrator_run_detail"]["events"]
+    report["orchestrator_run_detail"]["events"] = [
+        event for event in events if event["event_type"] != "llm_control_point"
+    ]
+
+    evaluate_fallback_llm_decision_whitelist_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["control_plane_llm_control_points_present"] is False
+    assert report["control_plane_evidence"]["llm_control_points"] == []
+
+
+def test_control_plane_evidence_rejects_evaluator_report_without_control_point() -> None:
+    report = evaluator_optimizer_repair_loop_report()
+    events = report["orchestrator_run_detail"]["events"]
+    report["orchestrator_run_detail"]["events"] = [
+        event for event in events if event["event_type"] != "llm_control_point"
+    ]
+
+    evaluate_evaluator_optimizer_repair_loop_report(report)
+
+    assert report["acceptance"]["passed"] is False
+    assert report["checks"]["control_plane_llm_control_points_present"] is False
+    assert report["control_plane_evidence"]["llm_control_points"] == []
 
 
 def test_group_attribution_semantics_accepts_llm_chosen_artifact_names() -> None:

@@ -7,6 +7,7 @@ module stable for existing script tests and ad-hoc tooling.
 from __future__ import annotations
 
 from scripts.orchestrator_e2e import config as _config
+from scripts.orchestrator_e2e import runner as _runner
 from scripts.orchestrator_e2e.evaluators import (
     evaluate_p1_agent_capability_profile,
     evaluate_p1_evaluation_repair,
@@ -58,9 +59,17 @@ from scripts.orchestrator_e2e.runner import (
     main,
 )
 from scripts.orchestrator_e2e.runner import (
+    EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT as _EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT,
+)
+from scripts.orchestrator_e2e.runner import (
     GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT as GROUP_SUBSTANTIVE_OUTPUT_MATRIX_PROMPT,
 )
 from scripts.orchestrator_e2e.scenarios import SCENARIOS, ScenarioSpec, get_scenario
+
+EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT = _EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT
+CUSTOM_AGENT_READER_REVIEW_REPAIR_AGENT_IDS = (
+    _runner.CUSTOM_AGENT_READER_REVIEW_REPAIR_AGENT_IDS
+)
 
 DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH = _config.DEFAULT_CUSTOM_AGENT_TOOLS_REPORT_PATH
 DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH = _config.DEFAULT_CUSTOM_AGENT_TOOLS_SSE_PATH
@@ -106,6 +115,12 @@ DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_REPORT_PATH = (
 )
 DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH = (
     _config.DEFAULT_FALLBACK_LLM_DECISION_WHITELIST_SSE_PATH
+)
+DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_REPORT_PATH = (
+    _config.DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_REPORT_PATH
+)
+DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_SSE_PATH = (
+    _config.DEFAULT_EVALUATOR_OPTIMIZER_REPAIR_LOOP_SSE_PATH
 )
 DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH = _config.DEFAULT_DEPLOYMENT_BROWSER_REPORT_PATH
 DEFAULT_DEPLOYMENT_REPAIR_BROWSER_REPORT_PATH = (

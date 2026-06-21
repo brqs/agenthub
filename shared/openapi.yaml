@@ -4168,6 +4168,16 @@ components:
           - type: boolean
           - type: 'null'
           title: Orchestrator Llm Fallback Decision Enabled
+        orchestrator_evaluator_optimizer_repair_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Evaluator Optimizer Repair Enabled
+        orchestrator_quality_gate_enabled:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Orchestrator Quality Gate Enabled
         orchestrator_parallel_max_concurrency:
           anyOf:
           - type: integer

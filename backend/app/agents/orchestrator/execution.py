@@ -64,6 +64,15 @@ from app.agents.orchestrator._internal.execution.dialogue_llm import (
 from app.agents.orchestrator._internal.execution.evaluation import (
     run_attempt_evaluation as _run_attempt_evaluation,
 )
+from app.agents.orchestrator._internal.execution.evaluator_repair_llm import (
+    EvaluatorRepairLlmDecision as _EvaluatorRepairLlmDecision,
+)
+from app.agents.orchestrator._internal.execution.evaluator_repair_llm import (
+    maybe_task_evaluator_repair_llm_decision as _maybe_task_evaluator_repair_llm_decision,
+)
+from app.agents.orchestrator._internal.execution.evaluator_repair_llm import (
+    record_task_evaluator_repair_llm_decision as _record_task_evaluator_repair_llm_decision,
+)
 from app.agents.orchestrator._internal.execution.events import (
     accumulate_text_event as _accumulate_text_event,
 )
@@ -1024,6 +1033,7 @@ async def _run_task(
     considered_agents: set[str] = set()
     next_attempt_preferred_agent_id: str | None = None
     next_attempt_allow_revisit = False
+    pending_evaluator_repair_llm_decision: _EvaluatorRepairLlmDecision | None = None
     pending_fallback_llm_decision: _TaskFallbackLlmDecision | None = None
     await _memory_record_event(
         config,
@@ -1054,6 +1064,20 @@ async def _run_task(
         )
         next_attempt_preferred_agent_id = None
         next_attempt_allow_revisit = False
+        if pending_evaluator_repair_llm_decision is not None:
+            await _record_task_evaluator_repair_llm_decision(
+                config,
+                run_context=run_context,
+                task_id=task.task_id,
+                decision=pending_evaluator_repair_llm_decision,
+                backend_action=_task_evaluator_repair_backend_action(
+                    pending_evaluator_repair_llm_decision.failed_agent_id,
+                    selection.agent_id,
+                ),
+                backend_agent_id=selection.agent_id,
+                record_event=_memory_record_event,
+            )
+            pending_evaluator_repair_llm_decision = None
         if pending_fallback_llm_decision is not None:
             await _record_task_fallback_llm_decision(
                 config,
@@ -1612,48 +1636,81 @@ async def _run_task(
             break
         can_retry = _can_retry_task(task_result, fallback_agents, max_attempts)
         if can_retry:
-            llm_fallback_decision = await _maybe_task_fallback_llm_decision(
-                config,
-                task=task,
-                messages=messages,
-                task_result=task_result,
-                fallback_agents=fallback_agents,
-                max_attempts=max_attempts,
-                run_context=run_context,
-                excluded_agent_ids=_review_attempt_excluded_agent_ids(task, run_context),
+            excluded_agent_ids = _review_attempt_excluded_agent_ids(task, run_context)
+            evaluator_repair_llm_decision = (
+                await _maybe_task_evaluator_repair_llm_decision(
+                    config,
+                    task=task,
+                    messages=messages,
+                    task_result=task_result,
+                    fallback_agents=fallback_agents,
+                    max_attempts=max_attempts,
+                    run_context=run_context,
+                    excluded_agent_ids=excluded_agent_ids,
+                )
             )
-            if llm_fallback_decision is not None:
-                if llm_fallback_decision.stop:
-                    await _record_task_fallback_llm_decision(
+            if evaluator_repair_llm_decision is not None:
+                if evaluator_repair_llm_decision.stop:
+                    await _record_task_evaluator_repair_llm_decision(
                         config,
                         run_context=run_context,
                         task_id=task.task_id,
-                        decision=llm_fallback_decision,
-                        backend_action="stop",
+                        decision=evaluator_repair_llm_decision,
+                        backend_action="finish_with_failure",
                         backend_agent_id=None,
                         record_event=_memory_record_event,
                     )
-                    await _memory_record_event(
-                        config,
-                        run_context,
-                        event_type="task_fallback_stopped",
-                        task_id=task.task_id,
-                        agent_id=agent_id,
-                        payload={
-                            "attempt_count": len(task_result.attempts),
-                            "final_state": task_result.final_state.value,
-                            "fallback_agents": fallback_agents,
-                            "max_attempts": max_attempts,
-                            "llm_decision": llm_fallback_decision.model_suggestion,
-                            "reason": llm_fallback_decision.reason,
-                        },
-                    )
                     break
-                pending_fallback_llm_decision = llm_fallback_decision
+                pending_evaluator_repair_llm_decision = evaluator_repair_llm_decision
                 next_attempt_preferred_agent_id = (
-                    llm_fallback_decision.preferred_agent_id
+                    evaluator_repair_llm_decision.preferred_agent_id
                 )
-                next_attempt_allow_revisit = llm_fallback_decision.allow_revisit
+                next_attempt_allow_revisit = (
+                    evaluator_repair_llm_decision.allow_revisit
+                )
+            else:
+                llm_fallback_decision = await _maybe_task_fallback_llm_decision(
+                    config,
+                    task=task,
+                    messages=messages,
+                    task_result=task_result,
+                    fallback_agents=fallback_agents,
+                    max_attempts=max_attempts,
+                    run_context=run_context,
+                    excluded_agent_ids=excluded_agent_ids,
+                )
+                if llm_fallback_decision is not None:
+                    if llm_fallback_decision.stop:
+                        await _record_task_fallback_llm_decision(
+                            config,
+                            run_context=run_context,
+                            task_id=task.task_id,
+                            decision=llm_fallback_decision,
+                            backend_action="stop",
+                            backend_agent_id=None,
+                            record_event=_memory_record_event,
+                        )
+                        await _memory_record_event(
+                            config,
+                            run_context,
+                            event_type="task_fallback_stopped",
+                            task_id=task.task_id,
+                            agent_id=agent_id,
+                            payload={
+                                "attempt_count": len(task_result.attempts),
+                                "final_state": task_result.final_state.value,
+                                "fallback_agents": fallback_agents,
+                                "max_attempts": max_attempts,
+                                "llm_decision": llm_fallback_decision.model_suggestion,
+                                "reason": llm_fallback_decision.reason,
+                            },
+                        )
+                        break
+                    pending_fallback_llm_decision = llm_fallback_decision
+                    next_attempt_preferred_agent_id = (
+                        llm_fallback_decision.preferred_agent_id
+                    )
+                    next_attempt_allow_revisit = llm_fallback_decision.allow_revisit
         if not can_retry:
             await _memory_record_event(
                 config,
@@ -1738,6 +1795,17 @@ def _task_fallback_backend_action(
         return "stop"
     if selected_agent_id == failed_agent_id:
         return "retry_original"
+    return "fallback"
+
+
+def _task_evaluator_repair_backend_action(
+    failed_agent_id: str,
+    selected_agent_id: str | None,
+) -> str:
+    if not selected_agent_id:
+        return "finish_with_failure"
+    if selected_agent_id == failed_agent_id:
+        return "retry_current"
     return "fallback"
 
 
@@ -2157,7 +2225,10 @@ def _batch_replanner_system_prompt() -> str:
         "chain_of_thought, hidden reasoning, or private analysis. "
         "Choose actions only from continue, add_repair, add_review, finish. "
         "Do not use add_task, update_task, or skip_task. "
-        "Add at most one repair or review task per decision."
+        "Add at most one repair or review task per decision. "
+        "If completed batch evidence explicitly says a repair/review task or "
+        "batch-repair.md is required before finalization and no such task exists, "
+        "return an add_repair action."
     )
 
 
@@ -2175,6 +2246,23 @@ def _batch_replanner_required_output() -> Mapping[str, Any]:
             }
         ],
         "summary": "short non-private decision summary",
+        "example_add_repair": {
+            "actions": [
+                {
+                    "type": "add_repair",
+                    "task": {
+                        "task_id": "repair-batch-review",
+                        "agent_id": "codex-helper",
+                        "title": "Repair batch review",
+                        "instruction": "Create batch-repair.md.",
+                        "depends_on": ["batch-plan", "batch-check"],
+                        "priority": 2,
+                        "expected_output": "batch-repair.md",
+                    },
+                }
+            ],
+            "summary": "Add one repair task before finalization.",
+        },
     }
 
 

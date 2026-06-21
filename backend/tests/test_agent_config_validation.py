@@ -154,6 +154,7 @@ class TestValidConfigs:
             "react_enabled": True,
             "orchestrator_batch_replanner_enabled": False,
             "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_evaluator_optimizer_repair_enabled": False,
             "react_trace_visible": False,
             "react_decision_max_tokens": 2048,
             "mcp_servers": [],
@@ -1010,6 +1011,28 @@ class TestNumericValidation:
             validate_agent_config(
                 provider="builtin",
                 config={"orchestrator_llm_fallback_decision_enabled": "yes"},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_orchestrator_quality_gate_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_quality_gate_enabled": "yes"},
+                system_prompt=None,
+            )
+
+        assert exc_info.value.code == "INVALID_AGENT_CONFIG"
+        assert "boolean" in exc_info.value.message
+
+    def test_invalid_orchestrator_evaluator_optimizer_repair_enabled_rejected(self) -> None:
+        with pytest.raises(AgentConfigValidationError) as exc_info:
+            validate_agent_config(
+                provider="builtin",
+                config={"orchestrator_evaluator_optimizer_repair_enabled": "yes"},
                 system_prompt=None,
             )
 

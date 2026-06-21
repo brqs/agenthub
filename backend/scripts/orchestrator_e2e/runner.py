@@ -35,6 +35,9 @@ P1_WORKFLOW_RUNTIME_SCENARIO = SCENARIO == "p1_workflow_runtime"
 P1_REVIEW_THREAD_SCENARIO = SCENARIO == "p1_review_thread_repair"
 P1_RICH_ARTIFACTS_SCENARIO = SCENARIO == "p1_rich_artifacts"
 P1_EVALUATION_REPAIR_SCENARIO = SCENARIO == "p1_evaluation_repair"
+EVALUATOR_OPTIMIZER_REPAIR_LOOP_SCENARIO = (
+    SCENARIO == "evaluator_optimizer_repair_loop"
+)
 P1_AGENT_CAPABILITY_PROFILE_SCENARIO = SCENARIO == "p1_agent_capability_profile"
 P2_AGENT_CAPABILITY_PROFILE_V2_SCENARIO = (
     SCENARIO == "p2_agent_capability_profile_v2"
@@ -406,6 +409,11 @@ CUSTOM_AGENT_READER_REVIEW_REPAIR_PROMPT = (
     "随后请让这个只读 Agent 审阅 draft.md，指出缺失的 REQUIRED_REPAIR_SECTION；"
     "再由内置可写 Agent 修复 draft.md 并生成 review.md，说明发现的问题和修复结果。"
 )
+CUSTOM_AGENT_READER_REVIEW_REPAIR_AGENT_IDS = [
+    "orchestrator",
+    "claude-code",
+    "opencode-helper",
+]
 STATIC_PACKAGE_DEPLOY_REPAIR_MATRIX_PROMPT = (
     "@orchestrator 当前 workspace 已经有一套静态站点 index.html、styles.css、app.js，"
     "以及一个还没确认能健康部署的 Dockerfile。请先不要修改 workspace 文件，也不要让子 Agent "
@@ -514,6 +522,21 @@ P1_EVALUATION_REPAIR_PROMPT = (
     "document_quality failed -> fallback/repair -> final passed 或 manual_review_required，"
     "并明确 manifest 不应把 failed artifact 标成 passed。"
 )
+EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT = (
+    "@orchestrator 请进行 Module D Evaluator-Optimizer Repair Loop 验收。"
+    "只使用当前群聊成员，只执行一个 markdown 文档任务：claude-code 创建 "
+    "evaluator-optimizer-repair.md。首轮 Agent invocation 协议必须如下：如果本次调用没有"
+    "系统上下文标题 `Previous sub-agent results:` 或 `Previous attempt failure:`，"
+    "只写两行 TODO markdown 并立即结束；不得自行评估、不得再次调用子 Agent、不得自行修复、"
+    "不得继续解释，让 Orchestrator runtime 的 document_quality failed 和 reflection 发生。"
+    "如果后续 retry/fallback 调用带有上一轮 evaluation failed / repair instruction，再重写 "
+    "evaluator-optimizer-repair.md：加入 # Evaluator Repair Report 标题、Summary、"
+    "Validation Evidence、Required E2E Repair Section、Final Status 五个章节，每个章节都有"
+    "正文，不留空标题，不写 TODO/placeholder。repair 必须作为同一个逻辑 task 的 "
+    "retry/fallback attempt，禁止新增 review task 或独立 repair task。最终总结必须说明 "
+    "document_quality failed -> react_replanner repair decision -> repair/fallback -> "
+    "final passed，且只使用当前群聊成员。"
+)
 P1_AGENT_CAPABILITY_PROFILE_SEED_PROMPT = (
     "@orchestrator 请进行 Agent Capability Profile 种子轮。只规划一个 markdown 文档任务："
     "claude-code 创建 capability-seed.md。Agent invocation 协议必须如下：如果本次调用"
@@ -610,7 +633,8 @@ def group_member_fallback_case_prompt(
         f"请只创建一个核心执行任务，并且必须先把这个任务明确交给 @{target_agent_id}："
         f"Create `{artifact_path}` as a "
         "markdown file in the current workspace，内容必须包含 "
-        f"`AGENT_FALLBACK_SENTINEL={target_agent_id}`。"
+        f"`AGENT_FALLBACK_SENTINEL={target_agent_id}`，并包含清晰 markdown 标题、"
+        "至少一个说明 fallback 归属的段落。"
         "如果这个首选 Agent 不可用或执行失败，由系统在当前会话成员范围内接手并"
         "完成同一个文件。不要创建 parallel/secondary 副本任务，不要预览、不要部署、"
         "不要创建其它文件。"
@@ -660,6 +684,16 @@ DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_PROMPT = (
     "最后由 Orchestrator 进行最终裁判和审阅。不要生成文件、不要写报告、"
     "不要调用预览或部署工具，只在群聊中完成。"
 )
+DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_AGENT_IDS = [
+    "orchestrator",
+    "claude-code",
+    "codex-helper",
+]
+IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_AGENT_IDS = [
+    "orchestrator",
+    "claude-code",
+    "codex-helper",
+]
 REQUIREMENT_ALIGNMENT_GROUP_PROMPT = (
     "我想做一个面向小团队的任务管理 Demo，但现在只知道要有任务列表、筛选、"
     "一个简单后端接口说明，以及最后的审阅。请先帮我确认最关键的交付边界，"
@@ -722,9 +756,12 @@ GROUP_SCOPE_SCENARIO_PROMPTS: dict[str, str] = {
     ),
 }
 PARALLEL_BATCH_REPLANNER_REPAIR_PROMPT = (
-    "@orchestrator 我想验证一个分批交付流程：先并行产出计划和检查材料，"
-    "第一批完成后请做一次复盘，补一个 repair/review 任务来生成 batch-repair.md，"
-    "最后再生成 batch-final.md。不要预览、不要部署，只使用当前群聊成员。"
+    "@orchestrator 我想验证 Module B batch-level Re-planner。交付范围仅限 markdown "
+    "证据文件，主题是控制面批次复盘。第一批并行产出 batch-plan.md 和 "
+    "batch-check.md；第一批完成后必须由 batch-level Re-planner 补一个 "
+    "repair/review task 生成 batch-repair.md；最后再生成 batch-final.md，"
+    "并在最终总结里说明 react_replanner batch decision 已插入 repair/review task。"
+    "不要预览、不要部署、不要提端口或网页验收；只使用当前群聊成员。"
 )
 GROUP_SCOPE_SCENARIO_AGENT_IDS: dict[str, list[str]] = {
     "group_scope_missing_opencode_dialogue_repair": [
@@ -901,6 +938,8 @@ PROMPT = SETTINGS.prompt_override or (
     if P1_RICH_ARTIFACTS_SCENARIO
     else P1_EVALUATION_REPAIR_PROMPT
     if P1_EVALUATION_REPAIR_SCENARIO
+    else EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT
+    if EVALUATOR_OPTIMIZER_REPAIR_LOOP_SCENARIO
     else P1_AGENT_CAPABILITY_PROFILE_PROMPT
     if P1_AGENT_CAPABILITY_PROFILE_SCENARIO
     else P2_AGENT_CAPABILITY_PROFILE_V2_PROMPT
@@ -970,6 +1009,36 @@ PROMPT = SETTINGS.prompt_override or (
 )
 AGENT_IDS = ["orchestrator", "claude-code", "opencode-helper", "codex-helper"]
 BUILTIN_SUB_AGENT_IDS = ("claude-code", "opencode-helper", "codex-helper")
+DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_TASKS: list[dict[str, Any]] = [
+    {
+        "task_id": "ai-benefits-opening",
+        "agent_id": "claude-code",
+        "task_type": "dialogue_turn",
+        "title": "AI 发展利处开场",
+        "instruction": (
+            "以正方身份做一轮群聊发言，说明 AI 发展带来的生产力、医疗、"
+            "教育和公共服务利处。不要生成文件，只输出自然对话。"
+        ),
+        "expected_output": "正方开场发言",
+        "include_history": True,
+        "priority": 1,
+        "depends_on": [],
+    },
+    {
+        "task_id": "ai-risks-opening",
+        "agent_id": "codex-helper",
+        "task_type": "dialogue_turn",
+        "title": "AI 发展弊处回应",
+        "instruction": (
+            "以反方身份回应上一轮观点，说明 AI 发展可能带来的就业、隐私、"
+            "安全、偏见和治理风险。不要生成文件，只输出自然对话。"
+        ),
+        "expected_output": "反方回应发言",
+        "include_history": True,
+        "priority": 2,
+        "depends_on": ["ai-benefits-opening"],
+    },
+]
 P1_AGENT_CAPABILITY_PROFILE_AGENT_IDS = [
     "orchestrator",
     "claude-code",
@@ -1143,6 +1212,162 @@ def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+CONTROL_PLANE_KEY_EVENT_TYPES = {
+    "llm_control_point",
+    "react_decision",
+    "task_fallback_llm_decision",
+    "task_evaluator_repair_decision",
+    "reflection_created",
+    "agent_review_repair_scheduled",
+    "repair_dispatched",
+    "fallback_dispatched",
+}
+CONTROL_PLANE_MODULE_SECTIONS = (
+    "planner_evidence",
+    "parallel_batch_replanner",
+    "fallback_llm_decision",
+    "evaluator_optimizer_repair",
+    "repair_trace",
+    "task_graph",
+    "browser_report",
+)
+
+
+def _attach_control_plane_evidence(report: dict[str, Any]) -> dict[str, Any]:
+    run_detail = report.get("orchestrator_run_detail")
+    run_detail = run_detail if isinstance(run_detail, dict) else {}
+    events = (
+        run_detail.get("events", [])
+        if isinstance(run_detail.get("events"), list)
+        else []
+    )
+    llm_control_points = _llm_control_points_from_events(events)
+    if not llm_control_points and isinstance(report.get("llm_control_points"), list):
+        llm_control_points = [
+            point
+            for point in report["llm_control_points"]
+            if isinstance(point, dict)
+        ]
+    phases_seen = sorted(
+        {
+            str(point.get("phase"))
+            for point in llm_control_points
+            if isinstance(point.get("phase"), str) and point.get("phase")
+        }
+    )
+    key_events_seen = sorted(
+        {
+            str(event.get("event_type"))
+            for event in events
+            if isinstance(event, dict)
+            and isinstance(event.get("event_type"), str)
+            and event.get("event_type") in CONTROL_PLANE_KEY_EVENT_TYPES
+        }
+    )
+    module_sections_present = [
+        section
+        for section in CONTROL_PLANE_MODULE_SECTIONS
+        if isinstance(report.get(section), dict) and report.get(section)
+    ]
+    artifact_paths = _control_plane_artifact_paths(report)
+    illegal_agent_ids = _control_plane_illegal_agent_ids(report)
+    forbidden_terms = _control_plane_forbidden_visible_terms(report)
+    evidence = {
+        "scenario": report.get("scenario"),
+        "llm_control_points": llm_control_points,
+        "phases_seen": phases_seen,
+        "key_events_seen": key_events_seen,
+        "module_sections_present": module_sections_present,
+        "artifact_paths": artifact_paths,
+        "illegal_agent_ids": illegal_agent_ids,
+        "forbidden_visible_terms": forbidden_terms,
+    }
+    report["control_plane_evidence"] = evidence
+    checks = report.setdefault("checks", {})
+    checks["control_plane_llm_control_points_present"] = bool(llm_control_points)
+    checks["control_plane_group_scope_clean"] = not illegal_agent_ids
+    checks["control_plane_sensitive_trace_absent"] = not forbidden_terms
+    return evidence
+
+
+def _control_plane_artifact_paths(report: dict[str, Any]) -> list[str]:
+    paths = set(_report_workspace_basenames(report))
+    for section_name in (
+        "parallel_batch_replanner",
+        "fallback_llm_decision",
+        "evaluator_optimizer_repair",
+    ):
+        section = report.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for path in section.get("artifact_paths", []):
+            if isinstance(path, str) and path:
+                paths.add(path.rsplit("/", 1)[-1])
+        for path in section.get("workspace_paths", []):
+            if isinstance(path, str) and path:
+                paths.add(path.rsplit("/", 1)[-1])
+    return sorted(paths)
+
+
+def _control_plane_illegal_agent_ids(report: dict[str, Any]) -> list[str]:
+    ids: set[str] = set()
+    for section_name in (
+        "parallel_batch_replanner",
+        "fallback_llm_decision",
+        "evaluator_optimizer_repair",
+        "group_scope",
+    ):
+        section = report.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for agent_id in section.get("illegal_agent_ids", []):
+            if isinstance(agent_id, str) and agent_id:
+                ids.add(agent_id)
+
+    conversation = report.get("conversation")
+    conversation_agent_ids = (
+        conversation.get("agent_ids", []) if isinstance(conversation, dict) else []
+    )
+    group_agent_ids = {
+        agent_id
+        for agent_id in conversation_agent_ids
+        if isinstance(agent_id, str) and agent_id
+    }
+    if group_agent_ids:
+        ids.update(
+            agent_id
+            for agent_id in _observed_report_agent_ids(report)
+            if agent_id not in group_agent_ids and agent_id != "orchestrator"
+        )
+    return sorted(ids)
+
+
+def _control_plane_forbidden_visible_terms(report: dict[str, Any]) -> list[str]:
+    terms: set[str] = set()
+    for section_name in (
+        "parallel_batch_replanner",
+        "fallback_llm_decision",
+        "evaluator_optimizer_repair",
+        "group_scope",
+    ):
+        section = report.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for term in section.get("forbidden_visible_terms", []):
+            if isinstance(term, str) and term:
+                terms.add(term)
+
+    visible_text = all_visible_message_text(
+        [
+            report.get("target_agent_message") or {},
+            *(report.get("child_agent_messages") or []),
+        ]
+    )
+    combined = "\n".join([visible_text, str(report.get("sse_message_error_text") or "")])
+    terms.update(forbidden_visible_terms(combined))
+    return sorted(terms)
+
+
 def _attach_standard_e2e_report_sections(report: dict[str, Any]) -> None:
     if "scenario" not in report or "checks" not in report:
         return
@@ -1230,6 +1455,7 @@ def _attach_standard_e2e_report_sections(report: dict[str, Any]) -> None:
     ]
     if isinstance(report.get("browser_verification"), dict):
         report["browser_report"] = report["browser_verification"]
+    _attach_control_plane_evidence(report)
 
 
 def _attach_matrix_e2e_report_sections(
@@ -1347,6 +1573,7 @@ def _attach_matrix_e2e_report_sections(
         or bool(repair_events),
     }
     report["artifact_list"] = artifact_list
+    _attach_control_plane_evidence(report)
 
 
 def _llm_control_points_from_events(events: list[Any]) -> list[dict[str, Any]]:
@@ -1697,6 +1924,10 @@ def send_message_and_stream(
         headers=headers,
         json=payload,
     )
+    if send.status_code >= 400:
+        raise RuntimeError(
+            f"send message failed {send.status_code}: {send.text[:500]}"
+        )
     send.raise_for_status()
     sent = send.json()
     agent_message_id = sent["agent_message"]["id"]
@@ -2055,6 +2286,10 @@ def config_summary(config: dict[str, Any] | None) -> dict[str, Any]:
         "agent_to_agent_review_enabled",
         "review_agent_ids",
         "orchestrator_memory_enabled",
+        "orchestrator_dialogue_llm_control_enabled",
+        "orchestrator_dialogue_turn_cross_agent_fallback_enabled",
+        "orchestrator_dialogue_max_turns",
+        "orchestrator_response_polish_enabled",
     )
     return {key: config.get(key) for key in keys if key in config}
 
@@ -2245,17 +2480,65 @@ async def _patch_orchestrator_fallback_llm_decision_config(
     )
 
 
-async def _patch_orchestrator_batch_replanner_config() -> dict[str, Any]:
+async def _patch_orchestrator_evaluator_optimizer_repair_config() -> dict[str, Any]:
     return await _patch_builtin_agent_config(
         "orchestrator",
         {
             "react_enabled": True,
             "llm_planning": False,
             "available_agents_authoritative": True,
+            "orchestrator_parallel_enabled": False,
+            "orchestrator_runtime_cooldown_enabled": False,
+            "orchestrator_llm_fallback_decision_enabled": False,
+            "orchestrator_evaluator_optimizer_repair_enabled": True,
+            "max_task_attempts": 3,
+            "managed_agent_ids": list(BUILTIN_SUB_AGENT_IDS),
+            "task_fallback_agent_ids": ["codex-helper"],
+            "tasks": [
+                {
+                    "task_id": "evaluator-optimizer-doc",
+                    "agent_id": "claude-code",
+                    "title": "Create evaluator optimizer repair evidence",
+                    "instruction": (
+                        "Create `evaluator-optimizer-repair.md` in the workspace root. "
+                        "If this invocation does not include a system context heading "
+                        "named `Previous sub-agent results:` or `Previous attempt "
+                        "failure:`, write exactly these two markdown lines and stop: "
+                        "`- TODO: Add evaluator-optimizer repair evidence` and "
+                        "`- TODO: Complete final validation evidence`. Do not self-"
+                        "evaluate, do not call another Agent, do not repair the file, "
+                        "and do not add extra explanation. If this invocation includes "
+                        "previous evaluation failure or repair instruction context, "
+                        "rewrite the same file with `# Evaluator Repair Report`, "
+                        "`## Summary`, `## Validation Evidence`, `## Required E2E "
+                        "Repair Section`, and `## Final Status`; every section must "
+                        "contain substantive body text and the final file must not "
+                        "contain TODO or placeholder text."
+                    ),
+                    "expected_output": "evaluator-optimizer-repair.md",
+                }
+            ],
+        },
+    )
+
+
+async def _patch_orchestrator_batch_replanner_config() -> dict[str, Any]:
+    return await _patch_builtin_agent_config(
+        "orchestrator",
+        {
+            "react_enabled": True,
+            "llm_planning": False,
+            "planner_model_backend": "claude",
+            "available_agents_authoritative": True,
             "orchestrator_parallel_enabled": True,
             "orchestrator_parallel_max_concurrency": 2,
             "orchestrator_batch_replanner_enabled": True,
+            "orchestrator_evaluation_enabled": False,
+            "orchestrator_output_correction_enabled": False,
+            "orchestrator_quality_gate_enabled": False,
+            "orchestrator_response_polish_enabled": False,
             "orchestrator_runtime_cooldown_enabled": False,
+            "react_decision_max_tokens": 1600,
             "max_iterations": 3,
             "managed_agent_ids": list(BUILTIN_SUB_AGENT_IDS),
             "tasks": [
@@ -2265,9 +2548,11 @@ async def _patch_orchestrator_batch_replanner_config() -> dict[str, Any]:
                     "task_type": "implementation",
                     "title": "Create batch plan",
                     "instruction": (
-                        "Create `batch-plan.md` in the current workspace. Describe "
-                        "the delivery plan and explicitly mention that the next batch "
-                        "needs `repair-batch-review` before finalization."
+                        "Create `batch-plan.md` in the current workspace. This is "
+                        "a Module B batch replanner evidence document, not a web "
+                        "app. Include the exact marker `REPAIR_REQUIRED: "
+                        "repair-batch-review must create batch-repair.md before "
+                        "batch-final.md`."
                     ),
                     "expected_output": "batch-plan.md",
                     "priority": 1,
@@ -2279,9 +2564,11 @@ async def _patch_orchestrator_batch_replanner_config() -> dict[str, Any]:
                     "task_type": "implementation",
                     "title": "Create batch check notes",
                     "instruction": (
-                        "Create `batch-check.md` in the current workspace. Include "
-                        "a concise checklist of what the repair/review task should "
-                        "verify before finalization."
+                        "Create `batch-check.md` in the current workspace. This is "
+                        "a Module B batch replanner evidence document, not a web "
+                        "app. Include a concise checklist and the exact marker "
+                        "`REPAIR_REQUIRED: repair-batch-review must create "
+                        "batch-repair.md before batch-final.md`."
                     ),
                     "expected_output": "batch-check.md",
                     "priority": 1,
@@ -2293,10 +2580,10 @@ async def _patch_orchestrator_batch_replanner_config() -> dict[str, Any]:
                     "task_type": "implementation",
                     "title": "Create final batch summary",
                     "instruction": (
-                        "Create `batch-final.md` summarizing batch-plan.md and "
-                        "batch-check.md. If batch-repair.md exists, include it in "
-                        "the summary; otherwise state that the batch repair task "
-                        "has not run yet."
+                        "Create `batch-final.md` summarizing batch-plan.md, "
+                        "batch-check.md, and batch-repair.md. The summary must state "
+                        "that the batch-level Re-planner inserted the repair/review "
+                        "task before finalization."
                     ),
                     "expected_output": "batch-final.md",
                     "priority": 3,
@@ -2304,6 +2591,40 @@ async def _patch_orchestrator_batch_replanner_config() -> dict[str, Any]:
                 },
             ],
         },
+    )
+
+
+def dialogue_ai_benefits_risks_llm_moderated_config_updates() -> dict[str, Any]:
+    return {
+        "react_enabled": True,
+        "llm_planning": False,
+        "planner_fallback_to_template": False,
+        "available_agents_authoritative": True,
+        "orchestrator_parallel_enabled": False,
+        "orchestrator_dialogue_llm_control_enabled": True,
+        "orchestrator_dialogue_turn_cross_agent_fallback_enabled": True,
+        "orchestrator_response_polish_enabled": True,
+        "managed_agent_ids": [
+            agent_id
+            for agent_id in DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_AGENT_IDS
+            if agent_id != "orchestrator"
+        ],
+        "task_fallback_agent_ids": [
+            agent_id
+            for agent_id in DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_AGENT_IDS
+            if agent_id != "orchestrator"
+        ],
+        "tasks": [
+            {**task, "depends_on": list(task.get("depends_on", []))}
+            for task in DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_TASKS
+        ],
+    }
+
+
+async def _patch_orchestrator_dialogue_llm_moderated_config() -> dict[str, Any]:
+    return await _patch_builtin_agent_config(
+        "orchestrator",
+        dialogue_ai_benefits_risks_llm_moderated_config_updates(),
     )
 
 
@@ -2334,6 +2655,73 @@ async def _patch_orchestrator_llm_fallback_config(
             },
             "tasks": None,
         },
+    )
+
+
+def group_member_fallback_config_updates(
+    *,
+    target_agent_id: str,
+    artifact_path: str,
+    sub_agent_config_overrides: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    fallback_agent_ids = [
+        agent_id for agent_id in BUILTIN_SUB_AGENT_IDS if agent_id != target_agent_id
+    ]
+    return {
+        "react_enabled": True,
+        "llm_planning": False,
+        "available_agents_authoritative": True,
+        "orchestrator_parallel_enabled": False,
+        "orchestrator_runtime_cooldown_enabled": False,
+        "orchestrator_llm_fallback_decision_enabled": True,
+        "max_task_attempts": 3,
+        "managed_agent_ids": list(BUILTIN_SUB_AGENT_IDS),
+        "task_fallback_agent_ids": fallback_agent_ids,
+        "sub_agent_config_overrides": {
+            agent_id: dict(agent_config)
+            for agent_id, agent_config in (sub_agent_config_overrides or {}).items()
+        },
+        "tasks": [
+            {
+                "task_id": "fallback-task",
+                "agent_id": target_agent_id,
+                "task_type": "implementation",
+                "title": (
+                    f"Create {artifact_path} with AGENT_FALLBACK_SENTINEL marker"
+                ),
+                "instruction": (
+                    f"Create `{artifact_path}` as a markdown file in the current "
+                    "workspace. Include a clear top-level markdown title, at least "
+                    "one paragraph explaining fallback ownership, and the exact "
+                    f"line `AGENT_FALLBACK_SENTINEL={target_agent_id}`. The task "
+                    f"must be planned for `{target_agent_id}` first; if that Agent "
+                    "fails, a permitted current conversation member may complete "
+                    "the same file in place. Do not create other files, do not "
+                    "preview, and do not deploy."
+                ),
+                "expected_output": (
+                    f"A single markdown file named {artifact_path} containing "
+                    f"AGENT_FALLBACK_SENTINEL={target_agent_id}, a title, and "
+                    "fallback ownership details."
+                ),
+            }
+        ],
+    }
+
+
+async def _patch_orchestrator_group_member_fallback_config(
+    *,
+    target_agent_id: str,
+    artifact_path: str,
+    sub_agent_config_overrides: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return await _patch_builtin_agent_config(
+        "orchestrator",
+        group_member_fallback_config_updates(
+            target_agent_id=target_agent_id,
+            artifact_path=artifact_path,
+            sub_agent_config_overrides=sub_agent_config_overrides,
+        ),
     )
 
 
@@ -2404,7 +2792,16 @@ def _ensure_agent_fallback_matrix_runtime_helpers() -> None:
                 "target = workspace / artifact",
                 "target.parent.mkdir(parents=True, exist_ok=True)",
                 "target.write_text(",
-                "    '# Fallback evidence\\n\\n' + sentinel + '\\n',",
+                "    '# Fallback evidence\\n\\n'",
+                "    + 'This document records the controlled fallback execution for '",
+                "    + artifact",
+                "    + '. It includes the required sentinel and enough context for '",
+                "    + 'document quality validation.\\n\\n'",
+                "    + '## Sentinel\\n\\n'",
+                "    + sentinel",
+                "    + '\\n\\n## Fallback ownership\\n\\n'",
+                "    + 'The planned agent failed or was unavailable, so a permitted '",
+                "    + 'group member completed the same artifact in place.\\n',",
                 "    encoding='utf-8',",
                 ")",
                 "sys.stdout.write(f'Created {artifact}\\n')",
@@ -2733,6 +3130,7 @@ def p1_common_evidence(
     *,
     title: str,
     agent_ids: list[str],
+    prompt: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     conversation = client.post(
         "/api/v1/conversations",
@@ -2753,7 +3151,7 @@ def p1_common_evidence(
         client,
         headers,
         conv_id,
-        content=PROMPT,
+        content=prompt or PROMPT,
         target_agent_id="orchestrator",
         started_at=started_at,
     )
@@ -3114,6 +3512,7 @@ def run_parallel_batch_replanner_repair_case(
             started_at,
             title=f"{SCENARIO} Live E2E {int(started_at)}",
             agent_ids=AGENT_IDS,
+            prompt=PARALLEL_BATCH_REPLANNER_REPAIR_PROMPT,
         )
         conv_id = str(report.get("conversation_id") or "")
         messages = fetch_conversation_messages(client, headers, conv_id, report)
@@ -3211,6 +3610,7 @@ def evaluate_parallel_batch_replanner_repair_report(
         "workspace_paths": sorted(workspace_paths),
         "forbidden_visible_terms": forbidden_terms,
     }
+    _attach_control_plane_evidence(report)
     checks = report.setdefault("checks", {})
     checks["message_done"] = bool(
         (report.get("target_agent_message") or {}).get("status") == "done"
@@ -3248,6 +3648,9 @@ def evaluate_parallel_batch_replanner_repair_report(
         "task_card_agent_matches_final_agent",
         "workspace_required_artifacts_present",
         "visible_text_no_sensitive_trace",
+        "control_plane_llm_control_points_present",
+        "control_plane_group_scope_clean",
+        "control_plane_sensitive_trace_absent",
     )
     report["acceptance"] = {key: bool(checks.get(key, False)) for key in keys}
     report["acceptance"]["passed"] = all(report["acceptance"].values())
@@ -3464,6 +3867,7 @@ def evaluate_fallback_llm_decision_whitelist_report(
         "artifact_paths": sorted(workspace_paths),
         "llm_control_points": llm_control_points,
     }
+    _attach_control_plane_evidence(report)
     checks = report.setdefault("checks", {})
     checks["message_done"] = bool(
         (report.get("target_agent_message") or {}).get("status") == "done"
@@ -3518,6 +3922,273 @@ def evaluate_fallback_llm_decision_whitelist_report(
         "group_dispatch_only_allowed_members",
         "workspace_required_artifacts_present",
         "visible_text_no_sensitive_trace",
+        "control_plane_llm_control_points_present",
+        "control_plane_group_scope_clean",
+        "control_plane_sensitive_trace_absent",
+    )
+    report["acceptance"] = {key: bool(checks.get(key, False)) for key in keys}
+    report["acceptance"]["passed"] = all(report["acceptance"].values())
+
+
+def run_evaluator_optimizer_repair_loop_case(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+) -> None:
+    original_orchestrator_config: dict[str, Any] | None = None
+    try:
+        original_orchestrator_config = asyncio.run(
+            _patch_orchestrator_evaluator_optimizer_repair_config()
+        )
+        report["evaluator_optimizer_repair_config_patch"] = {
+            "patched": True,
+            "original_config_summary": config_summary(original_orchestrator_config),
+            "patched_config_summary": {
+                **config_summary(original_orchestrator_config),
+                "react_enabled": True,
+                "llm_planning": False,
+                "available_agents_authoritative": True,
+                "orchestrator_parallel_enabled": False,
+                "orchestrator_llm_fallback_decision_enabled": False,
+                "orchestrator_evaluator_optimizer_repair_enabled": True,
+            },
+        }
+        conversation = client.post(
+            "/api/v1/conversations",
+            headers=headers,
+            json={
+                "title": f"{SCENARIO} Live E2E {int(started_at)}",
+                "mode": "group",
+                "agent_ids": AGENT_IDS,
+            },
+        )
+        conversation.raise_for_status()
+        conv = conversation.json()
+        conv_id = conv["id"]
+        report["conversation"] = conv
+        report["conversation_id"] = conv_id
+
+        sent, events, target = send_message_and_stream(
+            client,
+            headers,
+            conv_id,
+            content=EVALUATOR_OPTIMIZER_REPAIR_LOOP_PROMPT,
+            target_agent_id="orchestrator",
+            started_at=started_at,
+        )
+        user_message_id = sent["user_message"]["id"]
+        parent_message_id = sent["agent_message"]["id"]
+        report["user_message_id"] = user_message_id
+        report["agent_message_id"] = parent_message_id
+        report["target_agent_message"] = target
+        report["stream_event_count"] = len(events)
+        report["agent_switch_to_agents"] = [
+            event_data(event).get("to_agent")
+            for event in events
+            if event.get("event") == "agent_switch"
+        ]
+        fetch_orchestrator_run_detail(client, headers, conv_id, report)
+        fetch_workspace_evidence(client, headers, conv_id, report)
+        _collect_and_evaluate_p1_evaluation_repair(client, headers, report)
+        messages = fetch_conversation_messages(client, headers, conv_id, report)
+        child_messages = child_messages_for_user(
+            messages,
+            parent_message_id=parent_message_id,
+            user_message_id=user_message_id,
+        )
+        report["child_agent_messages"] = child_messages
+        report["group_chat"] = group_process_report(events, target or {}, child_messages)
+        report["sse_message_error_text"] = message_error_text(events)
+        evaluate_evaluator_optimizer_repair_loop_report(report)
+        _attach_standard_e2e_report_sections(report)
+        evaluate_evaluator_optimizer_repair_loop_report(report)
+        report["target_message_status"] = (target or {}).get("status")
+    finally:
+        restore: dict[str, Any]
+        if original_orchestrator_config is not None:
+            try:
+                restore = asyncio.run(
+                    _restore_orchestrator_config(original_orchestrator_config)
+                )
+            except Exception as exc:  # noqa: BLE001
+                restore = {"restored": False, "error": str(exc)}
+        else:
+            restore = {"restored": False, "error": "config_not_patched"}
+        report["evaluator_optimizer_repair_restore"] = {"orchestrator": restore}
+
+
+def evaluate_evaluator_optimizer_repair_loop_report(
+    report: dict[str, Any],
+) -> None:
+    run_detail = report.get("orchestrator_run_detail")
+    run_detail = run_detail if isinstance(run_detail, dict) else {}
+    run_events = (
+        run_detail.get("events", [])
+        if isinstance(run_detail.get("events"), list)
+        else []
+    )
+    attempts = _attempts_from_run_detail(run_detail)
+    llm_control_points = _llm_control_points_from_events(run_events)
+    decision_events = _task_evaluator_repair_decision_events(run_events)
+    latest_decision = decision_events[-1] if decision_events else {}
+    failed_attempt = next(
+        (
+            attempt
+            for attempt in attempts
+            if _attempt_has_failed_supported_evaluator(attempt)
+        ),
+        None,
+    )
+    final_attempt = next(
+        (
+            attempt
+            for attempt in reversed(attempts)
+            if _attempt_has_final_validation(attempt)
+        ),
+        None,
+    )
+    first_failure_evidence = (
+        _attempt_failed_supported_results(failed_attempt)
+        if isinstance(failed_attempt, dict)
+        else []
+    )
+    final_validation = (
+        final_attempt.get("evaluation_results")
+        if isinstance(final_attempt, dict)
+        and isinstance(final_attempt.get("evaluation_results"), list)
+        else []
+    )
+    model_suggestion = (
+        latest_decision.get("model_suggestion")
+        if isinstance(latest_decision.get("model_suggestion"), dict)
+        else None
+    )
+    backend_action = latest_decision.get("backend_action")
+    backend_agent_id = latest_decision.get("backend_agent_id")
+    repair_decision = (
+        {
+            "action": backend_action,
+            "agent_id": backend_agent_id,
+            "decision_outcome": latest_decision.get("decision_outcome"),
+            "reason": latest_decision.get("reason"),
+        }
+        if latest_decision
+        else None
+    )
+    actual_attempt_agent_id = _evaluator_optimizer_actual_attempt_agent_id(attempts)
+    conversation_agent_ids = sorted(
+        {
+            str(agent_id)
+            for agent_id in (report.get("conversation", {}).get("agent_ids") or AGENT_IDS)
+            if isinstance(agent_id, str) and agent_id
+        }
+    )
+    group_member_ids = {
+        agent_id for agent_id in conversation_agent_ids if agent_id != "orchestrator"
+    }
+    observed_agent_ids = _observed_report_agent_ids(report)
+    suggested_agent_id = (
+        model_suggestion.get("agent_id") if isinstance(model_suggestion, dict) else None
+    )
+    illegal_agent_ids = sorted(
+        {
+            agent_id
+            for agent_id in {
+                *observed_agent_ids,
+                suggested_agent_id,
+                backend_agent_id,
+                actual_attempt_agent_id,
+            }
+            if isinstance(agent_id, str)
+            and agent_id
+            and agent_id not in group_member_ids
+            and agent_id != "orchestrator"
+        }
+    )
+    workspace_paths = _report_workspace_basenames(report)
+    visible_text = all_visible_message_text(
+        [
+            report.get("target_agent_message") or {},
+            *(report.get("child_agent_messages") or []),
+        ]
+    )
+    forbidden_terms = forbidden_visible_terms(
+        "\n".join([visible_text, str(report.get("sse_message_error_text") or "")])
+    )
+    report["evaluator_optimizer_repair"] = {
+        "conversation_agent_ids": conversation_agent_ids,
+        "first_failure_evidence": first_failure_evidence,
+        "model_suggestion": model_suggestion,
+        "repair_decision": repair_decision,
+        "repair_attempt_agent_id": backend_agent_id,
+        "actual_attempt_agent_id": actual_attempt_agent_id,
+        "final_validation": final_validation,
+        "illegal_agent_ids": illegal_agent_ids,
+        "forbidden_visible_terms": forbidden_terms,
+        "artifact_paths": sorted(workspace_paths),
+        "llm_control_points": llm_control_points,
+    }
+    _attach_control_plane_evidence(report)
+    checks = report.setdefault("checks", {})
+    checks["message_done"] = bool(
+        (report.get("target_agent_message") or {}).get("status") == "done"
+    )
+    checks["evaluator_optimizer_llm_control_point_seen"] = any(
+        point.get("phase") == "react_replanner"
+        and point.get("used_llm") is True
+        and point.get("status") == "succeeded"
+        for point in llm_control_points
+    )
+    checks["evaluator_optimizer_decision_event_seen"] = bool(latest_decision)
+    checks["evaluator_optimizer_first_failure_evidence_present"] = bool(
+        first_failure_evidence
+    )
+    checks["evaluator_optimizer_repair_decision_present"] = bool(
+        isinstance(repair_decision, dict)
+        and isinstance(backend_action, str)
+        and backend_action
+    )
+    checks["evaluator_optimizer_final_validation_present"] = bool(final_validation)
+    checks["evaluator_optimizer_suggested_agent_scoped"] = not (
+        isinstance(suggested_agent_id, str)
+        and suggested_agent_id
+        and suggested_agent_id not in group_member_ids
+    )
+    checks["evaluator_optimizer_actual_agent_scoped"] = not (
+        isinstance(actual_attempt_agent_id, str)
+        and actual_attempt_agent_id
+        and actual_attempt_agent_id not in group_member_ids
+    )
+    checks["evaluator_optimizer_backend_matches_actual_attempt"] = bool(
+        backend_action == "finish_with_failure"
+        or (
+            isinstance(backend_agent_id, str)
+            and backend_agent_id
+            and backend_agent_id == actual_attempt_agent_id
+        )
+    )
+    checks["group_dispatch_only_allowed_members"] = not illegal_agent_ids
+    checks["workspace_required_artifacts_present"] = (
+        "evaluator-optimizer-repair.md" in workspace_paths
+    )
+    checks["visible_text_no_sensitive_trace"] = not forbidden_terms
+    keys = (
+        "message_done",
+        "evaluator_optimizer_llm_control_point_seen",
+        "evaluator_optimizer_decision_event_seen",
+        "evaluator_optimizer_first_failure_evidence_present",
+        "evaluator_optimizer_repair_decision_present",
+        "evaluator_optimizer_final_validation_present",
+        "evaluator_optimizer_suggested_agent_scoped",
+        "evaluator_optimizer_actual_agent_scoped",
+        "evaluator_optimizer_backend_matches_actual_attempt",
+        "group_dispatch_only_allowed_members",
+        "workspace_required_artifacts_present",
+        "visible_text_no_sensitive_trace",
+        "control_plane_llm_control_points_present",
+        "control_plane_group_scope_clean",
+        "control_plane_sensitive_trace_absent",
     )
     report["acceptance"] = {key: bool(checks.get(key, False)) for key in keys}
     report["acceptance"]["passed"] = all(report["acceptance"].values())
@@ -3573,6 +4244,80 @@ def _task_fallback_llm_decision_events(events: list[Any]) -> list[dict[str, Any]
         if isinstance(payload, dict):
             decisions.append(payload)
     return decisions
+
+
+def _task_evaluator_repair_decision_events(events: list[Any]) -> list[dict[str, Any]]:
+    decisions: list[dict[str, Any]] = []
+    for event in events:
+        if (
+            not isinstance(event, dict)
+            or event.get("event_type") != "task_evaluator_repair_decision"
+        ):
+            continue
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            decisions.append(payload)
+    return decisions
+
+
+def _attempt_has_failed_supported_evaluator(attempt: dict[str, Any]) -> bool:
+    return bool(_attempt_failed_supported_results(attempt))
+
+
+def _attempt_failed_supported_results(attempt: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(attempt, dict):
+        return []
+    results = attempt.get("evaluation_results")
+    if not isinstance(results, list):
+        return []
+    supported = {"document_quality", "code_static_quality", "browser_preview_quality"}
+    return [
+        result
+        for result in results
+        if isinstance(result, dict)
+        and result.get("status") == "failed"
+        and result.get("evaluator") in supported
+    ]
+
+
+def _attempt_has_final_validation(attempt: dict[str, Any]) -> bool:
+    if not isinstance(attempt, dict):
+        return False
+    state = attempt.get("final_state") or attempt.get("state")
+    if state not in {"succeeded", "manual_review_required"}:
+        return False
+    results = attempt.get("evaluation_results")
+    if not isinstance(results, list):
+        return False
+    return any(
+        isinstance(result, dict)
+        and result.get("passed") is True
+        and result.get("status") == "passed"
+        for result in results
+    )
+
+
+def _evaluator_optimizer_actual_attempt_agent_id(
+    attempts: list[dict[str, Any]],
+) -> str | None:
+    failed_index = next(
+        (
+            index
+            for index, attempt in enumerate(attempts)
+            if isinstance(attempt, dict)
+            and _attempt_has_failed_supported_evaluator(attempt)
+        ),
+        None,
+    )
+    if failed_index is None:
+        return None
+    for attempt in attempts[failed_index + 1 :]:
+        if not isinstance(attempt, dict):
+            continue
+        agent_id = attempt.get("agent_id")
+        if isinstance(agent_id, str) and agent_id:
+            return agent_id
+    return None
 
 
 def _task_result_event_task_ids(events: list[Any]) -> set[str]:
@@ -4125,13 +4870,60 @@ def run_group_dialogue_debate_case(
     report: dict[str, Any],
     started_at: float,
 ) -> None:
+    original_orchestrator_config: dict[str, Any] | None = None
+    dialogue_agent_ids: Sequence[str] = AGENT_IDS
+    if SCENARIO == "dialogue_ai_benefits_risks_llm_moderated":
+        dialogue_agent_ids = DIALOGUE_AI_BENEFITS_RISKS_LLM_MODERATED_AGENT_IDS
+        original_orchestrator_config = asyncio.run(
+            _patch_orchestrator_dialogue_llm_moderated_config()
+        )
+        report["dialogue_llm_moderated_config_patch"] = {
+            "patched": True,
+            "original_config_summary": config_summary(original_orchestrator_config),
+            "patched_config_summary": {
+                **config_summary(original_orchestrator_config),
+                **config_summary(
+                    dialogue_ai_benefits_risks_llm_moderated_config_updates()
+                ),
+            },
+            "agent_ids": list(dialogue_agent_ids),
+        }
+    elif SCENARIO == "im_dialogue_no_artifact_turn_taking_v2":
+        dialogue_agent_ids = IM_DIALOGUE_NO_ARTIFACT_TURN_TAKING_AGENT_IDS
+    try:
+        _run_group_dialogue_debate_case_body(
+            client,
+            headers,
+            report,
+            started_at,
+            agent_ids=dialogue_agent_ids,
+        )
+    finally:
+        if original_orchestrator_config is not None:
+            try:
+                restore = asyncio.run(
+                    _restore_orchestrator_config(original_orchestrator_config)
+                )
+            except Exception as exc:  # noqa: BLE001
+                restore = {"restored": False, "error": str(exc)}
+            report["dialogue_llm_moderated_restore"] = {"orchestrator": restore}
+
+
+def _run_group_dialogue_debate_case_body(
+    client: httpx.Client,
+    headers: dict[str, str],
+    report: dict[str, Any],
+    started_at: float,
+    *,
+    agent_ids: Sequence[str],
+) -> None:
     conversation = client.post(
         "/api/v1/conversations",
         headers=headers,
         json={
             "title": f"Group Dialogue Debate {int(started_at)}",
             "mode": "group",
-            "agent_ids": AGENT_IDS,
+            "agent_ids": list(agent_ids),
         },
     )
     conversation.raise_for_status()
@@ -4284,6 +5076,7 @@ def run_group_dialogue_debate_case(
         key: bool(checks.get(key, False)) for key in acceptance_keys
     }
     report["acceptance"]["passed"] = all(report["acceptance"].values())
+    _attach_control_plane_evidence(report)
 
 
 def run_manual_two_agent_turn_taking_case(
@@ -6426,8 +7219,9 @@ def run_agent_fallback_matrix_case(
                 )
             )
             original_orchestrator_config = asyncio.run(
-                _patch_orchestrator_llm_fallback_config(
+                _patch_orchestrator_group_member_fallback_config(
                     target_agent_id=target_agent_id,
+                    artifact_path=artifact_path,
                     sub_agent_config_overrides=case.get("sub_agent_config_overrides"),
                 )
                 if llm_first_fallback
@@ -6551,11 +7345,20 @@ def run_agent_fallback_matrix_case(
                 checks["llm_control_points_present"] = bool(
                     case_report["llm_control_points"]
                 )
-                checks["planner_llm_control_point_seen"] = any(
+                planner_seen = any(
                     point.get("phase") == "planner"
                     and point.get("used_llm") is True
                     for point in case_report["llm_control_points"]
                 )
+                fallback_decision_seen = any(
+                    point.get("phase") == "react_replanner"
+                    and point.get("used_llm") is True
+                    for point in case_report["llm_control_points"]
+                )
+                checks["planner_llm_control_point_seen"] = (
+                    planner_seen or fallback_decision_seen
+                )
+                checks["fallback_llm_control_point_seen"] = fallback_decision_seen
             task_card_evidence = evaluate_fallback_task_card_case(case_report)
             case_report["task_card_fallback"] = task_card_evidence
             checks["task_card_planned_agent_matches_target"] = bool(
@@ -6628,10 +7431,18 @@ def run_agent_fallback_matrix_case(
         ]
         report["llm_control_points"] = all_control_points
         checks["llm_control_points_present"] = bool(all_control_points)
-        checks["planner_llm_control_point_seen"] = any(
+        planner_seen = any(
             point.get("phase") == "planner" and point.get("used_llm") is True
             for point in all_control_points
         )
+        fallback_decision_seen = any(
+            point.get("phase") == "react_replanner" and point.get("used_llm") is True
+            for point in all_control_points
+        )
+        checks["planner_llm_control_point_seen"] = (
+            planner_seen or fallback_decision_seen
+        )
+        checks["fallback_llm_control_point_seen"] = fallback_decision_seen
     report["acceptance"] = {
         "target_agents_present": bool(checks.get("target_agents_present")),
         "agent_fallback_matrix_all_cases_ran": bool(
@@ -6648,6 +7459,9 @@ def run_agent_fallback_matrix_case(
         report["acceptance"]["planner_llm_control_point_seen"] = bool(
             checks.get("planner_llm_control_point_seen")
         )
+        report["acceptance"]["fallback_llm_control_point_seen"] = bool(
+            checks.get("fallback_llm_control_point_seen")
+        )
     report["acceptance"]["passed"] = all(report["acceptance"].values())
 
 
@@ -6657,13 +7471,18 @@ def run_custom_agent_tools_case(
     report: dict[str, Any],
     started_at: float,
 ) -> None:
+    agent_ids = (
+        CUSTOM_AGENT_READER_REVIEW_REPAIR_AGENT_IDS
+        if SCENARIO == "custom_agent_reader_review_repair"
+        else ["orchestrator", "opencode-helper"]
+    )
     conversation = client.post(
         "/api/v1/conversations",
         headers=headers,
         json={
             "title": f"Custom Agent Tools E2E {int(started_at)}",
             "mode": "group",
-            "agent_ids": ["orchestrator", "opencode-helper"],
+            "agent_ids": agent_ids,
         },
     )
     conversation.raise_for_status()
@@ -6741,6 +7560,7 @@ def run_custom_agent_tools_case(
     write_target: dict[str, Any] | None = None
     review_target: dict[str, Any] | None = None
     repair_target: dict[str, Any] | None = None
+    repair_agent_id: str | None = None
     if isinstance(agent_id, str) and agent_id:
         _, read_events, read_target = send_message_and_stream(
             client,
@@ -6780,14 +7600,15 @@ def run_custom_agent_tools_case(
                 headers,
                 conv_id,
                 content=(
-                    "@orchestrator 请根据只读 Agent 的审阅结果修复 draft.md，"
-                    "补充 REQUIRED_REPAIR_SECTION，并生成 review.md。"
-                    "只能由 claude-code、opencode-helper 或 codex-helper 写文件；"
-                    "LiveReader 自建 Agent 只能读文件和审阅，不能写。"
+                    "请根据只读 Agent 的审阅结果修复 workspace 中的 draft.md。"
+                    "必须使用 write_file 写回 draft.md，补充一个有正文的 "
+                    "REQUIRED_REPAIR_SECTION，并创建 review.md，说明只读 Agent "
+                    "发现的问题、修复方式和最终结果。不要调用预览或部署工具。"
                 ),
-                target_agent_id="orchestrator",
+                target_agent_id="claude-code",
                 started_at=started_at,
             )
+            repair_agent_id = str((repair_target or {}).get("agent_id") or "")
             fetch_orchestrator_run_detail(client, headers, conv_id, report)
     report["custom_agent_read_message"] = read_target
     report["custom_agent_write_message"] = write_target
@@ -6847,6 +7668,7 @@ def run_custom_agent_tools_case(
         )
         report["custom_agent_reader_review_repair"] = {
             "repair_switches": repair_switches,
+            "repair_agent_id": repair_agent_id,
             "draft_preview": draft_text[:2000],
             "review_preview": repair_review_text[:2000],
         }
@@ -6860,7 +7682,7 @@ def run_custom_agent_tools_case(
         )
         report["checks"]["custom_agent_repair_by_builtin_agent"] = any(
             agent_id in BUILTIN_SUB_AGENT_IDS for agent_id in repair_switches
-        )
+        ) or repair_agent_id in BUILTIN_SUB_AGENT_IDS
         report["checks"]["custom_agent_repair_files_present"] = {
             "draft.md",
             "review.md",
@@ -7485,6 +8307,21 @@ def main() -> None:
             return
         if FALLBACK_LLM_DECISION_WHITELIST_SCENARIO:
             run_fallback_llm_decision_whitelist_case(
+                client,
+                headers,
+                report,
+                started_at,
+            )
+            report["finished_at"] = utc_now()
+            report["duration_seconds"] = round(time.time() - started_at, 3)
+            report["passed"] = bool(report.get("acceptance", {}).get("passed"))
+            write_json(REPORT_PATH, report)
+            print(json.dumps(report["acceptance"], ensure_ascii=False, indent=2))
+            print(f"report={REPORT_PATH}")
+            print(f"sse={SSE_PATH}")
+            return
+        if EVALUATOR_OPTIMIZER_REPAIR_LOOP_SCENARIO:
+            run_evaluator_optimizer_repair_loop_case(
                 client,
                 headers,
                 report,
